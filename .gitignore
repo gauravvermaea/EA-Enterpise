@@ -1,0 +1,27 @@
+# Local working folder: config with secrets, logs and laptop data. Never commit.
+work/
+# Older layout
+eaexplorer.env
+logs/
+*.env
+!deploy/templates/*.env
+
+# Local data folders (laptop deployment)
+data/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.venv/
+
+# Web
+node_modules/
+services/web/dist/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,32 @@
+# Normalise line endings in the repository; check out with the endings each file needs.
+* text=auto
+
+# Files used inside Linux containers: always LF, also on Windows checkouts
+# (a CRLF shell script fails with "/bin/sh^M: not found")
+*.sh        text eol=lf
+*.py        text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.json      text eol=lf
+*.template  text eol=lf
+*.tmpl      text eol=lf
+*.env       text eol=lf
+*.conf      text eol=lf
+*.ini       text eol=lf
+*.mako      text eol=lf
+Dockerfile  text eol=lf
+.dockerignore text eol=lf
+
+# Windows helper scripts: CRLF
+*.ps1  text eol=crlf
+*.cmd  text eol=crlf
+
+# Binary files: never touched
+*.xlsx binary
+*.docx binary
+*.pptx binary
+*.pdf  binary
+*.png  binary
+*.jpg  binary
+*.ico  binary
+*.zip  binary
