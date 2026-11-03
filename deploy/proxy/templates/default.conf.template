@@ -55,6 +55,15 @@ server {
         proxy_pass $upstream;
     }
 
+    # MCP server (Streamable HTTP): no buffering, long-lived responses
+    location /mcp {
+        set $upstream http://api:8001;
+        proxy_pass $upstream;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 3600s;
+    }
+
     location /auth/ {
         set $upstream http://keycloak:8080;
         proxy_pass $upstream;

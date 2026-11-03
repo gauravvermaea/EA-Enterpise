@@ -17,5 +17,5 @@ RUN chmod +x /app/entrypoint.sh \
  && mkdir -p /data/imports /data/exports && chown -R eax /data
 
 USER eax
-EXPOSE 8000
+EXPOSE 8000 8001
 ENTRYPOINT ["/app/entrypoint.sh"]

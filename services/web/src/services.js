@@ -6,7 +6,7 @@ export const groups = [
   {
     title: "Repository",
     items: [
-      { name: "Metamodel", text: "Browse the ArchiMate 4 metamodel, then edit and publish it", phase: "1" },
+      { name: "Metamodel", text: "Open a model: its entities and relationships, and its ArchiMate 4 metamodel", href: "#/metamodel", live: true, integration: "3" },
       { name: "Model library", text: "Read-only reference models and industry models; deep copy", phase: "2" },
       { name: "Models", text: "Working models, roles and copies", phase: "4" },
       { name: "Data entry", text: "Forms and grids for entities and relationships", phase: "6" },
@@ -31,7 +31,6 @@ export const groups = [
     items: [
       { name: "CSV loads", text: "CSV templates, loads into staging and exports", phase: "32" },
       { name: "ArchiMate exchange", text: "Import and export ArchiMate exchange files", phase: "33" },
-      { name: "MCP connection", text: "Connect your own language model", phase: "26" },
     ],
   },
   {
@@ -39,6 +38,7 @@ export const groups = [
     items: [
       { name: "Heartbeat", text: "API, database and job queue status", href: "#/heartbeat", live: true },
       { name: "API documentation (Swagger)", text: "Every API call, runnable in the browser", href: "/api/docs", live: true },
+      { name: "MCP server", text: "Connect your own language model (Claude, ChatGPT, local models) to the repository", href: "#/mcp", live: true },
       { name: "My account (Keycloak)", text: "Password, sessions and sign-in settings", href: `${config.keycloakUrl}/realms/${config.realm}/account/`, live: true },
       { name: "Users and sign-in (Keycloak admin)", text: "Users, roles and identity providers", href: `${config.keycloakUrl}/admin/${config.realm}/console/`, live: true, role: "system-admin" },
       { name: "Mail (development)", text: "Mailpit: every mail the installation sends", href: "/mail/", live: true, devOnly: true },

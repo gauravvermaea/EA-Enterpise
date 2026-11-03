@@ -47,7 +47,7 @@ Tested on Windows with Docker Desktop (8 GB):
 - Keycloak realm `eaexplorer`: the eight roles, the first administrator, clients for the web
   screens, the API, Superset and Mayan.
 - Superset signed in through Keycloak, with a sample dashboard on `rpt.v_heartbeat`.
-- Mayan EDMS, Valkey, draw.io and Mailpit running and linked from the start page.
+- Mayan EDMS (with Valkey as its task queue), draw.io and Mailpit running and linked from the start page.
 - Backup container: scheduled dumps of all four databases and Mayan's files; restore and scratch
   restore.
 
@@ -88,7 +88,7 @@ Tested on Windows with Docker Desktop (8 GB):
    (`EAX_MAYAN_ADMIN_USER` / `EAX_MAYAN_ADMIN_PASSWORD`). The Keycloak client `mayan` is already
    created. Next step: confirm whether the pinned Mayan version has an OpenID Connect option; if
    not, put Mayan behind an OIDC-aware proxy (for example oauth2-proxy) with remote-user sign-in.
-3. **Mayan with Valkey as its only broker.** Configured; confirm document upload and OCR jobs run.
+3. **Mayan with Valkey (`dms-broker`) as its only broker.** Configured; confirm document upload and OCR jobs run.
 4. **Superset row filtering by model.** Not needed until models exist (phase 5); the report login
    already sees only the `rpt` schema.
 5. **Single sign-out.** Signing out of the start page ends the Keycloak session; check that Superset

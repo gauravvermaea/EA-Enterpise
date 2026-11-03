@@ -3,6 +3,8 @@ import { keycloak, roles } from "./auth";
 import { config } from "./config";
 import StartPage from "./StartPage";
 import Heartbeat from "./Heartbeat";
+import Metamodel from "./Metamodel";
+import Mcp from "./Mcp";
 
 function useHashRoute() {
   const [route, setRoute] = useState(window.location.hash || "#/");
@@ -25,6 +27,8 @@ export default function App() {
         <a href="#/" className="brand">EA Explorer</a>
         <nav>
           <a href="#/">Start</a>
+          <a href="#/metamodel">Models</a>
+          <a href="#/mcp">MCP</a>
           <a href="#/heartbeat">Heartbeat</a>
           <a href="/api/docs">API</a>
         </nav>
@@ -39,7 +43,12 @@ export default function App() {
           )}
         </div>
       </header>
-      <main>{route.startsWith("#/heartbeat") ? <Heartbeat /> : <StartPage />}</main>
+      <main>
+        {route.startsWith("#/heartbeat") ? <Heartbeat />
+          : route.startsWith("#/metamodel") ? <Metamodel route={route} />
+          : route.startsWith("#/mcp") ? <Mcp />
+          : <StartPage />}
+      </main>
       <footer>
         Version {config.version} · {config.deployment} deployment · open source (AGPL-3.0)
       </footer>

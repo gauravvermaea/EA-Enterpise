@@ -159,6 +159,7 @@ show_urls() {
   echo "Documents:   https://docs.$H$S/"
   echo "Keycloak:    https://$H$S/auth/admin/"
   echo "Mail (dev):  https://$H$S/mail/"
+  [ "$(setting EAX_MCP_ENABLED false)" = "true" ] && echo "MCP server:  https://$H$S/mcp  (laptop: http://localhost:8001/mcp)"
 }
 
 show_logins() {
@@ -179,7 +180,8 @@ show_logins() {
   printf '%-34s %-14s %-16s %s\n' "PostgreSQL Keycloak" "keycloak" "$(setting EAX_KEYCLOAK_DB_PASSWORD)" "database keycloak"
   printf '%-34s %-14s %-16s %s\n' "PostgreSQL Superset" "superset" "$(setting EAX_SUPERSET_DB_PASSWORD)" "database superset"
   printf '%-34s %-14s %-16s %s\n' "PostgreSQL Mayan" "mayan" "$(setting EAX_MAYAN_DB_PASSWORD)" "database mayan"
-  printf '%-34s %-14s %-16s %s\n' "Valkey cache" "(none)" "$(setting EAX_CACHE_PASSWORD)" "password only"
+  printf '%-34s %-14s %-16s %s\n' "Mayan broker (Valkey)" "(none)" "$(setting EAX_DMS_BROKER_PASSWORD)" "password only"
+  printf '%-34s %-14s %-16s %s\n' "MCP server (development token)" "(bearer)" "$(setting EAX_MCP_DEV_TOKEN)" "http://localhost:8001/mcp"
   printf '%-34s %-14s %-16s %s\n' "Keycloak client secrets" "superset/mayan" "$(setting EAX_SUPERSET_OIDC_SECRET)" "OIDC clients"
   echo "================================================================================================="
 }

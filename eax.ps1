@@ -146,6 +146,7 @@ function Show-Urls {
     Write-Log "Documents:   https://docs.$h$s/"
     Write-Log "Keycloak:    https://$h$s/auth/admin/"
     Write-Log "Mail (dev):  https://$h$s/mail/"
+    if ((Get-Setting "EAX_MCP_ENABLED" "false") -eq "true") { Write-Log "MCP server:  https://$h$s/mcp  (laptop: http://localhost:8001/mcp)" }
 }
 
 function Show-Logins {
@@ -164,7 +165,8 @@ function Show-Logins {
         @("PostgreSQL Keycloak",              "keycloak",                                     (Get-Setting "EAX_KEYCLOAK_DB_PASSWORD"),    "database keycloak"),
         @("PostgreSQL Superset",              "superset",                                     (Get-Setting "EAX_SUPERSET_DB_PASSWORD"),    "database superset"),
         @("PostgreSQL Mayan",                 "mayan",                                        (Get-Setting "EAX_MAYAN_DB_PASSWORD"),       "database mayan"),
-        @("Valkey cache",                     "(none)",                                       (Get-Setting "EAX_CACHE_PASSWORD"),          "password only"),
+        @("Mayan broker (Valkey)",            "(none)",                                       (Get-Setting "EAX_DMS_BROKER_PASSWORD"),     "password only"),
+        @("MCP server (development token)",   "(bearer)",                                     (Get-Setting "EAX_MCP_DEV_TOKEN"),           "http://localhost:8001/mcp"),
         @("Keycloak client secrets",          "superset/mayan",                               (Get-Setting "EAX_SUPERSET_OIDC_SECRET"),    "OIDC clients")
     )
     Write-Log ""

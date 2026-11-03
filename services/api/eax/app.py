@@ -51,8 +51,9 @@ def create_app(testing: bool = False) -> Flask:
     from .api.heartbeat import blp as heartbeat_blp
     from .api.jobs import blp as jobs_blp
     from .api.me import blp as me_blp
+    from .api.metamodel import blp as metamodel_blp
 
-    for blp in (heartbeat_blp, me_blp, jobs_blp, audit_blp):
+    for blp in (heartbeat_blp, me_blp, jobs_blp, audit_blp, metamodel_blp):
         api.register_blueprint(blp)
 
     @app.before_request

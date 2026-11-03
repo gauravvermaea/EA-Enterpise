@@ -6,6 +6,8 @@ services:
     # so it can be started and debugged on its own with  .\eax up api  (no proxy or Keycloak needed).
     ports:
       - "127.0.0.1:8000:8000"
+      # MCP server directly (plain http, so MCP clients need no certificate): http://localhost:8001/mcp
+      - "127.0.0.1:8001:8001"
     deploy:
       resources:
         limits: { memory: 768m }

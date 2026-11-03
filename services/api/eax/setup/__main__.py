@@ -29,7 +29,7 @@ RENDERED = Path(os.environ.get("EAX_RENDERED_OUT", "/rendered"))
 REQUIRED = [
     "EAX_HOSTNAME", "EAX_DB_SUPERUSER_PASSWORD", "EAX_DB_PASSWORD", "EAX_DB_REPORT_PASSWORD",
     "EAX_KEYCLOAK_DB_PASSWORD", "EAX_SUPERSET_DB_PASSWORD", "EAX_MAYAN_DB_PASSWORD",
-    "EAX_CACHE_PASSWORD", "EAX_KC_ADMIN_PASSWORD", "EAX_FIRST_ADMIN_USER",
+    "EAX_DMS_BROKER_PASSWORD", "EAX_KC_ADMIN_PASSWORD", "EAX_FIRST_ADMIN_USER",
     "EAX_FIRST_ADMIN_EMAIL", "EAX_FIRST_ADMIN_PASSWORD", "EAX_SUPERSET_SECRET_KEY",
     "EAX_SUPERSET_OIDC_SECRET", "EAX_MAYAN_OIDC_SECRET",
 ]
@@ -121,7 +121,8 @@ def print_logins(values: dict[str, str]) -> None:
         ("PostgreSQL Keycloak", "keycloak", v("EAX_KEYCLOAK_DB_PASSWORD")),
         ("PostgreSQL Superset", "superset", v("EAX_SUPERSET_DB_PASSWORD")),
         ("PostgreSQL Mayan", "mayan", v("EAX_MAYAN_DB_PASSWORD")),
-        ("Valkey cache", "(none)", v("EAX_CACHE_PASSWORD")),
+        ("Mayan broker (Valkey)", "(none)", v("EAX_DMS_BROKER_PASSWORD")),
+        ("MCP server (dev token)", "(bearer)", v("EAX_MCP_DEV_TOKEN")),
     ]
     print("EA Explorer setup: DEVELOPMENT LOGINS (laptop only - never use these on a server)")
     for account, user, password in rows:

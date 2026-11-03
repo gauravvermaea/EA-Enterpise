@@ -12,7 +12,7 @@ function Tile({ item }) {
       <a className="tile live" href={item.href} target={external ? "_blank" : undefined} rel="noreferrer">
         <h3>{item.name}</h3>
         <p>{item.text}</p>
-        {item.integration && <span className="badge">running; repository link in phase {item.integration}</span>}
+        {item.integration && <span className="badge">{item.name === "Metamodel" ? `read only; editing in phase ${item.integration}` : `running; repository link in phase ${item.integration}`}</span>}
       </a>
     );
   }

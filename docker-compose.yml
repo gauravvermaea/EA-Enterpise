@@ -6,7 +6,7 @@
 # or directly:
 #   docker compose --env-file work/eaexplorer.env -f docker-compose.yml -f deploy/compose/docker-compose.laptop.yml up -d --build
 #
-# Networks: only the proxy publishes ports. "backend" is internal: databases and the cache are never
+# Networks: only the proxy publishes ports. "backend" is internal: databases and the Mayan broker are never
 # reachable from outside, nor from web, drawio or mail.
 
 name: eaexplorer
@@ -149,10 +149,12 @@ services:
       timeout: 5s
       retries: 30
 
-  cache:
+  # Valkey, used only by Mayan EDMS as its task queue and lock store (Celery broker).
+  # Nothing of ours and not Superset uses it: their state lives in PostgreSQL.
+  dms-broker:
     image: ${EAX_IMAGE_VALKEY:-valkey/valkey:8-alpine}
     <<: [*restart, *logging]
-    command: ["valkey-server", "--requirepass", "${EAX_CACHE_PASSWORD:?set EAX_CACHE_PASSWORD}", "--save", ""]
+    command: ["valkey-server", "--requirepass", "${EAX_DMS_BROKER_PASSWORD:?set EAX_DMS_BROKER_PASSWORD}", "--save", ""]
     networks: [backend]
     healthcheck:
       test: ["CMD-SHELL", "valkey-cli -a \"$$VALKEY_PASSWORD\" ping | grep -q PONG"]
@@ -160,7 +162,7 @@ services:
       timeout: 5s
       retries: 10
     environment:
-      VALKEY_PASSWORD: ${EAX_CACHE_PASSWORD}
+      VALKEY_PASSWORD: ${EAX_DMS_BROKER_PASSWORD}
 
   # ---------------------------------------------------------------- identity (out of the box)
   keycloak:
@@ -247,16 +249,16 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      cache:
+      dms-broker:
         condition: service_healthy
       keycloak:
         condition: service_started
     environment:
       MAYAN_DATABASES: '{"default":{"ENGINE":"django.db.backends.postgresql","NAME":"mayan","USER":"mayan","PASSWORD":"${EAX_MAYAN_DB_PASSWORD}","HOST":"db","PORT":"5432"}}'
-      MAYAN_CELERY_BROKER_URL: redis://:${EAX_CACHE_PASSWORD_URLENC:?set EAX_CACHE_PASSWORD_URLENC}@cache:6379/0
-      MAYAN_CELERY_RESULT_BACKEND: redis://:${EAX_CACHE_PASSWORD_URLENC}@cache:6379/1
+      MAYAN_CELERY_BROKER_URL: redis://:${EAX_DMS_BROKER_PASSWORD_URLENC:?set EAX_DMS_BROKER_PASSWORD_URLENC}@dms-broker:6379/0
+      MAYAN_CELERY_RESULT_BACKEND: redis://:${EAX_DMS_BROKER_PASSWORD_URLENC}@dms-broker:6379/1
       MAYAN_LOCK_MANAGER_BACKEND: mayan.apps.lock_manager.backends.redis_lock.RedisLock
-      MAYAN_LOCK_MANAGER_BACKEND_ARGUMENTS: '{"redis_url":"redis://:${EAX_CACHE_PASSWORD_URLENC}@cache:6379/2"}'
+      MAYAN_LOCK_MANAGER_BACKEND_ARGUMENTS: '{"redis_url":"redis://:${EAX_DMS_BROKER_PASSWORD_URLENC}@dms-broker:6379/2"}'
       MAYAN_ALLOWED_HOSTS: '["*"]'
       MAYAN_CSRF_TRUSTED_ORIGINS: '["https://docs.${EAX_HOSTNAME:-localhost}:${EAX_HTTPS_PORT:-443}","https://docs.${EAX_HOSTNAME:-localhost}"]'
       # Sign-in through Keycloak. Discovery is fetched inside the Docker network; Keycloak then

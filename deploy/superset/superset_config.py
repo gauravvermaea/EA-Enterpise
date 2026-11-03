@@ -38,18 +38,14 @@ SESSION_COOKIE_SECURE = True
 SESSION_COOKIE_SAMESITE = "Lax"
 TALISMAN_ENABLED = False  # headers are set by the proxy
 
-# ---- Cache in Valkey (Redis protocol)
-# Passwords are URL-encoded inside URLs (they may hold ^ & @ $ and similar)
-_redis = f"redis://:{quote(env('EAX_CACHE_PASSWORD'), safe='')}@cache:6379"
-CACHE_CONFIG = {
-    "CACHE_TYPE": "RedisCache",
-    "CACHE_DEFAULT_TIMEOUT": 300,
-    "CACHE_KEY_PREFIX": "superset_",
-    "CACHE_REDIS_URL": f"{_redis}/3",
-}
-DATA_CACHE_CONFIG = {**CACHE_CONFIG, "CACHE_KEY_PREFIX": "superset_data_"}
-FILTER_STATE_CACHE_CONFIG = {**CACHE_CONFIG, "CACHE_KEY_PREFIX": "superset_filter_"}
-EXPLORE_FORM_DATA_CACHE_CONFIG = {**CACHE_CONFIG, "CACHE_KEY_PREFIX": "superset_explore_"}
+# ---- Caches in Superset's own PostgreSQL database (no Valkey/Redis)
+# SupersetMetastoreCache keeps cached values in the metadata database, so nothing is lost on restart
+# and no separate cache service is needed.
+_db_cache = {"CACHE_TYPE": "SupersetMetastoreCache", "CACHE_DEFAULT_TIMEOUT": 300}
+CACHE_CONFIG = {**_db_cache, "CACHE_KEY_PREFIX": "superset_"}
+DATA_CACHE_CONFIG = {**_db_cache, "CACHE_KEY_PREFIX": "superset_data_"}
+FILTER_STATE_CACHE_CONFIG = {**_db_cache, "CACHE_KEY_PREFIX": "superset_filter_", "CACHE_DEFAULT_TIMEOUT": 86400}
+EXPLORE_FORM_DATA_CACHE_CONFIG = {**_db_cache, "CACHE_KEY_PREFIX": "superset_explore_", "CACHE_DEFAULT_TIMEOUT": 86400}
 
 # ---- Sign-in through Keycloak
 AUTH_TYPE = AUTH_DB if env("EAX_SUPERSET_AUTH") == "db" else AUTH_OAUTH

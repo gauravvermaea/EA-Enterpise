@@ -5,10 +5,12 @@ a governed metamodel, an architecture repository, diagrams (draw.io), reports (A
 documents (Mayan EDMS), sign-in through Keycloak, and an MCP server so you can connect your own
 language model. Everything runs in Docker containers from one config file.
 
-**Status: build phase 0 (foundations).** The platform runs end to end: proxy, start page, a heartbeat
-API with Swagger, PostgreSQL, Keycloak sign-in, Superset with a sample dashboard, Mayan EDMS, draw.io,
-the job runner, the audit log and backups. The repository functions arrive from build phase 1 onwards;
-see [docs/requirements](docs/requirements) for the requirements and the 40-phase build plan.
+**Status: build phase 1 (metamodel, read only).** The platform runs end to end (phase 0) and the
+repository database is in place: the ArchiMate 4 starter metamodel, a sample model, the
+`eax.get_entity` functions, read-only model pages (entities, relationships, metamodel) and an
+**MCP server** for your own language model ([docs/mcp.md](docs/mcp.md)). See [docs/phase-1.md](docs/phase-1.md)
+and the database design in [docs/database.md](docs/database.md); the requirements and the 40-phase
+build plan are in [docs/requirements](docs/requirements).
 
 ## Quick start (laptop)
 
@@ -63,7 +65,7 @@ once for localhost, reports.localhost and docs.localhost. Sign in as `eaadmin`.
 | Superset break-glass (only with `EAX_SUPERSET_AUTH=db`) | `admin` | `P^55w0rd1234&` |
 | Mayan EDMS administrator | `admin` | `P^55w0rd1234&` |
 | PostgreSQL | `postgres`, `eax_app`, `eax_report`, `keycloak`, `superset`, `mayan` | `P^55w0rd1234&` |
-| Valkey cache | (password only) | `P^55w0rd1234&` |
+| Mayan broker (Valkey) | (password only) | `P^55w0rd1234&` |
 
 The helper never generates passwords. On a server, `init server` copies a template full of
 `change-me` values; replace them yourself. The setup step refuses to start a server that still has a
@@ -81,7 +83,7 @@ Step-by-step checks for the phase 0 demo are in [docs/phase-0.md](docs/phase-0.m
 | setup | ours, runs once per start | Checks the config file, creates a self-signed certificate, renders the Keycloak realm and the Superset sample |
 | backup | ours | Scheduled dumps of all four databases and Mayan's files; restore |
 | db | PostgreSQL 17 | Databases eaexplorer (ours), keycloak, superset, mayan |
-| cache | Valkey | Broker and cache for Mayan and Superset |
+| dms-broker | Valkey | Task queue and locks for Mayan EDMS only; our code and Superset keep their state in PostgreSQL |
 | keycloak | Keycloak | Sign-in, users and roles for every screen |
 | reports, reports-init | Apache Superset (plus drivers) | Dashboards; sample dashboard on the rpt.v_heartbeat view |
 | dms | Mayan EDMS | Documents |
