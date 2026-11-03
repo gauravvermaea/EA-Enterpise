@@ -14,7 +14,6 @@ Tested on Windows with Docker Desktop (8 GB):
   - Remaining checklist items: Swagger, audit log, Superset sample dashboard, Mayan upload,
     backup and scratch restore, database not exposed.
   - Pin the Mayan image (`mayanedms/mayanedms:s4`, ran as 4.12.2) by digest.
-  - Decide whether to drop the email settings and/or Mailpit on the laptop.
 
 ## What phase 0 delivers
 
@@ -47,7 +46,7 @@ Tested on Windows with Docker Desktop (8 GB):
 - Keycloak realm `eaexplorer`: the eight roles, the first administrator, clients for the web
   screens, the API, Superset and Mayan.
 - Superset signed in through Keycloak, with a sample dashboard on `rpt.v_heartbeat`.
-- Mayan EDMS (with Valkey as its task queue), draw.io and Mailpit running and linked from the start page.
+- Mayan EDMS (with Valkey as its task queue), draw.io running and linked from the start page.
 - Backup container: scheduled dumps of all four databases and Mayan's files; restore and scratch
   restore.
 
@@ -75,10 +74,9 @@ Tested on Windows with Docker Desktop (8 GB):
 | 10 | Sample report | Superset dashboard "EA Explorer - phase 0 sample" | The heartbeat rows, including the job's row |
 | 11 | Mayan | Start page > Documents | Mayan opens (see open item 2) |
 | 12 | draw.io | Start page > Diagrams | The draw.io editor loads from this installation |
-| 13 | Mail | Start page > Mail | Mailpit opens (Keycloak's "forgot password" mails land here) |
-| 14 | Backup | `.\eax backup` | A dated folder in work/data/backups with four .dump files and SHA256SUMS |
-| 15 | Scratch restore | `.\eax restore <folder> --scratch` | `*_restore_test` databases created; live data untouched |
-| 16 | Data stays private | `docker compose --env-file work/eaexplorer.env port db 5432` | No published port for the database |
+| 13 | Backup | `.\eax backup` | A dated folder in work/data/backups with four .dump files and SHA256SUMS |
+| 14 | Scratch restore | `.\eax restore <folder> --scratch` | `*_restore_test` databases created; live data untouched |
+| 15 | Data stays private | `docker compose --env-file work/eaexplorer.env port db 5432` | No published port for the database |
 
 ## Open items to settle in phase 0.2 (the proof-of-concept questions)
 

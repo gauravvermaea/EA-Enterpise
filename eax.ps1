@@ -145,7 +145,6 @@ function Show-Urls {
     Write-Log "Reports:     https://reports.$h$s/"
     Write-Log "Documents:   https://docs.$h$s/"
     Write-Log "Keycloak:    https://$h$s/auth/admin/"
-    Write-Log "Mail (dev):  https://$h$s/mail/"
     if ((Get-Setting "EAX_MCP_ENABLED" "false") -eq "true") { Write-Log "MCP server:  https://$h$s/mcp  (laptop: http://localhost:8001/mcp)" }
 }
 

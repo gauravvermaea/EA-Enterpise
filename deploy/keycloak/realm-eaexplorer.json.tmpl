@@ -6,7 +6,7 @@
   "registrationAllowed": false,
   "loginWithEmailAllowed": true,
   "duplicateEmailsAllowed": false,
-  "resetPasswordAllowed": true,
+  "resetPasswordAllowed": false,
   "rememberMe": false,
   "bruteForceProtected": true,
   "ssoSessionIdleTimeout": 3600,
@@ -66,16 +66,6 @@
         "uma_authorization"
       ]
     }
-  },
-  "smtpServer": {
-    "host": "${EAX_SMTP_HOST}",
-    "port": "${EAX_SMTP_PORT}",
-    "from": "${EAX_MAIL_FROM_ADDRESS}",
-    "fromDisplayName": "${EAX_MAIL_FROM_NAME}",
-    "auth": "${EAX_SMTP_AUTH}",
-    "user": "${EAX_SMTP_USER}",
-    "password": "${EAX_SMTP_PASSWORD}",
-    "starttls": "${EAX_SMTP_STARTTLS}"
   },
   "clients": [
     {

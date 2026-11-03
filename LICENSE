@@ -15,5 +15,5 @@ On GitHub: Add file > Create new file > name it LICENSE > "Choose a license temp
 GNU Affero General Public License v3.0. The text is also at https://www.gnu.org/licenses/agpl-3.0.txt
 
 Third-party products used by EA Explorer (nginx, PostgreSQL, Valkey, Keycloak, Apache Superset,
-Mayan EDMS, draw.io, Mailpit) run as separate programs under their own licences; see
+Mayan EDMS, draw.io) run as separate programs under their own licences; see
 docs/licences.md.

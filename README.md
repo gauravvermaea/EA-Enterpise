@@ -77,7 +77,7 @@ Step-by-step checks for the phase 0 demo are in [docs/phase-0.md](docs/phase-0.m
 
 | Container | Provided by | What it does |
 | --- | --- | --- |
-| proxy | nginx (as is) | The only published ports (443, 80); routes /, /api, /auth, /drawio, /mail and the reports and docs sub-domains |
+| proxy | nginx (as is) | The only published ports (443, 80); routes /, /api, /auth, /drawio and the reports and docs sub-domains |
 | web | ours | Start page with a tile for every service; heartbeat screen; Keycloak sign-in |
 | api | ours | Flask API (heartbeat, Swagger at /api/docs) and the background job runner, in one container |
 | setup | ours, runs once per start | Checks the config file, creates a self-signed certificate, renders the Keycloak realm and the Superset sample |
@@ -88,7 +88,6 @@ Step-by-step checks for the phase 0 demo are in [docs/phase-0.md](docs/phase-0.m
 | reports, reports-init | Apache Superset (plus drivers) | Dashboards; sample dashboard on the rpt.v_heartbeat view |
 | dms | Mayan EDMS | Documents |
 | drawio | draw.io | Diagram editor |
-| mail | Mailpit (laptop only) | Catches all outgoing mail at /mail/ |
 
 ## Repository layout
 

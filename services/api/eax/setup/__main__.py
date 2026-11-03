@@ -13,7 +13,6 @@ from __future__ import annotations
 import json
 import os
 import sys
-from email.utils import parseaddr
 from pathlib import Path
 from string import Template
 
@@ -69,8 +68,6 @@ def check_config() -> list[str]:
 
 def derived_values() -> dict[str, str]:
     host, port = env("EAX_HOSTNAME", "localhost"), env("EAX_HTTPS_PORT", "443")
-    name, address = parseaddr(env("EAX_MAIL_FROM", "EA Explorer <eax@localhost>"))
-    smtp_port = env("EAX_SMTP_PORT", "25")
     values = {k: v for k, v in os.environ.items() if k.startswith("EAX_")}
     values.update(
         EAX_PUBLIC_URL=public_url(host, port),
@@ -79,10 +76,6 @@ def derived_values() -> dict[str, str]:
         EAX_REPORTS_URL_PORT=f"https://reports.{host}:{port}",
         EAX_DOCS_URL=public_url(host, port, "docs."),
         EAX_DOCS_URL_PORT=f"https://docs.{host}:{port}",
-        EAX_MAIL_FROM_ADDRESS=address or "eax@localhost",
-        EAX_MAIL_FROM_NAME=name or "EA Explorer",
-        EAX_SMTP_AUTH="true" if env("EAX_SMTP_USER") else "false",
-        EAX_SMTP_STARTTLS="true" if smtp_port == "587" else "false",
     )
     return values
 

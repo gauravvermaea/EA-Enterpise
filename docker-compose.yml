@@ -7,7 +7,7 @@
 #   docker compose --env-file work/eaexplorer.env -f docker-compose.yml -f deploy/compose/docker-compose.laptop.yml up -d --build
 #
 # Networks: only the proxy publishes ports. "backend" is internal: databases and the Mayan broker are never
-# reachable from outside, nor from web, drawio or mail.
+# reachable from outside, nor from web or drawio.
 
 name: eaexplorer
 
@@ -275,13 +275,4 @@ services:
       MAYAN_AUTOADMIN_EMAIL: ${EAX_FIRST_ADMIN_EMAIL:-admin@example.org}
     volumes:
       - ${EAX_DOCS_DIR:-eax-docs}:/var/lib/mayan
-    networks: [frontend, backend]
-
-  # ---------------------------------------------------------------- development only
-  mail:
-    image: ${EAX_IMAGE_MAILPIT:-axllent/mailpit:v1.32.0}
-    profiles: ["dev"]
-    <<: [*restart, *logging]
-    environment:
-      MP_WEBROOT: /mail/
     networks: [frontend, backend]

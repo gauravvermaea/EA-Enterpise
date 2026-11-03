@@ -1,6 +1,6 @@
 # EA Explorer proxy (nginx, used as is). The nginx image fills in ${EAX_...} values at start.
 # Upstreams are looked up per request through Docker's DNS, so the proxy still starts when an
-# optional container (for example mail) is not running.
+# optional container is not running.
 
 resolver 127.0.0.11 valid=10s ipv6=off;
 
@@ -35,7 +35,7 @@ server {
     return 301 https://$host:${EAX_HTTPS_PORT}$request_uri;
 }
 
-# ---- main site: our screens, the API, Keycloak, draw.io, Mailpit (dev)
+# ---- main site: our screens, the API, Keycloak, draw.io
 server {
     listen 443 ssl default_server;
     server_name ${EAX_HOSTNAME};
@@ -72,11 +72,6 @@ server {
     location /drawio/ {
         set $upstream http://drawio:8080;
         rewrite ^/drawio/(.*)$ /$1 break;
-        proxy_pass $upstream;
-    }
-
-    location /mail/ {
-        set $upstream http://mail:8025;
         proxy_pass $upstream;
     }
 }

@@ -158,7 +158,6 @@ show_urls() {
   echo "Reports:     https://reports.$H$S/"
   echo "Documents:   https://docs.$H$S/"
   echo "Keycloak:    https://$H$S/auth/admin/"
-  echo "Mail (dev):  https://$H$S/mail/"
   [ "$(setting EAX_MCP_ENABLED false)" = "true" ] && echo "MCP server:  https://$H$S/mcp  (laptop: http://localhost:8001/mcp)"
 }
 

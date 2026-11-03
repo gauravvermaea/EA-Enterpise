@@ -41,7 +41,6 @@ export const groups = [
       { name: "MCP server", text: "Connect your own language model (Claude, ChatGPT, local models) to the repository", href: "#/mcp", live: true },
       { name: "My account (Keycloak)", text: "Password, sessions and sign-in settings", href: `${config.keycloakUrl}/realms/${config.realm}/account/`, live: true },
       { name: "Users and sign-in (Keycloak admin)", text: "Users, roles and identity providers", href: `${config.keycloakUrl}/admin/${config.realm}/console/`, live: true, role: "system-admin" },
-      { name: "Mail (development)", text: "Mailpit: every mail the installation sends", href: "/mail/", live: true, devOnly: true },
       { name: "Administration", text: "Health, usage, backups, jobs and housekeeping", phase: "35" },
     ],
   },

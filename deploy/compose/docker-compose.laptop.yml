@@ -1,4 +1,4 @@
-# Laptop deployment: everything on one machine, small limits, dev profile (Mailpit) on.
+# Laptop deployment: everything on one machine, small limits.
 # Used together with docker-compose.yml:  .\eax.ps1 up
 services:
   api:

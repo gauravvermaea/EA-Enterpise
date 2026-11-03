@@ -55,7 +55,7 @@ restores into `*_restore_test` databases.
 
 ## Moving to a server
 
-Run `./eax.sh init server` on the server, set the host name, certificate folder and mail server in
+Run `./eax.sh init server` on the server, set the host name, and certificate folder in
 `eaexplorer.env`, replace every `change-me` value with your own passwords (the helper does not generate
 them; the development password `P^55w0rd1234&` is refused on a server), start once, then restore a backup taken on the laptop. Deployment scripts for every
 kind arrive in build phase 36.
