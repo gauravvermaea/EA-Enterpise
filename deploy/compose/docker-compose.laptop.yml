@@ -1,0 +1,25 @@
+# Laptop deployment: everything on one machine, small limits, dev profile (Mailpit) on.
+# Used together with docker-compose.yml:  .\eax.ps1 up
+services:
+  api:
+    # Laptop only: the API is also reachable directly at http://localhost:8000 (Swagger at /api/docs),
+    # so it can be started and debugged on its own with  .\eax up api  (no proxy or Keycloak needed).
+    ports:
+      - "127.0.0.1:8000:8000"
+    deploy:
+      resources:
+        limits: { memory: 768m }
+  reports:
+    deploy:
+      resources:
+        limits: { memory: 2g }
+  dms:
+    deploy:
+      resources:
+        limits: { memory: 2g }
+  keycloak:
+    environment:
+      JAVA_OPTS_KC_HEAP: "-XX:MaxRAMPercentage=50"
+    deploy:
+      resources:
+        limits: { memory: 1g }

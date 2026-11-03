@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  api:
+    name: API - lint and tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check .
+      - run: pytest -q
+
+  web:
+    name: Web - build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install
+      - run: npm run build
+
+  stack:
+    name: Compose configuration and images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Config file from the laptop template
+        run: mkdir -p work && cp deploy/templates/eaexplorer.laptop.env work/eaexplorer.env
+      - name: Validate compose (laptop and server)
+        run: |
+          docker compose --env-file work/eaexplorer.env -f docker-compose.yml -f deploy/compose/docker-compose.laptop.yml config --quiet
+          docker compose --env-file work/eaexplorer.env -f docker-compose.yml -f deploy/compose/docker-compose.server.yml config --quiet
+      - name: Build our images
+        run: |
+          docker build -t eaexplorer/api:ci services/api
+          docker build -t eaexplorer/web:ci services/web
+          docker build -t eaexplorer/backup:ci services/backup
+      - name: Shell scripts
+        run: |
+          for f in services/backup/*.sh services/api/entrypoint.sh deploy/postgres/initdb/*.sh deploy/superset/*.sh eax.sh; do bash -n "$f"; done

@@ -1,0 +1,222 @@
+{
+  "realm": "eaexplorer",
+  "displayName": "EA Explorer",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "rememberMe": false,
+  "bruteForceProtected": true,
+  "ssoSessionIdleTimeout": 3600,
+  "ssoSessionMaxLifespan": 36000,
+  "accessTokenLifespan": 300,
+  "roles": {
+    "realm": [
+      {
+        "name": "system-admin",
+        "description": "Installation, users, identity providers, backups, monitoring"
+      },
+      {
+        "name": "model-owner",
+        "description": "Owns models: copy, branch, merge, grant roles, publish"
+      },
+      {
+        "name": "metamodel-editor",
+        "description": "Changes the metamodel of a model"
+      },
+      {
+        "name": "architect",
+        "description": "Creates and changes content, diagrams and loads"
+      },
+      {
+        "name": "contributor",
+        "description": "Changes entities assigned to them; changes are staged"
+      },
+      {
+        "name": "reviewer",
+        "description": "Reviews and publishes staged change sets"
+      },
+      {
+        "name": "viewer",
+        "description": "Reads published content, diagrams, reports and documents"
+      },
+      {
+        "name": "api-client",
+        "description": "Integrations and service accounts"
+      },
+      {
+        "name": "offline_access",
+        "description": "Keycloak default: offline tokens"
+      },
+      {
+        "name": "uma_authorization",
+        "description": "Keycloak default: user-managed access"
+      }
+    ]
+  },
+  "defaultRole": {
+    "name": "default-roles-eaexplorer",
+    "composite": true,
+    "composites": {
+      "realm": [
+        "viewer",
+        "offline_access",
+        "uma_authorization"
+      ]
+    }
+  },
+  "smtpServer": {
+    "host": "${EAX_SMTP_HOST}",
+    "port": "${EAX_SMTP_PORT}",
+    "from": "${EAX_MAIL_FROM_ADDRESS}",
+    "fromDisplayName": "${EAX_MAIL_FROM_NAME}",
+    "auth": "${EAX_SMTP_AUTH}",
+    "user": "${EAX_SMTP_USER}",
+    "password": "${EAX_SMTP_PASSWORD}",
+    "starttls": "${EAX_SMTP_STARTTLS}"
+  },
+  "clients": [
+    {
+      "clientId": "eax-web",
+      "name": "EA Explorer web screens",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "redirectUris": [
+        "${EAX_PUBLIC_URL}/*",
+        "${EAX_PUBLIC_URL_PORT}/*"
+      ],
+      "webOrigins": [
+        "+"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "${EAX_PUBLIC_URL}/*##${EAX_PUBLIC_URL_PORT}/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "audience eax-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "eax-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "eax-api",
+      "name": "EA Explorer API",
+      "enabled": true,
+      "bearerOnly": true,
+      "publicClient": false,
+      "standardFlowEnabled": false
+    },
+    {
+      "clientId": "superset",
+      "name": "Reports (Apache Superset)",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${EAX_SUPERSET_OIDC_SECRET}",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "${EAX_REPORTS_URL}/*",
+        "${EAX_REPORTS_URL_PORT}/*"
+      ],
+      "webOrigins": [
+        "+"
+      ],
+      "attributes": {
+        "post.logout.redirect.uris": "${EAX_REPORTS_URL}/*##${EAX_REPORTS_URL_PORT}/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "realm roles as roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {
+            "multivalued": "true",
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "userinfo.token.claim": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "mayan",
+      "name": "Documents (Mayan EDMS)",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${EAX_MAYAN_OIDC_SECRET}",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "${EAX_DOCS_URL}/*",
+        "${EAX_DOCS_URL_PORT}/*"
+      ],
+      "webOrigins": [
+        "+"
+      ],
+      "protocolMappers": [
+        {
+          "name": "realm roles as roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {
+            "multivalued": "true",
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "userinfo.token.claim": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "${EAX_FIRST_ADMIN_USER}",
+      "email": "${EAX_FIRST_ADMIN_EMAIL}",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "EA",
+      "lastName": "Administrator",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${EAX_FIRST_ADMIN_PASSWORD}",
+          "temporary": ${EAX_FIRST_ADMIN_PASSWORD_TEMPORARY}
+        }
+      ],
+      "realmRoles": [
+        "system-admin",
+        "model-owner",
+        "metamodel-editor",
+        "architect",
+        "reviewer",
+        "viewer",
+        "offline_access",
+        "uma_authorization"
+      ],
+      "clientRoles": {
+        "account": [
+          "view-profile",
+          "manage-account"
+        ]
+      }
+    }
+  ]
+}

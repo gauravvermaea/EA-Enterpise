@@ -1,0 +1,12 @@
+# EA Explorer API - runtime dependencies (pinned to minor versions; exact pins after phase 0.2 tests)
+Flask>=3.1,<3.2
+flask-smorest>=0.44,<0.46
+marshmallow>=3.21,<4
+SQLAlchemy>=2.0.30,<2.1
+psycopg[binary]>=3.2,<3.3
+alembic>=1.13,<1.15
+procrastinate>=2.0,<3
+PyJWT[crypto]>=2.9,<3
+cryptography>=43,<45
+gunicorn>=22,<24
+PyYAML>=6.0,<7

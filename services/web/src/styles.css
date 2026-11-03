@@ -1,0 +1,33 @@
+:root {
+  --ink: #1d2733; --quiet: #5b6775; --line: #d9dee5; --bg: #f6f7f9; --card: #ffffff;
+  --accent: #1f5fb8; --accent-soft: #e8f0fb; --ok: #1e7b3c; --bad: #b3261e;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  color: var(--ink); background: var(--bg);
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+.shell { min-height: 100vh; display: flex; flex-direction: column; }
+.topbar { display: flex; align-items: center; gap: 24px; padding: 12px 24px; background: var(--card); border-bottom: 1px solid var(--line); }
+.brand { font-weight: 700; color: var(--ink); text-decoration: none; font-size: 18px; }
+.topbar nav { display: flex; gap: 16px; flex: 1; }
+.topbar nav a { color: var(--quiet); text-decoration: none; }
+.user { display: flex; gap: 12px; align-items: center; }
+button { font: inherit; padding: 6px 14px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); cursor: pointer; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button:disabled { opacity: 0.6; cursor: default; }
+main { flex: 1; padding: 24px; max-width: 1200px; width: 100%; margin: 0 auto; }
+h1 { margin: 0 0 8px; } h2 { margin: 28px 0 12px; font-size: 18px; }
+.intro p { color: var(--quiet); max-width: 760px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.tile { display: block; padding: 14px 16px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); text-decoration: none; }
+.tile h3 { margin: 0 0 6px; font-size: 15px; }
+.tile p { margin: 0 0 8px; color: var(--quiet); font-size: 13px; }
+.tile.live { border-color: var(--accent); background: var(--accent-soft); }
+.tile.live:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+.tile.placeholder { opacity: 0.75; }
+.badge { font-size: 12px; color: var(--quiet); }
+.facts { border-collapse: collapse; background: var(--card); border: 1px solid var(--line); }
+.facts th, .facts td { text-align: left; padding: 8px 14px; border-bottom: 1px solid var(--line); }
+.status { font-weight: 600; } .status.ok { color: var(--ok); } .status.bad { color: var(--bad); }
+footer { padding: 12px 24px; color: var(--quiet); font-size: 12px; border-top: 1px solid var(--line); background: var(--card); }
+@media (max-width: 640px) { .topbar { flex-wrap: wrap; } .topbar nav { order: 3; width: 100%; } }

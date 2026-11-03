@@ -1,0 +1,285 @@
+# EA Explorer - base stack (phase 0)
+#
+# Start with the helper script (it reads work/eaexplorer.env and the override for your deployment kind):
+#   Windows:  .\eax.ps1 up
+#   Linux/macOS: ./eax.sh up
+# or directly:
+#   docker compose --env-file work/eaexplorer.env -f docker-compose.yml -f deploy/compose/docker-compose.laptop.yml up -d --build
+#
+# Networks: only the proxy publishes ports. "backend" is internal: databases and the cache are never
+# reachable from outside, nor from web, drawio or mail.
+
+name: eaexplorer
+
+x-restart: &restart
+  restart: unless-stopped
+
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
+
+networks:
+  frontend:
+  backend:
+    internal: true
+
+volumes:
+  eax-pgdata:
+  eax-docs:
+  eax-backups:
+  eax-imports:
+  eax-exports:
+  eax-tls:
+  eax-rendered:      # files rendered by the setup service from eaexplorer.env (Superset sample)
+  eax-kc-import:     # the Keycloak realm rendered by the setup service
+  eax-superset-home:
+
+services:
+
+  # ---------------------------------------------------------------- one-shot setup (ours)
+  # Renders the Keycloak realm and the Superset sample from the config file, and creates a
+  # self-signed TLS certificate if none exists. Runs on every start; it is idempotent.
+  setup:
+    build:
+      context: ./services/api
+    image: eaexplorer/api:${EAX_VERSION:-dev}
+    command: ["python", "-m", "eax.setup"]
+    user: "0"            # writes the certificate and rendered files into volumes owned by root
+    env_file: work/eaexplorer.env
+    volumes:
+      - ${EAX_TLS_DIR:-eax-tls}:/tls
+      - eax-rendered:/rendered
+      - eax-kc-import:/kc-import
+      - ./deploy:/deploy:ro
+    network_mode: none
+    <<: *logging
+
+  # ---------------------------------------------------------------- entry point (out of the box)
+  proxy:
+    image: ${EAX_IMAGE_NGINX:-nginx:1.27-alpine}
+    <<: [*restart, *logging]
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    ports:
+      - "${EAX_HTTPS_PORT:-443}:443"
+      - "${EAX_HTTP_PORT:-80}:80"
+    environment:
+      EAX_HOSTNAME: ${EAX_HOSTNAME:-localhost}
+      EAX_HTTPS_PORT: ${EAX_HTTPS_PORT:-443}
+      NGINX_ENVSUBST_FILTER: "^EAX_"
+    volumes:
+      - ./deploy/proxy/templates:/etc/nginx/templates:ro
+      - ${EAX_TLS_DIR:-eax-tls}:/etc/nginx/tls:ro
+    networks: [frontend]
+
+  # ---------------------------------------------------------------- our containers
+  web:
+    build:
+      context: ./services/web
+    image: eaexplorer/web:${EAX_VERSION:-dev}
+    <<: [*restart, *logging]
+    environment:
+      EAX_HOSTNAME: ${EAX_HOSTNAME:-localhost}
+      EAX_HTTPS_PORT: ${EAX_HTTPS_PORT:-443}
+      EAX_VERSION: ${EAX_VERSION:-dev}
+      EAX_DEPLOYMENT: ${EAX_DEPLOYMENT:-laptop}
+    networks: [frontend]
+
+  api:
+    build:
+      context: ./services/api
+    image: eaexplorer/api:${EAX_VERSION:-dev}
+    <<: [*restart, *logging]
+    env_file: work/eaexplorer.env
+    environment:
+      EAX_ROLE: api            # entrypoint runs migrations, then the web API and the job runner
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ${EAX_IMPORT_DIR:-eax-imports}:/data/imports
+      - ${EAX_EXPORT_DIR:-eax-exports}:/data/exports
+    networks: [frontend, backend]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health').status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  backup:
+    build:
+      context: ./services/backup
+    image: eaexplorer/backup:${EAX_VERSION:-dev}
+    <<: [*restart, *logging]
+    env_file: work/eaexplorer.env
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ${EAX_BACKUP_DIR:-eax-backups}:/backups
+      - ${EAX_DOCS_DIR:-eax-docs}:/mayan:ro
+    networks: [backend]
+
+  # ---------------------------------------------------------------- data (out of the box)
+  db:
+    image: ${EAX_IMAGE_POSTGRES:-postgres:17-alpine}
+    <<: [*restart, *logging]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${EAX_DB_SUPERUSER_PASSWORD:?set EAX_DB_SUPERUSER_PASSWORD in work/eaexplorer.env}
+      POSTGRES_DB: postgres
+      EAX_DB_NAME: ${EAX_DB_NAME:-eaexplorer}
+      EAX_DB_PASSWORD: ${EAX_DB_PASSWORD:?set EAX_DB_PASSWORD}
+      EAX_DB_REPORT_PASSWORD: ${EAX_DB_REPORT_PASSWORD:?set EAX_DB_REPORT_PASSWORD}
+      EAX_KEYCLOAK_DB_PASSWORD: ${EAX_KEYCLOAK_DB_PASSWORD:?set EAX_KEYCLOAK_DB_PASSWORD}
+      EAX_SUPERSET_DB_PASSWORD: ${EAX_SUPERSET_DB_PASSWORD:?set EAX_SUPERSET_DB_PASSWORD}
+      EAX_MAYAN_DB_PASSWORD: ${EAX_MAYAN_DB_PASSWORD:?set EAX_MAYAN_DB_PASSWORD}
+    volumes:
+      - ${EAX_DATA_DIR:-eax-pgdata}:/var/lib/postgresql/data
+      - ./deploy/postgres/initdb:/docker-entrypoint-initdb.d:ro
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  cache:
+    image: ${EAX_IMAGE_VALKEY:-valkey/valkey:8-alpine}
+    <<: [*restart, *logging]
+    command: ["valkey-server", "--requirepass", "${EAX_CACHE_PASSWORD:?set EAX_CACHE_PASSWORD}", "--save", ""]
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli -a \"$$VALKEY_PASSWORD\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    environment:
+      VALKEY_PASSWORD: ${EAX_CACHE_PASSWORD}
+
+  # ---------------------------------------------------------------- identity (out of the box)
+  keycloak:
+    image: ${EAX_IMAGE_KEYCLOAK:-quay.io/keycloak/keycloak:26.0}
+    <<: [*restart, *logging]
+    command: ["start", "--import-realm"]
+    depends_on:
+      db:
+        condition: service_healthy
+      setup:
+        condition: service_completed_successfully
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${EAX_KEYCLOAK_DB_PASSWORD}
+      KC_HTTP_ENABLED: "true"
+      KC_HTTP_RELATIVE_PATH: /auth
+      KC_HOSTNAME: https://${EAX_HOSTNAME:-localhost}:${EAX_HTTPS_PORT:-443}/auth
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${EAX_KC_ADMIN:-kcadmin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${EAX_KC_ADMIN_PASSWORD:?set EAX_KC_ADMIN_PASSWORD}
+    volumes:
+      - eax-kc-import:/opt/keycloak/data/import:ro
+    networks: [frontend, backend]
+
+  # ---------------------------------------------------------------- diagrams (out of the box)
+  drawio:
+    image: ${EAX_IMAGE_DRAWIO:-jgraph/drawio:24.7.17}
+    <<: [*restart, *logging]
+    networks: [frontend]
+
+  # ---------------------------------------------------------------- reports (out of the box, plus drivers)
+  reports-init:
+    build:
+      context: ./deploy/superset
+      args:
+        SUPERSET_IMAGE: ${EAX_IMAGE_SUPERSET:-apache/superset:4.1.2}
+    image: eaexplorer/superset:${EAX_VERSION:-dev}
+    command: ["/bin/sh", "/app/eax/superset-init.sh"]
+    env_file: work/eaexplorer.env
+    environment:
+      SUPERSET_CONFIG_PATH: /app/eax/superset_config.py
+    depends_on:
+      db:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+      setup:
+        condition: service_completed_successfully
+    volumes:
+      - ./deploy/superset:/app/eax:ro
+      - eax-rendered:/rendered:ro
+      - eax-superset-home:/app/superset_home
+    networks: [backend]
+    <<: *logging
+
+  reports:
+    # Same image as reports-init. The build section is repeated so Compose builds it instead of
+    # trying to pull eaexplorer/superset from Docker Hub (it is never published there).
+    build:
+      context: ./deploy/superset
+      args:
+        SUPERSET_IMAGE: ${EAX_IMAGE_SUPERSET:-apache/superset:4.1.2}
+    image: eaexplorer/superset:${EAX_VERSION:-dev}
+    <<: [*restart, *logging]
+    env_file: work/eaexplorer.env
+    environment:
+      SUPERSET_CONFIG_PATH: /app/eax/superset_config.py
+    depends_on:
+      reports-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./deploy/superset:/app/eax:ro
+      - eax-superset-home:/app/superset_home
+    networks: [frontend, backend]
+
+  # ---------------------------------------------------------------- documents (out of the box)
+  dms:
+    image: ${EAX_IMAGE_MAYAN:-mayanedms/mayanedms:s4}
+    <<: [*restart, *logging]
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+    environment:
+      MAYAN_DATABASES: '{"default":{"ENGINE":"django.db.backends.postgresql","NAME":"mayan","USER":"mayan","PASSWORD":"${EAX_MAYAN_DB_PASSWORD}","HOST":"db","PORT":"5432"}}'
+      MAYAN_CELERY_BROKER_URL: redis://:${EAX_CACHE_PASSWORD_URLENC:?set EAX_CACHE_PASSWORD_URLENC}@cache:6379/0
+      MAYAN_CELERY_RESULT_BACKEND: redis://:${EAX_CACHE_PASSWORD_URLENC}@cache:6379/1
+      MAYAN_LOCK_MANAGER_BACKEND: mayan.apps.lock_manager.backends.redis_lock.RedisLock
+      MAYAN_LOCK_MANAGER_BACKEND_ARGUMENTS: '{"redis_url":"redis://:${EAX_CACHE_PASSWORD_URLENC}@cache:6379/2"}'
+      MAYAN_ALLOWED_HOSTS: '["*"]'
+      MAYAN_CSRF_TRUSTED_ORIGINS: '["https://docs.${EAX_HOSTNAME:-localhost}:${EAX_HTTPS_PORT:-443}","https://docs.${EAX_HOSTNAME:-localhost}"]'
+      # Sign-in through Keycloak. Discovery is fetched inside the Docker network; Keycloak then
+      # hands the browser the public sign-in address and Mayan the internal token address.
+      # To fall back to Mayan's own login, set EAX_MAYAN_AUTH_BACKEND in work/eaexplorer.env to
+      # mayan.apps.authentication.authentication_backends.AuthenticationBackendModelUsernamePassword
+      MAYAN_AUTHENTICATION_BACKEND: ${EAX_MAYAN_AUTH_BACKEND:-mayan.apps.authentication_oidc.authentication_backends.AuthenticationBackendOIDC}
+      MAYAN_AUTHENTICATION_BACKEND_ARGUMENTS: '{"oidc_discovery_url":"http://keycloak:8080/auth/realms/eaexplorer/.well-known/openid-configuration","oidc_rp_client_id":"mayan","oidc_rp_client_secret":"${EAX_MAYAN_OIDC_SECRET}","oidc_rp_sign_algo":"RS256"}'
+      # Behind the proxy: trust its https and host headers so redirects use https://docs.<host>
+      MAYAN_SECURE_PROXY_SSL_HEADER: '["HTTP_X_FORWARDED_PROTO","https"]'
+      MAYAN_USE_X_FORWARDED_HOST: "true"
+      MAYAN_AUTOADMIN_USERNAME: ${EAX_MAYAN_ADMIN_USER:-admin}
+      MAYAN_AUTOADMIN_PASSWORD: ${EAX_MAYAN_ADMIN_PASSWORD:?set EAX_MAYAN_ADMIN_PASSWORD}
+      MAYAN_AUTOADMIN_EMAIL: ${EAX_FIRST_ADMIN_EMAIL:-admin@example.org}
+    volumes:
+      - ${EAX_DOCS_DIR:-eax-docs}:/var/lib/mayan
+    networks: [frontend, backend]
+
+  # ---------------------------------------------------------------- development only
+  mail:
+    image: ${EAX_IMAGE_MAILPIT:-axllent/mailpit:v1.32.0}
+    profiles: ["dev"]
+    <<: [*restart, *logging]
+    environment:
+      MP_WEBROOT: /mail/
+    networks: [frontend, backend]

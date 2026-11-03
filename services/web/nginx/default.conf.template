@@ -1,0 +1,21 @@
+# Serves the built screens. /config.js carries this installation's settings from eaexplorer.env.
+server {
+    listen 8080;
+    root /usr/share/nginx/html;
+
+    location = /config.js {
+        default_type application/javascript;
+        add_header Cache-Control "no-store";
+        return 200 'window.EAX_CONFIG = {"hostname":"${EAX_HOSTNAME}","httpsPort":"${EAX_HTTPS_PORT}","version":"${EAX_VERSION}","deployment":"${EAX_DEPLOYMENT}","realm":"eaexplorer","clientId":"eax-web"};';
+    }
+
+    location /assets/ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        try_files $uri =404;
+    }
+
+    location / {
+        add_header Cache-Control "no-cache";
+        try_files $uri /index.html;
+    }
+}

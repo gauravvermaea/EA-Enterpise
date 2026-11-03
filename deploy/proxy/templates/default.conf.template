@@ -1,0 +1,97 @@
+# EA Explorer proxy (nginx, used as is). The nginx image fills in ${EAX_...} values at start.
+# Upstreams are looked up per request through Docker's DNS, so the proxy still starts when an
+# optional container (for example mail) is not running.
+
+resolver 127.0.0.11 valid=10s ipv6=off;
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+# Shared proxy settings
+proxy_http_version 1.1;
+proxy_set_header Host              $host:${EAX_HTTPS_PORT};
+proxy_set_header X-Real-IP         $remote_addr;
+proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+proxy_set_header X-Forwarded-Proto https;
+proxy_set_header X-Forwarded-Host  $host;
+proxy_set_header X-Forwarded-Port  ${EAX_HTTPS_PORT};
+proxy_set_header Upgrade           $http_upgrade;
+proxy_set_header Connection        $connection_upgrade;
+proxy_buffer_size        128k;
+proxy_buffers            4 256k;
+proxy_busy_buffers_size  256k;
+proxy_read_timeout       300s;
+
+ssl_certificate     /etc/nginx/tls/tls.crt;
+ssl_certificate_key /etc/nginx/tls/tls.key;
+ssl_protocols       TLSv1.2 TLSv1.3;
+
+# ---- plain HTTP: redirect everything to HTTPS
+server {
+    listen 80 default_server;
+    server_name _;
+    return 301 https://$host:${EAX_HTTPS_PORT}$request_uri;
+}
+
+# ---- main site: our screens, the API, Keycloak, draw.io, Mailpit (dev)
+server {
+    listen 443 ssl default_server;
+    server_name ${EAX_HOSTNAME};
+    client_max_body_size 100m;
+
+    add_header X-Content-Type-Options nosniff always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    location / {
+        set $upstream http://web:8080;
+        proxy_pass $upstream;
+    }
+
+    location /api/ {
+        set $upstream http://api:8000;
+        proxy_pass $upstream;
+    }
+
+    location /auth/ {
+        set $upstream http://keycloak:8080;
+        proxy_pass $upstream;
+    }
+
+    location /drawio/ {
+        set $upstream http://drawio:8080;
+        rewrite ^/drawio/(.*)$ /$1 break;
+        proxy_pass $upstream;
+    }
+
+    location /mail/ {
+        set $upstream http://mail:8025;
+        proxy_pass $upstream;
+    }
+}
+
+# ---- reports: Apache Superset, its own screens
+server {
+    listen 443 ssl;
+    server_name reports.${EAX_HOSTNAME};
+    client_max_body_size 50m;
+
+    location / {
+        set $upstream http://reports:8088;
+        proxy_pass $upstream;
+    }
+}
+
+# ---- documents: Mayan EDMS, its own screens
+server {
+    listen 443 ssl;
+    server_name docs.${EAX_HOSTNAME};
+    client_max_body_size 100m;
+
+    location / {
+        set $upstream http://dms:8000;
+        proxy_pass $upstream;
+    }
+}

@@ -1,0 +1,20 @@
+# Single-server deployment: all containers on one Linux server.
+# Data lives in host folders under /srv/eax (see eaexplorer.server.env).
+# Used together with docker-compose.yml:  ./eax.sh up
+services:
+  api:
+    deploy:
+      resources:
+        limits: { memory: 2g }
+  reports:
+    deploy:
+      resources:
+        limits: { memory: 4g }
+  dms:
+    deploy:
+      resources:
+        limits: { memory: 4g }
+  keycloak:
+    deploy:
+      resources:
+        limits: { memory: 2g }
