@@ -27,14 +27,36 @@ Everything that creates the database is code in this repository; nothing is crea
 | `services/api/migrations/sql/0002_metamodel.sql` | Models, metamodel and content tables, integrity rules, history |
 | `services/api/migrations/sql/0002_functions.sql` | `eax.get_entity`, `eax.get_entity_by_name`, `eax.drop_entity` |
 | `services/api/migrations/versions/0002_metamodel.py` | Runs the two SQL files above (and drops them on downgrade) |
+| `services/api/migrations/sql/0003_library.sql` (run by `versions/0003_library.py`) | Schema versions, model properties, locks on templates and reference models, the installer's rights |
+| `services/api/migrations/sql/0004_screens.sql` (run by `versions/0004_screens.py`) | Version 0.2.1 only (no schema change) |
+| `services/api/tests/sql/sample_history.sql` | Gives Claims Platform in the sample model a history to try the timeline on (changes the sample model) |
 | `services/api/eax/jobs_schema.py` | The job queue tables (Procrastinate) |
-| `services/api/eax/seed/` | The ArchiMate 4 template and the sample model (rows, not structure) |
-| `services/api/tests/sql/phase1_checks.sql` | Checks for all of it, in a transaction that is rolled back |
+| `services/api/eax/seed/` | The ArchiMate 4 template, the insurance reference model and the sample model (rows, not structure), loaded by the installer's login |
+| `services/api/tests/sql/phase1_checks.sql`, `phase2_checks.sql`, `phase2_installer_check.sql` | Checks for all of it, in transactions that are rolled back |
 
 The api container runs them in that order on every start (`entrypoint.sh`: `alembic upgrade
 head`, the job tables, then the seed); each step only does what is not done yet. Each later build
 phase adds its own numbered migration (`0003_...`) rather than editing an earlier one once that
 phase is accepted.
+
+## Versions
+
+The database carries a version in `core.schema_versions` (one row per version, written by the
+migration that moves it; `core.schema_version()` gives the newest). The API's version is in
+`services/api/version.toml`. They must be equal: the heartbeat and the service health check warn when
+they differ. Phase N is version 0.N.0 (phase 2: 0.2.0).
+
+## Locked models and the installer's login
+
+Templates and reference models are **locked** (`core.models.is_locked`). Triggers on `core.models`
+and on every metamodel and content table refuse any insert, update, delete or truncate that touches
+a locked model, and refuse locking or unlocking a model, unless the session's login is
+**`eax_migrator`**: the installer's login, created with the database
+(`deploy/postgres/initdb/01-databases.sh`, password `EAX_DB_MIGRATOR_PASSWORD`) and used only by the
+seed step. The check is on the session's login, so `SET ROLE` does not get round it, and it applies
+to the `postgres` superuser too. (A superuser can still switch the triggers off; that is a deliberate
+act outside the product.) A new version of a reference model is a new model beside the old one: the
+name is unique per `version_label`.
 
 ## The idea
 

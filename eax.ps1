@@ -161,6 +161,7 @@ function Show-Logins {
         @("PostgreSQL superuser",             "postgres",                                     (Get-Setting "EAX_DB_SUPERUSER_PASSWORD"),   "docker compose exec db psql -U postgres"),
         @("PostgreSQL EA Explorer",           "eax_app",                                      (Get-Setting "EAX_DB_PASSWORD"),             "database $(Get-Setting 'EAX_DB_NAME' 'eaexplorer')"),
         @("PostgreSQL reporting (read only)", "eax_report",                                   (Get-Setting "EAX_DB_REPORT_PASSWORD"),      "schema rpt"),
+        @("PostgreSQL installer",             "eax_migrator",                                 (Get-Setting "EAX_DB_MIGRATOR_PASSWORD"),    "loads reference models only"),
         @("PostgreSQL Keycloak",              "keycloak",                                     (Get-Setting "EAX_KEYCLOAK_DB_PASSWORD"),    "database keycloak"),
         @("PostgreSQL Superset",              "superset",                                     (Get-Setting "EAX_SUPERSET_DB_PASSWORD"),    "database superset"),
         @("PostgreSQL Mayan",                 "mayan",                                        (Get-Setting "EAX_MAYAN_DB_PASSWORD"),       "database mayan"),
@@ -262,6 +263,13 @@ Starting again
                         file, logs and laptop data folders (including backups). With --all it also
                         deletes the Docker volumes, so the databases and documents start empty.
                         Asks you to type yes unless --yes is given. Run init afterwards.
+  clean-run [laptop|server]
+                        Starts again from scratch in one step: cleanup --all --yes, then init
+                        (laptop if not given), then up. Deletes the databases and everything in
+                        the work folder without asking.
+  clean-debug [laptop|server]
+                        The same, but ends with debug instead of up (keeps recording the
+                        containers' output until Ctrl+C).
 
   help [command]        This text, or the part about one command.
 
@@ -274,7 +282,7 @@ function Show-Help([string]$Name) {
     if (-not $Name) { Write-Host $HelpText; return }
     $show = $false
     foreach ($line in ($HelpText -split "`r?`n")) {
-        if ($line -match '^  ([a-z]+)') { $show = ($Matches[1] -eq $Name) }
+        if ($line -match '^  ([a-z-]+)') { $show = ($Matches[1] -eq $Name) }
         elseif ($line -notmatch '^ {24}') { $show = $false }
         if ($show) { Write-Host $line }
     }
@@ -304,6 +312,22 @@ function Invoke-Cleanup([string[]]$Options) {
 
 # ------------------------------------------------------------------ commands
 if ($Command -in @("help", "-h", "--help", "/?")) { Show-Help $(if ($RestArgs.Count -gt 0) { $RestArgs[0] } else { "" }); exit 0 }
+# clean-run and clean-debug: cleanup --all --yes, init, then up or debug, each as its own run of
+# this script (so each step writes its own log, like typing the three commands)
+if ($Command -in @("clean-run", "clean-debug")) {
+    $kind = if ($RestArgs.Count -gt 0) { $RestArgs[0] } else { "laptop" }
+    $last = if ($Command -eq "clean-run") { "up" } else { "debug" }
+    foreach ($step in @(@("cleanup", "--all", "--yes"), @("init", $kind), @($last))) {
+        Write-Host ""
+        Write-Host "=== .\eax $($step -join ' ')" -ForegroundColor Cyan
+        & $PSCommandPath @step
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "ERROR: .\eax $($step -join ' ') failed (exit $LASTEXITCODE); $Command stopped there." -ForegroundColor Red
+            exit $LASTEXITCODE
+        }
+    }
+    exit 0
+}
 if ($Command -eq "cleanup") {
     try { Invoke-Cleanup $RestArgs; exit 0 }
     catch { Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red; exit 1 }

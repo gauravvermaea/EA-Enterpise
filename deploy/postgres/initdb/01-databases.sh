@@ -3,7 +3,8 @@
 # Creates the four databases and their logins. Each product gets its own login and cannot read
 # the others' databases.
 #   eaexplorer : ours (owner eax_app; eax_report is a read-only login for reports, granted on
-#                the rpt schema by our migrations)
+#                the rpt schema by our migrations; eax_migrator is the installer's login, the only
+#                one that may load or change locked reference models)
 #   keycloak, superset, mayan : created empty here; each product creates its own tables
 set -eu
 
@@ -11,11 +12,13 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres \
   -v eax_db="${EAX_DB_NAME:-eaexplorer}" \
   -v eax_pw="$EAX_DB_PASSWORD" \
   -v rpt_pw="$EAX_DB_REPORT_PASSWORD" \
+  -v mig_pw="$EAX_DB_MIGRATOR_PASSWORD" \
   -v kc_pw="$EAX_KEYCLOAK_DB_PASSWORD" \
   -v ss_pw="$EAX_SUPERSET_DB_PASSWORD" \
   -v my_pw="$EAX_MAYAN_DB_PASSWORD" <<'SQL'
 CREATE ROLE eax_app    LOGIN PASSWORD :'eax_pw';
 CREATE ROLE eax_report LOGIN PASSWORD :'rpt_pw';
+CREATE ROLE eax_migrator LOGIN PASSWORD :'mig_pw';
 CREATE ROLE keycloak   LOGIN PASSWORD :'kc_pw';
 CREATE ROLE superset   LOGIN PASSWORD :'ss_pw';
 CREATE ROLE mayan      LOGIN PASSWORD :'my_pw';
@@ -30,6 +33,7 @@ REVOKE ALL ON DATABASE keycloak  FROM PUBLIC;
 REVOKE ALL ON DATABASE superset  FROM PUBLIC;
 REVOKE ALL ON DATABASE mayan     FROM PUBLIC;
 GRANT CONNECT ON DATABASE :"eax_db" TO eax_report;
+GRANT CONNECT ON DATABASE :"eax_db" TO eax_migrator;
 SQL
 
 # Extensions our repository database needs (created by the superuser, used by eax_app)

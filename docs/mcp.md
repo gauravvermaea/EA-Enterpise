@@ -54,11 +54,12 @@ to a value with letters and digits only and restart the api container.
 MCP Inspector (to try the tools by hand): `npx @modelcontextprotocol/inspector`, then Transport
 *Streamable HTTP*, URL `http://localhost:8001/mcp`, header `Authorization: Bearer P^55w0rd1234&`.
 
-## Tools (build phase 1: read only)
+## Tools (read only until build phase 6)
 
 | Tool | What it returns |
 | --- | --- |
 | `list_models` | Every model you may read, with entity, relationship and type counts |
+| `list_library` | The model library: reference models with industry, version and counts by type |
 | `get_metamodel(model)` | Layers with their entity types, and the relationship types |
 | `describe_entity_type(model, entity_type)` | Attributes (type, required, pick-list values), validation rules, allowed relationships both ways |
 | `allowed_relationships(model, source_type, target_type)` | Relationship types allowed from one type to another |
@@ -66,7 +67,14 @@ MCP Inspector (to try the tools by hand): `npx @modelcontextprotocol/inspector`,
 | `list_entities(model, entity_type?)` | Every entity of a model, or of one type |
 | `get_entity(model, entity)` | One entity (guid, display ID or name) with attribute values, relationships, parent and parts |
 | `get_entity_table(model, entity_type, name?)` | One type as a table, one column per attribute (`eax.get_entity`) |
-| `list_relationships(model)` | Every relationship: source, type, target |
+| `list_relationships(model, relationship_type?)` | Every relationship (or of one type): source, type, target, allowed by the metamodel or not |
+| `list_relationship_types(model)` | Relationship types with how often each is used and how many uses break the rules |
+| `check_entities(model, entity_type)` | One type's entities with their values and validation results (errors, warnings, messages) |
+| `get_entity_history(model, entity)` | Every change to the entity, its attribute values and relationships: when, who, old and new values |
+| `get_neighbourhood(model, entity, depth?, direction?, relationship_types?)` | The entity and everything within 1 to 3 steps (relationships and parent hierarchy) as nodes and edges; `direction` out or in follows one way only (impact, dependencies; up to 6 steps) |
+| `find_paths(model, source, target, max_steps?, relationship_types?)` | The shortest chains connecting two entities, through relationships either way and the parent hierarchy |
+| `get_family_tree(model, entity, levels?)` | Every parent of an entity up to the top and its parts down `levels` levels |
+| `get_entity_as_of(model, entity, event?, at?)` | The entity as it was after a history event or at a time: every field, value and relationship then beside now |
 | `search_entities(text, model?)` | Entities whose name, display ID or description contains the text |
 
 Models, entity types and entities can be given by guid or by name. Lists come back as

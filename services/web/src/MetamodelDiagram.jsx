@@ -20,16 +20,16 @@ const REL_COLOURS = {
   Serving: "#c26a00", Access: "#8a6d00", Influence: "#b3261e", Association: "#6b7785",
   Triggering: "#00838f", Flow: "#2e9e8f", Specialization: "#4a4a4a",
 };
-const relColour = (code) => REL_COLOURS[code] || "#6b7785";
+export const relColour = (code) => REL_COLOURS[code] || "#6b7785";
 const FONT = "12px system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif";
 const BOLD = "600 13px system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif";
 const HEADER = 38, ROW = 18, PAD = 10;
 const LAYERED_MAX = 200, RADIAL_MIN = 10, DENSE = 4, RING_MAX = 60;
-const elk = new ELK({ workerUrl: elkWorkerUrl });
+export const elk = new ELK({ workerUrl: elkWorkerUrl });
 const go = (path) => { window.location.hash = path; };
 
 let measureCtx;
-function textWidth(text, font = FONT) {
+export function textWidth(text, font = FONT) {
   measureCtx ||= document.createElement("canvas").getContext("2d");
   measureCtx.font = font;
   return measureCtx.measureText(text).width;
@@ -168,13 +168,67 @@ async function layout(part, showAttrs, showLabels, focus, layerOrder) {
   return elk.layout(graph);
 }
 
+// A straight line between two boxes, leaving each box at its border (used after a box is dragged)
+export function straightSection(s, t, offset = 0) {
+  const sc = { x: s.x + s.width / 2, y: s.y + s.height / 2 }, tc = { x: t.x + t.width / 2, y: t.y + t.height / 2 };
+  let dx = tc.x - sc.x, dy = tc.y - sc.y;
+  const len = Math.hypot(dx, dy) || 1; dx /= len; dy /= len;
+  const border = (c, b, ux, uy) => {
+    const k = Math.min(b.width / 2 / Math.max(Math.abs(ux), 1e-6), b.height / 2 / Math.max(Math.abs(uy), 1e-6));
+    return { x: c.x + ux * k - dy * offset, y: c.y + uy * k + dx * offset };
+  };
+  return { startPoint: border(sc, s, dx, dy), endPoint: border(tc, t, -dx, -dy) };
+}
+
+const xml = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+// The diagram as a .drawio file (uncompressed XML): opens in the hosted draw.io and the desktop app.
+// Each box carries ea_type (the entity type's code) and ea_id (its guid) as shape data, the same tags
+// our diagrams use, so later phases can read the file back.
+export function drawioXml(title, boxes, links, types, showAttrs) {
+  const byId = Object.fromEntries(types.map((t) => [t.id, t]));
+  const cells = ['<mxCell id="0"/>', '<mxCell id="1" parent="0"/>'];
+  for (const b of boxes) {
+    const t = byId[b.id];
+    if (!t) continue;
+    const attrs = showAttrs ? t.attributes.map((a) => `${xml(a.name)}${a.is_required ? " *" : ""}: <i>${xml(a.data_type_name)}</i>`).join("<br>") : "";
+    const label = `<b>${xml(t.name)}</b><br><font style="font-size:10px">${xml(t.layer)}</font>` + (attrs ? `<hr>${attrs}` : "");
+    cells.push(
+      `<UserObject id="t_${b.id}" label="${xml(label)}" ea_type="${xml(t.code)}" ea_id="${b.id}" ea_layer="${xml(t.layer)}">` +
+      `<mxCell style="rounded=1;arcSize=4;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=8;spacingTop=4;` +
+      `fillColor=#${t.colour || "eeeeee"};strokeColor=#8a96a3;fontSize=12;" vertex="1" parent="1">` +
+      `<mxGeometry x="${Math.round(b.x)}" y="${Math.round(b.y)}" width="${Math.round(b.width)}" height="${Math.round(b.height)}" as="geometry"/>` +
+      "</mxCell></UserObject>");
+  }
+  links.forEach((l, i) => {
+    const single = l.relationship_types.length === 1;
+    const colour = (single ? relColour(l.relationship_types[0]) : "#6b7785").slice(1);
+    const arrow = l.relationship_types.some((c) => c !== "Association") ? "block" : "none";
+    cells.push(
+      `<mxCell id="r_${i}" value="${xml(l.relationship_types.join(", "))}" ` +
+      `style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=${arrow};endFill=1;strokeColor=#${colour};fontSize=10;fontColor=#${colour};labelBackgroundColor=#ffffff;" ` +
+      `edge="1" parent="1" source="t_${l.source}" target="t_${l.target}"><mxGeometry relative="1" as="geometry"/></mxCell>`);
+  });
+  return '<mxfile host="EA Explorer" type="device">' +
+    `<diagram id="metamodel" name="${xml(title)}"><mxGraphModel grid="1" gridSize="10" page="0"><root>` +
+    cells.join("") + "</root></mxGraphModel></diagram></mxfile>";
+}
+
+export function saveBlob(blob, filename) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename.replace(/[\\/:*?"<>|]/g, "_");
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
 // ---------------------------------------------------------------- drawing
-function Node({ t, box, showAttrs, focused, dim, onEnter, onLeave, onClick }) {
+function Node({ t, box, showAttrs, focused, dim, onEnter, onLeave, onClick, onGrab }) {
   const attrs = showAttrs ? t.attributes : [];
   return (
-    <g transform={`translate(${box.x},${box.y})`} opacity={dim ? 0.25 : 1} style={{ cursor: "pointer" }}
-      onMouseEnter={onEnter} onMouseLeave={onLeave} onClick={onClick}>
-      <title>{`${t.name} (${t.layer})\nClick to focus on this type`}</title>
+    <g transform={`translate(${box.x},${box.y})`} opacity={dim ? 0.25 : 1} style={{ cursor: "move" }}
+      onMouseEnter={onEnter} onMouseLeave={onLeave} onClick={onClick} onMouseDown={onGrab}>
+      <title>{`${t.name} (${t.layer})\nDrag to move; click to focus on this type`}</title>
       <rect width={box.width} height={box.height} rx="6" fill="#ffffff"
         stroke={focused ? "#1f5fb8" : "#8a96a3"} strokeWidth={focused ? 2.5 : 1} />
       <path d={`M0 6 a6 6 0 0 1 6 -6 h${box.width - 12} a6 6 0 0 1 6 6 v${HEADER - 6} h-${box.width} z`}
@@ -238,6 +292,7 @@ export default function MetamodelDiagram({ model, focus }) {
   const [hover, setHover] = useState(null);
   const [view, setView] = useState({ x: 20, y: 20, k: 1 });
   const [note, setNote] = useState("");
+  const [moved, setMoved] = useState({});            // boxes dragged by hand: id -> {x, y} offset
   const frame = useRef(null);
   const svgRef = useRef(null);
   const drag = useRef(null);
@@ -267,7 +322,7 @@ export default function MetamodelDiagram({ model, focus }) {
     setBusy(true);
     const layerOrder = Object.fromEntries(data.layers.map((l, i) => [l.id, i]));
     layout(part, showAttrs, showLabels, focus, layerOrder)
-      .then((g) => { if (live) { setGraph({ ...g, part }); fit(g); } })
+      .then((g) => { if (live) { setGraph({ ...g, part }); setMoved({}); fit(g); } })
       .catch((e) => live && setError(`Layout failed: ${e.message}`))
       .finally(() => live && setBusy(false));
     return () => { live = false; };
@@ -302,14 +357,24 @@ export default function MetamodelDiagram({ model, focus }) {
     return () => el.removeEventListener("wheel", onWheel);
   }, [data]);
 
-  const onDown = (e) => { if (e.button === 0) drag.current = { x: e.clientX, y: e.clientY, moved: false }; };
+  const onDown = (e) => { if (e.button === 0 && !drag.current) drag.current = { x: e.clientX, y: e.clientY, moved: false }; };
+  const grab = (id) => (e) => {   // a box: dragging moves the box, not the picture
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    drag.current = { x: e.clientX, y: e.clientY, moved: false, node: id };
+  };
   const onMove = (e) => {
     const d = drag.current;
     if (!d) return;
     const dx = e.clientX - d.x, dy = e.clientY - d.y;
     if (Math.abs(dx) + Math.abs(dy) > 2) d.moved = true;
     d.x = e.clientX; d.y = e.clientY;
-    setView((v) => ({ ...v, x: v.x + dx, y: v.y + dy }));
+    if (d.node) {
+      const k = view.k;
+      setMoved((m) => ({ ...m, [d.node]: { x: (m[d.node]?.x || 0) + dx / k, y: (m[d.node]?.y || 0) + dy / k } }));
+    } else {
+      setView((v) => ({ ...v, x: v.x + dx, y: v.y + dy }));
+    }
   };
   const onUp = () => { setTimeout(() => { drag.current = null; }, 0); };
 
@@ -322,9 +387,14 @@ export default function MetamodelDiagram({ model, focus }) {
     toggle(layers, setLayers, id);
   }
 
-  function downloadSvg() {
+  function fileName(ext) {
+    const focusName = focus && data.entity_types.find((t) => t.id === focus)?.name;
+    return `${data.model.name} - ${focusName || "metamodel"}.${ext}`;
+  }
+
+  function svgText() {
     const svg = svgRef.current;
-    if (!svg || !graph) return;
+    if (!svg || !graph) return null;
     const copy = svg.cloneNode(true);
     copy.setAttribute("xmlns", "http://www.w3.org/2000/svg");
     copy.setAttribute("width", graph.width + 40);
@@ -335,13 +405,37 @@ export default function MetamodelDiagram({ model, focus }) {
     Object.entries({ x: -20, y: -20, width: graph.width + 40, height: graph.height + 40, fill: "#ffffff" })
       .forEach(([k, v]) => bg.setAttribute(k, v));
     copy.insertBefore(bg, copy.firstChild);
-    const blob = new Blob([new XMLSerializer().serializeToString(copy)], { type: "image/svg+xml" });
-    const a = document.createElement("a");
-    const focusName = focus && data.entity_types.find((t) => t.id === focus)?.name;
-    a.href = URL.createObjectURL(blob);
-    a.download = `${data.model.name} - ${focusName || "metamodel"}.svg`.replace(/[\\/:*?"<>|]/g, "_");
-    a.click();
-    URL.revokeObjectURL(a.href);
+    return new XMLSerializer().serializeToString(copy);
+  }
+
+  function downloadSvg() {
+    const text = svgText();
+    if (text) saveBlob(new Blob([text], { type: "image/svg+xml" }), fileName("svg"));
+  }
+
+  function downloadPng() {
+    const text = svgText();
+    if (!text) return;
+    const scale = 2, w = (graph.width + 40) * scale, h = (graph.height + 40) * scale;
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob((blob) => blob && saveBlob(blob, fileName("png")), "image/png");
+    };
+    img.onerror = () => setNote("Could not draw the PNG; use SVG instead.");
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(text);
+  }
+
+  function downloadDrawio() {
+    if (!graph) return;
+    const text = drawioXml(fileName("drawio").replace(/\.drawio$/, ""), boxes, links, data.entity_types, showAttrs);
+    saveBlob(new Blob([text], { type: "application/xml" }), fileName("drawio"));
+    setNote(".drawio saved: open it in draw.io here or in the desktop app (File > Open).");
+    setTimeout(() => setNote(""), 6000);
   }
 
   async function copyMermaid() {
@@ -368,6 +462,23 @@ export default function MetamodelDiagram({ model, focus }) {
   // draw what was laid out (graph.part); the counts above it describe the current choice
   const links = graph?.part.links || [];
   const linkOf = Object.fromEntries((graph?.edges || []).map((e, i) => [e.id, links[i]]));
+  const boxes = (graph?.children || []).map((b) => (moved[b.id] ? { ...b, x: b.x + moved[b.id].x, y: b.y + moved[b.id].y } : b));
+  const boxOf = Object.fromEntries(boxes.map((b) => [b.id, b]));
+  const pairs = new Set(links.map((l) => `${l.source}|${l.target}`));
+  const edgeFor = (e, l) => {
+    if (!moved[l.source] && !moved[l.target]) return e;
+    const s = boxOf[l.source], t = boxOf[l.target];
+    if (!s || !t) return e;
+    if (l.source === l.target) {  // a loop on one box moves with the box
+      const { x: dx, y: dy } = moved[l.source];
+      const shift = (pt) => ({ ...pt, x: pt.x + dx, y: pt.y + dy });
+      return { ...e, sections: (e.sections || []).map((sec) => ({ ...sec, startPoint: shift(sec.startPoint),
+        endPoint: shift(sec.endPoint), bendPoints: (sec.bendPoints || []).map(shift) })),
+        labels: (e.labels || []).map((lb) => (lb.x !== undefined ? shift(lb) : lb)) };
+    }
+    const offset = pairs.has(`${l.target}|${l.source}`) ? 7 : 0;
+    return { ...e, sections: [straightSection(s, t, offset)], labels: [] };
+  };
   const near = hover ? new Set([hover, ...links.filter((l) => l.source === hover || l.target === hover)
     .flatMap((l) => [l.source, l.target])]) : null;
   const big = part && (part.types.length > 45 || part.links.length > 250);
@@ -395,7 +506,10 @@ export default function MetamodelDiagram({ model, focus }) {
         <button onClick={() => fit()}>Fit</button>
         <button onClick={() => zoomAt(1.25, frame.current.clientWidth / 2, frame.current.clientHeight / 2)}>+</button>
         <button onClick={() => zoomAt(0.8, frame.current.clientWidth / 2, frame.current.clientHeight / 2)}>−</button>
-        <button onClick={downloadSvg}>Download SVG</button>
+        {Object.keys(moved).length > 0 && <button onClick={() => setMoved({})} title="Put dragged boxes back">Reset layout</button>}
+        <button onClick={downloadSvg}>SVG</button>
+        <button onClick={downloadPng}>PNG</button>
+        <button onClick={downloadDrawio} title="For draw.io, hosted or desktop">.drawio</button>
         <button onClick={copyMermaid}>Copy as Mermaid</button>
       </div>
 
@@ -445,14 +559,14 @@ export default function MetamodelDiagram({ model, focus }) {
               const l = linkOf[e.id];
               if (!l) return null;
               const touches = hover && (l.source === hover || l.target === hover);
-              return <Edge key={e.id} edge={e} link={l} names={names} dim={hover && !touches} hot={touches} showLabel={showLabels} />;
+              return <Edge key={e.id} edge={edgeFor(e, l)} link={l} names={names} dim={hover && !touches} hot={touches} showLabel={showLabels} />;
             })}
-            {graph?.children.map((box) => {
+            {boxes.map((box) => {
               const t = data.entity_types.find((x) => x.id === box.id);
               return t && (
                 <Node key={box.id} t={t} box={box} showAttrs={showAttrs} focused={box.id === focus}
                   dim={near && !near.has(box.id)}
-                  onEnter={() => setHover(box.id)} onLeave={() => setHover(null)}
+                  onEnter={() => setHover(box.id)} onLeave={() => setHover(null)} onGrab={grab(box.id)}
                   onClick={() => { if (!drag.current?.moved) go(`/metamodel/${model}/diagram/${box.id}`); }} />
               );
             })}
@@ -462,7 +576,9 @@ export default function MetamodelDiagram({ model, focus }) {
       <p className="quiet er-info">
         Boxes are entity types with their attributes (* required; every entity also has a display ID, name,
         description, parent, status and history). Lines are the relationships the metamodel allows, from source to
-        target, combined per pair of types. Click a box to focus on it; drag to move; scroll to zoom.
+        target, combined per pair of types. Drag a box to move it, click it to focus on it; drag the background to
+        move around; scroll to zoom. SVG, PNG and .drawio save what you see (.drawio opens in the hosted draw.io and
+        the desktop app).
       </p>
     </div>
   );

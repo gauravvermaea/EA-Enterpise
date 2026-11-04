@@ -110,10 +110,16 @@ export default function Heartbeat() {
       {beat && (
         <table className="facts">
           <tbody>
-            <tr><th>API</th><td><Status ok={beat.status === "ok"}>{beat.status}</Status> version {beat.version} ({beat.deployment})</td></tr>
+            <tr><th>API</th><td><span className={STATUS_CLASS[beat.status] || "status bad"}>{beat.status}</span> version {beat.version} ({beat.deployment})</td></tr>
+            <tr><th>Versions</th><td>
+              API <strong>{beat.version}</strong> · database <strong>{beat.database.version ?? "unknown"}</strong>{" "}
+              {beat.versions_match === true && <span className="status ok">match</span>}
+              {beat.versions_match === false && <span className="status warn">do not match</span>}
+              {beat.warning && <div className="status warn">{beat.warning}</div>}
+            </td></tr>
             <tr><th>Database</th><td><Status ok={beat.database.reachable}>{beat.database.reachable ? "reachable" : "not reachable"}</Status>
               {beat.database.latency_ms != null && ` in ${beat.database.latency_ms} ms`}
-              {beat.database.schema_version && `, schema ${beat.database.schema_version}`}
+              {beat.database.schema_version && `, migration ${beat.database.schema_version}`}
               {beat.database.error && ` (${beat.database.error})`}</td></tr>
             <tr><th>Job queue</th><td>{beat.jobs.waiting ?? "-"} waiting, {beat.jobs.failed ?? "-"} failed</td></tr>
             <tr><th>Checked</th><td>{new Date(beat.time).toLocaleString()}</td></tr>

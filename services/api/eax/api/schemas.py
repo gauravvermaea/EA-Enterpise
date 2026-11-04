@@ -7,6 +7,7 @@ class DatabaseStatus(Schema):
     reachable = fields.Boolean(required=True)
     latency_ms = fields.Float(allow_none=True)
     schema_version = fields.String(allow_none=True, metadata={"description": "Alembic revision"})
+    version = fields.String(allow_none=True, metadata={"description": "Database version (core.schema_versions)"})
     error = fields.String(allow_none=True)
 
 
@@ -16,9 +17,12 @@ class JobQueueStatus(Schema):
 
 
 class Heartbeat(Schema):
-    status = fields.String(required=True, metadata={"description": "ok or degraded"})
+    status = fields.String(required=True, metadata={
+        "description": "ok; warning when the API and database versions differ; degraded when the database cannot be reached"})
     service = fields.String(required=True)
-    version = fields.String(required=True)
+    version = fields.String(required=True, metadata={"description": "API version (version.toml)"})
+    versions_match = fields.Boolean(allow_none=True, metadata={"description": "API version equals database version"})
+    warning = fields.String(allow_none=True)
     deployment = fields.String(required=True)
     time = fields.DateTime(required=True)
     database = fields.Nested(DatabaseStatus, required=True)
@@ -85,9 +89,40 @@ class ModelOut(Schema):
     metamodel_version = fields.Integer()
     is_locked = fields.Boolean(metadata={"description": "read-only (templates and reference models)"})
     status = fields.String()
+    owner = fields.String()
+    lifecycle = fields.String(metadata={"description": "active or archived"})
+    industry = fields.String(metadata={"description": "Reference models: the industry"})
+    version_label = fields.String(metadata={"description": "Reference models: their version"})
+    created_at = fields.DateTime()
+    created_by = fields.String()
+    modified_at = fields.DateTime()
+    modified_by = fields.String()
     entity_type_count = fields.Integer()
     entity_count = fields.Integer()
     relationship_count = fields.Integer()
+
+
+class ModelListQuery(Schema):
+    search = fields.String(load_default=None, metadata={"description": "Text in the name, description, owner or industry"})
+    kind = fields.String(load_default=None, metadata={"description": "template, reference or project"})
+    archived = fields.Boolean(load_default=True, metadata={"description": "Include archived models"})
+
+
+class TypeCountOut(Schema):
+    entity_type = fields.String()
+    layer = fields.String()
+    colour = fields.String()
+    count = fields.Integer()
+
+
+class RelationshipCountOut(Schema):
+    relationship_type = fields.String()
+    count = fields.Integer()
+
+
+class LibraryModelOut(ModelOut):
+    counts_by_type = fields.List(fields.Nested(TypeCountOut))
+    relationship_counts = fields.List(fields.Nested(RelationshipCountOut))
 
 
 class EntityTypeSummary(Schema):
@@ -223,8 +258,31 @@ class RelationshipOut(Schema):
     target_display_id = fields.String()
     target_name = fields.String()
     target_type = fields.String()
-    name = fields.String()
+    name = fields.String(allow_none=True)
     status = fields.String()
+    relationship_type_code = fields.String()
+    source_colour = fields.String()
+    target_colour = fields.String()
+    allowed = fields.Boolean(metadata={"description": "false: the metamodel has no rule allowing it"})
+
+
+class RelationshipListQuery(Schema):
+    type = fields.String(load_default=None, metadata={"description": "Only this relationship type (guid, code, name or verb)"})
+    limit = fields.Integer(load_default=5000, validate=lambda n: 1 <= n <= 20000)
+
+
+class RelationshipTypeSummaryOut(RelationshipTypeOut):
+    allowed_pairs = fields.Integer(metadata={"description": "(source type, target type) pairs the metamodel allows"})
+    relationship_count = fields.Integer(metadata={"description": "Relationships of this type in the model"})
+    outside_rules = fields.Integer(metadata={"description": "Of those, how many the metamodel does not allow"})
+
+
+class RuleResultOut(Schema):
+    field = fields.String(metadata={"description": "Attribute or field name"})
+    code = fields.String(metadata={"description": "Attribute code, or the built-in field (name, description)"})
+    rule = fields.String(metadata={"description": "Rule type code; required = the attribute's required flag"})
+    severity = fields.String(metadata={"description": "error or warning; neither blocks a save"})
+    message = fields.String()
 
 
 class EntityAttributeValueOut(Schema):
@@ -232,27 +290,79 @@ class EntityAttributeValueOut(Schema):
     name = fields.String()
     section = fields.String()
     data_type = fields.String()
+    data_type_name = fields.String()
     unit = fields.String()
     is_required = fields.Boolean()
     value = fields.String(allow_none=True)
+    ref_id = fields.UUID(allow_none=True, metadata={"description": "The linked entity, for entity-link attributes"})
+    ref_type = fields.String(allow_none=True)
+    pick_list_values = fields.List(fields.String())
+    warnings = fields.List(fields.Nested(RuleResultOut))
 
 
 class EntityRelationshipOut(Schema):
     id = fields.UUID()
+    relationship_type_id = fields.UUID()
     relationship_type = fields.String()
+    relationship_type_code = fields.String()
     verb = fields.String()
+    category = fields.String()
     direction = fields.String(metadata={"description": "outgoing (this -> other) or incoming (other -> this)"})
     other_id = fields.UUID()
     other_display_id = fields.String()
     other_name = fields.String()
     other_type = fields.String()
+    other_type_id = fields.UUID()
     other_colour = fields.String()
+    name = fields.String(allow_none=True)
+    status = fields.String()
+    modified_at = fields.DateTime()
+    modified_by = fields.String()
+    allowed = fields.Boolean(metadata={"description": "false: the metamodel has no rule allowing it"})
+
+
+class EntityAllowedOut(Schema):
+    direction = fields.String()
+    relationship_type = fields.String()
+    verb = fields.String()
+    other_type_id = fields.UUID()
+    other_type = fields.String()
 
 
 class EntityRefOut(Schema):
     id = fields.UUID()
     display_id = fields.String()
     name = fields.String()
+
+
+class LineageModelOut(Schema):
+    id = fields.UUID()
+    name = fields.String()
+    kind = fields.String()
+    kind_name = fields.String()
+    version_label = fields.String()
+    is_locked = fields.Boolean()
+    source_model_id = fields.UUID(allow_none=True, metadata={"description": "The model this model was created or copied from"})
+    source_model_name = fields.String(allow_none=True)
+    parent_model_id = fields.UUID(allow_none=True, metadata={"description": "The model this model merges back into"})
+    parent_model_name = fields.String(allow_none=True)
+
+
+class LineageItemOut(Schema):
+    id = fields.UUID()
+    display_id = fields.String()
+    name = fields.String()
+    model_id = fields.UUID()
+    model_name = fields.String()
+    model_version = fields.String()
+    model_kind = fields.String()
+
+
+class LineageOut(Schema):
+    copied_from = fields.Nested(LineageItemOut, allow_none=True, metadata={"description": "The entity this one was copied from"})
+    copied_from_guid = fields.UUID(allow_none=True, metadata={"description": "Its guid, also when you may not read that model"})
+    type_from = fields.Nested(LineageItemOut, allow_none=True, metadata={"description": "The template entity type its type came from"})
+    copies = fields.List(fields.Nested(LineageItemOut), metadata={"description": "Copies of this entity in other models"})
 
 
 class EntityDetailOut(Schema):
@@ -272,9 +382,198 @@ class EntityDetailOut(Schema):
     modified_at = fields.DateTime()
     modified_by = fields.String()
     row_version = fields.Integer()
+    entity_type_code = fields.String()
+    model = fields.Nested(LineageModelOut, metadata={"description": "The model the entity is part of"})
+    lineage = fields.Nested(LineageOut)
     attributes = fields.List(fields.Nested(EntityAttributeValueOut))
+    warnings = fields.List(fields.Nested(RuleResultOut), metadata={"description": "Failed validation rules, errors first"})
     relationships = fields.List(fields.Nested(EntityRelationshipOut))
     children = fields.List(fields.Nested(EntityRefOut))
+    allowed = fields.List(fields.Nested(EntityAllowedOut), metadata={"description": "Relationships the metamodel allows for this entity's type"})
+
+
+class TypeTableColumnOut(Schema):
+    code = fields.String()
+    name = fields.String()
+    data_type = fields.String()
+    unit = fields.String()
+    is_required = fields.Boolean()
+    section = fields.String()
+
+
+class TypeTableRowOut(Schema):
+    id = fields.UUID()
+    display_id = fields.String()
+    name = fields.String()
+    description = fields.String()
+    status = fields.String()
+    parent_id = fields.UUID(allow_none=True)
+    parent_name = fields.String(allow_none=True)
+    modified_at = fields.DateTime()
+    modified_by = fields.String()
+    row_version = fields.Integer()
+    relationship_count = fields.Integer()
+    values = fields.Dict(keys=fields.String(), values=fields.String(), metadata={"description": "Attribute code -> value"})
+    errors = fields.Integer()
+    warnings = fields.Integer()
+    messages = fields.List(fields.String())
+
+
+class TypeTableTypeOut(Schema):
+    id = fields.UUID()
+    code = fields.String()
+    name = fields.String()
+    description = fields.String()
+    aspect = fields.String()
+    id_prefix = fields.String()
+    table_name = fields.String()
+    layer = fields.String()
+    colour = fields.String()
+
+
+class TypeTableOut(Schema):
+    entity_type = fields.Nested(TypeTableTypeOut)
+    columns = fields.List(fields.Nested(TypeTableColumnOut))
+    rows = fields.List(fields.Nested(TypeTableRowOut))
+    rules = fields.Integer(metadata={"description": "Validation rules that apply to this type"})
+
+
+class HistoryChangeOut(Schema):
+    field = fields.String()
+    old = fields.String(allow_none=True)
+    new = fields.String(allow_none=True)
+
+
+class HistoryEventOut(Schema):
+    id = fields.Integer()
+    at = fields.DateTime()
+    by = fields.String()
+    operation = fields.String(metadata={"description": "insert, update or delete"})
+    version = fields.Integer()
+    label = fields.String(allow_none=True)
+    kind = fields.String(metadata={"description": "entity, attribute or relationship"})
+    item = fields.String(allow_none=True)
+    changes = fields.List(fields.Nested(HistoryChangeOut))
+
+
+class EntityHistoryOut(Schema):
+    entity = fields.Nested(EntityRefOut)
+    events = fields.List(fields.Nested(HistoryEventOut))
+    total = fields.Integer()
+
+
+class HistoryQuery(Schema):
+    limit = fields.Integer(load_default=500, validate=lambda n: 1 <= n <= 5000)
+
+
+class GraphQuery(Schema):
+    focus = fields.String(load_default=None, metadata={"description": "An entity (guid, display ID or name): it and its neighbours"})
+    depth = fields.Integer(load_default=1, validate=lambda n: 1 <= n <= 10, metadata={"description": "Steps from the focus: 1 to 3; up to 6 with out, in or split; levels down (up to 10) with tree"})
+    direction = fields.String(load_default="both", validate=lambda d: d in ("both", "out", "in", "split", "tree"),
+                              metadata={"description": "With focus: both, out (impact), in (dependencies), split (in and out together) or tree (parents and parts)"})
+    rel = fields.List(fields.String(), load_default=None, metadata={"description": "Only these relationship types (code, name or verb; Parent for the hierarchy); repeat for several"})
+    type = fields.List(fields.String(), load_default=None, metadata={"description": "Or: every entity of these types; repeat for several"})
+    limit = fields.Integer(load_default=300, validate=lambda n: 1 <= n <= 2000)
+
+
+class GraphNodeOut(Schema):
+    id = fields.UUID()
+    display_id = fields.String()
+    name = fields.String()
+    entity_type = fields.String()
+    entity_type_id = fields.UUID()
+    layer = fields.String()
+    colour = fields.String()
+    layer_order = fields.Integer()
+    focus = fields.Boolean()
+    distance = fields.Integer(allow_none=True, metadata={"description": "Steps from the focus (negative: before it, for split and tree)"})
+    target = fields.Boolean(metadata={"description": "Paths: the entity the paths lead to"})
+
+
+class GraphEdgeOut(Schema):
+    id = fields.UUID()
+    source = fields.UUID()
+    target = fields.UUID()
+    relationship_type_code = fields.String(metadata={"description": "Parent for the parent hierarchy"})
+    relationship_type = fields.String()
+    verb = fields.String()
+    allowed = fields.Boolean()
+
+
+class EntityGraphOut(Schema):
+    model = fields.String()
+    nodes = fields.List(fields.Nested(GraphNodeOut))
+    edges = fields.List(fields.Nested(GraphEdgeOut))
+    truncated = fields.Boolean(metadata={"description": "More entities would have been shown than the limit"})
+    limit = fields.Integer()
+    direction = fields.String()
+    found = fields.Boolean(metadata={"description": "Paths: whether any path was found"})
+    steps = fields.Integer(allow_none=True, metadata={"description": "Paths: steps on the shortest path"})
+    paths = fields.List(fields.List(fields.UUID()), metadata={"description": "Paths: each as the guids of its entities, source first"})
+    source = fields.Nested(EntityRefOut, allow_none=True)
+    target = fields.Nested(EntityRefOut, allow_none=True)
+
+
+class PathQuery(Schema):
+    to = fields.String(required=True, metadata={"description": "The other entity (guid, display ID or name)"})
+    steps = fields.Integer(load_default=6, validate=lambda n: 1 <= n <= 8, metadata={"description": "At most this many steps"})
+    paths = fields.Integer(load_default=10, validate=lambda n: 1 <= n <= 50, metadata={"description": "At most this many paths"})
+    rel = fields.List(fields.String(), load_default=None, metadata={"description": "Only these relationship types (Parent for the hierarchy)"})
+
+
+class AsOfQuery(Schema):
+    event = fields.Integer(load_default=None, metadata={"description": "A history event id (from .../history): the entity just after it"})
+    at = fields.DateTime(load_default=None, metadata={"description": "Or a time: the entity as it was then"})
+
+
+class AsOfPointOut(Schema):
+    event_id = fields.Integer()
+    at = fields.DateTime()
+    by = fields.String()
+    position = fields.Integer(metadata={"description": "Which recorded change this is, from the first"})
+    of = fields.Integer()
+    is_current = fields.Boolean()
+
+
+class AsOfValueOut(Schema):
+    code = fields.String()
+    field = fields.String()
+    name = fields.String()
+    section = fields.String()
+    then = fields.String(allow_none=True)
+    now = fields.String(allow_none=True)
+    changed = fields.Boolean()
+
+
+class AsOfRelationshipOut(Schema):
+    id = fields.UUID(allow_none=True)
+    relationship_type = fields.String()
+    verb = fields.String()
+    direction = fields.String()
+    other_id = fields.UUID(allow_none=True)
+    other_name = fields.String()
+    other_display_id = fields.String(allow_none=True)
+    other_type = fields.String(allow_none=True)
+    other_colour = fields.String(allow_none=True)
+    relationship_type_code = fields.String(allow_none=True)
+    still_there = fields.Boolean()
+
+
+class AsOfEntityOut(Schema):
+    id = fields.UUID()
+    display_id = fields.String()
+    name = fields.String()
+    entity_type = fields.String()
+    model = fields.Nested(LineageModelOut)
+
+
+class EntityAsOfOut(Schema):
+    entity = fields.Nested(AsOfEntityOut)
+    as_of = fields.Nested(AsOfPointOut)
+    fields_ = fields.List(fields.Nested(AsOfValueOut), data_key="fields", attribute="fields")
+    attributes = fields.List(fields.Nested(AsOfValueOut))
+    relationships = fields.List(fields.Nested(AsOfRelationshipOut), metadata={"description": "Its relationships then"})
+    added_since = fields.List(fields.Nested(AsOfRelationshipOut), metadata={"description": "Relationships it has now that it did not have then"})
 
 
 class DiagramAttributeOut(Schema):

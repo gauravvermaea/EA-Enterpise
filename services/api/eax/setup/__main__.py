@@ -27,6 +27,7 @@ RENDERED = Path(os.environ.get("EAX_RENDERED_OUT", "/rendered"))
 
 REQUIRED = [
     "EAX_HOSTNAME", "EAX_DB_SUPERUSER_PASSWORD", "EAX_DB_PASSWORD", "EAX_DB_REPORT_PASSWORD",
+    "EAX_DB_MIGRATOR_PASSWORD",
     "EAX_KEYCLOAK_DB_PASSWORD", "EAX_SUPERSET_DB_PASSWORD", "EAX_MAYAN_DB_PASSWORD",
     "EAX_DMS_BROKER_PASSWORD", "EAX_KC_ADMIN_PASSWORD", "EAX_FIRST_ADMIN_USER",
     "EAX_FIRST_ADMIN_EMAIL", "EAX_FIRST_ADMIN_PASSWORD", "EAX_SUPERSET_SECRET_KEY",
@@ -111,6 +112,7 @@ def print_logins(values: dict[str, str]) -> None:
         ("PostgreSQL superuser", "postgres", v("EAX_DB_SUPERUSER_PASSWORD")),
         ("PostgreSQL EA Explorer", "eax_app", v("EAX_DB_PASSWORD")),
         ("PostgreSQL reporting", "eax_report", v("EAX_DB_REPORT_PASSWORD")),
+        ("PostgreSQL installer (reference models)", "eax_migrator", v("EAX_DB_MIGRATOR_PASSWORD")),
         ("PostgreSQL Keycloak", "keycloak", v("EAX_KEYCLOAK_DB_PASSWORD")),
         ("PostgreSQL Superset", "superset", v("EAX_SUPERSET_DB_PASSWORD")),
         ("PostgreSQL Mayan", "mayan", v("EAX_MAYAN_DB_PASSWORD")),

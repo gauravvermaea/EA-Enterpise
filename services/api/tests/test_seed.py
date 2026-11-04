@@ -38,7 +38,22 @@ def test_every_sample_attribute_applies_to_its_type():
 
 def test_seed_sql_shape():
     sql = build.seed_sql(with_template=True, with_sample=True)
-    assert sql.count("INSERT INTO core.models") == 2
+    assert sql.count("INSERT INTO core.models") == 3  # template, insurance reference model, sample
     assert "INSERT INTO core.allowed_relationships" in sql
     assert "origin_guid" in sql
     assert "'sample-insurance'" not in sql  # keys are guids, never raw names
+
+
+def test_insurance_reference_model_is_consistent():
+    """Every relationship is allowed by ArchiMate 4, every parent exists, nothing names Meridian."""
+    from eax.seed import insurance as I
+    allowed = {(s, r, t) for s, r, t, _ in build.expand_allowed()}
+    types = {key: type_code for key, type_code, *_ in I.ENTITIES}
+    assert len(types) == len(I.ENTITIES), "keys are unique"
+    for src, rel, tgt, _name in I.RELATIONSHIPS:
+        assert (types[src], rel, types[tgt]) in allowed, (src, rel, tgt)
+    for key, _t, name, desc, parent, attrs in I.ENTITIES:
+        assert parent is None or parent in types, key
+        assert "meridian" not in f"{name} {desc}".lower(), key
+        mapped = {a for a, *_ in A.MAP[_t]}
+        assert set(attrs) <= mapped, (key, set(attrs) - mapped)

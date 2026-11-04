@@ -34,6 +34,9 @@ class Settings:
     db_name: str = field(default_factory=lambda: _env("EAX_DB_NAME", "eaexplorer"))
     db_user: str = field(default_factory=lambda: _env("EAX_DB_USER", "eax_app"))
     db_password: str = field(default_factory=lambda: _env("EAX_DB_PASSWORD"))
+    # the installer's login: loads and changes locked reference models (seed step only)
+    db_migrator_user: str = field(default_factory=lambda: _env("EAX_DB_MIGRATOR_USER", "eax_migrator"))
+    db_migrator_password: str = field(default_factory=lambda: _env("EAX_DB_MIGRATOR_PASSWORD"))
 
     keycloak_internal_url: str = field(
         default_factory=lambda: _env("EAX_KEYCLOAK_INTERNAL_URL", "http://keycloak:8080/auth")
@@ -58,6 +61,13 @@ class Settings:
         return (
             f"host={self.db_host} port={self.db_port} dbname={self.db_name} "
             f"user={_conninfo_quote(self.db_user)} password={_conninfo_quote(self.db_password)}"
+        )
+
+    @property
+    def migrator_conninfo(self) -> str:
+        return (
+            f"host={self.db_host} port={self.db_port} dbname={self.db_name} "
+            f"user={_conninfo_quote(self.db_migrator_user)} password={_conninfo_quote(self.db_migrator_password)}"
         )
 
     @property

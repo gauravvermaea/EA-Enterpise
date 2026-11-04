@@ -5,26 +5,24 @@ Tick an item (`[x]`) when it is done; remove it at the next tidy-up.
 
 ## Waiting on a test (Gaurav)
 
-- [ ] **Accept phase 1.** Go through the demo and checks in [phase-1.md](phase-1.md): model pages,
-  ER diagram, SQL window (`eax.get_entity`), `tests/sql/phase1_checks.sql`.
-- [ ] **Connect Claude Desktop to the MCP server.** Claude Code is connected (4 Nov 2026). For
-  Claude Desktop: Settings > Developer > Edit Config, add the `eaexplorer` block from
-  [mcp.md](mcp.md) (needs Node.js 18+), quit Claude Desktop fully and restart. If it does not
-  start, use `"command": "cmd"` with `"args": ["/c", "npx", ...]`.
-- [ ] **Phase 0 checks not yet run:** Swagger, audit log, Superset sample dashboard, Mayan upload,
-  backup and scratch restore, database not exposed ([phase-0.md](phase-0.md), demo checklist).
+- [x] **Accept phase 1** (accepted 4 Nov 2026).
+- [x] **Accept phase 2** (accepted 4 Nov 2026; checks passed, MCP tried from Claude Code).
+- [ ] **Look at 0.2.1** (rest of phase 2): `.\eax clean-run`, `sample_history.sql`, then "Try it" in
+  [phase-2.md](phase-2.md): picture kinds, .drawio, timeline, lineage, CSV.
+- [x] **Role and permission model agreed** (4 Nov 2026, D58-D63): see the Roles sheet of the requirements
+  workbook and phase 3.1 in the plan. Still to agree before phase 3.1 (marked "?" in the Roles sheet):
+  who changes the metamodel (Model Admin only, or Architects too?) and whether the Model Admin also
+  edits and commits content.
+
+## Next version (phase 3)
+
+- [ ] **SQL window read-only** (asked 4 Nov 2026): remove *Allow changes*; every run is rolled back
+  at the end, whoever signs in. Changes go through the screens, the API or `psql` in the db container.
 
 ## Waiting on input (Gaurav)
 
 - [ ] **Repository set-up files** for project setup (PRJ-004, build phase 16.1): share the files
   that define a project's repository structure and starter material.
-- [ ] **Source for the cross-industry reference model** (build phase 2): Meridian Assurance content
-  from the TOGAF project, or another source.
-
-## Decisions to make
-
-- [ ] **Metamodel graph (phase 2):** add dragging, PNG and .drawio export to the ER diagram tab
-  (proposed), or build a separate graph view.
 
 ## Platform follow-ups (from phase 0)
 

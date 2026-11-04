@@ -18,10 +18,14 @@ import uuid
 from datetime import date
 
 from . import archimate4 as A
+from . import insurance as INS
 
 NAMESPACE = uuid.UUID("6f4c2a52-2b0e-4b5e-9d63-6b0c0e7a1000")
 TEMPLATE_KEY = "archimate4-template"
 SAMPLE_KEY = "sample-insurance"
+# Reference models: the key includes the version, so a new version is a new model beside the old one
+INSURANCE_KEY = "insurance-reference-1.0"
+INSURANCE_VERSION = "1.0"
 
 
 def gid(*parts: str) -> str:
@@ -31,6 +35,7 @@ def gid(*parts: str) -> str:
 
 TEMPLATE_ID = gid("model", TEMPLATE_KEY)
 SAMPLE_ID = gid("model", SAMPLE_KEY)
+INSURANCE_ID = gid("model", INSURANCE_KEY)
 
 # Workbench data type names -> core.data_types codes
 DATA_TYPES = {
@@ -264,18 +269,64 @@ def sample_content_sql() -> str:
                                       "target_entity_id"], rels))
 
 
-def seed_sql(with_template: bool = True, with_sample: bool = True) -> str:
-    """What to load, as one script (run in one transaction). The sample needs the template."""
+def insurance_content_sql() -> str:
+    """The insurance reference model's entities, attribute values, parents and relationships."""
+    m, k = INSURANCE_ID, INSURANCE_KEY
+    dtype = {code: DATA_TYPES[dt] for code, _n, dt, *_ in A.ATTRS}
+    ents, vals, parents, rels = [], [], [], []
+    for key, type_code, name, desc, parent, attrs in INS.ENTITIES:
+        e = gid(k, "entity", key)
+        ents.append([e, m, gid(k, "entity_type", type_code), name, desc])
+        if parent:
+            parents.append((e, gid(k, "entity", parent)))
+        for attr, value in attrs.items():
+            row = {"value_text": None, "value_number": None, "value_date": None}
+            row[STORAGE[dtype[attr]]] = value
+            vals.append([gid(k, "attribute_value", key, attr), m, gid(k, "attribute_type", attr), e,
+                         row["value_text"], row["value_number"], row["value_date"]])
+    for src, rel, tgt, name in INS.RELATIONSHIPS:
+        rels.append([gid(k, "relationship", src, rel, tgt), m, gid(k, "relationship_type", rel),
+                     gid(k, "entity", src), gid(k, "entity", tgt), name])
+    # parents after every entity exists (one INSERT cannot point at rows it is still adding)
+    parent_sql = ("UPDATE core.entities c SET parent_entity_id = p.id\nFROM (VALUES\n"
+                  + ",\n".join(f"    ('{c}'::uuid, '{p}'::uuid)" for c, p in parents)
+                  + "\n) AS v (child, parent)\nJOIN core.entities p ON p.guid = v.parent\n"
+                  "WHERE c.guid = v.child;\n") if parents else ""
+    return (insert("entity", ["id", "model_id", "entity_type_id", "name", "description"], ents)
+            + parent_sql
+            + insert("attribute_value", ["id", "model_id", "attribute_type_id", "entity_id",
+                                         "value_text", "value_number", "value_date"], vals)
+            + insert("relationship", ["id", "model_id", "relationship_type_id", "source_entity_id",
+                                      "target_entity_id", "name"], rels))
+
+
+def seed_sql(with_template: bool = True, with_sample: bool = True, with_insurance: bool = True) -> str:
+    """What to load, as one script (run in one transaction, by the installer's login eax_migrator,
+    because templates and reference models are locked). The others need the template."""
     parts = ["SELECT set_config('eax.actor', 'system:seed', true);\n"]
     if with_template:
         parts += [
             "SELECT set_config('eax.history_label', 'ArchiMate 4 seed', true);\n",
-            insert("model", ["id", "name", "description", "kind_code", "metamodel_name", "is_locked"], [[
+            insert("model", ["id", "name", "description", "kind_code", "metamodel_name", "is_locked", "owner"], [[
                 TEMPLATE_ID, "ArchiMate 4",
                 "The ArchiMate 4 starter metamodel: 42 elements, 11 relationship types and the allowed "
                 "relationships. Read-only; new models start from it.",
-                "template", "ArchiMate 4", True]]),
+                "template", "ArchiMate 4", True, "EA Explorer"]]),
             metamodel_sql(TEMPLATE_KEY, None),
+        ]
+    if with_insurance:
+        parts += [
+            "SELECT set_config('eax.history_label', 'Insurance reference model', true);\n",
+            insert("model", ["id", "origin_id", "name", "description", "kind_code", "source_model_id",
+                             "metamodel_name", "is_locked", "owner", "industry", "version_label"], [[
+                INSURANCE_ID, TEMPLATE_ID, "Insurance reference model",
+                "Industry reference model for a generic insurer (life, funeral and short-term): "
+                "capabilities to level 4, value streams, business services, processes and functions, "
+                "products, business objects, application services, actors and roles, on ArchiMate 4. "
+                "Read-only: copy it to start a model.",
+                "reference", TEMPLATE_ID, "ArchiMate 4", True, "EA Explorer", "Insurance", INSURANCE_VERSION]]),
+            metamodel_sql(INSURANCE_KEY, TEMPLATE_KEY),
+            insurance_content_sql(),
         ]
     if with_sample:
         parts += [

@@ -1,187 +1,90 @@
-// Models, their metamodel and their content (build phase 1, read only).
-//   #/metamodel                        every model, as links
-//   #/metamodel/<model>                the model: entities and relationships, or its metamodel
-//   #/metamodel/<model>/entity/<id>    one entity, with its attributes and relationships
-//   #/metamodel/<model>/type/<id>      one entity type, with its attributes, rules and allowed relationships
-//   #/metamodel/<model>/diagram[/<id>]  the metamodel as an ER diagram (MetamodelDiagram.jsx)
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
-import { apiFetch, keycloak } from "./auth";
+// Models, their metamodel and their content (read only until build phase 6).
+//   #/metamodel                          every model
+//   #/metamodel/<model>[/types]          tab Entity types (ModelViews.jsx), the default for models with content
+//   #/metamodel/<model>/types/<id>       the entities of one type as a table
+//   #/metamodel/<model>/rels[/<id>]      tab Relationship types, and the relationships of one type
+//   #/metamodel/<model>/graph            tab Graph: entities and their relationships
+//   #/metamodel/<model>/entity/<id>[/relations|/history|/graph]   one entity
+//   #/metamodel/<model>/metamodel        tab Metamodel: layers, entity types, relationship types
+//   #/metamodel/<model>/type/<id>        one entity type's definition: attributes, rules, allowed relationships
+//   #/metamodel/<model>/diagram[/<id>]   tab ER diagram (MetamodelDiagram.jsx)
+import { lazy, Suspense, useState } from "react";
+import { keycloak } from "./auth";
+import { CopyButton, LockBadge } from "./Library";
+import {
+  CsvButton, EntityPage, EntityTypesTab, GraphTab, Later, RelationshipsOfType, RelationshipTypesTab, Swatch, TypeEntitiesTable, useApi,
+} from "./ModelViews";
 
 // the diagram and its layout library load only when the ER diagram tab is opened
 const MetamodelDiagram = lazy(() => import("./MetamodelDiagram"));
 
 const go = (path) => { window.location.hash = path; };
 
-function Swatch({ colour }) {
-  return <span className="swatch" style={{ background: `#${colour || "eee"}` }} />;
-}
-
-function useApi(path) {
-  const [state, setState] = useState({ data: null, error: null });
-  useEffect(() => {
-    if (!path) return;
-    let live = true;
-    setState({ data: null, error: null });
-    apiFetch(path)
-      .then((data) => live && setState({ data, error: null }))
-      .catch((e) => live && setState({ data: null, error: e.message }));
-    return () => { live = false; };
-  }, [path]);
-  return state;
-}
-
 // ---------------------------------------------------------------- model list
+const KINDS = [["", "All kinds"], ["template", "Templates"], ["reference", "Reference models"], ["project", "Project models"]];
+
 function ModelList() {
-  const { data: models, error } = useApi("/api/v1/models");
+  const [search, setSearch] = useState("");
+  const [kind, setKind] = useState("");
+  const [archived, setArchived] = useState(false);
+  const q = new URLSearchParams();
+  if (search.trim()) q.set("search", search.trim());
+  if (kind) q.set("kind", kind);
+  if (!archived) q.set("archived", "false");
+  const { data: models, error } = useApi(`/api/v1/models?${q}`);
   return (
     <section>
-      <h1>Models and metamodels</h1>
-      <p className="quiet">Read only in this build. Open a model to see its entities, relationships and metamodel.</p>
+      <h1>Models</h1>
+      <p className="quiet">
+        Every model you may open. Reference models are also in the <a href="#/library">model library</a>.
+      </p>
+      <div className="toolbar">
+        <input className="search" style={{ maxWidth: 320 }} placeholder="Search name, description, owner, industry"
+          value={search} onChange={(e) => setSearch(e.target.value)} />
+        <select value={kind} onChange={(e) => setKind(e.target.value)}>
+          {KINDS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+        <label><input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} /> Show archived</label>
+        {models && <CsvButton name="EA Explorer models" rows={() => [["Model", "Version", "Kind", "Industry", "Owner", "Status", "Locked", "Created from", "Merges into", "Entity types", "Entities", "Relationships", "Changed"],
+          ...models.map((m) => [m.name, m.version_label, m.kind_name, m.industry, m.owner, m.lifecycle, m.is_locked ? "yes" : "", m.source_model_name, m.parent_model_name,
+            m.entity_type_count, m.entity_count, m.relationship_count, m.modified_at])]} />}
+      </div>
       {error && <p className="status bad">{error}</p>}
       {!models && !error && <p>Loading...</p>}
-      <div className="grid">
-        {models?.map((m) => (
-          <a key={m.id} className="tile live" href={`#/metamodel/${m.id}`}>
-            <h3>{m.name}</h3>
-            <p>{m.description}</p>
-            <span className="badge">
-              {m.kind_name}{m.is_locked ? " · read-only" : ""} · {m.metamodel_name} · {m.entity_type_count} types
-              {m.kind !== "template" && ` · ${m.entity_count} entities · ${m.relationship_count} relationships`}
-            </span>
-          </a>
-        ))}
-      </div>
+      {models && (
+        <div className="scroll">
+          <table className="grid-table models-table">
+            <thead><tr><th>Model</th><th>Kind</th><th>Owner</th><th>Status</th><th>Types</th><th>Entities</th><th>Relationships</th><th>Changed</th></tr></thead>
+            <tbody>
+              {models.map((m) => (
+                <tr key={m.id}>
+                  <td>
+                    <a href={`#/metamodel/${m.id}`}><strong>{m.name}</strong></a>
+                    {m.version_label && <span className="quiet"> {m.version_label}</span>}
+                    {m.is_locked && <span className="quiet" title="Locked: read-only"> 🔒</span>}
+                    <br /><span className="quiet">{m.industry && `${m.industry} · `}{m.metamodel_name}
+                      {m.parent_model_name && ` · merges into ${m.parent_model_name}`}</span>
+                  </td>
+                  <td>{m.kind_name}</td>
+                  <td>{m.owner || <span className="quiet">-</span>}</td>
+                  <td>{m.lifecycle}</td>
+                  <td className="num">{m.entity_type_count}</td>
+                  <td className="num">{m.kind === "template" ? "-" : m.entity_count}</td>
+                  <td className="num">{m.kind === "template" ? "-" : m.relationship_count}</td>
+                  <td className="quiet">{new Date(m.modified_at).toLocaleDateString()}</td>
+                </tr>
+              ))}
+              {!models.length && <tr><td colSpan="8" className="quiet">No models match.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   );
 }
 
-// ---------------------------------------------------------------- entities and relationships
 function EntityLink({ model, id, children }) {
   return <a href={`#/metamodel/${model}/entity/${id}`}>{children}</a>;
-}
-
-function EntityDetail({ model, entityId }) {
-  const { data: e, error } = useApi(`/api/v1/models/${model}/entities/${entityId}`);
-  if (error) return <p className="status bad">{error}</p>;
-  if (!e) return <p>Loading...</p>;
-  const filled = e.attributes.filter((a) => a.value !== null && a.value !== "");
-  const empty = e.attributes.filter((a) => a.value === null || a.value === "");
-  const out = e.relationships.filter((r) => r.direction === "outgoing");
-  const inc = e.relationships.filter((r) => r.direction === "incoming");
-  return (
-    <div>
-      <h2><Swatch colour={e.colour} /> {e.name}</h2>
-      <p className="quiet">
-        {e.display_id} · {e.entity_type} ({e.layer}) · {e.status} · version {e.row_version}, changed by {e.modified_by}
-      </p>
-      {e.description && <p>{e.description}</p>}
-      {e.parent_name && <p>Part of <EntityLink model={model} id={e.parent_id}>{e.parent_name}</EntityLink></p>}
-
-      <h3>Attributes</h3>
-      <table className="grid-table">
-        <tbody>
-          {filled.map((a) => (
-            <tr key={a.code}><th>{a.name}</th><td>{a.value}{a.unit && ` ${a.unit}`}</td></tr>
-          ))}
-          {!filled.length && <tr><td className="quiet">No attribute values yet.</td></tr>}
-        </tbody>
-      </table>
-      {empty.length > 0 && <p className="quiet">Not filled in: {empty.map((a) => a.name).join(", ")}.</p>}
-
-      <h3>Relationships ({e.relationships.length})</h3>
-      {!e.relationships.length && <p className="quiet">None yet.</p>}
-      {e.relationships.length > 0 && (
-        <table className="grid-table">
-          <thead><tr><th>Relationship</th><th>Entity</th><th>Type</th></tr></thead>
-          <tbody>
-            {[...out, ...inc].map((r) => (
-              <tr key={`${r.id}-${r.direction}`}>
-                <td>{r.direction === "outgoing" ? `${e.name} ${r.verb} →` : `← ${r.verb} ${e.name}`}</td>
-                <td><Swatch colour={r.other_colour} /> <EntityLink model={model} id={r.other_id}>{r.other_name}</EntityLink>
-                  <span className="quiet"> {r.other_display_id}</span></td>
-                <td>{r.other_type}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-      {e.children.length > 0 && (
-        <>
-          <h3>Parts ({e.children.length})</h3>
-          <ul>{e.children.map((c) => <li key={c.id}><EntityLink model={model} id={c.id}>{c.name}</EntityLink> <span className="quiet">{c.display_id}</span></li>)}</ul>
-        </>
-      )}
-    </div>
-  );
-}
-
-function AllRelationships({ model }) {
-  const { data, error } = useApi(`/api/v1/models/${model}/relationships`);
-  if (error) return <p className="status bad">{error}</p>;
-  if (!data) return <p>Loading...</p>;
-  if (!data.length) return <p className="quiet">No relationships in this model yet.</p>;
-  return (
-    <div className="scroll">
-      <table className="grid-table">
-        <thead><tr><th>Source</th><th>Relationship</th><th>Target</th></tr></thead>
-        <tbody>
-          {data.map((r) => (
-            <tr key={r.id}>
-              <td><EntityLink model={model} id={r.source_id}>{r.source_name}</EntityLink><br /><span className="quiet">{r.source_type}</span></td>
-              <td>{r.verb}<br /><span className="quiet">{r.relationship_type}</span></td>
-              <td><EntityLink model={model} id={r.target_id}>{r.target_name}</EntityLink><br /><span className="quiet">{r.target_type}</span></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function Content({ model, entityId }) {
-  const { data: entities, error } = useApi(`/api/v1/models/${model}/entity-list`);
-  const [filter, setFilter] = useState("");
-  const groups = useMemo(() => {
-    const f = filter.trim().toLowerCase();
-    const out = [];
-    for (const e of entities || []) {
-      if (f && !`${e.name} ${e.display_id} ${e.entity_type}`.toLowerCase().includes(f)) continue;
-      let g = out.find((x) => x.type === e.entity_type);
-      if (!g) out.push(g = { type: e.entity_type, colour: e.colour, items: [] });
-      g.items.push(e);
-    }
-    return out;
-  }, [entities, filter]);
-
-  if (error) return <p className="status bad">{error}</p>;
-  if (!entities) return <p>Loading...</p>;
-  if (!entities.length) return <p className="quiet">This model has no entities yet. Data entry arrives in build phase 6.</p>;
-  return (
-    <div className="mm">
-      <div className="layers">
-        <input className="search" placeholder="Filter entities" value={filter} onChange={(e) => setFilter(e.target.value)} />
-        <a href={`#/metamodel/${model}/relationships`} className="quiet">All relationships</a>
-        {groups.map((g) => (
-          <div key={g.type} className="layer">
-            <h3><Swatch colour={g.colour} /> {g.type} <span className="count">{g.items.length}</span></h3>
-            <ul>
-              {g.items.map((e) => (
-                <li key={e.id}>
-                  <a href={`#/metamodel/${model}/entity/${e.id}`} className={e.id === entityId ? "current" : ""}>{e.name}</a>
-                  <span className="count" title="relationships">{e.relationship_count}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-      </div>
-      <div className="detail">
-        {entityId === "relationships" ? <><h2>All relationships</h2><AllRelationships model={model} /></>
-          : entityId ? <EntityDetail model={model} entityId={entityId} />
-          : <p className="quiet">Choose an entity on the left, or open <a href={`#/metamodel/${model}/relationships`}>all relationships</a>.</p>}
-      </div>
-    </div>
-  );
 }
 
 // ---------------------------------------------------------------- metamodel
@@ -231,10 +134,13 @@ function TypeDetail({ model, typeId, holdsContent }) {
         <a href={`#/metamodel/${model}/diagram/${typeId}`}>show in the ER diagram</a>
       </p>
       {holdsContent && list && (
-        <p>{list.length ? <>Entities: {list.map((e, i) => <span key={e.id}>{i > 0 && ", "}<EntityLink model={model} id={e.id}>{e.name}</EntityLink></span>)}</>
-          : <span className="quiet">No {t.name} entities in this model yet.</span>}</p>
+        <p>{list.length ? <a href={`#/metamodel/${model}/types/${typeId}`}>{list.length} {t.name} entities in this model: open the table</a>
+          : <span className="quiet">No {t.name} entities in this model yet.</span>}
+          {list.length > 0 && list.length <= 12 && <span className="quiet"> ({list.map((e, i) => <span key={e.id}>{i > 0 && ", "}<EntityLink model={model} id={e.id}>{e.name}</EntityLink></span>)})</span>}</p>
       )}
-      <h3>Attributes</h3>
+      <h3>Attributes <CsvButton name={`${t.name} - definition`} rows={() => [["Attribute", "Column", "Type", "Unit", "Required", "Section", "Values"],
+        ...t.attributes.map((a) => [a.name, a.column_name, a.data_type_name, a.unit, a.is_required ? "yes" : "", a.section, a.pick_list_values.join("; ")]),
+        [], ["Rule field", "Rule", "Param 1", "Param 2", "Severity", "Message"], ...t.rules.map((r) => [r.field, r.rule, r.param1, r.param2, r.severity, r.message])]} /></h3>
       <p className="quiet">Every entity also has a display ID, name, description, parent, status and history.</p>
       <table className="grid-table">
         <thead><tr><th>Attribute</th><th>Type</th><th>Required</th><th>Section</th><th>Values</th></tr></thead>
@@ -265,11 +171,21 @@ function TypeDetail({ model, typeId, holdsContent }) {
   );
 }
 
-function MetamodelView({ model, typeId, holdsContent }) {
+function MetamodelView({ model, m, typeId, holdsContent }) {
   const { data: mm, error } = useApi(`/api/v1/models/${model}/metamodel`);
   if (error) return <p className="status bad">{error}</p>;
   if (!mm) return <p>Loading...</p>;
   return (
+    <>
+    <div className="toolbar">
+      <span className="quiet">The definition of this model: what may be stored and how it is checked.</span>
+      <span className="er-spacer" />
+      <Later label="+ Entity type" phase={3} model={m} what="Adding an entity type" />
+      <Later label="+ Attribute" phase={3} model={m} what="Adding an attribute" />
+      <Later label="+ Relationship type" phase={3} model={m} what="Adding a relationship type" />
+      <Later label="+ Mapping" phase={3} model={m} what="Adding a mapping (an allowed relationship between two entity types)" />
+      <Later label="+ Rule" phase={3} model={m} what="Adding a validation rule" />
+    </div>
     <div className="mm">
       <div className="layers">
         {mm.layers.map((l) => (
@@ -295,45 +211,62 @@ function MetamodelView({ model, typeId, holdsContent }) {
           : <p className="quiet">Choose an entity type on the left.</p>}
       </div>
     </div>
+    </>
   );
 }
 
 // ---------------------------------------------------------------- one model
-function ModelPage({ model, view, itemId }) {
+function ModelPage({ model, view, itemId, sub }) {
   const { data: m, error } = useApi(`/api/v1/models/${model}`);
+  const [showProps, setShowProps] = useState(false);
   if (error) return <section><p className="status bad">{error}</p><a href="#/metamodel">All models</a></section>;
   if (!m) return <section><p>Loading...</p></section>;
   const holdsContent = m.kind !== "template";
-  const tab = view === "type" || view === "diagram" || view === "metamodel" || !holdsContent ? "metamodel" : (view || "content");
-  const diagram = view === "diagram";
+  const v = view === "relationships" ? "rels" : view;   // older links
+  const tab = !v ? (holdsContent ? "types" : "metamodel")
+    : v === "type" ? "metamodel" : v === "entity" ? "types" : v;
+  const tabs = [
+    ...(holdsContent ? [["types", "Entity types", m.entity_type_count], ["rels", "Relationship types", null], ["graph", "Graph", null]] : []),
+    ["metamodel", "Metamodel", null], ["diagram", "ER diagram", null],
+  ];
   return (
-    <section>
-      <p className="quiet"><a href="#/metamodel">Models</a> / {m.name}</p>
-      <h1>{m.name}</h1>
+    <section className="model-page">
+      <p className="quiet"><a href="#/metamodel">Models</a>{m.kind === "reference" && <> · <a href="#/library">Library</a></>} / {m.name}</p>
+      <div className="model-head">
+        <h1>{m.name} {m.version_label && <span className="quiet">{m.version_label}</span>}</h1>
+        <LockBadge model={m} />
+        {m.is_locked && <CopyButton />}
+        <button className="linkish" onClick={() => setShowProps((x) => !x)}>{showProps ? "Hide details" : "Details"}</button>
+      </div>
       <p className="quiet">
         {m.kind_name}{m.is_locked ? " · read-only" : ""} · {m.metamodel_name} · {m.entity_type_count} entity types
         {holdsContent && ` · ${m.entity_count} entities · ${m.relationship_count} relationships`}
-        {m.source_model_name && ` · created from ${m.source_model_name}`}
-        {m.parent_model_name && ` · merges into ${m.parent_model_name}`}
       </p>
-      <div className="tabs">
-        {holdsContent && (
-          <button className={tab !== "metamodel" ? "tab on" : "tab"} onClick={() => go(`/metamodel/${model}`)}>
-            Entities and relationships
-          </button>
-        )}
-        <button className={tab === "metamodel" && !diagram ? "tab on" : "tab"} onClick={() => go(`/metamodel/${model}/metamodel`)}>
-          Metamodel
-        </button>
-        <button className={diagram ? "tab on" : "tab"} onClick={() => go(`/metamodel/${model}/diagram`)}>
-          ER diagram
-        </button>
+      {showProps && (
+        <div className="model-props-box">
+          {m.description && <p>{m.description}</p>}
+          <p className="quiet">
+            Owner {m.owner || "-"} · {m.lifecycle}{m.industry && ` · ${m.industry}`}
+            {m.source_model_id && <> · created from <a href={`#/metamodel/${m.source_model_id}`}>{m.source_model_name}</a></>}
+            {m.parent_model_id && <> · merges into <a href={`#/metamodel/${m.parent_model_id}`}>{m.parent_model_name}</a></>} ·
+            created {new Date(m.created_at).toLocaleDateString()} by {m.created_by} ·
+            changed {new Date(m.modified_at).toLocaleDateString()} by {m.modified_by}
+          </p>
+        </div>
+      )}
+      <div className="tabs" role="tablist">
+        {tabs.map(([k, label]) => (
+          <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "tab on" : "tab"} onClick={() => go(`/metamodel/${model}/${k}`)}>{label}</button>
+        ))}
       </div>
-      {diagram
-        ? <Suspense fallback={<p>Loading the diagram...</p>}><MetamodelDiagram model={model} focus={itemId || null} /></Suspense>
-        : tab === "metamodel"
-        ? <MetamodelView model={model} typeId={view === "type" ? itemId : null} holdsContent={holdsContent} />
-        : <Content model={model} entityId={view === "entity" ? itemId : view === "relationships" ? "relationships" : null} />}
+      <div className="tab-panel" role="tabpanel">
+      {v === "entity" && itemId ? <EntityPage model={model} m={m} entityId={itemId} sub={sub} />
+        : tab === "types" ? (itemId ? <TypeEntitiesTable model={model} m={m} typeId={itemId} /> : <EntityTypesTab model={model} m={m} />)
+        : tab === "rels" ? (itemId ? <RelationshipsOfType model={model} m={m} relTypeId={itemId} /> : <RelationshipTypesTab model={model} m={m} />)
+        : tab === "graph" ? <GraphTab model={model} kind={itemId} />
+        : tab === "diagram" ? <Suspense fallback={<p>Loading the diagram...</p>}><MetamodelDiagram model={model} focus={itemId || null} /></Suspense>
+        : <MetamodelView model={model} m={m} typeId={v === "type" ? itemId : null} holdsContent={holdsContent} />}
+      </div>
     </section>
   );
 }
@@ -348,7 +281,7 @@ export default function Metamodel({ route }) {
       </section>
     );
   }
-  // #/metamodel/<model>/<view>/<id>
-  const [, , model, view, itemId] = (route || "").replace(/^#/, "").split("/");
-  return model ? <ModelPage model={model} view={view} itemId={itemId} /> : <ModelList />;
+  // #/metamodel/<model>/<view>/<id>/<sub>
+  const [, , model, view, itemId, sub] = (route || "").replace(/^#/, "").split("/");
+  return model ? <ModelPage model={model} view={view} itemId={itemId} sub={sub} /> : <ModelList />;
 }

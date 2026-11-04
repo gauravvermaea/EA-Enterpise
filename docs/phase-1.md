@@ -4,6 +4,15 @@ Goal: see the initial metamodel in the browser before any data can be entered.
 Requirements: MM-003 (layers), MM-004 (attribute data types), MM-011 (ArchiMate 4 starter
 metamodel), REP-017 (typed storage of attribute values), UI-002 (browse by layer and type).
 
+## Status: accepted on 4 November 2026
+
+Built, run on Windows with Docker Desktop, and pushed to GitHub. Delivered beyond the original
+phase 1 scope: the ER diagram tab, the SQL window with its table diagram, caller-named
+`get_entity` tables, the service health API, plural table names, a model hierarchy of any depth,
+and a start page that shows nothing before sign-in. Open follow-ups are in [todo.md](todo.md).
+From phase 2 on, database changes come as new numbered migrations (`0003_...`); the phase 1
+scripts are no longer edited.
+
 ## What phase 1 delivers
 
 - **The repository database** (migration `0002_metamodel`): models, metamodel and generic content

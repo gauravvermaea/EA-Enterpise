@@ -58,6 +58,13 @@ Starting again
                         file, logs and laptop data folders (including backups). With --all it also
                         deletes the Docker volumes, so the databases and documents start empty.
                         Asks you to type yes unless --yes is given. Run init afterwards.
+  clean-run [laptop|server]
+                        Starts again from scratch in one step: cleanup --all --yes, then init
+                        (laptop if not given), then up. Deletes the databases and everything in
+                        the work folder without asking.
+  clean-debug [laptop|server]
+                        The same, but ends with debug instead of up (keeps recording the
+                        containers' output until Ctrl+C).
 
   help [command]        This text, or the part about one command.
 
@@ -176,6 +183,7 @@ show_logins() {
   printf '%-34s %-14s %-16s %s\n' "PostgreSQL superuser" "postgres" "$(setting EAX_DB_SUPERUSER_PASSWORD)" "docker compose exec db psql -U postgres"
   printf '%-34s %-14s %-16s %s\n' "PostgreSQL EA Explorer" "eax_app" "$(setting EAX_DB_PASSWORD)" "database $(setting EAX_DB_NAME eaexplorer)"
   printf '%-34s %-14s %-16s %s\n' "PostgreSQL reporting (read only)" "eax_report" "$(setting EAX_DB_REPORT_PASSWORD)" "schema rpt"
+  printf '%-34s %-14s %-16s %s\n' "PostgreSQL installer" "eax_migrator" "$(setting EAX_DB_MIGRATOR_PASSWORD)" "loads reference models only"
   printf '%-34s %-14s %-16s %s\n' "PostgreSQL Keycloak" "keycloak" "$(setting EAX_KEYCLOAK_DB_PASSWORD)" "database keycloak"
   printf '%-34s %-14s %-16s %s\n' "PostgreSQL Superset" "superset" "$(setting EAX_SUPERSET_DB_PASSWORD)" "database superset"
   printf '%-34s %-14s %-16s %s\n' "PostgreSQL Mayan" "mayan" "$(setting EAX_MAYAN_DB_PASSWORD)" "database mayan"
@@ -238,6 +246,15 @@ assert_docker() {
 case "$CMD" in
   help|-h|--help) show_help "${2:-}"; exit 0 ;;
   cleanup)        shift; cleanup "$@"; exit 0 ;;
+  clean-run|clean-debug)
+    # cleanup --all --yes, init, then up or debug: each as its own run of this script (own log)
+    kind="${2:-laptop}"; last=up; [ "$CMD" = clean-debug ] && last=debug
+    for step in "cleanup --all --yes" "init $kind" "$last"; do
+      echo; echo "=== ./eax.sh $step"
+      # shellcheck disable=SC2086
+      "$BASH" "./$(basename "${BASH_SOURCE[0]}")" $step || { echo "ERROR: ./eax.sh $step failed; $CMD stopped there."; exit 1; }
+    done
+    exit 0 ;;
 esac
 
 start_log "$@"

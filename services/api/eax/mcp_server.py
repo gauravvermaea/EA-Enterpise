@@ -10,7 +10,7 @@ Sign-in: every request carries "Authorization: Bearer <token>", either
   * on a laptop only, the development token EAX_MCP_DEV_TOKEN from work/eaexplorer.env.
 
 The tools call eax.repository, the same code as the REST API, so every build phase that adds a
-repository function adds the matching tool here. Build phase 1: read only.
+repository function adds the matching tool here. Read only until build phase 6.
 """
 
 from __future__ import annotations
@@ -40,7 +40,8 @@ INSTRUCTIONS = """EA Explorer is an enterprise architecture repository (ArchiMat
 A model holds a metamodel (layers, entity types, attributes, relationship types, allowed
 relationships) and content (entities and relationships). Template models hold a metamodel only.
 Start with list_models, then get_metamodel or list_entities for a model. Models, entity types and
-entities can be given by guid or by name. Read only in this build."""
+entities can be given by guid or by name. check_entities shows what breaks the validation rules;
+get_entity_history shows who changed what. Read only in this build."""
 
 mcp = MCPServer(name="EA Explorer", instructions=INSTRUCTIONS, version=__version__)
 
@@ -77,6 +78,14 @@ async def list_models() -> Any:
     """List every model you may read: templates (metamodel only), reference models and project models,
     with the model each merges into (parent) and was created from (source), and counts."""
     return await _run(repo.list_models)
+
+
+@mcp.tool()
+async def list_library() -> Any:
+    """The model library: read-only reference models (for example the Insurance reference model)
+    with their industry, version, description and how many entities of each type they hold.
+    Reference models are locked; use list_entities or get_entity to read their content."""
+    return await _run(repo.get_library)
 
 
 @mcp.tool()
@@ -124,8 +133,10 @@ async def list_entities(model: str, entity_type: str | None = None) -> Any:
 
 @mcp.tool()
 async def get_entity(model: str, entity: str) -> Any:
-    """One entity with every attribute of its type (and its value), its relationships in both
-    directions, its parent and its parts. `entity` is a guid, display ID (APP-0002) or name."""
+    """One entity with every attribute of its type (and its value and rule results), its relationships
+    in both directions, its parent and its parts, the model it is part of, and its lineage (the entity
+    it was copied from, the template type it came from, its copies in other models).
+    `entity` is a guid, display ID (APP-0002) or name."""
     return await _run(repo.get_entity_detail, model, entity)
 
 
@@ -138,9 +149,67 @@ async def get_entity_table(model: str, entity_type: str, name: str | None = None
 
 
 @mcp.tool()
-async def list_relationships(model: str) -> Any:
-    """Every relationship of a model: source entity, relationship type and target entity."""
-    return await _run(repo.list_relationships, model)
+async def list_relationships(model: str, relationship_type: str | None = None) -> Any:
+    """Every relationship of a model, or of one relationship type (name, code or verb): source
+    entity, relationship type, target entity, and whether the metamodel allows it."""
+    return await _run(repo.list_relationships, model, relationship_type)
+
+
+@mcp.tool()
+async def list_relationship_types(model: str) -> Any:
+    """The relationship types of a model with how often each is used, how many type pairs the
+    metamodel allows for it, and how many of its relationships fall outside those rules."""
+    return await _run(repo.relationship_type_summary, model)
+
+
+@mcp.tool()
+async def check_entities(model: str, entity_type: str) -> Any:
+    """The entities of one type with their attribute values and validation results: for each, the
+    number of errors and warnings and their messages (missing required values, values out of range,
+    duplicate names and so on). Use it to find what needs fixing in a model."""
+    return await _run(repo.type_table, model, entity_type)
+
+
+@mcp.tool()
+async def get_entity_history(model: str, entity: str) -> Any:
+    """Every recorded change to an entity, its attribute values and its relationships, newest first:
+    when, who, and each field's old and new value."""
+    return await _run(repo.get_entity_history, model, entity)
+
+
+@mcp.tool()
+async def get_neighbourhood(model: str, entity: str, depth: int = 1, direction: str = "both",
+                            relationship_types: list[str] | None = None) -> Any:
+    """An entity and everything connected to it within `depth` steps, through relationships and the
+    parent hierarchy: the entities (nodes, each with its distance) and the lines between them (edges).
+    direction "out" follows lines from source to target only (impact: what this leads to or uses),
+    "in" follows them backwards (dependencies: what leads to or uses this), "split" does both (in has
+    negative distances); up to 6 steps then, otherwise 1 to 3. relationship_types keeps only those (names or codes; "Parent" for the hierarchy)."""
+    return await _run(repo.entity_graph, model, entity, None, depth, 300, direction, relationship_types)
+
+
+@mcp.tool()
+async def find_paths(model: str, source: str, target: str, max_steps: int = 6,
+                     relationship_types: list[str] | None = None) -> Any:
+    """The shortest chains connecting two entities (for example how a role connects to a capability),
+    through relationships in either direction and the parent hierarchy, up to `max_steps` steps:
+    the chains as lists of entity guids, and the entities and lines on them."""
+    return await _run(repo.entity_paths, model, source, target, max_steps, 10, relationship_types)
+
+
+@mcp.tool()
+async def get_family_tree(model: str, entity: str, levels: int = 4) -> Any:
+    """An entity's place in its hierarchy: every parent up to the top and its parts down `levels`
+    levels (for example a capability within the capability map). Distance is negative for parents."""
+    return await _run(repo.entity_graph, model, entity, None, levels, 500, "tree", None)
+
+
+@mcp.tool()
+async def get_entity_as_of(model: str, entity: str, event: int | None = None, at: str | None = None) -> Any:
+    """An entity as it was at one point in its history: just after a history event (`event`, an id
+    from get_entity_history) or at a time (`at`, ISO date and time). Each field, attribute value and
+    relationship then, beside its value now, marked changed or not."""
+    return await _run(repo.get_entity_as_of, model, entity, event, at)
 
 
 @mcp.tool()

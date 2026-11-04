@@ -41,7 +41,9 @@ BEGIN
         'Claims Platform has five relationships';
     t := eax.get_entity('Application Component', 'e_' || replace(gen_random_uuid()::text, '-', ''));
     ASSERT t[1] ~ '^e_[0-9a-f]{32}$', 'guid-based name';
-    t := eax.get_entity_by_name('capability', 'CLAIMS MANAGEMENT', 'cap');
+    -- in the sample model (from phase 2 the insurance reference model has one too)
+    t := eax.get_entity_by_name('capability', 'CLAIMS MANAGEMENT', 'cap',
+                                (SELECT guid FROM core.models WHERE name = 'Sample insurance model'));
     ASSERT (SELECT count(*) FROM cap) = 1, 'by name, case-insensitive';
     t := eax.get_entity('application_component', 'apps_only', NULL, false);
     ASSERT t = ARRAY['apps_only'], 'no relationships';
@@ -97,7 +99,7 @@ SELECT pg_temp.expect_error($q$
     INSERT INTO core.entities (model_id, entity_type_id, name)
     SELECT model_id, id, 'X' FROM core.entity_types
      WHERE code = 'Goal' AND model_id = (SELECT id FROM core.models WHERE kind_code = 'template')
-$q$, 'template model holds a metamodel only');
+$q$, 'is locked');  -- phase 2: the template is locked, so the lock refuses before the template rule
 SELECT pg_temp.expect_error($q$
     INSERT INTO core.models (name, kind_code, parent_model_id)
     SELECT 'Under template', 'project', id FROM core.models WHERE kind_code = 'template'

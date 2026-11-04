@@ -4,6 +4,7 @@ import { config } from "./config";
 
 const TOOLS = [
   ["list_models", "Every model you may read, with counts"],
+  ["list_library", "The model library: reference models with industry, version and counts by type"],
   ["get_metamodel", "A model's layers, entity types and relationship types"],
   ["describe_entity_type", "Attributes, rules and allowed relationships of one type"],
   ["allowed_relationships", "Which relationships the metamodel allows from one type to another"],
@@ -11,7 +12,14 @@ const TOOLS = [
   ["list_entities", "Every entity of a model, or of one type"],
   ["get_entity", "One entity with its attribute values and relationships"],
   ["get_entity_table", "One type as a table, one column per attribute (eax.get_entity)"],
-  ["list_relationships", "Every relationship of a model"],
+  ["list_relationships", "Every relationship of a model, or of one type, marked allowed or not"],
+  ["list_relationship_types", "Relationship types with how often each is used"],
+  ["check_entities", "One type's entities with their values and validation errors and warnings"],
+  ["get_entity_history", "Every change to an entity, its values and relationships"],
+  ["get_neighbourhood", "An entity and everything connected to it; or one way only (impact, dependencies)"],
+  ["get_entity_as_of", "An entity as it was at a point in its history, beside now"],
+  ["find_paths", "The shortest chains connecting two entities"],
+  ["get_family_tree", "An entity's parents up to the top and its parts below"],
   ["search_entities", "Find entities by name, display ID or description"],
 ];
 

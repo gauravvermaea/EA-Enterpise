@@ -11,6 +11,7 @@ from flask_smorest import Blueprint
 from sqlalchemy import text
 
 from .. import __version__, audit, health
+from ..versioning import database_version, version_warning
 from ..auth import require_auth
 from ..config import get_settings
 from ..db import get_engine
@@ -23,7 +24,7 @@ blp = Blueprint(
 
 
 def check_database() -> tuple[dict, dict]:
-    db = {"reachable": False, "latency_ms": None, "schema_version": None, "error": None}
+    db = {"reachable": False, "latency_ms": None, "schema_version": None, "version": None, "error": None}
     jobs = {"waiting": None, "failed": None}
     started = time.perf_counter()
     try:
@@ -34,6 +35,7 @@ def check_database() -> tuple[dict, dict]:
             db["schema_version"] = conn.execute(
                 text("SELECT version_num FROM public.alembic_version LIMIT 1")
             ).scalar()
+            db["version"] = database_version(conn)
             if conn.execute(text("SELECT to_regclass('jobs.procrastinate_jobs')")).scalar():
                 row = conn.execute(
                     text(
@@ -53,15 +55,19 @@ class HeartbeatView(MethodView):
     def get(self):
         """Heartbeat (public)
 
-        Always answers 200 while the API runs; "status" is "degraded" when the database
-        cannot be reached.
+        Always answers 200 while the API runs. "status" is "degraded" when the database cannot be
+        reached, and "warning" when the API version (version.toml) and the database version
+        (core.schema_versions) differ.
         """
         settings = get_settings()
         db, jobs = check_database()
+        warning = version_warning(db["version"]) if db["reachable"] else None
         return {
-            "status": "ok" if db["reachable"] else "degraded",
+            "status": "degraded" if not db["reachable"] else "warning" if warning else "ok",
             "service": "eaexplorer-api",
-            "version": __version__ if settings.version == "dev" else settings.version,
+            "version": __version__,
+            "versions_match": (db["version"] == __version__) if db["reachable"] else None,
+            "warning": warning,
             "deployment": settings.deployment,
             "time": datetime.now(timezone.utc),
             "database": db,

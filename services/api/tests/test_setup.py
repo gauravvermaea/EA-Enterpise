@@ -37,6 +37,8 @@ def test_dev_password_is_url_encoded(monkeypatch):
     from eax.config import Settings
 
     monkeypatch.setenv("EAX_DB_PASSWORD", "P^55w0rd1234&")
+    monkeypatch.setenv("EAX_DB_HOST", "db")    # conftest points tests at a closed port
+    monkeypatch.setenv("EAX_DB_PORT", "5432")
     s = Settings()
     assert "P%5E55w0rd1234%26@db:5432" in s.sqlalchemy_url
     assert "password='P^55w0rd1234&'" in s.libpq_conninfo

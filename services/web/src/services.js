@@ -7,7 +7,7 @@ export const groups = [
     title: "Repository",
     items: [
       { name: "Metamodel", text: "Open a model: its entities and relationships, and its ArchiMate 4 metamodel", href: "#/metamodel", live: true, integration: "3" },
-      { name: "Model library", text: "Read-only reference models and industry models; deep copy", phase: "2" },
+      { name: "Model library", text: "Read-only reference models: the insurance reference model now, more industries later", href: "#/library", live: true },
       { name: "Models", text: "Working models, roles and copies", phase: "4" },
       { name: "Data entry", text: "Forms and grids for entities and relationships", phase: "6" },
       { name: "Repository workflow", text: "Staging, reviews and publishing of change sets", phase: "8" },
@@ -41,7 +41,9 @@ export const groups = [
       { name: "SQL", text: "Run queries on the database with a database login and see the results", href: "#/sql", live: true, role: "system-admin" },
       { name: "MCP server", text: "Connect your own language model (Claude, ChatGPT, local models) to the repository", href: "#/mcp", live: true },
       { name: "My account (Keycloak)", text: "Password, sessions and sign-in settings", href: `${config.keycloakUrl}/realms/${config.realm}/account/`, live: true },
-      { name: "Users and sign-in (Keycloak admin)", text: "Users, roles and identity providers", href: `${config.keycloakUrl}/admin/${config.realm}/console/`, live: true, role: "system-admin" },
+      // The Keycloak administration console of the master realm, opened on our realm. Sign in there with the
+      // Keycloak administrator (EAX_KC_ADMIN, listed by "eax logins"), not with an EA Explorer user.
+      { name: "Keycloak administration", text: "For the global administrator: users, groups, roles, sessions and identity providers. Sign in with the Keycloak administrator login (see .\eax logins)", href: `${config.keycloakUrl}/admin/master/console/#/${config.realm}`, live: true, role: "system-admin", badge: "global administrator only" },
       { name: "Administration", text: "Health, usage, backups, jobs and housekeeping", phase: "35" },
     ],
   },

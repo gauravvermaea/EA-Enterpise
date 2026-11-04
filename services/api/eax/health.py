@@ -29,6 +29,7 @@ from sqlalchemy import text
 from . import __version__
 from .config import get_settings
 from .db import get_engine
+from .versioning import database_version, version_warning
 
 TIMEOUT = 3.0
 JOB_WAIT_WARNING_MINUTES = 5
@@ -75,8 +76,13 @@ def check_database() -> dict:
                        (SELECT version_num FROM public.alembic_version LIMIT 1),
                        pg_size_pretty(pg_database_size(current_database())),
                        (SELECT count(*) FROM pg_stat_activity WHERE datname = current_database())""")).one()
-        return _result("Database", "PostgreSQL", "up",
-                       f"PostgreSQL {row[0]}, schema {row[1]}, {row[2]}, {row[3]} connections", started, target)
+            db_version = database_version(conn)
+        warning = version_warning(db_version)
+        detail = (f"version {db_version}, PostgreSQL {row[0]}, migration {row[1]}, {row[2]}, "
+                  f"{row[3]} connections")
+        if warning:
+            return _result("Database", "PostgreSQL", "warning", f"{warning} ({detail})", started, target)
+        return _result("Database", "PostgreSQL", "up", detail, started, target)
     except Exception as exc:  # noqa: BLE001
         return _result("Database", "PostgreSQL", "down", f"{exc.__class__.__name__}: {str(exc)[:160]}", started, target)
 
