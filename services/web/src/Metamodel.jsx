@@ -9,6 +9,7 @@
 //   #/metamodel/<model>/metamodel[/lists|/history]   tab Metamodel: definition, pick lists, history and versions
 //   #/metamodel/<model>/type/<id>        one entity type's definition: attributes, rules, allowed relationships
 //   #/metamodel/<model>/diagram[/<id>]   tab ER diagram (MetamodelDiagram.jsx)
+//   #/metamodel/<model>/entry[/<type>]   tab Data entry: an entity type's entities as editable rows (DataEntry.jsx, D79)
 //   #/metamodel/<model>/reports          tab Reports: standard reports and the report catalogue (ModelReports.jsx)
 import { lazy, Suspense, useState } from "react";
 import { can, keycloak, signedIn, canOn, myRolesOn, roleName } from "./auth";
@@ -24,6 +25,7 @@ import {
 } from "./MetamodelEditor";
 import ModelPeople from "./ModelPeople";
 import ModelReports from "./ModelReports";
+import { DataEntryTab } from "./DataEntry";
 import { CopyBanner, DraftPage, Drafts, ModelActions, NewModelButton, UploadButton } from "./ModelOps";
 
 // the diagram and its layout library load only when the ER diagram tab is opened
@@ -341,8 +343,8 @@ function ModelPage({ model, view, itemId, sub }) {
   const tab = !v ? (holdsContent ? "types" : "metamodel")
     : v === "type" ? "metamodel" : v === "entity" ? "types" : v;
   const tabs = [
-    ...(holdsContent ? [["types", "Entity types", m.entity_type_count], ["rels", "Relationship types", null], ["graph", "Graph", null],
-      ["checks", "Failing checks", null]] : []),
+    ...(holdsContent ? [["types", "Entity types", m.entity_type_count], ["entry", "Data entry", null], ["rels", "Relationship types", null],
+      ["graph", "Graph", null], ["checks", "Failing checks", null]] : []),
     ["metamodel", "Metamodel", null], ["diagram", "ER diagram", null], ["reports", "Reports", null],
     ...(changeableModel(m) ? [["people", "People", null]] : []),
   ];
@@ -394,6 +396,7 @@ function ModelPage({ model, view, itemId, sub }) {
         : tab === "checks" ? <FailingChecks model={model} m={m} />
         : tab === "people" ? <ModelPeople model={model} m={m} />
         : tab === "reports" ? <ModelReports model={model} m={m} />
+        : tab === "entry" ? <DataEntryTab key={itemId || "none"} model={model} m={m} typeFromUrl={itemId || ""} />
         : tab === "diagram" ? <Suspense fallback={<p>Loading the diagram...</p>}><MetamodelDiagram model={model} focus={itemId || null} /></Suspense>
         : <MetamodelView model={model} m={m} typeId={v === "type" ? itemId : null} holdsContent={holdsContent} sub={v === "metamodel" ? itemId : null} />}
       </div>

@@ -13,6 +13,7 @@ import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "./auth";
 import { downloadCsv } from "./exporting";
 import { EditButton, entityTypeSpec, mappingSpec, relationshipTypeSpec } from "./MetamodelEditor";
+import { AddRelationshipButton, EntityActions, NewEntityButton, NewRelationshipButton, RemoveRelationshipButton, RollBackButton, RowActions } from "./DataEntry";
 
 const EntityGraph = lazy(() => import("./EntityGraph"));
 const HierarchyMap = lazy(() => import("./HierarchyMap"));
@@ -145,7 +146,7 @@ export function EntityTypesTab({ model, m }) {
           ...shown.map((t) => [t.name, t.layer, t.entity_count, t.attribute_count, t.code, t.description])]} />
         <span className="er-spacer" />
         <EditButton model={model} m={m} label="+ Entity type" spec={() => entityTypeSpec(mm.layers)} />
-        <Later label="+ Entity" phase={6} model={m} what="Adding an entity" />
+        <button className="ed-btn" onClick={() => go(`/metamodel/${model}/entry`)} title="Enter entities of any type on the Data entry tab">+ Entity</button>
       </div>
       <div className="scroll">
         <table className="grid-table click-rows">
@@ -269,7 +270,8 @@ export function TypeEntitiesTable({ model, m, typeId }) {
         <button onClick={exportCsv}>CSV</button>
         <span className="er-spacer" />
         <Pager page={page} total={rows.length} setPage={setPage} />
-        <Later label="+ Entity" phase={6} model={m} what={`Adding a ${et.name}`} />
+        <NewEntityButton model={model} m={m} typeId={typeId} typeName={et.name} retired={et.status === "retired"} />
+        <button onClick={() => go(`/metamodel/${model}/entry/${typeId}`)} title={`Enter many ${et.name} entities as rows`}>Data entry</button>
       </div>
       <div className="scroll table-frame">
         <table className="grid-table entity-table">
@@ -294,7 +296,8 @@ export function TypeEntitiesTable({ model, m, typeId }) {
                     onClick={() => setOpen((o) => ({ ...o, [r.id]: !o[r.id] }))}>{open[r.id] ? "−" : "+"}</button>
                 </td>
                 <td className="stick1 nowrap">{r.display_id}</td>
-                <td className="stick2"><a href={`#/metamodel/${model}/entity/${r.id}`}>{r.name}</a></td>
+                <td className="stick2"><a href={`#/metamodel/${model}/entity/${r.id}`}>{r.name}</a>{" "}
+                  <RowActions model={model} m={m} entityId={r.id} name={r.name} retiredType={et.status === "retired"} /></td>
                 <td><Checks {...r} /></td>
                 <td>{r.parent_id ? <a href={`#/metamodel/${model}/entity/${r.parent_id}`}>{r.parent_name}</a> : ""}</td>
                 {cols.map((c) => {
@@ -339,7 +342,7 @@ export function RelationshipTypesTab({ model, m }) {
         <span className="er-spacer" />
         <EditButton model={model} m={m} label="+ Relationship type" spec={relationshipTypeSpec()} />
         <MappingButton model={model} m={m} relTypes={data} />
-        <Later label="+ Relationship" phase={6} model={m} what="Adding a relationship" />
+        <NewRelationshipButton model={model} m={m} />
       </div>
       <table className="grid-table click-rows">
         <thead><tr>{head("name", "Relationship type")}{head("verb", "Reads as")}{head("category", "Category")}
@@ -393,6 +396,7 @@ export function RelationshipsOfType({ model, m, relTypeId }) {
         <CsvButton name={`${m.name} - ${rt?.name || "relationships"}`} rows={() => [["Source ID", "Source", "Source type", "Relationship", "Target ID", "Target", "Target type", "In the metamodel"],
           ...rows.map((r) => [r.source_display_id, r.source_name, r.source_type, r.verb, r.target_display_id, r.target_name, r.target_type, r.allowed ? "yes" : "no"])]} />
         <span className="er-spacer" />
+        <NewRelationshipButton model={model} m={m} relType={rt} label={`+ ${rt?.name || "Relationship"}`} />
         <Pager page={page} total={rows.length} setPage={setPage} />
       </div>
       <table className="grid-table">
@@ -405,7 +409,8 @@ export function RelationshipsOfType({ model, m, relTypeId }) {
               <td className="rel-verb">{r.verb} →</td>
               <td><Swatch colour={r.target_colour} /> <a href={`#/metamodel/${model}/entity/${r.target_id}`}>{r.target_name}</a> <span className="quiet">{r.target_display_id}</span></td>
               <td className="quiet">{r.target_type}</td>
-              <td>{!r.allowed && <span className="sev warning" title="No mapping allows this pair of types">not in metamodel</span>}</td>
+              <td>{!r.allowed && <span className="sev warning" title="No mapping allows this pair of types">not in metamodel</span>}
+                {" "}<RemoveRelationshipButton model={model} m={m} e={{ name: r.source_name }} r={{ id: r.id, verb: r.verb, other_name: r.target_name }} /></td>
             </tr>
           ))}
           {!rows.length && <tr><td colSpan="6" className="quiet">No relationships of this type{f ? " match" : " in this model"}.</td></tr>}
@@ -453,8 +458,8 @@ function WarningList({ warnings }) {
       <strong>{errors > 0 && `${errors} error${errors > 1 ? "s" : ""}`}{errors > 0 && warnings.length > errors && ", "}
         {warnings.length > errors && `${warnings.length - errors} warning${warnings.length - errors > 1 ? "s" : ""}`}</strong>
       <ul>{warnings.map((w, i) => <li key={i}><span className={`sev ${w.severity}`}>{w.severity}</span> {w.message}</li>)}</ul>
-      <p className="quiet">A failed rule never stops a save. From build phase 6 the value is saved with an override flag and its details
-        (the rule, who saved it, when, and why), and the warning shows here until it is fixed.</p>
+      <p className="quiet">A failed rule never stops a save: the value is saved with a flag and the rule's details (who saved it and when),
+        and the warning shows here until it is fixed (D48).</p>
     </div>
   );
 }
@@ -483,7 +488,7 @@ function DetailsTab({ model, m, e }) {
           ["Basic", "Status", e.status, "Workflow", "", ""],
           ...e.attributes.map((a) => [a.section, a.name, a.value, a.data_type_name, a.is_required ? "yes" : "", a.warnings.map((w) => w.message).join("; ")])]} />
         <span className="er-spacer" />
-        <Later label="Edit values" phase={6} model={m} what="Changing values" />
+        <EntityActions model={model} m={m} e={e} />
       </div>
       <table className="grid-table attr-table">
         <thead><tr><th>Field</th><th>Value</th><th>Type</th><th>Check</th></tr></thead>
@@ -494,6 +499,7 @@ function DetailsTab({ model, m, e }) {
           <tr><th>Description</th><td className="pre">{e.description}</td><td className="quiet">Text</td><td><Status list={fieldWarnings("description")} /></td></tr>
           <tr><th>Parent</th><td>{e.parent_id ? <a href={`#/metamodel/${model}/entity/${e.parent_id}`}>{e.parent_name}</a> : <span className="quiet">-</span>}</td><td className="quiet">Entity</td><td /></tr>
           <tr><th>Status</th><td>{e.status}</td><td className="quiet">Workflow</td><td /></tr>
+          <tr><th>Tags</th><td>{(e.tags || []).length ? e.tags.map((t) => <span key={t} className="tag">{t}</span>) : <span className="quiet">-</span>}</td><td className="quiet">Tags</td><td /></tr>
           {sections.map((s) => [
             <tr key={`s-${s.name}`} className="section-row"><td colSpan="4">{s.name}</td></tr>,
             ...s.items.map((a) => {
@@ -506,7 +512,7 @@ function DetailsTab({ model, m, e }) {
                     : <>{a.value}{a.unit && ` ${a.unit}`}</>}</td>
                   <td className="quiet" title={a.pick_list_values.length ? `One of: ${a.pick_list_values.join(", ")}` : undefined}>
                     {a.data_type_name}</td>
-                  <td><Status list={a.warnings} /></td>
+                  <td><Status list={a.warnings} />{a.override && <span className="override-mark" title={`Saved although it fails the rule, by ${a.override.by} on ${new Date(a.override.at).toLocaleString()}`}> saved anyway</span>}</td>
                 </tr>
               );
             }),
@@ -546,8 +552,7 @@ function RelationsTab({ model, m, e }) {
         <CsvButton name={`${e.display_id} ${e.name} - relations`} rows={() => [["Direction", "Relationship", "Reads as", "Other ID", "Other entity", "Other type", "Status", "In the metamodel"],
           ...e.relationships.map((r) => [r.direction, r.relationship_type, r.verb, r.other_display_id, r.other_name, r.other_type, r.status, r.allowed ? "yes" : "no"])]} />
         <span className="er-spacer" />
-        <Later label="+ Relationship" phase={6} model={m}
-          what="Adding a relationship (a type the metamodel allows, or a new one, which adds the relationship type and mapping to this model)" />
+        <AddRelationshipButton model={model} m={m} e={e} />
       </div>
       {outside > 0 && <p><span className="sev warning">{outside} not in metamodel</span> <span className="quiet">These relationships have no mapping that allows them. They are kept, and flagged.</span></p>}
       {!groups.length && <p className="quiet">{e.relationships.length ? "No relations match." : "No relationships yet."}</p>}
@@ -563,7 +568,8 @@ function RelationsTab({ model, m, e }) {
                   <td><Swatch colour={r.other_colour} /> <a href={`#/metamodel/${model}/entity/${r.other_id}`}>{r.other_name}</a> <span className="quiet">{r.other_display_id}</span></td>
                   <td className="quiet">{r.other_type}</td>
                   <td className="quiet">{r.status}</td>
-                  <td>{!r.allowed && <span className="sev warning" title="No mapping in the metamodel allows this">not in metamodel</span>}</td>
+                  <td>{!r.allowed && <span className="sev warning" title="No mapping in the metamodel allows this">not in metamodel</span>}
+                    {" "}<RemoveRelationshipButton model={model} m={m} e={e} r={r} /></td>
                 </tr>
               ))}
             </tbody>
@@ -573,8 +579,8 @@ function RelationsTab({ model, m, e }) {
       {showAllowed && (
         <>
           <h3>What the metamodel allows for {e.entity_type}</h3>
-          <p className="quiet">From phase 6, + Relationship offers these first. A relationship outside them can still be added: that adds the
-            relationship type (if new) and the mapping to this model's metamodel, and records who added it.</p>
+          <p className="quiet">+ Relationship offers these first. A relationship outside them can still be added: that adds the mapping to this
+            model's metamodel as a new version, flagged as added from data entry for a Model Admin to review (D49).</p>
           <table className="grid-table">
             <thead><tr><th>Direction</th><th>Relationship</th><th>Other entity type</th><th>In use</th></tr></thead>
             <tbody>
@@ -645,8 +651,7 @@ function AsOfPanel({ model, m, entityId, point, list, index, setPoint }) {
         <button disabled={index >= list.length - 1} onClick={() => setPoint(list[index + 1].id)} title="The change before this one">◀ Earlier</button>
         <button disabled={index <= 0} onClick={() => setPoint(list[index - 1].id)} title="The change after this one">Later ▶</button>
         <button className="primary" onClick={() => setPoint(null)}>Current</button>
-        <Later label="Roll back to this point" phase={6} model={m}
-          what="Rolling the entity back to these values (a new version that copies them; the history is kept)" />
+        <RollBackButton model={model} m={m} e={{ id: entityId, name: a.entity.name }} eventId={a.as_of.event_id} at={a.as_of.at} />
         <CsvButton name={`${a.entity.display_id} ${a.entity.name} - as of ${String(a.as_of.at).slice(0, 19).replace(/[T:]/g, "-")}`}
           rows={() => [["Section", "Field", "Then", "Now", "Changed"], ...rows.map((r) => [r.section, r.name, r.then, r.now, r.changed ? "yes" : ""]),
             ...a.relationships.map((r) => ["Relationship", `${r.direction === "outgoing" ? "" : "← "}${r.verb} ${r.other_name}`, "yes", r.still_there ? "yes" : "", r.still_there ? "" : "yes"]),
@@ -775,7 +780,7 @@ function HistoryTab({ model, m, e }) {
         </div>
       </div>
       <p className="quiet">From the history table: every change to the entity, its values and its relationships is kept, with who made it
-        and when. Rolling back arrives with editing (build phase 6): it will save the old values as a new version, so nothing is lost.</p>
+        and when. Click a moment, then Roll back to here: the old values are saved as a new version, so nothing is lost.</p>
     </div>
   );
 }

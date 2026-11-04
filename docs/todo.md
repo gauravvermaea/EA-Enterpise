@@ -24,8 +24,61 @@ Tick an item (`[x]`) when it is done; remove it at the next tidy-up.
 
 ## Phase 5 (version 0.5.0)
 
-- [x] **Phase 5 runs** (4 Nov 2026): the reports basically work.
+- [x] **Phase 5 accepted and closed** (4 Nov 2026, D143): the reports basically work.
 - [ ] **Check each of the 32 report dashboards** in the testing phase 36.1 (D143), with the checklist in [phase-5.md](phase-5.md).
+
+## Phase 6 (version 0.6.0)
+
+- [ ] **Test phase 6** (Gaurav, or in 36.1): `.\eax clean-restart`, the demo and checks in [phase-6.md](phase-6.md).
+- [ ] **Discuss in detail what to build next** (owner, 4 Nov 2026): phases 7 onwards, the commits design (8), richer reports, model tags, backups.
+
+## Phase 14, backup and restore (owner, 4 Nov 2026)
+
+- [ ] **On-demand backups** from the web (IT Admin, Super Admin), **on-demand restores** (of a chosen backup, with
+  a confirmation and a backup taken first) and **scheduled backups** whose schedule and retention are set on
+  screen (today a fixed nightly backup at 2 am from the config file). Restore works from the web screens
+  **and from a backup file at a location the person browses to and gives** (a backup from another
+  installation, a share, a downloaded file). In phase 14 as planned; to cover in the discussion after phase 6.
+
+## Model tags (owner, 4 Nov 2026): phase to settle in the discussion after phase 6
+
+- [ ] **Tag a whole model with all its data**, like a git tag: a named, read-only point in time of the model's
+  metamodel and content. Roll the model back to a tag; compare a model with itself at a tag (gaps within a
+  model), two tags of one model, two models at their tags, and a model with its parent at tags. Builds on
+  the full history kept for every row (and deep copies keep it, D132) and origin guids for matching (D133).
+  Closest planned phase: 24.1 (model versions, comparison and gap analysis, D111), which may move earlier.
+
+## Richer reports (owner, 4 Nov 2026): for the discussion after phase 6
+
+- [ ] The standard reports are mostly tables and pivots; the owner wants more impressive reports. Market review
+  (source "Market review", D114) found 19 report types to add. In Superset: bubble portfolio with TIME quadrants,
+  capability treemap or sunburst coloured by a KPI, integration graph and data-flow sankey, KPI tiles with trends
+  (needs snapshots), world map, maturity spider, cost waterfall, calendar heatmap, obsolescence projection,
+  persona dashboards. As EA Explorer pages: nested capability landscape with applications inside, coloured by a
+  switchable attribute; items-in-cells matrix; lifecycle and transformation roadmap (Gantt); impact and
+  traceability explorer; technology radar. With switchable colouring, click-through to the entity, hover
+  highlighting, drill-down, a time slider (model tags) and saved views.
+
+## Open Group reports and views (owner, 4 Nov 2026): for the discussion after phase 6
+
+- [ ] Follow the Open Group: the TOGAF 10 catalogs, matrices and diagrams by ADM phase, the 25 ArchiMate 4 example
+  viewpoints (basic, motivation, strategy, implementation and migration) and the business architecture maps (capability
+  map heat-mapped by maturity, importance, investment or risk; value stream map; value stream x capability with heat;
+  organisation map; information map; strategy to capability tracing). Gaps found against the 30 standard reports:
+  principles, stakeholder map, contract/measure, location and glossary catalogs; strategy/capability,
+  capability/organisation, data entity/function, data security, role/application, application/organisation matrices;
+  value stream map, organisation map, information map, business footprint, decompositions, conceptual/logical data,
+  data dissemination and lifecycle, application communication, application and user location, service realisation and
+  layered views, environments and platform decomposition, technology standards, project context, benefits, migration
+  and implementation and migration, outcome realisation, resource map, requirements realisation. Diagram-type views
+  overlap with the standard views (phases 30-31, draw.io); the catalogs and matrices are Superset reports.
+- [ ] Checked against the ArchiMate 4 Specification (owner's copy, 4 Nov 2026): Appendix C has 25 example viewpoints
+  (13 basic in four categories: composition, support, cooperation, realization; 4 motivation; 5 strategy; 3
+  implementation and migration), each with stakeholders, concerns, purpose, scope and the element types it allows
+  (grouping and junctions in all; Layered allows every core element). Section 13.4: a viewpoint's representation may
+  be a diagram, a catalog, a matrix or another visualisation, and attribute profiles can colour views as heat maps.
+  Our ArchiMate 4 template matches the 3.2 to 4 changes (Appendix E.4). Idea: viewpoints as data (element types per
+  viewpoint) so any model can be shown through any viewpoint as a diagram, catalog, matrix or heat map.
 
 ## Deployment (to discuss when we reach the deployment phase)
 

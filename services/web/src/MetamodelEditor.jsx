@@ -5,6 +5,7 @@
 //   FailingChecks      every entity failing a check, with filters, CSV and links to fix them
 //   LockControl        model locks: metamodel, metamodel and content, maintenance (D67)
 // The server decides (and the database enforces) what may be changed; the screens only offer it.
+import { RowActions } from "./DataEntry";
 import { useEffect, useMemo, useState } from "react";
 import { apiFetch, can, currentUser, canOn, needsRole } from "./auth";
 import { downloadCsv } from "./exporting";
@@ -625,7 +626,8 @@ export function FailingChecks({ model, m }) {
             <tbody>
               {rows.slice(page * PAGE, (page + 1) * PAGE).map((r, i) => (
                 <tr key={i}>
-                  <td><Swatch colour={r.colour} /> <a href={`#/metamodel/${model}/entity/${r.entity_id}`}>{r.name}</a> <span className="quiet">{r.display_id}</span></td>
+                  <td><Swatch colour={r.colour} /> <a href={`#/metamodel/${model}/entity/${r.entity_id}`}>{r.name}</a> <span className="quiet">{r.display_id}</span>
+                    {" "}<RowActions model={model} m={m} entityId={r.entity_id} name={r.name} /></td>
                   <td className="quiet">{r.entity_type}</td>
                   <td>{r.field}</td>
                   <td><span className={`sev ${r.severity}`}>{r.severity}</span> {r.message}</td>

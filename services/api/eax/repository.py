@@ -426,7 +426,7 @@ def relationship_type_summary(conn, model: Any) -> list[dict]:
 _VALUES_SQL = """
     SELECT e.id AS _entity, at.id AS _attr, at.code, at.name, ia.section, at.data_type_code AS data_type,
            dt.name AS data_type_name, at.unit, ia.is_required, at.pick_list_id AS _pick_list,
-           av.value_text, av.value_number, av.value_date, av.value_bool,
+           av.value_text, av.value_number, av.value_date, av.value_bool, av.rule_override,
            re.guid AS ref_id, re.name AS ref_name, ret.code AS ref_type
       FROM core.entities e
       JOIN core.item_attributes ia ON ia.entity_type_id = e.entity_type_id AND NOT ia.is_deleted
@@ -470,7 +470,7 @@ def _load_values(conn, where: str, **params) -> dict[int, list[dict]]:
             "code": r["code"], "name": r["name"], "section": r["section"], "data_type": r["data_type"],
             "data_type_name": r["data_type_name"],
             "unit": r["unit"], "is_required": r["is_required"], "value": _display(typed), "typed": typed,
-            "ref_id": r["ref_id"], "ref_type": r["ref_type"],
+            "ref_id": r["ref_id"], "ref_type": r["ref_type"], "override": r["rule_override"],
             "pick_list_values": picks.get(r["_pick_list"], []), "_attr": r["_attr"],
         })
     return out
@@ -568,8 +568,8 @@ def _find_entity(conn, m: dict, entity: Any) -> dict:
     where = "e.guid = :e" if guid else "(lower(e.name) = lower(:e) OR lower(e.display_id) = lower(:e))"
     found = _rows(conn, f"""
         SELECT e.id AS _id, e.entity_type_id AS _type, e.guid AS id, e.display_id, e.name, e.description,
-               e.status_code AS status, et.name AS entity_type, et.code AS entity_type_code,
-               et.guid AS entity_type_id, l.name AS layer, l.colour,
+               e.status_code AS status, e.tags, et.name AS entity_type, et.code AS entity_type_code,
+               et.guid AS entity_type_id, l.name AS layer, l.colour, et.status_code AS entity_type_status,
                pe.guid AS parent_id, pe.name AS parent_name,
                e.created_at, e.created_by, e.modified_at, e.modified_by, e.row_version,
                e.created_mm_version, e.modified_mm_version,

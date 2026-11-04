@@ -13,7 +13,7 @@ export const groups = [
       { name: "Metamodels with AI", text: "Your own language model drafts a metamodel through MCP; you review, trim and apply the draft", href: "#/metamodel/drafts", live: true },
       { name: "Library models and packages", text: "Library models, publish, withdraw and promote; download any model as zip or Excel and upload it through a placement wizard", href: "#/library", live: true },
       { name: "Library model packs", text: "Guidance, workbooks and any other files carried with a library model and its package, kept in Mayan", phase: "13" },
-      { name: "Data entry", text: "Forms per entity type, a data entry page with relations as you go, and grids", phase: "6" },
+      { name: "Data entry", text: "Forms from the metamodel, a data entry page by entity type, relationships as you go, tags, retire, delete and roll back", href: "#/metamodel", live: true },
       { name: "Grids, search and saved views", text: "Work with many records at once and find anything", phase: "7" },
       { name: "Commits and publishing", text: "Stage changes, review and commit them, publish change sets", phase: "8" },
       { name: "Notifications and workflows", text: "Metamodel changes pushed down to child models (forced or accepted), change documents, notifications kept until resolved with a description", phase: "8.1" },
