@@ -26,6 +26,7 @@ draw.io, nginx, React screens. How it is built: [docs/architecture.md](docs/arch
 ## Rules the product keeps (do not break)
 
 - Checks warn, never block (D48); a metamodel change is never blocked by existing content (D64).
+- A retired entity type's entities are read-only until it is restored (D87, database trigger).
 - Nothing is hard-deleted: `is_deleted` plus `history.row_versions`; removed values stay in history (D75).
 - Templates and reference models are locked by the database (`is_locked`, only `eax_migrator` passes).
 - Model locks (`lock_level`) are enforced by triggers, not only the screens (D67).
@@ -46,11 +47,11 @@ draw.io, nginx, React screens. How it is built: [docs/architecture.md](docs/arch
 | 3 Metamodel editing, versions and history, failing checks, model locks | 0.3.0 | built, waiting for the owner's test |
 | 3.1 Roles and permissions (eight roles, D58; break-glass account, D80) | 0.3.1 | next; open questions in docs/todo.md |
 
-The full plan (43 phases, the last holding what is not planned now) is in the build plan workbook. Agreed but not yet built, with their
+The full plan (45 phases, the last holding what is not planned now) is in the build plan workbook. Agreed but not yet built, with their
 decisions: commits and merge screens (D61, D66), Mayan phase (D62), lineage (D63), dedupe per model
 (D68), change log report (D69), view templates (D70), report designer (D71), complete backup and restore
 from the web (D74), dynamic import, export and survey sheets (D77, format still open), collection
-sets with staging (D78), data entry page (D79), the model hierarchy: Empty model, root metamodels with framework and version, derived models (D81, phase 4), moving a model to a new framework version (D82). AD/LDAP sign-in is not planned for now (D73).
+sets with staging (D78), data entry page (D79), the model hierarchy: Empty model, root metamodels with framework and version, derived models (D81, phase 4), moving a model to a new framework version (D82), actions, alerts and workflows with metamodel push-down and change documents (D83-D86, phase 8.1), integration and a drag-and-drop ETL tool still to be chosen (D91, phase 34.1). Roles settled: only Model Admins change the metamodel (D89); they also edit and commit content (D90). AD/LDAP sign-in is not planned for now (D73).
 
 ## Testing without Docker (what earlier agents did)
 

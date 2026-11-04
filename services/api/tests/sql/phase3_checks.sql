@@ -85,6 +85,16 @@ BEGIN
     ASSERT (SELECT locked_by IS NULL AND lock_reason = '' FROM core.models WHERE name = 'Sample insurance model'), 'unlock clears';
 END $$;
 
+-- a retired entity type: its entities are read-only until it is restored; removal still allowed
+UPDATE core.entity_types SET status_code = 'retired' WHERE code = 'CheckType';
+SELECT pg_temp.expect_error($q$ UPDATE core.entities SET description = 'x' WHERE name = 'Check entity' $q$, 'is retired');
+SELECT pg_temp.expect_error($q$
+    INSERT INTO core.entities (model_id, entity_type_id, name)
+    SELECT model_id, id, 'Another' FROM core.entity_types WHERE code = 'CheckType'
+$q$, 'is retired');
+UPDATE core.entity_types SET status_code = 'published' WHERE code = 'CheckType';
+UPDATE core.entities SET description = 'editable again' WHERE name = 'Check entity';
+
 -- the installer's lock on reference models is unchanged and cannot be replaced by a model lock
 SELECT pg_temp.expect_error($q$
     UPDATE core.models SET lock_level = 'none', lock_reason = 'x' WHERE name = 'Insurance reference model'

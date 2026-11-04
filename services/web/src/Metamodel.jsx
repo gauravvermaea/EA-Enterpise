@@ -150,9 +150,9 @@ function TypeDetail({ model, m, mm, typeId, holdsContent }) {
           <span className="er-spacer" />
           <EditButton model={model} m={m} label="Change type" spec={() => entityTypeSpec(mm.layers, t)} />
           {retired
-            ? <EditButton model={model} m={m} label="Restore" spec={simpleSpec(`Restore ${t.name}`, "entity_type.restore", { id: t.id }, "The type is offered again for new entities.")} />
+            ? <EditButton model={model} m={m} label="Restore" spec={simpleSpec(`Restore ${t.name}`, "entity_type.restore", { id: t.id }, "The type is offered again for new entities and its entities can be changed again.")} />
             : <EditButton model={model} m={m} label="Retire" spec={simpleSpec(`Retire ${t.name}`, "entity_type.retire", { id: t.id },
-              `Retired types are no longer offered for new entities. ${hasEntities ? `Its ${list.length} existing entities are kept unchanged.` : ""}`, true, "Retire")} />}
+              `A retired type is no longer offered for new entities${hasEntities ? ` and its ${list.length} entities become read-only` : ""} until it is restored. Nothing is removed.`, true, "Retire")} />}
         </div>
       )}
       <p className="quiet">

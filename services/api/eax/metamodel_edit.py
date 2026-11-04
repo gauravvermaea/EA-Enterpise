@@ -12,7 +12,7 @@ With dry_run the transaction is rolled back, so the screen can show the impact b
 Operations (payload fields in brackets; ids are guids; "type" means an entity type):
   entity_type.create   name, layer, [code, id_prefix, description, aspect]
   entity_type.update   id, [name, description, layer, id_prefix, aspect]
-  entity_type.retire / entity_type.restore   id
+  entity_type.retire / entity_type.restore   id   (retired: no new entities, its entities read-only, D87)
   attribute.create     (entity_type | relationship_type), name, data_type,
                        [code, description, unit, pick_list | values, is_required, section, help_text,
                         default_value, apply_default_to_existing, existing_attribute]

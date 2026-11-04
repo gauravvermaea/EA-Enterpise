@@ -9,9 +9,8 @@ Tick an item (`[x]`) when it is done; remove it at the next tidy-up.
 - [x] **Accept phase 2** (accepted 4 Nov 2026; checks passed, MCP tried from Claude Code).
 - [x] **Phase 2 closed** (4 Nov 2026, version 0.2.1).
 - [x] **Role and permission model agreed** (4 Nov 2026, D58-D63): see the Roles sheet of the requirements
-  workbook and phase 3.1 in the plan. Still to agree before phase 3.1 (marked "?" in the Roles sheet):
-  who changes the metamodel (Model Admin only, or Architects too?) and whether the Model Admin also
-  edits and commits content.
+  workbook and phase 3.1 in the plan. Settled 4 Nov: only Model Admins change the metamodel (D89);
+  Model Admins also edit and commit content (D90).
 
 ## Phase 3 (version 0.3.0)
 
@@ -20,11 +19,11 @@ Tick an item (`[x]`) when it is done; remove it at the next tidy-up.
 
 ## Decisions waiting before their phase
 
-- [ ] **Import, export and survey sheets** (D77): an Excel workbook (one tab per entity type plus a
-  relationships tab, drop-downs that point at existing entities) or a set of CSV files. Decide
-  before the import phase.
-- [ ] **Entity type retire**: retiring keeps the type's entities. Should removing an entity type also
-  remove its entities (as removing an attribute removes its values, D75)?
+- [x] Import, export and survey sheets: both Excel and CSV (D88).
+- [x] Retiring an entity type makes its entities read-only until it is restored (D87, built in 0.3.0).
+- [ ] **ETL tool for the integration phase (34.1, D91)**: which open-source tool (for example Apache Hop,
+  Apache NiFi or Airbyte) and which connectors. To discuss before that phase.
+- [ ] **Kinds of notification and request (8.1, D83)**: to agree in that phase's design session.
 
 ## Waiting on input (Gaurav)
 

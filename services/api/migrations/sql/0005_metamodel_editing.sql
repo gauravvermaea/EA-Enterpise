@@ -7,6 +7,7 @@
 --     made in the metamodel editor publishes a new version at once (D72), with a short note.
 --   * Entities record the metamodel version they were created in and last changed in (D65).
 --   * Attributes on an entity type carry a default value for new entities (D64).
+--   * Entities of a retired entity type are read-only until it is restored (D87).
 --   * Model locks set and lifted by Model Admins (D67): metamodel, content (metamodel and
 --     content) and maintenance (only the person who set it may change the model; from phase 3.1
 --     any Model Admin). Different from is_locked, the installer's permanent lock.
@@ -198,6 +199,44 @@ END;
 $$;
 CREATE TRIGGER models_1_lock_level BEFORE UPDATE OF lock_level ON core.models
     FOR EACH ROW EXECUTE FUNCTION core.check_model_lock();
+
+-- ---------------------------------------------------------------- retired entity types (D87)
+-- A retired entity type offers no new entities and its entities are read-only until the type is
+-- restored. Removing values or relationships (setting is_deleted) is still allowed, so removing an
+-- attribute or a relationship type works across retired types too. The installer's login passes.
+CREATE FUNCTION core.refuse_retired_type() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    v_entity bigint;
+    v_type   text;
+BEGIN
+    IF core.is_installer() THEN
+        RETURN NEW;
+    END IF;
+    IF TG_OP = 'UPDATE' AND NEW.is_deleted AND NOT OLD.is_deleted THEN
+        RETURN NEW;   -- removal (kept in history) is allowed
+    END IF;
+    IF TG_TABLE_NAME = 'entities' THEN
+        SELECT name INTO v_type FROM core.entity_types WHERE id = NEW.entity_type_id AND status_code = 'retired';
+    ELSIF TG_TABLE_NAME = 'attribute_values' THEN
+        SELECT t.name INTO v_type FROM core.entities e JOIN core.entity_types t ON t.id = e.entity_type_id
+         WHERE e.id = NEW.entity_id AND t.status_code = 'retired';
+    ELSE -- relationships: neither end may be of a retired type
+        SELECT t.name INTO v_type FROM core.entities e JOIN core.entity_types t ON t.id = e.entity_type_id
+         WHERE e.id IN (NEW.source_entity_id, NEW.target_entity_id) AND t.status_code = 'retired' LIMIT 1;
+    END IF;
+    IF v_type IS NOT NULL THEN
+        RAISE EXCEPTION 'Entity type "%" is retired: its entities are read-only until the type is restored', v_type
+            USING ERRCODE = 'object_in_use', HINT = 'A Model Admin can restore the type on the Metamodel tab.';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+CREATE TRIGGER entities_2_retired BEFORE INSERT OR UPDATE ON core.entities
+    FOR EACH ROW EXECUTE FUNCTION core.refuse_retired_type();
+CREATE TRIGGER attribute_values_2_retired BEFORE INSERT OR UPDATE ON core.attribute_values
+    FOR EACH ROW EXECUTE FUNCTION core.refuse_retired_type();
+CREATE TRIGGER relationships_2_retired BEFORE INSERT OR UPDATE ON core.relationships
+    FOR EACH ROW EXECUTE FUNCTION core.refuse_retired_type();
 
 -- ---------------------------------------------------------------- rights for the installer
 DO $$

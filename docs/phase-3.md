@@ -3,7 +3,7 @@
 Goal: let a project model's metamodel be changed from the screens without ever blocking on the
 content already in it, keep every change as a numbered version with its history, show every entity
 that fails a check, and let a model be locked. Version **0.3.0**, migration `0005_metamodel_editing`.
-Decisions D64, D65, D67, D52 and D72 to D76.
+Decisions D64, D65, D67, D52, D72 to D76 and D87.
 
 ## Status: built, waiting for Gaurav's test
 
@@ -13,7 +13,8 @@ Decisions D64, D65, D67, D52 and D72 to D76.
   Relationship types tabs open the same dialogs). Every dialog has **Check impact** (what the change
   would do, nothing saved) and **Save**:
   - entity types: add, change (name, layer, display-ID prefix, aspect, description), retire, restore.
-    A retired type is no longer offered for new entities; its entities are kept;
+    A retired type is no longer offered for new entities and its entities become read-only (enforced by
+    the database) until it is restored (D87);
   - attributes on an entity type: add, change, remove. Every data type, a new or an existing pick
     list, unit, section on the form, help text, a **default value** and mandatory. **+ Lifecycle**
     adds a phase list and a date per phase in its own section;
@@ -81,7 +82,7 @@ Decisions D64, D65, D67, D52 and D72 to D76.
 ## Checks
 
 - `tests/sql/phase3_checks.sql` (as `postgres`): version 0.3.0, a version row for every model,
-  publishing labels the history, entities stamped with their metamodel version, each lock refusing
+  publishing labels the history, entities stamped with their metamodel version, a retired type's entities read-only, each lock refusing
   what it should (maintenance by another person too) and the installer lock unchanged. Ends with
   "phase 3 checks passed". Rolled back.
   ```powershell

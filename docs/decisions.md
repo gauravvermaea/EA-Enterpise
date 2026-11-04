@@ -59,3 +59,12 @@ docs/requirements/EA_Explorer_Requirements.xlsx (sheet "Decisions").
 | D80 | A break-glass local account with Super Admin rights works when Keycloak or sign-in is down; sealed password, every use audited and alerted |
 | D81 | Model hierarchy: a read-only Empty model, then root metamodels (kind "Root metamodel", with framework and version: ArchiMate 4, later ArchiMate 5, or an organisation's own), then reference and project models. Shipped roots are read-only; an organisation's roots are edited by Model Admins until locked; a root starts empty or from a copy of another root (phase 4) |
 | D82 | A model moves to a new framework version either by a copy with a type mapping or by an in-place upgrade (history keeps the state before); both are offered |
+| D83 | Actions, alerts and workflows get their own phase (8.1, after commits): notifications kept open until resolved with a description of what was done; requests between people (new attribute, review, model copy, ...); kinds agreed in a design session |
+| D84 | A parent's metamodel change is pushed only to the models under it: forced (with or without defaults) or offered for accept or reject by the child's Model Admin; each level decides and may force it further down; a rejection leaves the child diverged, noted in lineage, and later changes to that item ask again |
+| D85 | Notifications go to a role on the model plus anyone subscribed; each is resolved once, by whoever handles it |
+| D86 | Notifications are in the application only (no email); every accepted change produces a detailed change document notified to everyone on the model |
+| D87 | A retired entity type offers no new entities and its entities are read-only until it is restored (unretired); enforced by the database (phase 3) |
+| D88 | Import, export and survey sheets come both as an Excel workbook (for people) and as a set of CSV files (for feeds) |
+| D89 | Only Model Admins (and the Super Admin) change a model's metamodel; Architects ask through a request |
+| D90 | Model Admins also edit content and, once commits exist, commit it |
+| D91 | A new integration phase (34.1): import from other systems' APIs, our own API and file dumps through a proper drag-and-drop ETL tool with standard connectors; the tool is chosen with the owner before the phase |

@@ -37,6 +37,10 @@ def downgrade() -> None:
                 EXECUTE format('DROP TRIGGER IF EXISTS %I ON core.%I', t || '_1_model_lock', t);
             END LOOP;
         END $$;
+        DROP TRIGGER IF EXISTS entities_2_retired ON core.entities;
+        DROP TRIGGER IF EXISTS attribute_values_2_retired ON core.attribute_values;
+        DROP TRIGGER IF EXISTS relationships_2_retired ON core.relationships;
+        DROP FUNCTION IF EXISTS core.refuse_retired_type();
         DROP TRIGGER IF EXISTS models_1_lock_level ON core.models;
         DROP TRIGGER IF EXISTS entities_mm_version ON core.entities;
         DROP FUNCTION IF EXISTS core.refuse_model_lock(), core.check_model_lock(), core.stamp_mm_version(),
