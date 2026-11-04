@@ -3,7 +3,7 @@
 // hold several. Global roles (Super Admin, IT Admin, User Admin, Keycloak Admin, Model Creator, User) are
 // given in Keycloak. Anyone with a role on this model also reads the models it comes from (D60).
 import { useEffect, useState } from "react";
-import { apiFetch, canOn, MODEL_ROLES, roleName } from "./auth";
+import { apiFetch, canOn, MODEL_ROLES, roleName, needsRole } from "./auth";
 import { refreshAll, useApi } from "./ModelViews";
 
 const DOES = {
@@ -53,34 +53,34 @@ export default function ModelPeople({ model, m }) {
         several. Global roles (Super Admin, IT Admin, User Admin, Keycloak Admin, Model Creator) are given in Keycloak. Everyone here
         also reads the models {m.name} comes from. Super Admins read every model.</p>
       <table className="grid-table">
-        <thead><tr><th>Person</th>{MODEL_ROLES.map((r) => <th key={r} className="center" title={DOES[r]}>{roleName(r)}</th>)}<th>Since</th>{manage && <th />}</tr></thead>
+        <thead><tr><th>Person</th>{MODEL_ROLES.map((r) => <th key={r} className="center" title={DOES[r]}>{roleName(r)}</th>)}<th>Since</th><th /></tr></thead>
         <tbody>
           {rows.map((p) => (
             <tr key={p.username}>
               <td><strong>{p.username}</strong>{byName[p.username]?.name && <><br /><span className="quiet">{byName[p.username].name}</span></>}</td>
               {MODEL_ROLES.map((r) => (
                 <td key={r} className="center">
-                  {manage
-                    ? <input type="checkbox" checked={p.roles.includes(r)} aria-label={`${roleName(r)}: ${p.username}`}
-                        onChange={(e) => (e.target.checked ? give(p.username, r) : take(p.username, r))} />
-                    : p.roles.includes(r) ? "✓" : ""}
+                  <input type="checkbox" checked={p.roles.includes(r)} aria-label={`${roleName(r)}: ${p.username}`} disabled={!manage}
+                    title={manage ? undefined : `Giving roles: ${needsRole("model-admin", m.name)}`}
+                    onChange={(e) => (e.target.checked ? give(p.username, r) : take(p.username, r))} />
                 </td>
               ))}
               <td className="quiet small">{new Date(p.since).toLocaleDateString()} by {p.by}</td>
-              {manage && <td><button className="small" onClick={() => take(p.username)}>Remove all</button></td>}
+              <td><button className="small" disabled={!manage} title={manage ? `Take every role on ${m.name} from ${p.username}` : `Taking roles: ${needsRole("model-admin", m.name)}`}
+                onClick={() => take(p.username)}>Remove all</button></td>
             </tr>
           ))}
           {!rows.length && <tr><td colSpan={MODEL_ROLES.length + 3} className="quiet">Nobody has a role on this model yet.</td></tr>}
         </tbody>
       </table>
       <p className="quiet small">{MODEL_ROLES.map((r) => `${roleName(r)}: ${DOES[r]}`).join(" · ")}</p>
-      {manage && (
-        <div className="assign-box">
-          <h3>Give someone a role</h3>
+      {(
+        <div className="assign-box" title={manage ? undefined : `Giving roles: ${needsRole("model-admin", m.name)}`}>
+          <h3>Give someone a role {!manage && <span className="quiet small">({needsRole("model-admin", m.name)})</span>}</h3>
           <div className="toolbar">
-            <input className="search" placeholder="Search people in Keycloak" value={search} onChange={(e) => setSearch(e.target.value)} />
+            <input className="search" placeholder="Search people in Keycloak" value={search} disabled={!manage} onChange={(e) => setSearch(e.target.value)} />
             <label className="quiet">as{" "}
-              <select value={role} onChange={(e) => setRole(e.target.value)}>
+              <select value={role} disabled={!manage} onChange={(e) => setRole(e.target.value)}>
                 {MODEL_ROLES.map((r) => <option key={r} value={r}>{roleName(r)}</option>)}
               </select>
             </label>

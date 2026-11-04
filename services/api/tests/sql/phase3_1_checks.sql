@@ -45,7 +45,7 @@ DECLARE
     v_all bigint := (SELECT count(*) FROM core.models WHERE kind_code NOT IN ('template', 'reference'));
 BEGIN
     ASSERT string_to_array(core.schema_version(), '.')::int[] >= ARRAY[0, 3, 1], 'database version 0.3.1 or later';
-    ASSERT (SELECT count(*) FROM core.app_roles WHERE scope = 'global') = 6, 'six global roles';
+    ASSERT (SELECT count(*) FROM core.app_roles WHERE scope = 'global') >= 6, 'six global roles (seven from 0.4.0: Library Admin)';
     ASSERT (SELECT count(*) FROM core.app_roles WHERE scope = 'model') = 4, 'four model roles';
     ASSERT (SELECT app_role FROM core.role_mappings WHERE keycloak_role = 'eax-user') = 'user', 'default mapping';
     ASSERT (SELECT count(*) FROM core.model_ancestors WHERE model_id = pg_temp.m('Sample insurance model')) >= 1,

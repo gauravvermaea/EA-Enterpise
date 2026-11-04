@@ -19,15 +19,15 @@ Tick an item (`[x]`) when it is done; remove it at the next tidy-up.
 
 ## Phase 3.1 (version 0.3.1)
 
-- [ ] **Test phase 3.1** (Gaurav): `.\eax clean-run`, the demo and checks in [phase-3.1.md](phase-3.1.md).
+- [x] **Phase 3.1 accepted** (4 Nov 2026). Was: test phase 3.1 (Gaurav): `.\eax clean-run`, the demo and checks in [phase-3.1.md](phase-3.1.md).
 - [ ] Superset rows by model (phase 5) and Mayan cabinets by model (phase 13), as planned.
 
 ## Decisions waiting before their phase
 
 - [x] Import, export and survey sheets: both Excel and CSV (D88).
 - [x] Retiring an entity type makes its entities read-only until it is restored (D87, built in 0.3.0).
-- [ ] **ETL tool for the integration phase (34.1, D91)**: which open-source tool (for example Apache Hop,
-  Apache NiFi or Airbyte) and which connectors. To discuss before that phase.
+- [x] **ETL tool for the integration phase (34.1, D91)**: Apache Hop (D128). The connectors needed are
+  settled in that phase's design session.
 - [ ] **Kinds of notification and request (8.1, D83)**: to agree in that phase's design session.
 
 ## Design session before phase 15 (architecture projects and repository, D103-D105)
@@ -52,14 +52,15 @@ Tick an item (`[x]`) when it is done; remove it at the next tidy-up.
 - Gap analysis: the matrix layout (TOGAF baseline by target), what a gap carries (note, resolution, work package), and the gap
   report's Word and Excel layouts.
 
-## Library models (phase 4, D101)
+## Phase 4 questions (answered 4 Nov 2026)
 
-- Library package format (metamodel, content, pack files, manifest with root and version); the upload wizard (D108): under its
-  root by name and version with a complete metamodel match, or under the Root model with all its values. Can a root built from
-  scratch be a library model, given D108 says library models are built on seed roots?
-- Where pack files live before Mayan cabinets (phase 13): with the model in the database, then moved.
-- Packs take any number of extra files beyond the set places, in the builder's own folders (D106): size limits and allowed file types.
-- Who may promote a model to the library and withdraw one.
+- [x] Package format: zip with JSON and CSV, and an Excel workbook too (D116).
+- [x] Pack files: built with Mayan in phase 13 (D117).
+- [x] Who curates the library: a new Library Admin role (D118).
+- [x] Own roots as library models: yes, as roots of their own (D119).
+- [x] AI drafting: step-by-step and whole-file tools, the person chooses; same rights as editing by hand (D120).
+- [x] New framework versions: copy with mapping or upgrade in place, Model Admin chooses; delete: Super Admin, refused
+  while others depend (D121).
 
 ## Waiting on input (Gaurav)
 
@@ -98,6 +99,21 @@ Noted 4 Nov 2026 (D99). To discuss and settle when we build the final deployment
   making it (for example retiring an application: which capabilities, processes and projects lose
   support). Either built into the reports (scenarios over a copy or a baseline of the model) or done
   through a language model over the MCP tools, or both. To decide before the reports phases (5, 11).
+
+- [ ] **Full documentation, guidebooks and inline help** (asked 4 Nov 2026, D126; to build later, phase to be
+  set). Three parts:
+  - *Full documentation*: a documentation site published with every version, covering every screen,
+    concept (models, metamodels, roots, library, child and independent models, packages, drafts),
+    role and permission, the REST API, the MCP tools, operations and upgrades.
+  - *Guidebooks*: step-by-step guides per role and per task (first model, building a root metamodel,
+    sharing a library model, testing an upload, drafting a metamodel with AI, giving people roles),
+    with screenshots, downloadable as PDF.
+  - *Inline help*: a help panel on every screen (what it is, what you can do there, what your roles
+    allow), help for every field from the metamodel's own help text, a "?" beside each section that
+    opens the matching guide page, and search across the help from the top bar. Builds on the tooltips
+    and greyed-out controls of phase 4 (D123, D125).
+  To settle: the documentation tool (kept in the repository and built with the product), whether the
+  help is per version, and how the industry guides of phase 39 fit in.
 
 ## Later (already in the requirements)
 

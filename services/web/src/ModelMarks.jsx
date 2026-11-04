@@ -41,7 +41,10 @@ export function StatusMarks({ m }) {
   const ro = readOnlyWhy(m), lock = lockWhy(m);
   return (
     <span className="status-marks">
-      {inLibrary(m) && <span title="In the model library" aria-label="In the library">📚</span>}
+      {inLibrary(m) && m.library_state !== "building" && m.library_state !== "withdrawn" && <span title="In the model library" aria-label="In the library">📚</span>}
+      {m.library_state === "building" && <span title="Not yet published in the library: only its makers and Library Admins see it" aria-label="Not yet published">🚧</span>}
+      {m.library_state === "withdrawn" && <span title="Withdrawn from the library: no new models start from it" aria-label="Withdrawn">⛔</span>}
+      {m.copy_state === "copying" && <span title="Its content is being copied in the background" aria-label="Copying">⏳</span>}
       {ro && <span title={ro} aria-label="Read-only">👁</span>}
       {lock && <span title={lock} aria-label="Locked">🔒</span>}
     </span>

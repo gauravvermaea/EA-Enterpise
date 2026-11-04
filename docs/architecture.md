@@ -107,7 +107,7 @@ The user runs Docker; agents write code (see AGENTS.md).
 | Start and record container logs | `.\eax clean-debug` |
 | Logs, diagnostics | `work/logs/`; `.\eax diag` |
 | Python tests | `cd services/api; pip install -r requirements-dev.txt; pytest -q` (CI also runs `ruff check .`) |
-| Database checks | `Get-Content services/api/tests/sql/phase3_checks.sql \| docker compose --env-file work/eaexplorer.env exec -T db psql -U postgres -d eaexplorer -v ON_ERROR_STOP=1` (and phase 1, 2) |
+| Database checks | `Get-Content services/api/tests/sql/phase4_checks.sql \| docker compose --env-file work/eaexplorer.env exec -T db psql -U eax_app -d eaexplorer -v ON_ERROR_STOP=1` (and phase 1, 2 as postgres; 3, 3.1 as eax_app) |
 | Web build | `cd services/web; npm install; npm run build` |
 | API explorer | `https://localhost/api/docs` |
 

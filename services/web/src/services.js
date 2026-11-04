@@ -9,8 +9,10 @@ export const groups = [
     items: [
       { name: "Models", text: "Every model you may open, as a list or a hierarchy tree; its entities, relationships and metamodel (Model Admins change it)", href: "#/metamodel", live: true },
       { name: "Model library", text: "Root metamodels (ArchiMate 4, your own) and reference models (insurance now, more industries later), with a browser", href: "#/library", live: true },
-      { name: "Create and copy models", text: "Build root metamodels from the Root model or a copy; create models from them; deep copy; move to a new framework version (ArchiMate 5)", phase: "4" },
-      { name: "Library models and packages", text: "Create a model as a library model with its pack and any other files, promote a model, download and upload packages through a placement wizard", phase: "4" },
+      { name: "Create and copy models", text: "New root metamodels and models from Root or any model, with or without content and history; move to another framework; archive and delete", href: "#/metamodel", live: true },
+      { name: "Metamodels with AI", text: "Your own language model drafts a metamodel through MCP; you review, trim and apply the draft", href: "#/metamodel/drafts", live: true },
+      { name: "Library models and packages", text: "Library models, publish, withdraw and promote; download any model as zip or Excel and upload it through a placement wizard", href: "#/library", live: true },
+      { name: "Library model packs", text: "Guidance, workbooks and any other files carried with a library model and its package, kept in Mayan", phase: "13" },
       { name: "Data entry", text: "Forms per entity type, a data entry page with relations as you go, and grids", phase: "6" },
       { name: "Grids, search and saved views", text: "Work with many records at once and find anything", phase: "7" },
       { name: "Commits and publishing", text: "Stage changes, review and commit them, publish change sets", phase: "8" },
@@ -50,8 +52,11 @@ export const groups = [
       { name: "Document management", text: "Mayan cabinets per model and version, linked to entities and library packs", phase: "13" },
       { name: "draw.io with the repository", text: "Draw with the model's own entities; diagrams feed the repository (also the desktop app)", phase: "28" },
       { name: "Standard views", text: "Pick a model (or several) and a view; get a draw.io file", phase: "30" },
+      { name: "Slides (PowerPoint)", text: "Download views, diagrams, reports and dashboards as slides, gather several into one deck, on your own template", phase: "31" },
       { name: "Model versions and gap analysis", text: "Version a model and roll it back; compare it with its own versions or another model, without the noise; gap analysis and a gap report", phase: "24.1" },
       { name: "What-if analysis", text: "Explore changes before making them, perhaps with a language model", phase: "later" },
+      { name: "Test automation", text: "Run every unit, integration and UI test from the Health dashboard on a separate test database; tests work on copies of test models only", phase: "36.1" },
+      { name: "Documentation, guidebooks and inline help", text: "A full documentation site, step-by-step guides per role and task, and help on every screen and field, searchable from the top bar", phase: "later" },
     ],
   },
   {
@@ -60,7 +65,7 @@ export const groups = [
       { name: "Import and export sheets", text: "Dynamic sheets per entity type (Excel and CSV), one for relations, collection sets loaded into staging", phase: "32" },
       { name: "ArchiMate exchange", text: "Import and export ArchiMate exchange files", phase: "33" },
       { name: "Integrations and reference data", text: "Connect to the rest of the estate", phase: "34" },
-      { name: "Integration and ETL", text: "Drag-and-drop ETL with standard connectors: other APIs, our API, file dumps", phase: "34.1" },
+      { name: "Integration and ETL", text: "Drag-and-drop ETL with Apache Hop and its standard connectors: other APIs, our API, file dumps, into staging", phase: "34.1" },
     ],
   },
   {
@@ -75,14 +80,14 @@ export const groups = [
     items: [
       { name: "Heartbeat", text: "API, database and job queue status", href: "#/heartbeat", live: true },
       { name: "API documentation (Swagger)", text: "Every API call, runnable in the browser", href: "/api/docs", live: true },
-      { name: "SQL", text: "Run queries on the database with a database login and see the results", href: "#/sql", live: true, perm: "system.operate" },
+      { name: "SQL", text: "Run queries on the database with a database login and see the results", href: "#/sql", live: true, perm: "system.operate", roles: ["it-admin", "super-admin"] },
       { name: "My account (Keycloak)", text: "Password, sessions and sign-in settings", href: `${config.keycloakUrl}/realms/${config.realm}/account/`, live: true },
       // The Keycloak administration console of the master realm, opened on our realm. Sign in there with the
       // Keycloak administrator (EAX_KC_ADMIN, listed by "eax logins"), not with an EA Explorer user.
       // Roles are given here, in Keycloak (D92). Keycloak Admins and Super Admins hold realm-admin on our realm,
       // so they sign in to its console with their own EA Explorer login.
-      { name: "Keycloak administration", text: "Give people roles, manage users, groups and identity providers. Sign in with your own login", href: `${config.keycloakUrl}/admin/${config.realm}/console/`, live: true, perm: "keycloak.console", badge: "Keycloak Admins" },
-      { name: "Users and roles", text: "People, the EA Explorer roles their Keycloak roles give, their models, and the Keycloak role mapping", href: "#/users", live: true, perm: "users.read" },
+      { name: "Keycloak administration", text: "Give people roles, manage users, groups and identity providers. Sign in with your own login", href: `${config.keycloakUrl}/admin/${config.realm}/console/`, live: true, perm: "keycloak.console", roles: ["keycloak-admin", "super-admin"], badge: "Keycloak Admins" },
+      { name: "Users and roles", text: "People, the EA Explorer roles their Keycloak roles give, their models, and the Keycloak role mapping", href: "#/users", live: true, perm: "users.read", roles: ["user-admin", "super-admin"] },
       { name: "Home dashboard and administration", text: "Live counts and the administration screens", phase: "10" },
       { name: "Backup and restore", text: "Complete backups and restores, also from the web", phase: "14" },
       { name: "Security hardening", text: "Enterprise identity and fine-grained rights", phase: "25" },

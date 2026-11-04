@@ -10,7 +10,7 @@ repository database holds the ArchiMate 4 template, a locked insurance reference
 model; model pages show entities, relationships, graphs and history; a project model's metamodel can be
 changed from the screens, every change publishing a new metamodel version; a failing-checks screen;
 model locks; roles given in Keycloak and enforced by the API and the database, with test users per role on laptops; an **MCP server** for your own language model ([docs/mcp.md](docs/mcp.md)). Phase notes:
-[0](docs/phase-0.md), [1](docs/phase-1.md), [2](docs/phase-2.md), [3](docs/phase-3.md), [3.1](docs/phase-3.1.md). Database design:
+[0](docs/phase-0.md), [1](docs/phase-1.md), [2](docs/phase-2.md), [3](docs/phase-3.md), [3.1](docs/phase-3.1.md), [4](docs/phase-4.md). Database design:
 [docs/database.md](docs/database.md). How it is built (for developers and AI agents):
 [docs/architecture.md](docs/architecture.md), [AGENTS.md](AGENTS.md). Requirements and the build plan:
 [docs/requirements](docs/requirements). Decisions: [docs/decisions.md](docs/decisions.md). Open items:
@@ -25,6 +25,7 @@ Windows (PowerShell or Command Prompt, in this folder):
 
 ```powershell
 .\eax clean-run      # FIRST TIME (and after pulling a new version): builds everything from scratch
+.\eax clean-restart  # TESTING a new version: down, then clean-run (empty databases, images rebuilt)
 .\eax trust          # OPTIONAL, once after the first clean-run: trust the local certificate (no browser warnings)
 .\eax run            # NEXT TIME ONWARDS: starts it again, keeping your data
 .\eax help           # what every command does
@@ -35,6 +36,9 @@ Windows (PowerShell or Command Prompt, in this folder):
   asking), creates `work\eaexplorer.env` from the laptop template, then builds and starts everything
   and prints the addresses and logins. Use `.\eax clean-run server` on a server (then replace every
   change-me value in the config file).
+- **`clean-restart`** is for testing a new version while EA Explorer is running: it brings the
+  containers down, then does a `clean-run` (empty databases, our images rebuilt). The trusted
+  certificate is kept.
 - **`run`** is for every time after that: it starts the containers again and keeps your models,
   documents and settings. (It is the same as `.\eax up`.)
 - **`trust`** is optional, run once after the first `clean-run`. EA Explorer serves everything over https with

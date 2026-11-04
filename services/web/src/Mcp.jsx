@@ -25,6 +25,13 @@ const TOOLS = [
   ["find_paths", "The shortest chains connecting two entities"],
   ["get_family_tree", "An entity's parents up to the top and its parts below"],
   ["search_entities", "Find entities by name, display ID or description"],
+  ["get_metamodel_spec", "A model's whole metamodel as one document (eax-metamodel/1), to start a draft from"],
+  ["start_metamodel_draft", "Start a metamodel draft: a new root metamodel (empty or from a copy) or changes to a model, optionally from a whole document"],
+  ["draft_set_item", "Add or change one item in a draft: a layer, pick list, attribute, entity type, relationship type, allowed relationship or rule"],
+  ["draft_remove_item", "Take one item out of a draft"],
+  ["draft_replace", "Replace a draft's whole metamodel document in one go"],
+  ["get_metamodel_draft", "A draft with its checks and its differences from the model it changes"],
+  ["list_metamodel_drafts", "Metamodel drafts, waiting, applied or rejected"],
 ];
 
 function Snippet({ title, text }) {

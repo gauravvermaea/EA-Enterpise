@@ -57,6 +57,7 @@ AUTH_ROLES_MAPPING = {
     "eax-super-admin": ["Admin"],
     "eax-it-admin": ["Admin"],
     "eax-model-creator": ["Gamma"],
+    "eax-library-admin": ["Gamma"],
     "eax-user-admin": ["Gamma"],
     "eax-user": ["Gamma"],
 }

@@ -6,7 +6,7 @@
 //   LockControl        model locks: metamodel, metamodel and content, maintenance (D67)
 // The server decides (and the database enforces) what may be changed; the screens only offer it.
 import { useEffect, useMemo, useState } from "react";
-import { apiFetch, can, currentUser, canOn } from "./auth";
+import { apiFetch, can, currentUser, canOn, needsRole } from "./auth";
 import { downloadCsv } from "./exporting";
 import { refreshAll, Swatch, useApi } from "./ModelViews";
 
@@ -56,8 +56,8 @@ export function metamodelEditable(m) {
 }
 
 function whyNot(m) {
-  if (m.is_locked) return `${m.name} is locked (read-only). Copy it into a project model to change its metamodel (build phase 4).`;
-  if (!changeableModel(m)) return "This model is read-only: copy it to change its metamodel.";
+  if (m.is_locked) return `${m.name} is locked (read-only). Create a model from it (Actions) to change a copy of its metamodel.`;
+  if (!changeableModel(m)) return "This model is read-only: create a model from it (Actions) to change a copy.";
   if (m.lock_level !== "none") return `${m.name} is locked (${LOCKS[m.lock_level]?.[0].toLowerCase()}) by ${m.locked_by}.`;
   return "";
 }
@@ -237,11 +237,13 @@ export function ChangeDialog({ model, m, spec, onClose }) {
 // A button that opens a ChangeDialog, or shows why it cannot (a locked or read-only model)
 export function EditButton({ model, m, label, spec, className = "", title }) {
   const [open, setOpen] = useState(false);
-  if (!canOn(model, "model.metamodel")) return null;   // only the model's Model Admins (and Super Admins) change its metamodel (D89)
-  const ok = metamodelEditable(m);
+  // shown to everyone, greyed out with the reason when it cannot be used (same layout for every role)
+  const allowed = canOn(model, "model.metamodel");   // only the model's Model Admins (and Super Admins) change its metamodel (D89)
+  const ok = allowed && metamodelEditable(m);
+  const why = !allowed ? `Changing the metamodel: ${needsRole("model-admin", m?.name)}` : whyNot(m);
   return (
     <>
-      <button className={`${ok ? "ed-btn" : "later"} ${className}`} disabled={!ok} title={ok ? title || spec?.title : whyNot(m)}
+      <button className={`${ok ? "ed-btn" : "later"} ${className}`} disabled={!ok} title={ok ? title || spec?.title : why}
         onClick={() => setOpen(true)}>{label}</button>
       {open && <ChangeDialog model={model} m={m} spec={typeof spec === "function" ? spec() : spec} onClose={() => setOpen(false)} />}
     </>
@@ -644,10 +646,14 @@ export function LockControl({ model, m }) {
   const [level, setLevel] = useState("metamodel");
   const [reason, setReason] = useState("");
   const [error, setError] = useState("");
-  if (!changeableModel(m)) return null;
+  if (!changeableModel(m)) {
+    return <button className="later" disabled title={`${m.name} is a read-only library model: it cannot be locked or unlocked`}>Lock...</button>;
+  }
   if (!canOn(model, "model.lock")) {
     return m.lock_level && m.lock_level !== "none"
-      ? <span className={`model-lock ${m.lock_level}`}>🔒 {LOCKS[m.lock_level][0]} · {m.locked_by}</span> : null;
+      ? <span className={`model-lock ${m.lock_level}`}>🔒 {LOCKS[m.lock_level][0]} · {m.locked_by}
+        <button className="linkish" disabled title={`Unlocking: ${needsRole("model-admin", m.name)}`}>Unlock</button></span>
+      : <button className="later" disabled title={`Locking: ${needsRole("model-admin", m.name)}`}>Lock...</button>;
   }
   async function call(method, body) {
     setError("");
@@ -667,7 +673,7 @@ export function LockControl({ model, m }) {
   }
   return (
     <span className="lock-ctl">
-      <button onClick={() => setOpen(!open)} title="Lock this model (Model Admins from build phase 3.1)">Lock...</button>
+      <button onClick={() => setOpen(!open)} title="Lock the metamodel, the content, or the whole model for maintenance">Lock...</button>
       {open && (
         <div className="lock-pop">
           {Object.entries(LOCKS).map(([k, [name, help]]) => (

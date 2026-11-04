@@ -35,6 +35,7 @@ ssl_protocols       TLSv1.2 TLSv1.3;
 server {
     listen 80 default_server;
     server_name _;
+    client_max_body_size 100m;   # model packages are uploaded to the API (phase 4)
     set $plain_api "${EAX_HTTP_API_MCP}";
 
     location /api/ {

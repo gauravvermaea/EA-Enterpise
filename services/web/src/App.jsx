@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { apiFetch, can, currentUser, isBreakGlass, keycloak, keycloakReachable, myInfo, roleName, roles, signedIn as isSignedIn, signOut } from "./auth";
+import { apiFetch, can, currentUser, isBreakGlass, keycloak, keycloakReachable, myInfo, roleName, roles, signedIn as isSignedIn, signOut, needsRole } from "./auth";
 import BreakGlass from "./BreakGlass";
 import Users from "./Users";
 import { config } from "./config";
@@ -57,8 +57,10 @@ export default function App() {
           <a href="#/library">Library</a>
           <a href="#/mcp">MCP</a>
           <a href="#/heartbeat">Heartbeat</a>
-          {can("system.operate") && <a href="#/sql">SQL</a>}
-          {can("users.read") && <a href="#/users">Users</a>}
+          {can("system.operate") ? <a href="#/sql">SQL</a>
+            : <span className="nav-off" title={needsRole(["it-admin", "super-admin"])}>SQL</span>}
+          {can("users.read") ? <a href="#/users">Users</a>
+            : <span className="nav-off" title={needsRole(["user-admin", "super-admin"])}>Users</span>}
           <a href="/api/docs">API</a>
         </nav>
         <ModelSwitcher route={route} />

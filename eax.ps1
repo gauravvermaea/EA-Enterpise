@@ -224,6 +224,7 @@ function Show-Logins {
         @("user_it_admin", "eax-it-admin", "runs the installation; no models"),
         @("user_keycloak_admin", "eax-keycloak-admin", "Keycloak console of the realm"),
         @("user_user_admin", "eax-user-admin", "Users page, role mapping; reads no model"),
+        @("user_library_admin", "eax-library-admin", "curates the model library: create, publish, promote, upload, withdraw"),
         @("user_model_creator", "eax-model-creator", "creates models; Model Admin: Karoo Re, Lean EA metamodel, Karoo Digital"),
         @("user_model_admin", "eax-user", "Model Admin: Fynbos group, Fynbos Life; Architect: Sample"),
         @("user_architect", "eax-user", "Architect: Sample, Fynbos Life; Model Sub Admin + Report Viewer: Fynbos Commercial"),
@@ -340,6 +341,10 @@ Starting again
   clean-debug [laptop|server]
                         The same, but ends with debug instead of up (keeps recording the
                         containers' output until Ctrl+C).
+  clean-restart [laptop|server]
+                        For testing a new version: down (stops and removes the running containers),
+                        then clean-run (cleanup --all --yes, init, up). Rebuilds our images and
+                        starts with empty databases; the trusted certificate is kept.
 
   help [command]        This text, or the part about one command.
 
@@ -393,10 +398,16 @@ function Invoke-Cleanup([string[]]$Options) {
 if ($Command -in @("help", "-h", "--help", "/?")) { Show-Help $(if ($RestArgs.Count -gt 0) { $RestArgs[0] } else { "" }); exit 0 }
 # clean-run and clean-debug: cleanup --all --yes, init, then up or debug, each as its own run of
 # this script (so each step writes its own log, like typing the three commands)
-if ($Command -in @("clean-run", "clean-debug")) {
+# clean-restart: down first (when there is a config file to find the containers by), then the same
+if ($Command -in @("clean-run", "clean-debug", "clean-restart")) {
     $kind = if ($RestArgs.Count -gt 0) { $RestArgs[0] } else { "laptop" }
-    $last = if ($Command -eq "clean-run") { "up" } else { "debug" }
-    foreach ($step in @(@("cleanup", "--all", "--yes"), @("init", $kind), @($last))) {
+    $last = if ($Command -eq "clean-debug") { "debug" } else { "up" }
+    $steps = @(@("cleanup", "--all", "--yes"), @("init", $kind), @($last))
+    if ($Command -eq "clean-restart") {
+        if (Test-Path $EnvFile) { $steps = @(, @("down")) + $steps }
+        else { Write-Host "No $EnvFile yet: nothing running to bring down; going straight to clean-run." -ForegroundColor Yellow }
+    }
+    foreach ($step in $steps) {
         Write-Host ""
         Write-Host "=== .\eax $($step -join ' ')" -ForegroundColor Cyan
         & $PSCommandPath @step

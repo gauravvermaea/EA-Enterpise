@@ -12,6 +12,7 @@ from __future__ import annotations
 from flask import g
 from flask.views import MethodView
 from flask_smorest import Blueprint, abort
+from marshmallow import Schema, fields
 
 from .. import repository as repo
 from ..auth import require_auth
@@ -76,18 +77,23 @@ class ModelList(MethodView):
         return _call(repo.list_models, query["search"], query["kind"], query["archived"])
 
 
+class LibraryQuery(Schema):
+    withdrawn = fields.Boolean(load_default=False, metadata={"description": "Also the withdrawn library models"})
+
+
 @blp.route("/library")
 class Library(MethodView):
     @blp.doc(security=SECURITY)
+    @blp.arguments(LibraryQuery, location="query")
     @blp.response(200, LibraryModelOut(many=True))
     @require_auth()
-    def get(self):
+    def get(self, query):
         """The model library: root metamodels and reference models, with what each is built on and its counts by type
 
-        Reference models are locked: nobody can change them (the database refuses it), and they are
-        updated only by a product release, which adds a new version beside the old one.
+        Published library models are locked: nobody can change them (the database refuses it); a Library
+        Admin publishes, promotes and withdraws them (D118). Ones still being built are marked building.
         """
-        return _call(repo.get_library)
+        return _call(repo.get_library, query["withdrawn"])
 
 
 @blp.route("/<uuid:model_id>")

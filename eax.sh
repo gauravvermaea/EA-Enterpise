@@ -72,6 +72,10 @@ Starting again
   clean-debug [laptop|server]
                         The same, but ends with debug instead of up (keeps recording the
                         containers' output until Ctrl+C).
+  clean-restart [laptop|server]
+                        For testing a new version: down (stops and removes the running containers),
+                        then clean-run (cleanup --all --yes, init, up). Rebuilds our images and
+                        starts with empty databases; the trusted certificate is kept.
 
   help [command]        This text, or the part about one command.
 
@@ -239,6 +243,7 @@ show_logins() {
              "user_it_admin|eax-it-admin|runs the installation; no models" \
              "user_keycloak_admin|eax-keycloak-admin|Keycloak console of the realm" \
              "user_user_admin|eax-user-admin|Users page, role mapping; reads no model" \
+             "user_library_admin|eax-library-admin|curates the model library: create, publish, promote, upload, withdraw" \
              "user_model_creator|eax-model-creator|creates models; Model Admin: Karoo Re, Lean EA metamodel, Karoo Digital" \
              "user_model_admin|eax-user|Model Admin: Fynbos group, Fynbos Life; Architect: Sample" \
              "user_architect|eax-user|Architect: Sample, Fynbos Life; Model Sub Admin + Report Viewer: Fynbos Commercial" \
@@ -311,10 +316,16 @@ assert_docker() {
 case "$CMD" in
   help|-h|--help) show_help "${2:-}"; exit 0 ;;
   cleanup)        shift; cleanup "$@"; exit 0 ;;
-  clean-run|clean-debug)
-    # cleanup --all --yes, init, then up or debug: each as its own run of this script (own log)
+  clean-run|clean-debug|clean-restart)
+    # cleanup --all --yes, init, then up or debug: each as its own run of this script (own log);
+    # clean-restart brings the running containers down first
     kind="${2:-laptop}"; last=up; [ "$CMD" = clean-debug ] && last=debug
-    for step in "cleanup --all --yes" "init $kind" "$last"; do
+    steps=("cleanup --all --yes" "init $kind" "$last")
+    if [ "$CMD" = clean-restart ]; then
+      if [ -f "$ENV_FILE" ]; then steps=("down" "${steps[@]}")
+      else echo "No $ENV_FILE yet: nothing running to bring down; going straight to clean-run."; fi
+    fi
+    for step in "${steps[@]}"; do
       echo; echo "=== ./eax.sh $step"
       # shellcheck disable=SC2086
       "$BASH" "./$(basename "${BASH_SOURCE[0]}")" $step || { echo "ERROR: ./eax.sh $step failed; $CMD stopped there."; exit 1; }

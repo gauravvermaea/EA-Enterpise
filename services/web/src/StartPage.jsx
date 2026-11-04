@@ -1,11 +1,19 @@
 import { groups } from "./services";
 import { config } from "./config";
-import { can, signedIn } from "./auth";
+import { can, needsRole, roleName, signedIn } from "./auth";
 
 function Tile({ item }) {
   const allowed = !item.perm || can(item.perm);
   if (item.devOnly && config.deployment !== "laptop") return null;
-  if (!allowed) return null;
+  if (item.live && !allowed) {
+    return (
+      <div className="tile off" aria-disabled="true" title={needsRole(item.roles || [])}>
+        <h3>{item.name}</h3>
+        <p>{item.text}</p>
+        <span className="badge">needs {(item.roles || []).map(roleName).join(" or ")}</span>
+      </div>
+    );
+  }
   if (item.live) {
     const external = item.href.startsWith("http");
     return (

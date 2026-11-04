@@ -51,3 +51,27 @@ def record_heartbeat(context, note: str, requested_by: str) -> None:
             source="job",
         )
     log.info("heartbeat job %s done", job_id)
+
+
+@app.task(name="eax.copy_model", queue="default", pass_context=True)
+def copy_model(context, source: str, target: str, actor: str, roles: list[str], publish: bool = False) -> None:
+    """Phase 4: fills a new model from another (metamodel and content), as the person who asked: the
+    database checks their rights as it would in the screens. With publish, a Library Admin's promotion is
+    locked into the library once copied. A failure is written on the model (copy_state failed)."""
+    from . import model_ops, permissions
+
+    token = permissions.current.set(permissions.Principal(actor, tuple(roles or ())))
+    try:
+        try:
+            with get_engine().begin() as conn:
+                counts = model_ops.run_copy(conn, source, target, actor, publish=publish)
+                audit.record(conn, actor=actor, action="model.copied", object_type="model", object_id=target,
+                             details={"source": source, "counts": counts, "published": publish}, source="job")
+            log.info("copy %s -> %s done: %s", source, target, counts)
+        except Exception as exc:  # recorded on the model so the screens can say why
+            with get_engine().begin() as conn:
+                model_ops.copy_failed(conn, target, str(exc)[:400])
+            log.exception("copy %s -> %s failed", source, target)
+            raise
+    finally:
+        permissions.current.reset(token)

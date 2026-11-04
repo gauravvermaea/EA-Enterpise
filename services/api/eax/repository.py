@@ -40,6 +40,7 @@ _MODEL_SQL = """
            m.metamodel_version, m.is_locked, m.status_code AS status,
            m.owner, m.lifecycle, m.industry, m.version_label,
            m.lock_level, m.lock_reason, m.locked_at, m.locked_by,
+           m.library_state, m.copy_state, m.copy_note, m.history_from_source,
            m.created_at, m.created_by, m.modified_at, m.modified_by,
            (SELECT count(*) FROM core.entity_types t WHERE t.model_id = m.id AND NOT t.is_deleted) AS entity_type_count,
            (SELECT count(*) FROM core.entities e WHERE e.model_id = m.id AND NOT e.is_deleted) AS entity_count,
@@ -64,11 +65,12 @@ def list_models(conn, search: str | None = None, kind: str | None = None,
                  kind=kind or None, archived=include_archived, q=f"%{search.strip()}%" if search and search.strip() else None)
 
 
-def get_library(conn) -> list[dict]:
+def get_library(conn, include_withdrawn: bool = False) -> list[dict]:
     """The model library: the root metamodels (the Root model, ArchiMate 4, an organisation's own) and
     the reference models (read-only industry content), each with the root it is built on and its counts
     by entity type, for browsing before copying one (D81, D101)."""
-    models = list_models(conn, kind="template") + list_models(conn, kind="reference")
+    models = [m for m in list_models(conn, kind="template") + list_models(conn, kind="reference")
+              if m["library_state"] != "withdrawn" or include_withdrawn]
     by_id = {str(m["id"]): m for m in models}
     for m in models:
         # the root metamodel it is built on: up the created-from chain to the one just below the Root

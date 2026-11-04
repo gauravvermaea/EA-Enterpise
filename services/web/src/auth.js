@@ -90,10 +90,24 @@ export function roles() {
 }
 
 const ROLE_NAMES = { "super-admin": "Super Admin", "it-admin": "IT Admin", "user-admin": "User Admin", "keycloak-admin": "Keycloak Admin",
-  "model-creator": "Model Creator", user: "User",
+  "model-creator": "Model Creator", "library-admin": "Library Admin", user: "User",
   "model-admin": "Model Admin", architect: "Architect", "model-sub-admin": "Model Sub Admin", "report-viewer": "Report Viewer" };
 export const MODEL_ROLES = ["model-admin", "model-sub-admin", "architect", "report-viewer"];
 export const roleName = (r) => ROLE_NAMES[r] || r;
+
+// Why a greyed-out control cannot be used: the role it needs and who gives it, so people can ask for it.
+// Global roles (Super Admin, Model Creator, Library Admin...) are given in Keycloak by a User Admin;
+// roles on a model by that model's Model Admins on its People tab.
+const GLOBAL_ROLE_CODES = ["super-admin", "it-admin", "user-admin", "keycloak-admin", "model-creator", "library-admin"];
+export function needsRole(roles, modelName) {
+  const list = (Array.isArray(roles) ? roles : [roles]);
+  const names = list.map((r) => roleName(r));
+  const text = names.length > 1 ? `${names.slice(0, -1).join(", ")} or ${names[names.length - 1]}` : names[0];
+  if (list.every((r) => GLOBAL_ROLE_CODES.includes(r))) {
+    return `Needs the ${text} role. Ask a User Admin to give it to you (global roles are given in Keycloak).`;
+  }
+  return `Needs the ${text} role on ${modelName || "this model"}. Ask a Model Admin of ${modelName || "the model"} to give it to you on its People tab.`;
+}
 
 // Whether the signed-in person's global roles give a permission (see the API's eax/permissions.py)
 export function can(permission) {
@@ -113,6 +127,45 @@ export function myRolesOn(model) {
 
 export function myInfo() {
   return me;
+}
+
+async function authHeaders(extra = {}) {
+  const headers = { ...extra };
+  if (breakGlass) {
+    headers.Authorization = `Bearer ${breakGlass.token}`;
+  } else if (keycloak.authenticated) {
+    await keycloak.updateToken(30).catch(() => keycloak.login());
+    headers.Authorization = `Bearer ${keycloak.token}`;
+  }
+  return headers;
+}
+
+// Upload a form (multipart, for example a package file) and read the JSON answer (phase 4)
+export async function apiUpload(path, form) {
+  const response = await fetch(path, { method: "POST", body: form, headers: await authHeaders() });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.message || `${response.status} ${response.statusText}`);
+  return body;
+}
+
+// Download a file the API makes (for example a model package) and hand it to the browser to save (phase 4)
+export async function apiDownload(path, fallbackName = "download") {
+  const response = await fetch(path, { headers: await authHeaders() });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.message || `${response.status} ${response.statusText}`);
+  }
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const name = (/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition) || [])[1];
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name ? decodeURIComponent(name) : fallbackName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
 // fetch() with the access token, refreshed when it is about to expire.

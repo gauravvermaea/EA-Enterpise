@@ -2,7 +2,7 @@
 // what each person's Keycloak roles give them in EA Explorer and their roles on models (given per model
 // on each model's People tab, D96), and keeps the mapping from Keycloak roles to global roles.
 import { useEffect, useMemo, useState } from "react";
-import { apiFetch, can, roleName } from "./auth";
+import { apiFetch, can, roleName, needsRole } from "./auth";
 import { downloadCsv } from "./exporting";
 
 function useLoad(path, deps = []) {
@@ -98,14 +98,14 @@ function RoleMapping() {
               <td className="small">{r.description}</td>
               <td>{(byRole[r.code] || []).map((m) => (
                 <span key={m.id} className="rchip">{m.keycloak_role}
-                  {editable && <button className="tiny" title={`Remove: ${m.keycloak_role} no longer gives ${r.name}`} onClick={() => remove(m)}>×</button>}</span>))}
+                  <button className="tiny" disabled={!editable} title={editable ? `Remove: ${m.keycloak_role} no longer gives ${r.name}` : `Changing the mapping: ${needsRole(["user-admin", "super-admin"])}`} onClick={() => remove(m)}>×</button></span>))}
                 {!(byRole[r.code] || []).length && <span className="quiet">none: nobody has it</span>}</td>
             </tr>
           ))}
         </tbody>
       </table>
-      {editable && (
-        <form className="toolbar" onSubmit={add}>
+      {(
+        <form className="toolbar" onSubmit={add} title={editable ? undefined : `Changing the mapping: ${needsRole(["user-admin", "super-admin"])}`}>
           <strong>Add a mapping:</strong> Keycloak role
           <input list="kc-roles" className="search" style={{ maxWidth: 240 }} value={kc} onChange={(e) => setKc(e.target.value)} placeholder="a realm role" />
           <datalist id="kc-roles">{(kcRoles.data || []).map((r) => <option key={r.name} value={r.name}>{r.description}</option>)}</datalist>
@@ -114,7 +114,7 @@ function RoleMapping() {
             <option value="">Global role...</option>
             {(roles.data || []).filter((r) => r.scope !== "model").map((r) => <option key={r.code} value={r.code}>{r.name}</option>)}
           </select>
-          <button className="primary" disabled={!kc.trim() || !app}>Add</button>
+          <button className="primary" disabled={!editable || !kc.trim() || !app}>Add</button>
         </form>
       )}
       {kcRoles.error && <p className="quiet small">Keycloak roles could not be listed ({kcRoles.error}); you can still type one.</p>}

@@ -32,10 +32,11 @@ Everything that creates the database is code in this repository; nothing is crea
 | `services/api/migrations/sql/0005_metamodel_editing.sql` (run by `versions/0005_metamodel_editing.py`) | Metamodel versions, attribute defaults, metamodel version on entities, model locks |
 | `services/api/migrations/sql/0006_roles.sql` (run by `versions/0006_roles.py`) | EA Explorer's roles and the Keycloak role mapping, model assignments, model ancestors, row-level security and permission triggers |
 | `services/api/migrations/sql/0007_relationship_rules.sql` (run by `versions/0007_relationship_rules.py`) | The rule type `has_relationship` (an entity must have a relationship of a type, to or from a type) on the built-in field `relationships` (D113) |
+| `services/api/migrations/sql/0008_models.sql` (run by `versions/0008_models.py`) | Phase 4 (0.4.0): the Library Admin role; `library_state` (building, published, withdrawn), `copy_state`, `copy_note` and `history_from_source` on models; `core.copy_model` (a faithful copy of a metamodel, and of content with display IDs); deleting needs Super Admin and is refused while other models depend on the model; `core.metamodel_drafts` (D115, D118, D121) |
 | `services/api/tests/sql/sample_history.sql` | Gives Claims Platform in the sample model a history to try the timeline on (changes the sample model) |
 | `services/api/eax/jobs_schema.py` | The job queue tables (Procrastinate) |
 | `services/api/eax/seed/` | The ArchiMate 4 template, the insurance reference model and the sample model (rows, not structure), loaded by the installer's login |
-| `services/api/tests/sql/phase1_checks.sql`, `phase2_checks.sql`, `phase2_installer_check.sql`, `phase3_checks.sql`, `phase3_1_checks.sql` | Checks for all of it, in transactions that are rolled back |
+| `services/api/tests/sql/phase1_checks.sql`, `phase2_checks.sql`, `phase2_installer_check.sql`, `phase3_checks.sql`, `phase3_1_checks.sql`, `phase4_checks.sql` | Checks for all of it, in transactions that are rolled back |
 
 The api container runs them in that order on every start (`entrypoint.sh`: `alembic upgrade
 head`, the job tables, then the seed); each step only does what is not done yet. Each later build

@@ -27,11 +27,12 @@ import anyio
 from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 
-from . import __version__, permissions
+from . import __version__, audit, model_ops, permissions
 from . import repository as repo
 from .auth import decode_token, user_from_claims
 from .db import get_engine
 from .logging_setup import configure_logging
+from .metamodel_edit import EditError
 
 configure_logging()
 log = logging.getLogger("eax.mcp")
@@ -71,7 +72,7 @@ async def _run(fn, *args, begin: bool = False, **kwargs) -> Any:
             return fn(conn, *args, **kwargs)
     try:
         result = _clean(await anyio.to_thread.run_sync(work))
-    except repo.NotFound as exc:
+    except (repo.NotFound, EditError) as exc:
         return {"error": str(exc)}
     # one JSON document per call: lists are wrapped, so clients get them in one piece
     return {"count": len(result), "items": result} if isinstance(result, list) else result
@@ -256,6 +257,82 @@ async def search_entities(text: str, model: str | None = None) -> Any:
 
 
 # ---------------------------------------------------------------- sign-in
+# ---------------------------------------------------------------- metamodel drafts (build phase 4, D115, D120)
+# Your language model drafts a metamodel here; a person reviews and applies it in the screens (Models >
+# Metamodel drafts). Nothing here changes a model. Build it step by step (draft_set_item / draft_remove_item)
+# or all at once (draft_replace), whichever suits; every change is checked and the findings come back.
+
+def _drafting(fn, action: str, *args):
+    def run(conn):
+        who = permissions.current.get()
+        out = fn(conn, who, *args)
+        audit.record(conn, actor=who.username, action=action, object_type="draft",
+                     object_id=str(out.get("id", "")) if isinstance(out, dict) else "", source="mcp")
+        return out
+    return run
+
+
+@mcp.tool()
+async def get_metamodel_spec(model: str) -> Any:
+    """A model's whole metamodel as one JSON document (format eax-metamodel/1): layers, pick_lists,
+    attributes (code, name, data_type, pick_list, unit), entity_types (code, name, layer, id_prefix,
+    attributes: [{attribute, required, section, default, help}]), relationship_types (code, name, verb,
+    directed), allowed ({source, relationship, target}) and rules ({entity_type, attribute | field,
+    rule_type, param1, param2, severity, message}). Use it as the pattern for drafts."""
+    return await _run(model_ops.metamodel_spec, model)
+
+
+@mcp.tool()
+async def start_metamodel_draft(name: str, kind: str = "root", base: str | None = None, target: str | None = None,
+                                version: str = "", note: str = "", spec: dict | None = None) -> Any:
+    """Start a metamodel draft. kind "root": a new root metamodel called `name`, empty or starting as a copy
+    of `base` (a root such as ArchiMate 4; see list_library). kind "changes": changes to `target`, a model
+    you are Model Admin of (starts as its metamodel). Put what you were asked for in `note`. Give `spec` (a
+    whole eax-metamodel/1 document) to submit everything at once. Returns the draft with its checks."""
+    return await _run(_drafting(model_ops.draft_create, "draft.created",
+                                {"kind": kind, "name": name, "base": base, "target": target, "version": version, "note": note,
+                                 "spec": spec}, "mcp"), begin=True)
+
+
+@mcp.tool()
+async def draft_set_item(draft: str, section: str, item: dict) -> Any:
+    """Add an item to a draft, or replace the one with the same code. section: layers {code, name, colour
+    (six hex digits)}, pick_lists {code, name, values: [..]}, attributes {code, name, data_type (text,
+    long_text, integer, decimal, currency, percent, date, boolean, list, url, email, entity_ref),
+    pick_list (for list), unit}, entity_types {code, name, layer, id_prefix (capitals), description,
+    attributes: [{attribute, required, section}]}, relationship_types {code, name, verb, directed},
+    allowed {source, relationship, target} or rules {entity_type, attribute | field (name, description,
+    display_id), rule_type (mandatory, min_length, max_length, min_value, max_value, range, regex,
+    date_range, date_order, required_if, unique, has_relationship), param1, param2, severity, message}.
+    Returns the draft's checks: fix every error before a person can apply it."""
+    return await _run(_drafting(model_ops.draft_edit, "draft.changed", draft, "set", section, item), begin=True)
+
+
+@mcp.tool()
+async def draft_remove_item(draft: str, section: str, code: str) -> Any:
+    """Take an item out of a draft: by its code, or for allowed and rules by its position (0, 1, ...)."""
+    return await _run(_drafting(model_ops.draft_edit, "draft.changed", draft, "remove", section, None, code), begin=True)
+
+
+@mcp.tool()
+async def draft_replace(draft: str, spec: dict) -> Any:
+    """Replace a draft's whole metamodel document (eax-metamodel/1) at once; it is checked again."""
+    return await _run(_drafting(model_ops.draft_edit, "draft.changed", draft, "replace", None, None, None, spec), begin=True)
+
+
+@mcp.tool()
+async def get_metamodel_draft(draft: str) -> Any:
+    """A draft: its metamodel document, its checks (errors and warnings) and what it changes against the
+    model it starts from. Applying it is done by a person in the screens."""
+    return await _run(lambda conn: model_ops.draft_get(conn, permissions.current.get(), draft))
+
+
+@mcp.tool()
+async def list_metamodel_drafts(status: str | None = None) -> Any:
+    """Your metamodel drafts (draft, applied or rejected)."""
+    return await _run(lambda conn: model_ops.draft_list(conn, permissions.current.get(), status))
+
+
 def _authenticate(header: str) -> permissions.Principal | None:
     """Who a bearer token belongs to, with their EA Explorer roles (mapped from Keycloak's), or None.
     The laptop development token is a Super Admin."""

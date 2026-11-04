@@ -1,8 +1,8 @@
 """Who may do what (build phase 3.1, D58, D59, D60, D89, D90, D92, D96).
 
 Two kinds of role:
-  * Global roles, given in Keycloak: Super Admin, IT Admin, User Admin, Keycloak Admin, Global Model
-    Admin, and User (everyone who may sign in). Keycloak roles map to them in core.role_mappings
+  * Global roles, given in Keycloak: Super Admin, IT Admin, User Admin, Keycloak Admin, Model Creator,
+    Library Admin (curates the model library, D118), and User (everyone who may sign in). Keycloak roles map to them in core.role_mappings
     (eax-super-admin to super-admin and so on by default; any Keycloak role can be mapped).
   * Model roles, given per model in EA Explorer (core.model_users): Model Admin, Architect, Model Sub
     Admin, Report Viewer. One person can be Architect on one model and Model Admin on another.
@@ -24,8 +24,8 @@ from sqlalchemy import text
 
 # global roles (Keycloak, D92, D96)
 SUPER_ADMIN, IT_ADMIN, USER_ADMIN, KEYCLOAK_ADMIN = "super-admin", "it-admin", "user-admin", "keycloak-admin"
-MODEL_CREATOR, USER = "model-creator", "user"
-GLOBAL_ROLES = [SUPER_ADMIN, IT_ADMIN, USER_ADMIN, KEYCLOAK_ADMIN, MODEL_CREATOR, USER]
+MODEL_CREATOR, LIBRARY_ADMIN, USER = "model-creator", "library-admin", "user"
+GLOBAL_ROLES = [SUPER_ADMIN, IT_ADMIN, USER_ADMIN, KEYCLOAK_ADMIN, MODEL_CREATOR, LIBRARY_ADMIN, USER]
 # model roles (per model, several allowed on one model)
 MODEL_ADMIN, MODEL_SUB_ADMIN, ARCHITECT, REPORT_VIEWER = "model-admin", "model-sub-admin", "architect", "report-viewer"
 MODEL_ROLES = [MODEL_ADMIN, MODEL_SUB_ADMIN, ARCHITECT, REPORT_VIEWER]   # highest first
@@ -38,7 +38,9 @@ GLOBAL_PERMISSIONS: dict[str, set[str]] = {
     "roles.map": {USER_ADMIN},             # map Keycloak roles to global roles
     "keycloak.console": {KEYCLOAK_ADMIN},
     "models.all": set(),                   # read every model: Super Admin only
-    "models.create": {MODEL_CREATOR},      # create a model and become its Model Admin (model creation: phase 4)
+    "models.create": {MODEL_CREATOR},      # create a model and become its Model Admin (phase 4)
+    "models.delete": set(),                # delete a model: Super Admin only (D121)
+    "library.curate": {LIBRARY_ADMIN},     # create, publish, promote, upload and withdraw library models (D118)
 }
 # Model permissions: the person's roles on that model
 MODEL_PERMISSIONS: dict[str, set[str]] = {
@@ -60,6 +62,7 @@ TEST_USERS = [
     ("user_it_admin", "eax-it-admin", {}),
     ("user_keycloak_admin", "eax-keycloak-admin", {}),
     ("user_user_admin", "eax-user-admin", {}),
+    ("user_library_admin", "eax-library-admin", {}),
     ("user_model_creator", "eax-model-creator", {"Karoo Re (independent)": [MODEL_ADMIN], "Lean EA metamodel": [MODEL_ADMIN],
                                                  "Karoo Digital (lean)": [MODEL_ADMIN]}),
     ("user_model_admin", "eax-user", {"Fynbos Mutual (group)": [MODEL_ADMIN], "Fynbos Life": [MODEL_ADMIN],
@@ -143,9 +146,9 @@ def sees_every_model(roles) -> bool:
 
 def model_roles(conn, username: str, model) -> list[str]:
     """A person's roles on a model (by guid); empty when none."""
-    return [r for (r,) in conn.execute(text("""SELECT u.role FROM core.model_users u JOIN core.models m ON m.id = u.model_id
+    return [r["role"] for r in conn.execute(text("""SELECT u.role FROM core.model_users u JOIN core.models m ON m.id = u.model_id
                                                 WHERE m.guid = CAST(:m AS uuid) AND u.username = lower(:u)"""),
-                                       {"m": str(model), "u": username})]
+                                       {"m": str(model), "u": username}).mappings().all()]
 
 
 def is_model_admin_anywhere(conn, username: str) -> bool:

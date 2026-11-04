@@ -9,6 +9,9 @@
 //   up to LAYERED_MAX lines                                  ELK layered, right-angled lines
 //   otherwise                                                ELK stress, straight lines (layered takes minutes)
 // The choice of what to show follows the same rules as services/api/eax/diagram.py (scope).
+// Layered view (D124): each layer is a horizontal band, in the metamodel's layer order, with its types
+// inside; lines cross between the bands. ELK layered with one partition per layer when the diagram is
+// small enough (right-angled lines), otherwise rows of boxes per band with straight lines.
 import { useEffect, useMemo, useRef, useState } from "react";
 import ELK from "elkjs/lib/elk-api.js";
 import elkWorkerUrl from "elkjs/lib/elk-worker.min.js?url";
@@ -168,6 +171,98 @@ async function layout(part, showAttrs, showLabels, focus, layerOrder) {
   return elk.layout(graph);
 }
 
+// ---------------------------------------------------------------- layered view: one band per layer
+export const BAND_GUTTER = 150;   // room at the left of each band for the layer's name
+const BAND_PAD = 22, BAND_GAP = 26, ROW_GAP = 34, COL_GAP = 40, ROW_MAX = 1700;
+
+async function bandLayout(part, showAttrs, showLabels, layerOrder) {
+  const children = part.types.map((t) => ({ id: t.id, ...nodeSize(t, showAttrs) }));
+  const typeOf = Object.fromEntries(part.types.map((t) => [t.id, t]));
+  if (part.links.length <= LAYERED_MAX) {
+    try {
+      const g = await elk.layout({
+        id: "root",
+        layoutOptions: {
+          "elk.algorithm": "layered",
+          "elk.direction": "DOWN",
+          "elk.edgeRouting": "ORTHOGONAL",
+          "elk.partitioning.activate": "true",
+          "elk.layered.spacing.nodeNodeBetweenLayers": String(2 * BAND_PAD + BAND_GAP + 20),
+          "elk.spacing.nodeNode": "36",
+          "elk.spacing.edgeEdge": "10",
+          "elk.spacing.edgeNode": "16",
+          "elk.layered.nodePlacement.strategy": "BRANDES_KOEPF",
+        },
+        children: children.map((c) => ({ ...c, layoutOptions: { "elk.partitioning.partition": String(layerOrder[typeOf[c.id].layer_id] ?? 0) } })),
+        edges: part.links.map((l, i) => {
+          const text = l.relationship_types.join(", ");
+          return { id: `e${i}`, sources: [l.source], targets: [l.target],
+            labels: showLabels ? [{ id: `e${i}l`, text, width: Math.ceil(textWidth(text, "11px system-ui")) + 6, height: 14 }] : [] };
+        }),
+      });
+      return shiftRight(g, BAND_GUTTER);
+    } catch { /* fall through to rows */ }
+  }
+  // rows of boxes per band (large diagrams): straight lines, labels at their middle
+  const byLayer = {};
+  for (const c of children) (byLayer[typeOf[c.id].layer_id] ||= []).push(c);
+  const order = Object.keys(byLayer).sort((a, b) => (layerOrder[a] ?? 0) - (layerOrder[b] ?? 0));
+  let y = BAND_PAD;
+  const placed = [];
+  for (const layer of order) {
+    const row = byLayer[layer].sort((a, b) => typeOf[a.id].name.localeCompare(typeOf[b.id].name));
+    let x = BAND_GUTTER, rowH = 0;
+    for (const c of row) {
+      if (x > BAND_GUTTER && x + c.width > BAND_GUTTER + ROW_MAX) { x = BAND_GUTTER; y += rowH + ROW_GAP; rowH = 0; }
+      placed.push({ ...c, x, y });
+      x += c.width + COL_GAP;
+      rowH = Math.max(rowH, c.height);
+    }
+    y += rowH + 2 * BAND_PAD + BAND_GAP;
+  }
+  const at = Object.fromEntries(placed.map((c) => [c.id, c]));
+  const pairs = new Set(part.links.map((l) => `${l.source}|${l.target}`));
+  const edges = part.links.map((l, i) => {
+    const sb = at[l.source], tb = at[l.target];
+    if (l.source === l.target) {
+      const lx = sb.x + sb.width - 30, ly = sb.y;
+      return { id: `e${i}`, sections: [{ startPoint: { x: lx - 16, y: ly }, bendPoints: [{ x: lx - 16, y: ly - 18 }, { x: lx + 16, y: ly - 18 }], endPoint: { x: lx + 16, y: ly } }],
+        labels: [{ x: lx - 20, y: ly - 34 }] };
+    }
+    return { id: `e${i}`, sections: [straightSection(sb, tb, pairs.has(`${l.target}|${l.source}`) ? 7 : 0)], labels: [] };
+  });
+  return {
+    width: Math.max(...placed.map((c) => c.x + c.width), 400) + 20,
+    height: y,
+    children: placed, edges,
+  };
+}
+
+function shiftRight(g, dx) {
+  const mv = (p) => ({ ...p, x: p.x + dx });
+  return {
+    ...g, width: g.width + dx,
+    children: g.children.map(mv),
+    edges: (g.edges || []).map((e) => ({ ...e,
+      sections: (e.sections || []).map((sec) => ({ ...sec, startPoint: mv(sec.startPoint), endPoint: mv(sec.endPoint), bendPoints: (sec.bendPoints || []).map(mv) })),
+      labels: (e.labels || []).map((lb) => (lb.x !== undefined ? mv(lb) : lb)) })),
+  };
+}
+
+// The bands to draw behind the boxes: one per layer, from its highest box to its lowest, the full width
+export function bandsOf(boxes, types, layers, width) {
+  const typeOf = Object.fromEntries(types.map((t) => [t.id, t]));
+  const out = [];
+  for (const l of layers) {
+    const inside = boxes.filter((b) => typeOf[b.id]?.layer_id === l.id);
+    if (!inside.length) continue;
+    const top = Math.min(...inside.map((b) => b.y)) - BAND_PAD;
+    const bottom = Math.max(...inside.map((b) => b.y + b.height)) + BAND_PAD;
+    out.push({ id: l.id, name: l.name, colour: l.colour || "eeeeee", x: 0, y: top, width, height: bottom - top, count: inside.length });
+  }
+  return out;
+}
+
 // A straight line between two boxes, leaving each box at its border (used after a box is dragged)
 export function straightSection(s, t, offset = 0) {
   const sc = { x: s.x + s.width / 2, y: s.y + s.height / 2 }, tc = { x: t.x + t.width / 2, y: t.y + t.height / 2 };
@@ -185,9 +280,14 @@ const xml = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replac
 // The diagram as a .drawio file (uncompressed XML): opens in the hosted draw.io and the desktop app.
 // Each box carries ea_type (the entity type's code) and ea_id (its guid) as shape data, the same tags
 // our diagrams use, so later phases can read the file back.
-export function drawioXml(title, boxes, links, types, showAttrs) {
+export function drawioXml(title, boxes, links, types, showAttrs, bands = []) {
   const byId = Object.fromEntries(types.map((t) => [t.id, t]));
   const cells = ['<mxCell id="0"/>', '<mxCell id="1" parent="0"/>'];
+  // layered view: the layer bands first, so they sit behind the boxes
+  bands.forEach((b, i) => cells.push(
+    `<mxCell id="band_${i}" value="${xml(b.name)}" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#${b.colour};opacity=35;strokeColor=#${b.colour};` +
+    `align=left;verticalAlign=top;spacingLeft=12;spacingTop=8;fontStyle=1;fontSize=14;" vertex="1" parent="1">` +
+    `<mxGeometry x="${Math.round(b.x)}" y="${Math.round(b.y)}" width="${Math.round(b.width)}" height="${Math.round(b.height)}" as="geometry"/></mxCell>`));
   for (const b of boxes) {
     const t = byId[b.id];
     if (!t) continue;
@@ -287,6 +387,7 @@ export default function MetamodelDiagram({ model, focus }) {
   const [showAttrs, setShowAttrs] = useState(true);
   const [showLabels, setShowLabels] = useState(true);
   const [connected, setConnected] = useState(false);
+  const [arrange, setArrange] = useState(() => { try { return localStorage.getItem("eax-er-arrange") || "free"; } catch { return "free"; } });
   const [graph, setGraph] = useState(null);
   const [busy, setBusy] = useState(false);
   const [hover, setHover] = useState(null);
@@ -321,12 +422,19 @@ export default function MetamodelDiagram({ model, focus }) {
     let live = true;
     setBusy(true);
     const layerOrder = Object.fromEntries(data.layers.map((l, i) => [l.id, i]));
-    layout(part, showAttrs, showLabels, focus, layerOrder)
+    (arrange === "layers" ? bandLayout(part, showAttrs, showLabels, layerOrder) : layout(part, showAttrs, showLabels, focus, layerOrder))
       .then((g) => { if (live) { setGraph({ ...g, part }); setMoved({}); fit(g); } })
       .catch((e) => live && setError(`Layout failed: ${e.message}`))
       .finally(() => live && setBusy(false));
     return () => { live = false; };
-  }, [part, showAttrs, showLabels]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [part, showAttrs, showLabels, arrange]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function chooseArrange(a) {
+    setArrange(a);
+    // a layered view of one layer says little: show them all (the chips still narrow it)
+    if (a === "layers" && !focus && data && layers && layers.length <= 1) setLayers(data.layers.map((l) => l.id));
+    try { localStorage.setItem("eax-er-arrange", a); } catch { /* the choice is only for this visit */ }
+  }
 
   function fit(g = graph) {
     const el = frame.current;
@@ -432,7 +540,7 @@ export default function MetamodelDiagram({ model, focus }) {
 
   function downloadDrawio() {
     if (!graph) return;
-    const text = drawioXml(fileName("drawio").replace(/\.drawio$/, ""), boxes, links, data.entity_types, showAttrs);
+    const text = drawioXml(fileName("drawio").replace(/\.drawio$/, ""), boxes, links, data.entity_types, showAttrs, bands);
     saveBlob(new Blob([text], { type: "application/xml" }), fileName("drawio"));
     setNote(".drawio saved: open it in draw.io here or in the desktop app (File > Open).");
     setTimeout(() => setNote(""), 6000);
@@ -482,6 +590,7 @@ export default function MetamodelDiagram({ model, focus }) {
   const near = hover ? new Set([hover, ...links.filter((l) => l.source === hover || l.target === hover)
     .flatMap((l) => [l.source, l.target])]) : null;
   const big = part && (part.types.length > 45 || part.links.length > 250);
+  const bands = arrange === "layers" && graph ? bandsOf(boxes, data.entity_types, data.layers, graph.width) : [];
 
   return (
     <div className="er">
@@ -501,6 +610,12 @@ export default function MetamodelDiagram({ model, focus }) {
           <button onClick={() => go(`/metamodel/${model}/diagram`)}>Clear focus</button>
         </>}
         <span className="er-spacer" />
+        <div className="seg small" role="group" aria-label="Arrangement">
+          <button className={arrange === "free" ? "on" : ""} onClick={() => chooseArrange("free")}
+            title="Boxes placed to keep lines short and tidy">Free layout</button>
+          <button className={arrange === "layers" ? "on" : ""} onClick={() => chooseArrange("layers")}
+            title="One band per layer, top to bottom in the metamodel's layer order (Strategy, Business, Application, Technology...), with lines crossing between the bands">Layered</button>
+        </div>
         <label><input type="checkbox" checked={showAttrs} onChange={(e) => setShowAttrs(e.target.checked)} /> Attributes</label>
         <label><input type="checkbox" checked={showLabels} onChange={(e) => setShowLabels(e.target.checked)} /> Line labels</label>
         <button onClick={() => fit()}>Fit</button>
@@ -538,6 +653,7 @@ export default function MetamodelDiagram({ model, focus }) {
 
       <p className="quiet er-info">
         {part && `${part.types.length} entity types, ${part.links.length} lines`}
+        {arrange === "layers" && part && ` · layered: ${new Set(part.types.map((t) => t.layer_id)).size} layers${part.links.length > LAYERED_MAX ? " (straight lines: a large diagram)" : ""}`}
         {busy && " · laying out..."}
 
         {big && " · a large diagram: choose a layer, fewer relationship types, or focus on one type"}
@@ -555,6 +671,15 @@ export default function MetamodelDiagram({ model, focus }) {
             ))}
           </defs>
           <g data-viewport="" transform={`translate(${view.x},${view.y}) scale(${view.k})`}>
+            {bands.map((b) => (
+              <g key={b.id}>
+                <title>{`${b.name}: ${b.count} entity types`}</title>
+                <rect x={b.x} y={b.y} width={b.width} height={b.height} rx="8" fill={`#${b.colour}`} fillOpacity="0.28"
+                  stroke={`#${b.colour}`} strokeOpacity="0.9" />
+                <text x={b.x + 14} y={b.y + 24} fontSize="15" fontWeight="700" fill="#1d2733" fontFamily="system-ui, sans-serif">{b.name}</text>
+                <text x={b.x + 14} y={b.y + 42} fontSize="11" fill="#5b6775" fontFamily="system-ui, sans-serif">{b.count} types</text>
+              </g>
+            ))}
             {graph?.edges.map((e) => {
               const l = linkOf[e.id];
               if (!l) return null;

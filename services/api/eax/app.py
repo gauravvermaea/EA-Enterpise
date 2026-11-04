@@ -55,10 +55,11 @@ def create_app(testing: bool = False) -> Flask:
     from .api.me import blp as me_blp
     from .api.metamodel import blp as metamodel_blp
     from .api.metamodel_edit import blp as metamodel_edit_blp
+    from .api.models import blp as models_blp
     from .api.sql import blp as sql_blp
 
     for blp in (heartbeat_blp, me_blp, access_blp, break_glass_blp, jobs_blp, audit_blp, metamodel_blp,
-                metamodel_edit_blp, sql_blp):
+                metamodel_edit_blp, models_blp, sql_blp):
         api.register_blueprint(blp)
 
     @app.before_request

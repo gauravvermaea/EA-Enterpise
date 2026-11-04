@@ -70,10 +70,10 @@ $q$, 'is locked');
 SELECT pg_temp.expect_error($q$ TRUNCATE core.entities CASCADE $q$, 'TRUNCATE');
 SELECT pg_temp.expect_error($q$
     INSERT INTO core.models (name, kind_code, is_locked) VALUES ('Fake reference', 'reference', true)
-$q$, 'Only the product installer');
+$q$, 'starts unlocked');   -- from 0.4.0 (D118); before: "Only the product installer"
 SELECT pg_temp.expect_error($q$
     UPDATE core.models SET is_locked = true WHERE name = 'Sample insurance model'
-$q$, 'Only the product installer');
+$q$, 'go into the library');   -- from 0.4.0 (D118); before: "Only the product installer"
 -- SET ROLE does not get round it: the check is on the session's login
 SET LOCAL ROLE eax_migrator;
 SELECT pg_temp.expect_error($q$

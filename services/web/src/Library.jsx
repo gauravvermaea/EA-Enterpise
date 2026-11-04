@@ -1,12 +1,13 @@
 // The model library (phase 2, redesigned in 0.3.1, D101): a browser on the left with every library model
 // (root metamodels and reference models, grouped, with a search and a filter), and the chosen model on
 // the right: what it is built on, its layers and types, its counts and its pack.
-// Coming in phase 4 (D101): create a model from a library model, create a model as a library model
-// (with its pack of guidance and workbooks), promote a model to the library, and download or upload a
-// library model as one package file. The industry packs are filled in phase 39 (D45); their documents
-// live in Mayan and the tiles link to them (D51).
+// Phase 4 (D108, D118): create a model from a library model, download a library model as one package
+// (zip or Excel), upload a package (perhaps renamed, to test with a second copy), and, for Library Admins,
+// publish, withdraw and restore. Pack files wait for Mayan (phase 13, D117); the industry packs are filled
+// in phase 39 (D45).
 import { useEffect, useMemo, useState } from "react";
-import { apiFetch } from "./auth";
+import { apiFetch, can, needsRole } from "./auth";
+import { CreateFromButton, DownloadButtons, libraryAction, UploadButton } from "./ModelOps";
 import { KINDS, KindMark, MarksLegend, StatusMarks } from "./ModelMarks";
 
 function Swatch({ colour }) {
@@ -22,10 +23,8 @@ export function LockBadge({ model }) {
   );
 }
 
-export function CopyButton() {
-  return (
-    <button disabled title="Creating a model from this one arrives in build phase 4">Create a model from this</button>
-  );
+export function CopyButton({ m }) {
+  return <CreateFromButton m={m} />;
 }
 
 const KIND = { template: KINDS.template.label, reference: KINDS.reference.label };
@@ -90,9 +89,10 @@ function Browser({ models, current, onPick }) {
         </div>
       ))}
       <div className="lib-browser-foot">
-        <button disabled title="Upload a library model package someone else built (build phase 4)">⬆ Upload a library model</button>
-        <p className="quiet">Experts can build library models and share them as one package file. Upload, download,
-          creating a library model and promoting your own model to the library arrive in build phase 4.</p>
+        <UploadButton label="⬆ Upload a model package" />
+        <p className="quiet">A package is one file (zip or Excel) downloaded from a model here or from another EA Explorer.
+          To test, download a library model, change its name in the upload and upload it again: it lands beside the first.
+          {can("library.curate") ? " As Library Admin you can upload it into the library." : " It is uploaded as your own project model; uploading into the library needs the Library Admin role."}</p>
       </div>
     </aside>
   );
@@ -142,8 +142,9 @@ function Detail({ m, all }) {
       <div className="lib-actions">
         <a className="button primary" href={`#/metamodel/${m.id}`}>Open{m.is_locked ? " (read-only)" : ""}</a>
         <a className="button" href={`#/metamodel/${m.id}/diagram`}>ER diagram</a>
-        <CopyButton />
-        <button disabled title="Download this library model as one package file to share (build phase 4)">⬇ Download package</button>
+        <CreateFromButton m={m} />
+        <DownloadButtons m={m} compact />
+        <LibraryButtons m={m} />
       </div>
 
       <div className="seg small lib-tabs">
@@ -222,12 +223,44 @@ function Detail({ m, all }) {
   );
 }
 
+function LibraryButtons({ m }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const top = m.is_top;
+  const curator = can("library.curate");
+  const why = needsRole(["library-admin"]);
+  const act = async (a) => {
+    setBusy(true); setError("");
+    try { await libraryAction(m, a); window.dispatchEvent(new Event("eax-library")); } catch (e) { setError(e.message); }
+    setBusy(false);
+  };
+  return (
+    <>
+      {m.library_state === "building" && <button disabled={busy || !curator} onClick={() => act("publish")}
+        title={curator ? "Everyone can then see it and start from it" : `Publishing: ${why}`}>Publish</button>}
+      {m.library_state === "published" && <button disabled={busy || !curator || top} onClick={() => act("withdraw")}
+        title={top ? "Root is the top of the hierarchy and always stays" : curator ? "Nobody can start a new model from it; models built on it keep working" : `Withdrawing: ${why}`}>Withdraw</button>}
+      {m.library_state === "withdrawn" && <button disabled={busy || !curator} onClick={() => act("restore")}
+        title={curator ? "Back in the library for everyone" : `Restoring: ${why}`}>Restore</button>}
+      {error && <span className="status bad">{error}</span>}
+    </>
+  );
+}
+
 export default function Library({ route = "" }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [withdrawn, setWithdrawn] = useState(false);
+  const [gen, setGen] = useState(0);
   useEffect(() => {
-    apiFetch("/api/v1/models/library").then(setData).catch((e) => setError(e.message));
+    const on = () => setGen((x) => x + 1);
+    window.addEventListener("eax-library", on);
+    window.addEventListener("eax-refresh", on);
+    return () => { window.removeEventListener("eax-library", on); window.removeEventListener("eax-refresh", on); };
   }, []);
+  useEffect(() => {
+    apiFetch(`/api/v1/models/library${withdrawn ? "?withdrawn=true" : ""}`).then(setData).catch((e) => setError(e.message));
+  }, [withdrawn, gen]);
   const wanted = route.split("/")[2];
   const current = useMemo(() => {
     if (!data?.length) return null;
@@ -243,6 +276,8 @@ export default function Library({ route = "" }) {
         change them and a release adds a new version beside the old one.
       </p>
       <MarksLegend />
+      <label className="quiet" title={can("library.curate") ? "Withdrawn library models: no new models start from them" : `Seeing withdrawn models: ${needsRole(["library-admin"])}`}>
+        <input type="checkbox" checked={withdrawn} disabled={!can("library.curate")} onChange={(e) => setWithdrawn(e.target.checked)} /> Show withdrawn library models</label>
       {error && <p className="status bad">{error}</p>}
       {!data && !error && <p>Loading...</p>}
       {data && (
