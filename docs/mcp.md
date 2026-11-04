@@ -92,7 +92,7 @@ cannot tell who is asking. The laptop development token signs in as a Super Admi
 | `get_metamodel_history(model)` | Every published metamodel version with its note, who and when, and each change: what, old and new values |
 | `compare_metamodel_versions(model, from_version, to_version?)` | What differs in the metamodel between two versions (`to_version` defaults to the current one) |
 | `list_failing_checks(model, entity_type?)` | Every entity failing a check (rules, mandatory values, relationships outside the metamodel), with counts by type, rule and severity |
-| `search_entities(text, model?)` | Entities whose name, display ID or description contains the text |
+| `search_entities(text, model?, entity_type?, attribute?, tag?)` | Search every model you may read (or one) in names, display IDs, descriptions, tags and attribute values; optionally one type, one attribute or one tag; each result says where it matched (phase 7) |
 
 ### Metamodel drafts (phase 4, D115, D120, D130)
 

@@ -10,6 +10,7 @@ import Mcp from "./Mcp";
 import Sql from "./Sql";
 import Library from "./Library";
 import ModelSwitcher from "./ModelSwitcher";
+import { SearchPage, TopSearch } from "./GridPages";
 
 function useHashRoute() {
   const [route, setRoute] = useState(window.location.hash || "#/");
@@ -63,6 +64,7 @@ export default function App() {
             : <span className="nav-off" title={needsRole(["user-admin", "super-admin"])}>Users</span>}
           <a href="/api/docs">API</a>
         </nav>
+        <TopSearch />
         <ModelSwitcher route={route} />
         <div className="user">
           {signedIn ? (
@@ -85,7 +87,8 @@ export default function App() {
           on a model, or a Keycloak Admin gives you a global role.</div>
       )}
       <main>
-        {route.startsWith("#/heartbeat") ? <Heartbeat />
+        {route.startsWith("#/search") ? <SearchPage key={route} route={route} />
+          : route.startsWith("#/heartbeat") ? <Heartbeat />
           : route.startsWith("#/metamodel") ? <Metamodel route={route} />
           : route.startsWith("#/mcp") ? <Mcp />
           : route.startsWith("#/sql") ? <Sql />

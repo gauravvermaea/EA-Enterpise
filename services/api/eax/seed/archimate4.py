@@ -251,7 +251,7 @@ ATTRS = [
     ("Hosting", "Hosting", "List", "Hosting", "", "Hosting model"),
     ("GoLiveDate", "Go-live Date", "Date", "", "", "Date put into production"),
     ("RetirementDate", "Retirement Date", "Date", "", "", "Planned or actual retirement"),
-    ("AnnualCost", "Annual Cost", "Currency", "", "ZAR", "Annual run cost"),
+    ("AnnualCost", "Annual Cost", "Currency", "", "USD", "Annual run cost"),
     ("TimeClassification", "TIME", "List", "TimeClassification", "", "Portfolio decision: Tolerate, Invest, Migrate or Eliminate"),
     ("FunctionalFit", "Functional Fit", "Integer", "", "", "How well it meets business needs, 1 poor to 5 excellent"),
     ("TechnicalFit", "Technical Fit", "Integer", "", "", "Technical health, 1 poor to 5 excellent"),

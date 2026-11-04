@@ -13,6 +13,7 @@ import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "./auth";
 import { downloadCsv } from "./exporting";
 import { EditButton, entityTypeSpec, mappingSpec, relationshipTypeSpec } from "./MetamodelEditor";
+import { FavStar, rememberRecent } from "./GridPages";
 import { AddRelationshipButton, EntityActions, NewEntityButton, NewRelationshipButton, RemoveRelationshipButton, RollBackButton, RowActions } from "./DataEntry";
 
 const EntityGraph = lazy(() => import("./EntityGraph"));
@@ -907,6 +908,7 @@ function RulesTab({ model, e }) {
 
 export function EntityPage({ model, m, entityId, sub }) {
   const { data: e, error } = useApi(`/api/v1/models/${model}/entities/${entityId}`);
+  useEffect(() => { if (e) rememberRecent({ href: `#/metamodel/${model}/entity/${e.id}`, name: e.name, what: `${e.entity_type} · ${m?.name || ""}` }); }, [e?.id]);
   if (!e) return <Loading error={error} />;
   const tab = sub || "details";
   const errors = e.warnings.filter((w) => w.severity === "error").length;
@@ -921,7 +923,7 @@ export function EntityPage({ model, m, entityId, sub }) {
       <div className="entity-card">
         <div className="entity-card-head">
           <div className="entity-head">
-            <h2><Swatch colour={e.colour} /> {e.name}</h2>
+            <h2><Swatch colour={e.colour} /> {e.name} <FavStar kind="entity" id={e.id} label={e.name} /></h2>
             <span className="quiet">{e.display_id} · {e.entity_type} · {e.layer} layer · {e.status} · metamodel v{e.created_mm_version}{e.modified_mm_version !== e.created_mm_version ? `, changed in v${e.modified_mm_version}` : ""}</span>
             <Checks errors={errors} warnings={e.warnings.length - errors} messages={e.warnings.map((w) => w.message)} />
           </div>

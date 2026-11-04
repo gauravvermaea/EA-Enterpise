@@ -5,7 +5,7 @@ a governed metamodel, an architecture repository, diagrams (draw.io), reports (A
 documents (Mayan EDMS), sign-in through Keycloak, and an MCP server so you can connect your own
 language model. Everything runs in Docker containers from one config file.
 
-**Status: build phase 6 (version 0.6.0): data entry in forms, waiting for test.** The platform runs end to end; the
+**Status: build phase 7 (version 0.7.0): grids, search and saved views, waiting for test.** The platform runs end to end; the
 repository database holds the ArchiMate 4 template, a locked insurance reference model and a sample
 model; model pages show entities, relationships, graphs and history; a project model's metamodel can be
 changed from the screens, every change publishing a new metamodel version; a failing-checks screen;
@@ -29,9 +29,13 @@ Each phase has its own notes: what it delivers, a demo, checks, how to upgrade a
 | 3.1 | Roles and permissions | 0.3.1 | accepted | [phase-3.1.md](docs/phase-3.1.md) |
 | 4 | Creating and copying models, library models and packages | 0.4.0 | accepted and closed | [phase-4.md](docs/phase-4.md) |
 | 5 | Report views and the thirty standard reports | 0.5.0 | accepted and closed; each report checked in phase 36.1 | [phase-5.md](docs/phase-5.md) |
-| 6 | Data entry in forms | 0.6.0 | built, waiting for test | [phase-6.md](docs/phase-6.md) |
+| 6 | Data entry in forms | 0.6.0 | accepted and closed | [phase-6.md](docs/phase-6.md) |
+| 7 | Grids, search and saved views | 0.7.0 | built, waiting for test | [phase-7.md](docs/phase-7.md) |
 
-The full plan (48 phases) is in [docs/requirements/EA_Explorer_Build_Plan.xlsx](docs/requirements/EA_Explorer_Build_Plan.xlsx).
+Next, in order (D147): **8** commits, drafts, approvals and publishing · **8.2** reports and
+views (ArchiMate 4 viewpoints, TOGAF catalogs and matrices, business architecture maps) · **8.3** model tags, comparison and gap
+analysis · **8.4** backup and restore · **9** history and change log · **10** home dashboard · **10.1** import and export sheets.
+The full plan (47 phases) is in [docs/requirements/EA_Explorer_Build_Plan.xlsx](docs/requirements/EA_Explorer_Build_Plan.xlsx).
 
 ## Quick start (laptop)
 

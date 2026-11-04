@@ -134,9 +134,9 @@ def _coerce(attr: dict, value: Any) -> Any:
     return str(value).strip() if isinstance(value, str) else value
 
 
-def _set_values(conn, m: dict, eid: int, tid: int, values: dict[str, Any]) -> list[str]:
-    """Writes the given attribute values (by attribute code); a missing or empty value clears it. Returns
-    the codes changed."""
+def _plan_values(conn, m: dict, tid: int, values: dict[str, Any]) -> list[tuple[dict, str, Any]]:
+    """Checks and converts the given attribute values (by attribute code) before anything is written:
+    (attribute, column, value) for each; a bad value is refused with the field's name."""
     if not values:
         return []
     attrs = {a["code"].lower(): a for a in _rows(conn, """
@@ -144,7 +144,7 @@ def _set_values(conn, m: dict, eid: int, tid: int, values: dict[str, Any]) -> li
           FROM core.item_attributes ia JOIN core.attribute_types at ON at.id = ia.attribute_type_id AND NOT at.is_deleted
           JOIN core.data_types dt ON dt.code = at.data_type_code
          WHERE ia.entity_type_id = :t AND NOT ia.is_deleted""", t=tid)}
-    changed = []
+    plan = []
     for code, raw in values.items():
         a = attrs.get(str(code).lower())
         if not a:
@@ -153,7 +153,18 @@ def _set_values(conn, m: dict, eid: int, tid: int, values: dict[str, Any]) -> li
             a["pick_list_values"] = [r["value"] for r in _rows(conn, """SELECT value FROM core.pick_list_values
                                        WHERE pick_list_id = :p AND NOT is_deleted""", p=a["pick_list_id"])]
         column = STORAGE.get(a["data_type"], "value_text")
-        value = _entity_id(conn, m, raw, "linked entity") if column == "value_ref" else _coerce(a, raw)
+        value = _entity_id(conn, m, raw, f"entity for {a['name']}") if column == "value_ref" else _coerce(a, raw)
+        plan.append((a, column, value))
+    return plan
+
+
+def _set_values(conn, m: dict, eid: int, tid: int, values: dict[str, Any] | None = None,
+                plan: list[tuple[dict, str, Any]] | None = None) -> list[str]:
+    """Writes attribute values (checked first by _plan_values); an empty value clears it. Returns the codes changed."""
+    if plan is None:
+        plan = _plan_values(conn, m, tid, values or {})
+    changed = []
+    for a, column, value in plan:
         current = _one(conn, f"""SELECT id, {column} AS v FROM core.attribute_values
                                   WHERE entity_id = :e AND attribute_type_id = :a AND NOT is_deleted""", e=eid, a=a["id"])
         if value is None:
@@ -207,15 +218,18 @@ def _type_name(conn, tid: int) -> str:
     return _one(conn, "SELECT name FROM core.entity_types WHERE id = :t", t=tid)["name"]
 
 
-def _answer(conn, m: dict, eid: int, warnings: list[dict]) -> dict:
-    guid = _one(conn, "SELECT guid FROM core.entities WHERE id = :e", e=eid)["guid"]
+def _answer(conn, m: dict, eid: int, warnings: list[dict], light: bool = False) -> dict:
+    row = _one(conn, "SELECT guid, display_id, name FROM core.entities WHERE id = :e", e=eid)
+    if light:   # grids save many rows: the essentials only
+        return {"id": row["guid"], "display_id": row["display_id"], "name": row["name"], "saved_warnings": warnings}
+    guid = row["guid"]
     out = repo.get_entity_detail(conn, m["id"], str(guid))
     out["saved_warnings"] = warnings
     return out
 
 
 # ---------------------------------------------------------------- entities
-def create_entity(conn, model: Any, data: dict, actor: str) -> dict:
+def create_entity(conn, model: Any, data: dict, actor: str, light: bool = False) -> dict:
     """A new entity: entity_type, name, description, parent, tags, values {attribute code: value}."""
     m = _model(conn, model)
     et = repo._find_type(conn, m["_id"], data.get("entity_type"))
@@ -223,13 +237,14 @@ def create_entity(conn, model: Any, data: dict, actor: str) -> dict:
     if not name:
         raise EditError("Give the entity a name.")
     parent = _entity_id(conn, m, data.get("parent"), "parent entity")
+    plan = _plan_values(conn, m, et["_id"], data.get("values") or {})   # every value checked before anything is saved
     row = _exec(conn, """INSERT INTO core.entities (model_id, entity_type_id, name, description, parent_entity_id, tags, display_id)
                          VALUES (:m, :t, :n, :d, :p, CAST(:tags AS text[]), coalesce(:did, '')) RETURNING id""",
                 m=m["_id"], t=et["_id"], n=name, d=(data.get("description") or "").strip(), p=parent,
                 tags=_tags(data.get("tags")), did=(data.get("display_id") or "").strip() or None)
     eid = row.scalar_one()
-    changed = _set_values(conn, m, eid, et["_id"], data.get("values") or {})
-    return _answer(conn, m, eid, _check(conn, m, eid, et["_id"], actor, changed))
+    changed = _set_values(conn, m, eid, et["_id"], plan=plan)
+    return _answer(conn, m, eid, _check(conn, m, eid, et["_id"], actor, changed), light)
 
 
 def _tags(value: Any) -> list[str]:
@@ -240,7 +255,7 @@ def _tags(value: Any) -> list[str]:
     return [str(t).strip() for t in value if str(t).strip()]
 
 
-def update_entity(conn, model: Any, entity: Any, data: dict, actor: str) -> dict:
+def update_entity(conn, model: Any, entity: Any, data: dict, actor: str, light: bool = False) -> dict:
     """Changes the given fields (name, description, parent, tags, display_id) and values. When
     row_version is given and the entity changed since, the save is refused (someone else saved first)."""
     m = _model(conn, model)
@@ -248,6 +263,7 @@ def update_entity(conn, model: Any, entity: Any, data: dict, actor: str) -> dict
     eid, tid = e["_id"], e["_type"]
     if data.get("row_version") is not None and int(data["row_version"]) != int(e["row_version"]):
         raise EditError(f"{e['name']} was changed by {e['modified_by']} since you opened it. Reload it and make your change again.", 409)
+    plan = _plan_values(conn, m, tid, data.get("values") or {})   # every value checked before anything is saved
     sets, params = [], {"e": eid}
     if "name" in data:
         if not (data["name"] or "").strip():
@@ -270,10 +286,10 @@ def update_entity(conn, model: Any, entity: Any, data: dict, actor: str) -> dict
         sets.append("display_id = :did"), params.update(did=data["display_id"].strip())
     if sets:
         _exec(conn, f"UPDATE core.entities SET {', '.join(sets)} WHERE id = :e", **params)
-    changed = _set_values(conn, m, eid, tid, data.get("values") or {})
+    changed = _set_values(conn, m, eid, tid, plan=plan)
     if not sets and not changed:
-        return _answer(conn, m, eid, [])
-    return _answer(conn, m, eid, _check(conn, m, eid, tid, actor, changed))
+        return _answer(conn, m, eid, [], light)
+    return _answer(conn, m, eid, _check(conn, m, eid, tid, actor, changed), light)
 
 
 def set_status(conn, model: Any, entity: Any, status: str) -> dict:
@@ -490,3 +506,121 @@ def entry_table(conn, model: Any, entity_type: Any) -> dict:
         row["tags"] = tags.get(str(row["id"]), [])
         row["overrides"] = overrides.get(str(row["id"]), {})
     return {**f, "rows": t["rows"]}
+
+
+# ---------------------------------------------------------------- grids: many rows at once (phase 7)
+class _Savepoint:
+    """One row of a bulk save: its own savepoint, so a bad row is reported and the others are kept."""
+
+    def __init__(self, conn):
+        self.conn, self.sp = conn, None
+
+    def __enter__(self):
+        begin = getattr(self.conn, "begin_nested", None)
+        self.sp = begin() if begin else None
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if self.sp is not None:
+            (self.sp.rollback if exc_type else self.sp.commit)()
+        return False
+
+
+def bulk_entities(conn, model: Any, entity_type: Any, rows: list[dict], actor: str) -> dict:
+    """Saves the changed rows of an entity grid: a row with an id is changed (only the fields it gives) or,
+    with delete, deleted; a row without an id is a new entity. Each row is saved on its own: the answer
+    lists every row's outcome (saved, its display ID and warnings, or why not), so a paste of 500 rows with
+    three bad ones saves 497 and shows the three."""
+    if len(rows) > 5000:
+        raise EditError("Save at most 5,000 rows at a time.")
+    m = _model(conn, model)
+    et = repo._find_type(conn, m["_id"], entity_type)
+    out, saved, failed = [], 0, 0
+    for i, r in enumerate(rows, start=1):
+        try:
+            with _Savepoint(conn):
+                if r.get("id") and r.get("delete"):
+                    d = delete_entity(conn, m["id"], r["id"])
+                    res = {"row": i, "ok": True, "id": d["deleted"], "deleted": True}
+                elif r.get("id"):
+                    d = update_entity(conn, m["id"], r["id"], r, actor, light=True)
+                    res = {"row": i, "ok": True, "id": str(d["id"]), "display_id": d["display_id"], "warnings": d["saved_warnings"]}
+                else:
+                    d = create_entity(conn, m["id"], {**r, "entity_type": et["id"]}, actor, light=True)
+                    res = {"row": i, "ok": True, "id": str(d["id"]), "display_id": d["display_id"], "warnings": d["saved_warnings"],
+                           "created": True}
+            saved += 1
+        except (EditError, repo.NotFound) as exc:
+            res = {"row": i, "ok": False, "error": str(exc), "id": r.get("id")}
+            failed += 1
+        out.append(res)
+    return {"saved": saved, "failed": failed, "rows": out}
+
+
+def relationship_grid(conn, model: Any, relationship_type: Any = None, limit: int = 20000) -> dict:
+    """Every relationship of the model (or of one type) as grid rows: type, source and target (display ID
+    and name), label, and whether the metamodel allows it."""
+    m = repo.get_model(conn, model)
+    rt = repo._find_relationship_type(conn, m["_id"], relationship_type) if relationship_type else None
+    rows = _rows(conn, f"""
+        SELECT r.guid AS id, rt.name AS relationship_type, rt.guid AS relationship_type_id, rt.verb,
+               s.guid AS source_id, s.display_id AS source_display_id, s.name AS source_name, st.name AS source_type,
+               t.guid AS target_id, t.display_id AS target_display_id, t.name AS target_name, tt.name AS target_type,
+               r.name, r.row_version, {repo._ALLOWED_EXISTS} AS allowed
+          FROM core.relationships r
+          JOIN core.relationship_types rt ON rt.id = r.relationship_type_id
+          JOIN core.entities s ON s.id = r.source_entity_id JOIN core.entity_types st ON st.id = s.entity_type_id
+          JOIN core.entities t ON t.id = r.target_entity_id JOIN core.entity_types tt ON tt.id = t.entity_type_id
+         WHERE r.model_id = :m AND NOT r.is_deleted AND NOT s.is_deleted AND NOT t.is_deleted
+           {"AND r.relationship_type_id = :r" if rt else ""}
+         ORDER BY rt.sort_order, s.name, t.name LIMIT :n""", m=m["_id"], r=rt["_id"] if rt else None, n=limit)
+    types = _rows(conn, """SELECT guid AS id, name, verb FROM core.relationship_types WHERE model_id = :m AND NOT is_deleted
+                            ORDER BY sort_order, name""", m=m["_id"])
+    return {"rows": rows, "relationship_types": types}
+
+
+def bulk_relationships(conn, model: Any, rows: list[dict], actor: str) -> dict:
+    """Saves the changed rows of the relationships grid: new rows (relationship_type, source, target by
+    guid, display ID or name; name), changed rows (a new label; a new type or ends replace the relationship)
+    and deleted rows. allow_outside on a row adds an unmapped pair to the metamodel, flagged (D49)."""
+    if len(rows) > 5000:
+        raise EditError("Save at most 5,000 rows at a time.")
+    m = _model(conn, model)
+    out, saved, failed = [], 0, 0
+    for i, r in enumerate(rows, start=1):
+        try:
+            with _Savepoint(conn):
+                if r.get("id"):
+                    guid = repo._as_guid(r["id"])
+                    cur = _one(conn, """SELECT r.id, r.name, rt.guid AS type, s.guid AS source, t.guid AS target
+                                          FROM core.relationships r JOIN core.relationship_types rt ON rt.id = r.relationship_type_id
+                                          JOIN core.entities s ON s.id = r.source_entity_id JOIN core.entities t ON t.id = r.target_entity_id
+                                         WHERE r.guid = :g AND r.model_id = :m AND NOT r.is_deleted""", g=guid, m=m["_id"]) if guid else None
+                    if not cur:
+                        raise EditError("This relationship is no longer there.", 404)
+                    if r.get("delete"):
+                        delete_relationship(conn, m["id"], r["id"])
+                        res = {"row": i, "ok": True, "id": r["id"], "deleted": True}
+                    else:
+                        ends_changed = any(k in r and r[k] not in (None, "") and str(r[k]) != str(cur[k])
+                                           for k in ("relationship_type", "source", "target"))
+                        if ends_changed:
+                            new = add_relationship(conn, m["id"], {
+                                "relationship_type": r.get("relationship_type") or str(cur["type"]),
+                                "source": r.get("source") or str(cur["source"]), "target": r.get("target") or str(cur["target"]),
+                                "name": r.get("name", cur["name"]), "allow_outside": r.get("allow_outside")}, actor)
+                            delete_relationship(conn, m["id"], r["id"])
+                            res = {"row": i, "ok": True, "id": new["id"], "replaced": True, "note": new.get("note")}
+                        else:
+                            _exec(conn, "UPDATE core.relationships SET name = :n WHERE id = :i", n=(r.get("name") or "").strip(), i=cur["id"])
+                            res = {"row": i, "ok": True, "id": r["id"]}
+                else:
+                    new = add_relationship(conn, m["id"], r, actor)
+                    res = {"row": i, "ok": True, "id": new["id"], "created": True, "note": new.get("note")}
+            saved += 1
+        except (EditError, repo.NotFound) as exc:
+            res = {"row": i, "ok": False, "error": str(exc), "id": r.get("id"),
+                   "outside_metamodel": "does not allow" in str(exc)}
+            failed += 1
+        out.append(res)
+    return {"saved": saved, "failed": failed, "rows": out}

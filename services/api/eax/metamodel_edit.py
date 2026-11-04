@@ -791,3 +791,46 @@ def clear_lock(conn, model: Any, actor: str) -> dict:
     except DBAPIError as exc:
         raise EditError(_db_message(exc), 409) from exc
     return repo.get_model(conn, m["id"])
+
+
+def apply_many(conn, model: Any, changes: list[dict], actor: str, dry_run: bool = False) -> dict:
+    """Applies several metamodel changes as ONE new metamodel version (the grids, phase 7): every change
+    {"op": ..., ...payload} in order, all or nothing. A failing change is reported with its row number
+    (row, starting at 1) and nothing is kept. Returns the version, one result per change and the impact."""
+    if not changes:
+        raise EditError("Nothing to save.")
+    if len(changes) > 2000:
+        raise EditError("Save at most 2,000 changes at a time.")
+    m = repo.get_model(conn, model)
+    if m["kind"] not in ("project", "template") or m["is_locked"]:
+        raise EditError(f"Model {m['name']!r} is read-only ({m['kind_name'].lower()}): change the metamodel of a working model or of your own root metamodel.", 409)
+    mid = m["_id"]
+    conn.execute(text("SELECT set_config('eax.actor', :a, true)"), {"a": actor})
+    named: list[int] = []
+    for ch in changes:
+        if ch.get("op") not in OPS:
+            raise EditError(f"Unknown change {ch.get('op')!r}. Known: {', '.join(sorted(OPS))}.")
+        named += _types_named(conn, mid, ch["op"], ch)
+    before = _failing(conn, m, sorted(set(named)))
+    version = conn.execute(text("SELECT core.publish_metamodel_version(:m, '')"), {"m": mid}).scalar_one()
+    results, notes, touched = [], [], set(named)
+    for i, ch in enumerate(changes, start=1):
+        payload = {k: v for k, v in ch.items() if k != "op"}
+        try:
+            result, note, t = OPS[ch["op"]](conn, m, payload)
+        except EditError as exc:
+            raise EditError(f"Row {i} ({ch['op']}): {exc}", exc.status) from exc
+        except DBAPIError as exc:
+            raise EditError(f"Row {i} ({ch['op']}): {_db_message(exc)}", 409) from exc
+        results.append({"row": i, "op": ch["op"], "result": result, "note": note})
+        notes.append(note)
+        touched |= set(t or [])
+    note = notes[0] if len(notes) == 1 else f"{len(notes)} changes from a grid: " + "; ".join(notes[:5]) + ("..." if len(notes) > 5 else "")
+    conn.execute(text("UPDATE core.metamodel_versions SET note = :n WHERE model_id = :m AND version = :v"),
+                 {"n": note[:1000], "m": mid, "v": version})
+    after = _failing(conn, m, sorted(touched))
+    if not dry_run:
+        from .reports import refresh_typed_views
+        refresh_typed_views(conn)
+    return {"model": m["name"], "version": version, "note": note, "dry_run": dry_run, "results": results,
+            "impact": _impact(before, after)}

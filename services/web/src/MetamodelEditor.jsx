@@ -327,7 +327,7 @@ export function attributeSpec(t, pickLists, hasEntities, a = null) {
           : String(v.values || "").split(/\r?\n/).map((x) => x.trim()).filter(Boolean)) },
       applyField,
       { name: "section", label: "Section on the form", initial: "General" },
-      { name: "unit", label: "Unit", placeholder: "for example ZAR or days", when: (v) => ["integer", "decimal", "currency", "percent"].includes(v.data_type) },
+      { name: "unit", label: "Unit", placeholder: "for example USD or days", when: (v) => ["integer", "decimal", "currency", "percent"].includes(v.data_type) },
       { name: "help_text", label: "Help text" },
       { name: "description", label: "Description", type: "textarea" },
     ],

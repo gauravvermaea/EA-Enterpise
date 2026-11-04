@@ -10,6 +10,8 @@
 //   #/metamodel/<model>/type/<id>        one entity type's definition: attributes, rules, allowed relationships
 //   #/metamodel/<model>/diagram[/<id>]   tab ER diagram (MetamodelDiagram.jsx)
 //   #/metamodel/<model>/entry[/<type>]   tab Data entry: an entity type's entities as editable rows (DataEntry.jsx, D79)
+//   #/metamodel/<model>/grid[/<type>|/relationships]   tab Grid: spreadsheet-style editing (GridPages.jsx, phase 7)
+//   #/metamodel/<model>/metamodel/grids/<kind>   metamodel grids: entity types, attributes, mappings... (phase 7)
 //   #/metamodel/<model>/reports          tab Reports: standard reports and the report catalogue (ModelReports.jsx)
 import { lazy, Suspense, useState } from "react";
 import { can, keycloak, signedIn, canOn, myRolesOn, roleName } from "./auth";
@@ -26,6 +28,7 @@ import {
 import ModelPeople from "./ModelPeople";
 import ModelReports from "./ModelReports";
 import { DataEntryTab } from "./DataEntry";
+import { FavStar, GridTab, MetamodelGrids } from "./GridPages";
 import { CopyBanner, DraftPage, Drafts, ModelActions, NewModelButton, UploadButton } from "./ModelOps";
 
 // the diagram and its layout library load only when the ER diagram tab is opened
@@ -93,6 +96,7 @@ function ModelList({ view }) {
                     <KindMark m={m} /> <a href={`#/metamodel/${m.id}`}><strong>{m.name}</strong></a>
                     {m.version_label && <span className="quiet"> {m.version_label}</span>}
                     <StatusMarks m={m} />
+        <FavStar kind="model" id={m.id} label={m.name} />
                     <br /><span className="quiet">{m.industry && `${m.industry} · `}{m.metamodel_name}</span>
                   </td>
                   <td>{m.kind_name}</td>
@@ -245,9 +249,9 @@ function TypeDetail({ model, m, mm, typeId, holdsContent }) {
   );
 }
 
-const MM_VIEWS = [["", "Definition"], ["lists", "Pick lists"], ["history", "History and versions"]];
+const MM_VIEWS = [["", "Definition"], ["grids", "Grids"], ["lists", "Pick lists"], ["history", "History and versions"]];
 
-function MetamodelView({ model, m, typeId, holdsContent, sub }) {
+function MetamodelView({ model, m, typeId, holdsContent, sub, gridKind }) {
   const { data: mm, error } = useApi(`/api/v1/models/${model}/metamodel`);
   if (error) return <p className="status bad">{error}</p>;
   if (!mm) return <p>Loading...</p>;
@@ -258,6 +262,7 @@ function MetamodelView({ model, m, typeId, holdsContent, sub }) {
     </div>
   );
   if (view === "lists") return <>{seg}<PickLists model={model} m={m} /></>;
+  if (view === "grids") return <>{seg}<MetamodelGrids key={gridKind || "entity_types"} model={model} m={m} kindFromUrl={gridKind || "entity_types"} /></>;
   if (view === "history") return <>{seg}<MetamodelHistory model={model} m={m} /></>;
   const types = mm.layers.flatMap((l) => l.entity_types).filter((x) => x.status !== "retired");
   return (
@@ -343,7 +348,7 @@ function ModelPage({ model, view, itemId, sub }) {
   const tab = !v ? (holdsContent ? "types" : "metamodel")
     : v === "type" ? "metamodel" : v === "entity" ? "types" : v;
   const tabs = [
-    ...(holdsContent ? [["types", "Entity types", m.entity_type_count], ["entry", "Data entry", null], ["rels", "Relationship types", null],
+    ...(holdsContent ? [["types", "Entity types", m.entity_type_count], ["entry", "Data entry", null], ["grid", "Grid", null], ["rels", "Relationship types", null],
       ["graph", "Graph", null], ["checks", "Failing checks", null]] : []),
     ["metamodel", "Metamodel", null], ["diagram", "ER diagram", null], ["reports", "Reports", null],
     ...(changeableModel(m) ? [["people", "People", null]] : []),
@@ -396,9 +401,11 @@ function ModelPage({ model, view, itemId, sub }) {
         : tab === "checks" ? <FailingChecks model={model} m={m} />
         : tab === "people" ? <ModelPeople model={model} m={m} />
         : tab === "reports" ? <ModelReports model={model} m={m} />
+        : tab === "grid" ? <GridTab key={itemId || "none"} model={model} m={m} typeFromUrl={itemId || ""} />
         : tab === "entry" ? <DataEntryTab key={itemId || "none"} model={model} m={m} typeFromUrl={itemId || ""} />
         : tab === "diagram" ? <Suspense fallback={<p>Loading the diagram...</p>}><MetamodelDiagram model={model} focus={itemId || null} /></Suspense>
-        : <MetamodelView model={model} m={m} typeId={v === "type" ? itemId : null} holdsContent={holdsContent} sub={v === "metamodel" ? itemId : null} />}
+        : <MetamodelView model={model} m={m} typeId={v === "type" ? itemId : null} holdsContent={holdsContent} sub={v === "metamodel" ? itemId : null}
+            gridKind={v === "metamodel" && itemId === "grids" ? sub : null} />}
       </div>
     </section>
   );

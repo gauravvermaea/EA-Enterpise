@@ -1,4 +1,5 @@
 import { groups } from "./services";
+import { FavouritesAndRecent } from "./GridPages";
 import { config } from "./config";
 import { can, needsRole, roleName, signedIn } from "./auth";
 
@@ -45,6 +46,7 @@ export default function StartPage() {
           {!signedIn() && " Sign in once and every product opens without another login."}
         </p>
       </section>
+      {signedIn() && <section className="start-fav"><FavouritesAndRecent /></section>}
       {groups.map((g) => (
         <section key={g.title}>
           <h2>{g.title}</h2>

@@ -283,7 +283,7 @@ CREATE TABLE core.attribute_types (
     description    text NOT NULL DEFAULT '',
     data_type_code text NOT NULL REFERENCES core.data_types (code),
     pick_list_id   bigint REFERENCES core.pick_lists (id),
-    unit           text NOT NULL DEFAULT '',      -- ZAR, days...
+    unit           text NOT NULL DEFAULT '',      -- USD, days...
     column_name    text NOT NULL CHECK (column_name ~ '^[a-z][a-z0-9_]{0,50}$'),  -- go_live_date
     CHECK ((data_type_code = 'list') = (pick_list_id IS NOT NULL)),
     guid         uuid NOT NULL DEFAULT gen_random_uuid() UNIQUE,  -- global id: API, exchange, copy and merge

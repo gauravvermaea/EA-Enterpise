@@ -29,8 +29,13 @@ Tick an item (`[x]`) when it is done; remove it at the next tidy-up.
 
 ## Phase 6 (version 0.6.0)
 
-- [ ] **Test phase 6** (Gaurav, or in 36.1): `.\eax clean-restart`, the demo and checks in [phase-6.md](phase-6.md).
-- [ ] **Discuss in detail what to build next** (owner, 4 Nov 2026): phases 7 onwards, the commits design (8), richer reports, model tags, backups.
+- [x] **Phase 6 accepted and closed** (4 Nov 2026, D146); end-to-end test in phase 36.1.
+- [x] **Plan reviewed** (4 Nov 2026, D147): 7, 8 (with 38.2), 8.2 reports and views, 8.3 model tags, 8.4 backups, 9, 10, 10.1 import sheets, then the rest.
+
+## Phase 7 (version 0.7.0)
+
+- [ ] **Test phase 7** (Gaurav, or in 36.1): `.\eax clean-restart`, the demo and checks in [phase-7.md](phase-7.md).
+- [ ] Phase 8: person-based change log, My changes and the View change history permission (D151).
 
 ## Phase 14, backup and restore (owner, 4 Nov 2026)
 
@@ -49,6 +54,53 @@ Tick an item (`[x]`) when it is done; remove it at the next tidy-up.
   Closest planned phase: 24.1 (model versions, comparison and gap analysis, D111), which may move earlier.
 
 ## Richer reports (owner, 4 Nov 2026): for the discussion after phase 6
+
+- [ ] **Reports and dashboards by audience** (owner, 4 Nov 2026, D153; phase 8.2). An audience is the kind of person
+  a report interests (CEO, CFO, architect...). Audiences are **not** roles in the system and give no access:
+  model access still decides what anyone sees. Reports and dashboards are grouped by audience, one report can
+  serve several audiences, and each audience gets its own dashboard. Every new report is given its audiences.
+  Draft audiences (to confirm in 8.2):
+  - *Executive*: CEO, CFO, CIO, CTO, COO, Chief Risk Officer (CRO), Chief Information Security Officer
+    (CISO), Chief Data Officer, Chief Compliance Officer.
+  - *Business*: Business unit head, Product owner, Process owner, Change manager, Portfolio manager (PMO).
+  - *Architecture*: Enterprise architect, Business architect, Solution architect, Application architect,
+    Data architect, Technology architect, Integration architect, Security architect, Architecture board.
+  - *Operations and control*: Application owner, IT operations, Procurement and vendor manager, Internal
+    audit, Model owner, Data steward.
+  Draft distribution of the thirty standard reports:
+
+  | Report | Title | Audiences |
+  |---|---|---|
+  | SR-01 | Application portfolio inventory | CIO, Application architect, Application owner, Portfolio manager |
+  | SR-02 | Business capability catalogue | CEO, COO, Business architect, Business unit head |
+  | SR-03 | Technology component inventory | CTO, Technology architect, IT operations |
+  | SR-04 | Data entity catalogue | Chief Data Officer, Data architect |
+  | SR-05 | Business process catalogue | COO, Process owner, Business architect |
+  | SR-06 | Interface and integration catalogue | Integration architect, Solution architect, IT operations |
+  | SR-07 | Stakeholder and actor catalogue | Enterprise architect, Change manager |
+  | SR-08 | Motivation catalogue | CEO, Architecture board, Enterprise architect |
+  | SR-09 | Application against capability | CIO, Business architect, Application architect |
+  | SR-10 | Application against process | COO, Process owner, Application owner |
+  | SR-11 | Application against data entity (CRUD) | Chief Data Officer, Data architect, CISO |
+  | SR-12 | Application against technology | CTO, Technology architect, Application architect |
+  | SR-13 | Process against role | COO, Process owner |
+  | SR-14 | Capability against value stream | CEO, COO, Business architect, Product owner |
+  | SR-15 | Application interaction matrix | Integration architect, Solution architect |
+  | SR-16 | Capability heatmap | CEO, CIO, COO, Business architect |
+  | SR-17 | Technology lifecycle and end-of-life | CTO, CRO, Technology architect, IT operations |
+  | SR-18 | Application TIME quadrant | CIO, CFO, Portfolio manager |
+  | SR-19 | Criticality against technical health | CIO, CTO, Portfolio manager |
+  | SR-20 | Cost by capability | CFO, CEO, CIO |
+  | SR-21 | Vendor concentration | CFO, Procurement and vendor manager, CRO |
+  | SR-22 | Impact analysis | Solution architect, Change manager, Enterprise architect |
+  | SR-23 | Obsolescence risk | CRO, CTO, CISO, Internal audit |
+  | SR-24 | Single points of failure | CRO, CTO, IT operations |
+  | SR-25 | Rationalisation candidates | CIO, CFO, Portfolio manager |
+  | SR-26 | Completeness by type and owner | Model owner, Enterprise architect |
+  | SR-27 | Orphans and missing relationships | Model owner, Data steward |
+  | SR-28 | Duplicate candidates | Model owner, Data steward |
+  | SR-29 | Change activity | Architecture board, Internal audit, Model owner |
+  | SR-30 | Version and baseline comparison | Enterprise architect, Architecture board |
 
 - [ ] The standard reports are mostly tables and pivots; the owner wants more impressive reports. Market review
   (source "Market review", D114) found 19 report types to add. In Superset: bubble portfolio with TIME quadrants,
@@ -164,6 +216,118 @@ Noted 4 Nov 2026 (D99). To discuss and settle when we build the final deployment
   Model Admin of a draft's source model cannot see the requested draft to approve it.
 
 ## Backlog (to work out later)
+
+- [ ] **Market review of open-source EA tools** (owner, 4 Nov 2026, D154): features found that the plan and the
+  backlog above do not yet have. Phases to be set; the phase in brackets is only a suggestion.
+  - *Process and delivery*
+    - E1 Process modelling (BPMN 2.0): a process editor and viewer in the browser; process versions (draft,
+      published, archived) with approval; process steps linked to entities (applications, data, roles);
+      process maturity assessments (efficiency, effectiveness, compliance, automation, 1 to 5) with
+      actions and history; process map, process x capability, process x application reports (16.3).
+    - E2 Initiatives and delivery portfolio: initiatives with a Gantt overview and health; periodic
+      status reports (schedule, cost, scope: on track, at risk, off track); work breakdown with
+      milestones and roll-up; a task board (to do, doing, done, blocked); capex and opex budget lines by
+      financial year against actuals; initiative risks with a probability x impact matrix (16.3, with
+      roadmaps A1).
+    - E3 Benefits and value tracking: expected and realised value of initiatives and architecture work
+      over time (23.1).
+  - *Data quality and governance*
+    - E4 Approval state per entity: draft, approved, rejected, and "approval broken" when a substantive
+      field changes after approval; shown on the entity and in reports (8).
+    - E5 Quality score per entity (0 to 100%) weighted by field importance set in the metamodel, plus
+      stale entities (not reviewed for N months) (12).
+    - E6 Stakeholders per entity with roles the organisation defines (owner, steward, SME, accountable,
+      consulted...), driving notifications, surveys and tasks (22).
+    - E7 Tag groups: tags in named groups, single or multi select, mandatory per entity type (12).
+    - E8 Form layout designer: drag sections and fields on an entity type's form (10).
+    - E9 Automations: rules of the form "when this happens and this is true, do that" (notify, set a
+      value, create a task, start a survey) without code (8.1).
+  - *Reports*
+    - E10 Time slider on reports: any report as it was on a past date, and with effective dates (A2) as
+      it will be (8.2 with 9).
+    - E11 Print and PDF layout for every report and page (8.2).
+    - E12 Matrix reports with grouped, collapsible hierarchy headers on both axes (8.2).
+    - E13 Process and project reports from E1 and E2 (8.2 once those exist).
+  - *AI (adds to C1)*
+    - E14 Description suggestions: draft an entity's description from public web sources, with the
+      sources and a confidence, for chosen entity types; a local or a hosted model (27.1).
+    - E15 Vendor normalisation: one canonical vendor list and hierarchy from messy vendor names (27.1).
+    - E16 Modernisation assessment: effort, priority and recommendation per application (27.1).
+    - E17 Target-architecture wizard: from a goal to a draft target architecture, a layered dependency
+      view, an initiative and a draft decision record, all as proposals into staging (27.1 with 27).
+    - E18 Regulatory scans: check the model against POPIA, the Prudential Authority and other sector rules,
+      ISO 27001, and others chosen; findings become risks in the register (A5) (27.1).
+  - *Integration and exchange*
+    - E19 End-of-life feed: link technology entities to a public end-of-life data source (for example
+      endoflife.date) with fuzzy matching and bulk linking, keeping end-of-life dates current (34).
+    - E20 ServiceNow CMDB two-way sync with field mapping, direction per field and staged review (34).
+    - E21 Cloud and tool extractors: AWS, Azure, Confluence, Jira into staging (34.1).
+    - E22 Jira task sync and Slack notifications, beside Teams and email (B3) (34).
+    - E23 Import preview: a change-by-change difference (new, changed, removed) before any import or
+      exchange file is applied (10.1 and 33).
+    - E24 Architecture as code: export and import a model as readable YAML files kept in Git, a lint
+      command for pipelines (types, relationships, references), and sync from a Git repository (33).
+    - E25 Command-line tool: import, export, lint, run reports and analysis scripts from a terminal or a
+      pipeline, using API tokens (D2) (33).
+    - E26 Scripting: run scripts (Python) against a model in a sandbox for bulk analysis and changes, the
+      changes going into staging (27).
+    - E27 Static HTML export: a whole model as an offline, browsable website (zip) to send to people
+      outside the tool (24.2 with the portal B2).
+  - *Diagrams*
+    - E28 Specialisation icons and label expressions on draw.io shapes (a shape's label built from
+      attributes, for example name and lifecycle) (28).
+    - E29 Free-form sketch and canvas pages (whiteboard) beside the ArchiMate views (29).
+  - *Platform*
+    - E30 Interface in several languages (English first; for example Afrikaans, isiZulu, French,
+      Portuguese, German, Spanish) (37).
+    - E31 Custom roles made from the product's permissions, beyond the agreed roles (25).
+    - E32 Kubernetes Helm chart and Terraform scripts; images for amd64 and arm64, signed, with a
+      software bill of materials (36).
+    - E33 Move a model or the whole installation to another installation in one step (8.4 with backups).
+    - E34 Extension store: add-ons installed from the admin screens (assessments, value tracker, register
+      packs such as an operational resilience register) (with D6, after 1.0).
+    - E35 Currency settings: the base currency is USD (owner, 4 Nov 2026); other currencies (for example ZAR)
+      with exchange rates for cost attributes, converted to USD in reports (23.1).
+    - E37 Live updates (agreed by the owner, 4 Nov 2026): open pages and grids refresh, or warn, when someone
+      else changes the same data (8).
+
+- [ ] **Product gap review** (owner, 4 Nov 2026, D152): added to the backlog, phases to be set. The phase in
+  brackets is only a suggestion.
+  - *Planning content*
+    - A1 Roadmaps and transition architectures: baseline, transition and target plateaus, gaps and work
+      packages, a timeline or Gantt roadmap from the model (16.3).
+    - A2 Effective dates: valid-from and valid-to on entities and relationships; see the architecture as it
+      will be on any date (16.3).
+    - A3 Scenarios and options: branch a target state into options and compare cost, risk and impact (16.3;
+      joins the what-if item below).
+    - A4 Cost and investment: cost per application, roll-ups to capabilities, value streams and
+      organisations, run and change spend, simple business cases (23.1).
+    - A5 Risk, controls and compliance: regulatory obligation register (POPIA, sector regulators), controls
+      mapped to applications, data and processes, risk ratings, compliance gap reports (23.2).
+    - A6 Computed attributes and roll-ups: formulas, values inherited from parents, aggregates over
+      children such as capability health from its applications (8.5).
+    - A7 Technology radar and standards lifecycle: adopt, trial, hold, retire; end-of-life dates driving
+      obsolescence alerts (23.2).
+  - *Producing and sharing*
+    - B1 Document generation: Word, PDF and PowerPoint deliverables (Architecture Definition Document,
+      Statement of Architecture Work, catalogues) from templates filled with live model data (16.4).
+    - B2 Published read-only portal: browse and search an approved model without a role in the tool (24.2).
+    - B3 Notifications to Microsoft Teams and email (10.2).
+    - B4 Help, guided tours and onboarding inside the product (10.2; joins the documentation item below).
+    - B5 Phone and tablet layout: read-only browsing and approvals (10.2).
+  - *Intelligence*
+    - C1 In-app AI assistant: ask the model questions in the tool; suggestions for missing relationships,
+      descriptions, classifications, duplicates and rule fixes; draft artefacts from model data (27.1).
+  - *Platform and governance*
+    - D1 Several organisations in one installation, each with its own admins, users, branding and data (25.2;
+      only if wanted).
+    - D2 API tokens and service accounts: long-lived, scoped, for scripts, ETL and integrations (25.1).
+    - D3 Personal data and POPIA: find and export one person's data, anonymise people who leave,
+      retention rules (25.1).
+    - D4 Archive and purge: archive whole models read-only, purge after a retention period (25.1).
+    - D5 Scale and performance test: a large model (for example 100,000 entities, 500,000 relationships)
+      through grids, search, reports and copies (37).
+    - D6 Extensions: custom pages, widgets and report types without changing core code (after 1.0).
 
 - [ ] **What-if analysis in the reports phase** (asked 4 Nov 2026): explore the effect of a change before
   making it (for example retiring an application: which capabilities, processes and projects lose

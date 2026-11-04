@@ -260,10 +260,13 @@ async def list_failing_checks(model: str, entity_type: str | None = None) -> Any
 
 
 @mcp.tool()
-async def search_entities(text: str, model: str | None = None) -> Any:
-    """Find entities whose name, display ID or description contains the text, in one model or in
-    every model you may read."""
-    return await _run(repo.search_entities, text, model)
+async def search_entities(text: str, model: str | None = None, entity_type: str = "", attribute: str = "",
+                          tag: str = "") -> Any:
+    """Search every model you may read (or one) for entities whose name, display ID, description, tags or any
+    attribute value contains the text; optionally only one entity type, only values of one attribute (for
+    example Vendor) or only entities with a tag. Each result says where the text was found."""
+    from . import workspace
+    return await _run(workspace.search, text, model, entity_type, attribute, tag)
 
 
 # ---------------------------------------------------------------- sign-in
