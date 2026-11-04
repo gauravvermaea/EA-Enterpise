@@ -53,9 +53,9 @@ function Field({ label: text, hint, tip, children }) {
 
 // ------------------------------------------------------------------ create a model
 const COPIES = [
-  ["metamodel", "The metamodel only", "An empty model on the same metamodel"],
-  ["content", "The metamodel and the content", "Every entity and relationship, as they are now"],
-  ["history", "The content with its history", "As above, and the entity histories show the source model's past"],
+  ["metamodel", "Without data: the metamodel only", "An empty model on the same metamodel"],
+  ["content", "With the data", "Every entity, value and relationship as they are now; each keeps its source's guid for merging back and comparing"],
+  ["history", "Deep copy: the data with its full history", "As above, and every entity keeps its whole history from the source, even if the source changes or is deleted later"],
 ];
 
 export function NewModelDialog({ from, onClose }) {
@@ -149,7 +149,11 @@ export function NewModelDialog({ from, onClose }) {
             {from && !all.some((m) => m.id === from.id) && <option value={from.id}>{label(from)}</option>}
             {groups.map(([g, list]) => (
               <optgroup key={g} label={g}>
-                {list.map((m) => <option key={m.id} value={m.id}>{label(m)}{isTop(m) ? " (the top of the hierarchy)" : ""}</option>)}
+                {list.map((m) => {
+                  const off = m.is_draft && !ownsDraft(m);
+                  return <option key={m.id} value={m.id} disabled={off} title={off ? draftWhy(m) : undefined}>
+                    {label(m)}{isTop(m) ? " (the top of the hierarchy)" : ""}{m.is_draft ? " · draft" : ""}</option>;
+                })}
               </optgroup>
             ))}
           </select>
@@ -196,21 +200,24 @@ export function NewModelDialog({ from, onClose }) {
           <Field label="Industry" tip="Used to group and search models and library models."><input value={industry} onChange={(e) => setIndustry(e.target.value)} /></Field>
         </div>
         <Field label="Description" tip="What the model is for and who looks after it."><textarea value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
-        <p className="quiet small-note">You become the new model's Model Admin.</p>
+        <p className="quiet small-note">You become the new model's Model Admin. It starts as a <b>draft</b>: you and the people you give roles
+          work on it, and nobody else can create a model from it until you publish it (Actions &gt; Publish).</p>
         {error && <p className="status bad">{error}</p>}
       </div>
     </Modal>
   );
 }
 
-const mayCreateFrom = (m) => mayCreate() || (m.kind === "project" && canOn(m.id, "model.derive"));
+const ownsDraft = (m) => canOn(m.id, "model.lock") || (m.kind !== "project" && can("library.curate"));
+const mayCreateFrom = (m) => (!m.is_draft || ownsDraft(m)) && (mayCreate() || (m.kind === "project" && canOn(m.id, "model.derive")));
+const draftWhy = (m) => `${m.name} is a draft: only its Model Admins create models from it until it is published`;
 
 export function CreateFromButton({ m, className = "" }) {
   const [open, setOpen] = useState(false);
   return (
     <>
       <button className={className} onClick={() => setOpen(true)} disabled={!mayCreateFrom(m)}
-        title={!mayCreateFrom(m) ? `Creating a model: ${needsRole(m.kind === "project" ? ["model-creator", "library-admin"] : CREATE_ROLES)}${m.kind === "project" ? ` (or Model Admin of ${m.name}, for a child of it)` : ""}`
+        title={m.is_draft && !ownsDraft(m) ? draftWhy(m) : !mayCreateFrom(m) ? `Creating a model: ${needsRole(m.kind === "project" ? ["model-creator", "library-admin"] : CREATE_ROLES)}${m.kind === "project" ? ` (or Model Admin of ${m.name}, for a child of it)` : ""}`
           : m.kind === "project" ? "A child model (merges back into this one) or an independent copy (compared, never merged)" : "A new model built on this one's metamodel, with or without its content"}>Create a model from this</button>
       {open && <NewModelDialog from={m} onClose={() => setOpen(false)} />}
     </>
@@ -230,23 +237,62 @@ export function NewModelButton() {
 }
 
 // ------------------------------------------------------------------ download a package
-export function DownloadButtons({ m, compact }) {
-  const [busy, setBusy] = useState("");
+const CONTENT_LEVELS = [
+  ["metamodel", "Without data: the metamodel only", "Layers, types, attributes, pick lists, relationship types, rules"],
+  ["content", "With the data", "The metamodel and every entity, value and relationship as they are now"],
+  ["history", "Deep: the data with its full history", "As above, plus every change to every entity and the metamodel's version history: readable sheets, and loaded again on upload"],
+];
+
+export function DownloadDialog({ m, onClose }) {
+  const [format, setFormat] = useState("xlsx");
+  const [content, setContent] = useState(m.kind === "template" ? "metamodel" : "content");
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  async function get(format) {
-    setBusy(format); setError("");
-    try { await apiDownload(`/api/v1/models/${m.id}/package?format=${format}`, `${m.name}.${format}`); }
-    catch (e) { setError(e.message); }
-    setBusy("");
+  async function get() {
+    setBusy(true); setError("");
+    try {
+      await apiDownload(`/api/v1/models/${m.id}/package?format=${format}&content=${content}`, `${m.name}.${format}`);
+      onClose();
+    } catch (e) { setError(e.message); setBusy(false); }
   }
   return (
-    <span className="dl-buttons">
-      <button disabled={!!busy} onClick={() => get("zip")} title="One zip: manifest, metamodel (JSON) and the content as CSV files">
-        {busy === "zip" ? "Downloading..." : `⬇ ${compact ? "Zip" : "Download package (zip)"}`}</button>
-      <button disabled={!!busy} onClick={() => get("xlsx")} title="One Excel workbook: the metamodel and every entity type on its own sheet">
-        {busy === "xlsx" ? "Downloading..." : `⬇ ${compact ? "Excel" : "Download as Excel"}`}</button>
-      {error && <span className="status bad"> {error}</span>}
-    </span>
+    <Modal title={`Download ${m.name}`} onClose={onClose}
+      actions={<><button onClick={onClose}>Cancel</button><button className="primary" disabled={busy} onClick={get}>{busy ? "Preparing..." : "Download"}</button></>}>
+      <div className="ed-form">
+        <Field label="Format" tip="Both upload again, here or in another EA Explorer. Excel is easiest to read and change; the zip holds JSON and CSV files.">
+          <div className="seg small">
+            <button type="button" className={format === "xlsx" ? "on" : ""} onClick={() => setFormat("xlsx")}>Excel workbook</button>
+            <button type="button" className={format === "zip" ? "on" : ""} onClick={() => setFormat("zip")}>Zip (JSON and CSV)</button>
+          </div>
+        </Field>
+        <Field label="What to include" tip="Without data: to start a new model on the same metamodel. With the data: a working copy. Deep: also every change made so far, for a faithful copy you can compare or merge later.">
+          <div className="ed-radio">
+            {CONTENT_LEVELS.map(([k, l, hint]) => {
+              const off = m.kind === "template" && k !== "metamodel";
+              return (
+                <label key={k} className="lock-opt" title={off ? "A root metamodel has no data" : hint}>
+                  <input type="radio" name="content" checked={content === k} disabled={off} onChange={() => setContent(k)} />
+                  <span><b>{l}</b><br /><span className="quiet">{hint}</span></span>
+                </label>
+              );
+            })}
+          </div>
+        </Field>
+        {content === "history" && format === "xlsx" && <p className="quiet small-note">Sheets Metamodel versions, Metamodel changes and Change history are
+          for reading; History data is what an upload loads again (leave it as it is).</p>}
+        {error && <p className="status bad">{error}</p>}
+      </div>
+    </Modal>
+  );
+}
+
+export function DownloadButtons({ m }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button onClick={() => setOpen(true)} title="The model as one package, Excel or zip: without data, with the data, or deep with its full history">⬇ Download...</button>
+      {open && <DownloadDialog m={m} onClose={() => setOpen(false)} />}
+    </>
   );
 }
 
@@ -269,6 +315,7 @@ export function UploadWizard({ onClose }) {
   const [placement, setPlacement] = useState("own_root");   // "own_root" or "root:<id>"
   const [name, setName] = useState("");
   const [asKind, setAsKind] = useState(curator ? "library" : "project");
+  const [load, setLoad] = useState("content");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [showDiff, setShowDiff] = useState(false);
@@ -287,6 +334,7 @@ export function UploadWizard({ onClose }) {
       const best = out.placements.find((p) => p.code === "root" && p.matches);
       setPlacement(best ? `root:${best.root_id}` : "own_root");
       if (mm.kind === "project" || !curator) setAsKind("project"); else setAsKind("library");
+      setLoad(out.counts.history_rows ? "history" : out.counts.entities ? "content" : "metamodel");
     } catch (e) { setError(e.message); }
     setBusy(false);
   }
@@ -298,7 +346,7 @@ export function UploadWizard({ onClose }) {
     form.append("placement", placement === "own_root" ? "own_root" : "root");
     if (placement !== "own_root") form.append("root", placement.slice(5));
     form.append("name", name.trim());
-    if (!isRoot) form.append("as_kind", asKind);
+    if (!isRoot) { form.append("as_kind", asKind); form.append("content", load); }
     try {
       const out = await apiUpload("/api/v1/packages/import", form);
       refreshAll();
@@ -387,6 +435,20 @@ export function UploadWizard({ onClose }) {
               <input value={name} onChange={(e) => setName(e.target.value)} />
             </Field>
             {!isRoot && (
+              <Field label="Load" tip="What to bring in from the package. A deep package carries every entity's history; loading it keeps that history in the new model.">
+                <div className="ed-radio">
+                  {[["metamodel", "Without data: the metamodel only", true],
+                    ["content", `With the data (${info.counts.entities} entities, ${info.counts.relationships} relationships)`, info.counts.entities > 0],
+                    ["history", `With the data and its history (${info.counts.history_rows} history rows)`, info.counts.history_rows > 0]].map(([k, l, ok]) => (
+                    <label key={k} className="lock-opt" title={ok ? "" : "The package does not have this"}>
+                      <input type="radio" name="load" checked={load === k} disabled={!ok} onChange={() => setLoad(k)} />
+                      <span>{l}{!ok && <span className="quiet"> · not in this package</span>}</span>
+                    </label>
+                  ))}
+                </div>
+              </Field>
+            )}
+            {!isRoot && (
               <Field label="Upload it as" tip="A library model is published in the library for everyone to start from (Library Admins). A project model is a working model of your own.">
                 <select value={asKind} onChange={(e) => setAsKind(e.target.value)}>
                   <option value="library" disabled={!curator}>A library model (published in the library){curator ? "" : " · needs the Library Admin role"}</option>
@@ -427,6 +489,7 @@ function FrameworkMoveDialog({ m, onClose }) {
   const [map, setMap] = useState(null);
   const [preview, setPreview] = useState(null);
   const [mode, setMode] = useState("copy");
+  const [withData, setWithData] = useState(true);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -449,7 +512,7 @@ function FrameworkMoveDialog({ m, onClose }) {
   async function move() {
     setBusy(true); setError("");
     try {
-      const out = await post(`/api/v1/models/${m.id}/framework-move`, { target, mode, map, name: mode === "copy" ? name.trim() : null });
+      const out = await post(`/api/v1/models/${m.id}/framework-move`, { target, mode, map, name: mode === "copy" ? name.trim() : null, with_data: mode === "copy" ? withData : true });
       refreshAll();
       onClose();
       go(`/metamodel/${out.model.id}`);
@@ -510,6 +573,11 @@ function FrameworkMoveDialog({ m, onClose }) {
                   entity types left out are retired and their entities removed. History keeps everything.</span></span></label>
             </Field>
             {mode === "copy" && <Field label="The new model's name"><input value={name} onChange={(e) => setName(e.target.value)} /></Field>}
+            {mode === "copy" && (
+              <label className="ed-field check" title="Without data: the target framework's metamodel only, for a fresh start or a comparison later">
+                <input type="checkbox" checked={withData} onChange={(e) => setWithData(e.target.checked)} />
+                <span>Bring the data across <span className="quiet">(untick for the metamodel only)</span></span></label>
+            )}
           </>
         )}
         {error && <p className="status bad">{error}</p>}
@@ -550,12 +618,13 @@ function PromoteDialog({ m, onClose }) {
   const [name, setName] = useState(m.name);
   const [version, setVersion] = useState(m.version_label || "1.0");
   const [industry, setIndustry] = useState(m.industry || "");
+  const [copy, setCopy] = useState("content");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function promote() {
     setBusy(true); setError("");
     try {
-      const out = await post(`/api/v1/models/${m.id}/promote`, { name: name.trim(), version_label: version, industry });
+      const out = await post(`/api/v1/models/${m.id}/promote`, { name: name.trim(), version_label: version, industry, copy });
       refreshAll();
       onClose();
       go(`/metamodel/${(out.model || out).id}`);
@@ -565,7 +634,17 @@ function PromoteDialog({ m, onClose }) {
     <Modal title={`Promote ${m.name} to the library`} onClose={onClose}
       actions={<><button onClick={onClose}>Cancel</button><button className="primary" disabled={busy || !name.trim()} onClick={promote}>{busy ? "Promoting..." : "Promote"}</button></>}>
       <div className="ed-form">
-        <p>A copy of this model, its metamodel and content, becomes a published library model that everyone can start from. This model stays as it is.</p>
+        <p>A copy of this model becomes a library model (a draft until a Library Admin publishes it). This model stays as it is.</p>
+        <Field label="Copy">
+          <div className="ed-radio">
+            {COPIES.map(([k, l, hint]) => (
+              <label key={k} className="lock-opt" title={hint}>
+                <input type="radio" name="pcopy" checked={copy === k} onChange={() => setCopy(k)} />
+                <span><b>{l}</b><br /><span className="quiet">{hint}</span></span>
+              </label>
+            ))}
+          </div>
+        </Field>
         <Field label="Library model name"><input value={name} onChange={(e) => setName(e.target.value)} /></Field>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Field label="Version"><input value={version} onChange={(e) => setVersion(e.target.value)} /></Field>
@@ -600,12 +679,6 @@ export function ModelActions({ m }) {
     catch (e) { setError(e.message); }
     setBusy("");
   }
-  async function download(format) {
-    setOpen(false); setBusy("Downloading"); setError("");
-    try { await apiDownload(`/api/v1/models/${m.id}/package?format=${format}`, `${m.name}.${format}`); }
-    catch (e) { setError(e.message); }
-    setBusy("");
-  }
   async function spec() {
     setOpen(false); setError("");
     try { await apiDownload(`/api/v1/models/${m.id}/metamodel-spec`, `${m.name} metamodel.json`); }
@@ -618,20 +691,30 @@ export function ModelActions({ m }) {
   const items = [
     ["Create a model from this", () => setDialog("new"), mayCreateFrom(m), m.kind === "project"
       ? "A child model that merges back into this one, or an independent copy that can be compared" : "A new model built on this one's metamodel, with or without its content and history",
-      needsRole(CREATE_ROLES) + (m.kind === "project" ? ` (or Model Admin of ${m.name}, for a child of it)` : "")],
-    ["Download package (zip)", () => download("zip"), true, "One zip: manifest, metamodel (JSON) and the content as CSV files, to upload here or elsewhere"],
-    ["Download as Excel", () => download("xlsx"), true, "One workbook: the metamodel and each entity type on its own sheet; it can be changed and uploaded again"],
+      m.is_draft && !ownsDraft(m) ? draftWhy(m) : needsRole(CREATE_ROLES) + (m.kind === "project" ? ` (or Model Admin of ${m.name}, for a child of it)` : "")],
+    ["Download...", () => setDialog("download"), true, "The model as one package, Excel or zip: without data, with the data, or deep with its full history (to upload here or elsewhere)"],
     ["Download the metamodel (JSON)", spec, true, "The metamodel as one document, to give an AI assistant or upload as a metamodel draft"],
     ["Move to another framework...", () => setDialog("move"), admin && m.kind === "project" && !m.is_locked,
       "Put this model on another root metamodel, for example a newer framework version",
       m.kind !== "project" ? "Only project models move to another framework; create a model from this one first"
         : m.is_locked ? `${m.name} is locked` : adminWhy],
     ["-"],
-    ["Promote to the library...", () => setDialog("promote"), curator && m.kind === "project", "A copy of this model becomes a library model everyone can start from",
-      m.kind !== "project" ? "Only project models are promoted; this one is already a library model" : libWhy],
-    ["Publish in the library", () => act("publish", "Publishing"), curator && library && m.library_state === "building", "Everyone can see it and start from it; it becomes read-only",
-      !library ? "Only library models and root metamodels are published; promote a project model instead"
-        : m.library_state !== "building" ? `Already ${m.library_state}` : libWhy],
+    ["Promote to the library...", () => setDialog("promote"), curator && m.kind === "project" && !m.is_draft,
+      "A copy of this model becomes a library model (a draft until a Library Admin publishes it)",
+      m.kind !== "project" ? "Only project models are promoted; this one is already a library model" : m.is_draft ? "Publish the model first" : libWhy],
+    // publishing a draft is two steps, always (D134): request, then approve (or send back)
+    ["Request publishing...", () => setDialog("request-publish"),
+      m.is_draft && ["editing", "returned"].includes(m.approval_state) && (admin || (library && curator)),
+      "Ask for this draft to be published; an approver then approves it or sends it back",
+      !m.is_draft ? "Already published" : m.approval_state === "requested" ? "Already waiting for approval" : adminWhy],
+    [library ? "Approve and publish in the library..." : "Approve and publish...", () => setDialog("publish"),
+      m.is_draft && m.approval_state === "requested" && (library ? curator : admin),
+      library ? "Everyone can see it and start from it; it becomes read-only" : "It stops being a draft: others with a role on it can create models from it",
+      !m.is_draft ? "Already published" : m.approval_state !== "requested" ? "Publishing has not been requested yet" : library ? libWhy : adminWhy],
+    ["Send back...", () => setDialog("send-back-publish"),
+      m.is_draft && m.approval_state === "requested" && (library ? curator : admin),
+      "Send the draft back to its makers with a note on what to change",
+      m.approval_state !== "requested" ? "Only a draft waiting for approval is sent back" : library ? libWhy : adminWhy],
     [m.library_state === "withdrawn" ? "Restore to the library" : "Withdraw from the library",
       () => act(m.library_state === "withdrawn" ? "restore" : "withdraw", m.library_state === "withdrawn" ? "Restoring" : "Withdrawing"),
       curator && library && !isTop(m) && ["published", "withdrawn"].includes(m.library_state),
@@ -660,10 +743,39 @@ export function ModelActions({ m }) {
       )}
       {error && <span className="status bad"> {error}</span>}
       {dialog === "new" && <NewModelDialog from={m} onClose={close} />}
+      {dialog === "download" && <DownloadDialog m={m} onClose={close} />}
+      {["request-publish", "publish", "send-back-publish"].includes(dialog) && <PublishStepDialog m={m} step={dialog} onClose={close} />}
       {dialog === "move" && <FrameworkMoveDialog m={m} onClose={close} />}
       {dialog === "delete" && <DeleteDialog m={m} onClose={close} />}
       {dialog === "promote" && <PromoteDialog m={m} onClose={close} />}
     </span>
+  );
+}
+
+const PUBLISH_STEPS = {
+  "request-publish": ["Request publishing", "A note for the approver (optional)", "primary", false],
+  publish: ["Approve and publish", "A note (optional)", "primary", false],
+  "send-back-publish": ["Send back", "What to change", "danger", true],
+};
+
+function PublishStepDialog({ m, step, onClose }) {
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [title, label, cls, needed] = PUBLISH_STEPS[step];
+  async function send() {
+    setBusy(true); setError("");
+    try { await post(`/api/v1/models/${m.id}/${step}`, { note }); refreshAll(); onClose(); }
+    catch (e) { setError(e.message); setBusy(false); }
+  }
+  return (
+    <Modal title={`${title}: ${m.name}`} onClose={onClose}
+      actions={<><button onClick={onClose}>Cancel</button><button className={cls} disabled={busy || (needed && !note.trim())} onClick={send}>{title}</button></>}>
+      <div className="ed-form">
+        <Field label={label}><textarea value={note} onChange={(e) => setNote(e.target.value)} autoFocus /></Field>
+        {error && <p className="status bad">{error}</p>}
+      </div>
+    </Modal>
   );
 }
 
@@ -681,7 +793,15 @@ export function CopyBanner({ m }) {
     return <div className="lock-banner content">The copy failed: {m.copy_note || "see the job log"}. Delete this model and create it again, or ask an IT Admin.</div>;
   }
   if (m.library_state === "building") {
-    return <div className="lock-banner">Not yet published in the library: only its makers and Library Admins see it. A Library Admin publishes it from Actions when it is ready.</div>;
+    return <div className="lock-banner draft-banner">📝 Draft: not yet published in the library. {m.approval_state === "requested"
+      ? "Publishing requested: a Library Admin approves it (Actions > Approve and publish in the library) or sends it back."
+      : "Request publishing (Actions) when it is ready; a Library Admin approves it."}</div>;
+  }
+  if (m.is_draft) {
+    const st = { requested: "Publishing requested: waiting for approval (Actions > Approve and publish, or Send back).",
+      returned: "Sent back: change it and request publishing again (Actions > Request publishing).",
+      editing: "Nobody else can create a model from it until it is published: Actions > Request publishing, then it is approved." }[m.approval_state] || "";
+    return <div className="lock-banner draft-banner">📝 Draft model. {st}</div>;
   }
   if (m.library_state === "withdrawn") {
     return <div className="lock-banner content">Withdrawn from the library: nobody can start a new model from it. Models already built on it keep working.</div>;
@@ -690,7 +810,7 @@ export function CopyBanner({ m }) {
 }
 
 // ------------------------------------------------------------------ metamodel drafts (D115, D120)
-const DRAFT_STATUS = { draft: "Waiting for review", applied: "Applied", rejected: "Rejected" };
+const DRAFT_STATUS = { draft: "Waiting for review", returned: "Sent back for changes", applied: "Applied", rejected: "Rejected" };
 
 // Drafting: Model Creators and Library Admins (new roots), or the Model Admin of some model (changes to it)
 const mayDraft = () => mayCreate() || (myInfo()?.models || []).some((x) => (x.roles || [x.role]).includes("model-admin"));
@@ -703,12 +823,13 @@ export function Drafts() {
     <div>
       <p className="quiet">
         A draft is a whole metamodel waiting for a person to review it: built by an AI assistant through the MCP tools
-        (start_metamodel_draft, draft_set_item, draft_replace), or uploaded here as a metamodel JSON file. Nothing changes
-        until someone with the rights applies it: a new root metamodel (Model Creators) or changes to a model (its Model Admin).
+        (start_metamodel_draft, draft_set_item, draft_replace), or uploaded here as a metamodel JSON file. A reviewer applies it,
+        sends it back for changes with comments (its maker, or their AI, fixes it and resubmits), or rejects it (it can be reopened).
+        Nothing changes until it is applied: a new root metamodel (Model Creators), which starts as a draft model, or changes to a model (its Model Admin).
       </p>
       <div className="toolbar">
         <div className="seg small">
-          {[["draft", "Waiting"], ["applied", "Applied"], ["rejected", "Rejected"], ["", "All"]].map(([k, l]) => (
+          {[["draft", "Waiting for review"], ["returned", "Sent back"], ["applied", "Applied"], ["rejected", "Rejected"], ["", "All"]].map(([k, l]) => (
             <button key={k} className={status === k ? "on" : ""} onClick={() => setStatus(k)}>{l}</button>
           ))}
         </div>
@@ -722,7 +843,7 @@ export function Drafts() {
       {drafts && drafts.length > 0 && (
         <div className="table-wrap">
           <table className="grid-table">
-            <thead><tr><th>Draft</th><th>For</th><th>Contents</th><th>Checks</th><th>By</th><th>Status</th><th>Changed</th></tr></thead>
+            <thead><tr><th>Draft</th><th>For</th><th>Contents</th><th>Checks</th><th>By</th><th>Status</th><th>Comments</th><th>Changed</th></tr></thead>
             <tbody>
               {drafts.map((d) => {
                 const errors = (d.checks || []).filter((c) => c.level === "error").length;
@@ -733,7 +854,8 @@ export function Drafts() {
                     <td className="quiet">{d.counts.entity_types} entity types · {d.counts.relationship_types} relationship types · {d.counts.attributes} attributes</td>
                     <td>{errors ? <span className="status bad">{errors} errors</span> : <span className="all-pass">OK</span>}</td>
                     <td>{d.proposed_by} <span className="quiet">{d.proposed_via === "mcp" ? "via AI (MCP)" : d.proposed_via}</span></td>
-                    <td>{DRAFT_STATUS[d.status] || d.status}</td>
+                    <td title={DRAFT_HELP[d.status]}>{DRAFT_STATUS[d.status] || d.status} <span className="quiet">round {d.round}</span></td>
+                    <td>{d.open_comments ? <span title="Open review comments">💬 {d.open_comments}</span> : <span className="quiet">-</span>}</td>
                     <td className="quiet">{new Date(d.modified_at).toLocaleString()}</td>
                   </tr>
                 );
@@ -837,27 +959,46 @@ function itemMore(section, x) {
   return "";
 }
 
+// A readable key for an item, used to hang comments on it (allowed and rules have no code)
+function itemKey(section, x) {
+  if (section === "allowed") return `${x.source} ${x.relationship} ${x.target}`;
+  if (section === "rules") return `${x.entity_type || "*"}.${x.attribute || x.field || ""} ${x.rule_type || x.rule || ""}`.trim();
+  return x.code;
+}
+
+const ACTION_TEXT = { created: "Created", sent_back: "Sent back for changes", resubmitted: "Resubmitted for review",
+  rejected: "Rejected", reopened: "Reopened", applied: "Applied" };
+
 export function DraftPage({ id }) {
   const { data: d, error } = useApi(`/api/v1/metamodel-drafts/${id}`);
   const [section, setSection] = useState("entity_types");
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
-  const [apply, setApply] = useState(false);
-  const [reject, setReject] = useState(false);
+  const [dialog, setDialog] = useState(null);       // apply, reject, send-back, resubmit, reopen
+  const [commentOn, setCommentOn] = useState(null); // {section, code} or "draft"
+  const [showResolved, setShowResolved] = useState(false);
   if (error) return <section><p className="status bad">{error}</p><a href="#/metamodel/drafts">All drafts</a></section>;
   if (!d) return <section><p>Loading...</p></section>;
-  const open = d.status === "draft";
-  const may = d.kind === "root" ? (can("models.create") || can("library.curate")) : canOn(d.target_model_id, "model.metamodel");
+  const waiting = d.status === "draft", returned = d.status === "returned", rejected = d.status === "rejected";
+  const may = d.may_review;
   const mayWhy = d.kind === "root" ? needsRole(["model-creator", "library-admin"]) : needsRole("model-admin", d.target_model);
+  const editWhy = !d.may_edit ? (d.status === "applied" ? "This draft was applied: change the model's metamodel in its Metamodel tab"
+    : rejected ? "This draft was rejected: reopen it to change it" : `Changing the draft: its maker or a reviewer (${mayWhy})`) : "";
   const errors = d.checks.filter((c) => c.level === "error");
   const items = d.spec[section] || [];
+  const comments = d.comments || [];
+  const openOn = (sec, code) => comments.filter((c) => c.section === sec && c.code === code && !c.resolved_at);
+  const general = comments.filter((c) => !c.section && (showResolved || !c.resolved_at));
+  const onItems = comments.filter((c) => c.section && (showResolved || !c.resolved_at));
 
-  async function remove(code) {
-    setBusy(code); setMsg("");
-    try { await post(`/api/v1/metamodel-drafts/${id}/edit`, { action: "remove", section, code }); refreshAll(); }
+  async function call(path, body, what) {
+    setBusy(what); setMsg("");
+    try { await post(`/api/v1/metamodel-drafts/${id}/${path}`, body); refreshAll(); }
     catch (e) { setMsg(e.message); }
     setBusy("");
   }
+  const remove = (code) => call("edit", { action: "remove", section, code }, code);
+  const resolve = (c, resolved) => call(`comments/${c.id}/resolve`, { resolved }, c.id);
   function downloadJson() {
     const blob = new Blob([JSON.stringify(d.spec, null, 2)], { type: "application/json" });
     const a = document.createElement("a");
@@ -865,27 +1006,52 @@ export function DraftPage({ id }) {
     a.download = `${d.name}.json`;
     a.click();
   }
+  function replaceFromFile(f) {
+    if (!f) return;
+    f.text().then((t) => {
+      let spec;
+      try { spec = JSON.parse(t); } catch { setMsg("That file is not JSON (a metamodel document, eax-metamodel/1)."); return; }
+      call("edit", { action: "replace", spec }, "replace");
+    });
+  }
+  const sectionName = (k) => SECTIONS.find(([c]) => c === k)?.[1] || k;
 
   return (
     <section className="model-page">
       <p className="lineage"><a href="#/metamodel/drafts">Metamodel drafts</a> /</p>
       <div className="model-head">
         <h1>{d.name}</h1>
-        <span className={`rchip ${open ? "on" : ""}`}>{DRAFT_STATUS[d.status]}</span>
+        <span className={`rchip ${waiting || returned ? "on" : ""}`} title={DRAFT_HELP[d.status]}>{DRAFT_STATUS[d.status]}</span>
+        <span className="quiet">round {d.round}</span>
         <button onClick={downloadJson} title="The draft's metamodel as one JSON document">⬇ JSON</button>
-        <button className="primary" disabled={!open || !may || errors.length > 0} onClick={() => setApply(true)}
-          title={!open ? `This draft was ${d.status}` : !may ? `Applying: ${mayWhy}` : errors.length ? "Fix the errors first: remove or correct the items the checks name" : "Make the new root metamodel, or publish the changes as one metamodel version"}>Apply...</button>
-        <button disabled={!open || !may} onClick={() => setReject(true)}
-          title={!open ? `This draft was ${d.status}` : !may ? `Rejecting: ${mayWhy}` : "Close the draft without applying it, saying why"}>Reject...</button>
+        <label className={`button file-button${d.may_edit ? "" : " off"}`} title={d.may_edit ? "Replace the whole draft with a metamodel JSON file (for example one you edited, or your AI made); it is checked again" : editWhy}>
+          ⬆ Replace from file<input type="file" accept=".json,application/json" disabled={!d.may_edit} onChange={(e) => replaceFromFile(e.target.files?.[0])} hidden />
+        </label>
+        <span className="er-spacer" />
+        <button className="primary" disabled={!waiting || !may || errors.length > 0 || !!busy} onClick={() => setDialog("apply")}
+          title={!waiting ? (returned ? "Sent back for changes: it is applied after it is resubmitted" : `This draft was ${d.status}`) : !may ? `Applying: ${mayWhy}`
+            : errors.length ? "Fix the errors first: remove or correct the items the checks name" : "Make the new root metamodel (a draft model until published), or publish the changes as one metamodel version"}>Apply...</button>
+        <button disabled={!waiting || !may || !!busy} onClick={() => setDialog("send-back")}
+          title={!waiting ? "Only a draft waiting for review is sent back" : !may ? `Sending back: ${mayWhy}` : "Send it back to its maker with your comments: it becomes editable again"}>Send back...</button>
+        <button disabled={!(waiting || returned) || !may || !!busy} onClick={() => setDialog("reject")}
+          title={!(waiting || returned) ? `This draft was ${d.status}` : !may ? `Rejecting: ${mayWhy}` : "Close the draft without applying it, saying why (it can be reopened)"}>Reject...</button>
+        <button disabled={!returned || !d.may_edit || !!busy} onClick={() => setDialog("resubmit")}
+          title={!returned ? "Only a draft sent back for changes is resubmitted" : !d.may_edit ? editWhy : errors.length ? "Resubmit (it still has errors: the reviewer cannot apply it until they are fixed)" : "Send it for review again: a new round"}>Resubmit...</button>
+        <button disabled={!rejected || !!busy || !(d.may_review || d.proposed_by === (myInfo()?.username))} onClick={() => setDialog("reopen")}
+          title={!rejected ? "Only a rejected draft is reopened" : "Open it again for changes, as a new round"}>Reopen...</button>
       </div>
       <p className="quiet">
         {d.kind === "root" ? <>A new root metamodel{d.base_model && <> starting from {d.base_model}</>}</> : <>Changes to <a href={`#/metamodel/${d.target_model_id}`}>{d.target_model}</a></>}
         {" · "}by {d.proposed_by} {d.proposed_via === "mcp" ? "through an AI assistant (MCP)" : `(${d.proposed_via})`} · changed {new Date(d.modified_at).toLocaleString()}
-        {d.decided_by && <> · {d.status} by {d.decided_by} on {new Date(d.decided_at).toLocaleString()}</>}
-        {d.applied_model_id && <> · <a href={`#/metamodel/${d.applied_model_id}`}>{d.applied_model}</a></>}
+        {d.decided_by && <> · {DRAFT_STATUS[d.status].toLowerCase()} by {d.decided_by} on {new Date(d.decided_at).toLocaleString()}</>}
+        {d.applied_model_id && <> · <a href={`#/metamodel/${d.applied_model_id}/metamodel`}>{d.applied_model}</a></>}
       </p>
       {d.note && <p className="lib-desc">{d.note}</p>}
-      {open && !may && <p className="quiet">You can look at this draft. {mayWhy}</p>}
+      {returned && <div className="lock-banner">Sent back for changes. Deal with the open comments (remove items here, ask your AI to change them through MCP,
+        or replace the draft from a file), mark them fixed, then <b>Resubmit</b>.</div>}
+      {waiting && !may && <p className="quiet">You can look at this draft. {mayWhy}</p>}
+      <p className="quiet small-note">A draft is for review: trim it, comment on it and send it back. Detailed changes are easier once it is applied,
+        in the new model's Metamodel tab (it stays a draft model until published).</p>
       {msg && <p className="status bad">{msg}</p>}
 
       <div className={errors.length ? "removals" : "impact"} style={{ margin: "8px 0" }}>
@@ -893,6 +1059,37 @@ export function DraftPage({ id }) {
         {d.checks.length > 0 && <ul className="impact-list">{d.checks.map((c, i) => <li key={i}>{c.level === "error" ? "✖" : "⚠"} {c.where}: {c.message}</li>)}</ul>}
       </div>
 
+      <div className="draft-comments">
+        <div className="draft-comments-head">
+          <b>Review comments</b> <span className="quiet">{d.open_comments} open</span>
+          <span className="er-spacer" />
+          <label className="quiet"><input type="checkbox" checked={showResolved} onChange={(e) => setShowResolved(e.target.checked)} /> Show fixed</label>
+          <button className="small" disabled={d.status === "applied"} onClick={() => setCommentOn("draft")}
+            title={d.status === "applied" ? "This draft was applied" : "A comment on the whole draft"}>+ Comment</button>
+        </div>
+        {!general.length && !onItems.length && <p className="quiet">No comments{showResolved ? "" : " open"}.</p>}
+        <ul className="comment-list">
+          {[...general, ...onItems].map((c) => (
+            <li key={c.id} className={c.resolved_at ? "resolved" : ""}>
+              <label title={c.resolved_at ? `Fixed by ${c.resolved_by}` : "Mark fixed once the draft deals with it"}>
+                <input type="checkbox" checked={!!c.resolved_at} disabled={!!busy} onChange={(e) => resolve(c, e.target.checked)} />
+              </label>
+              <span>
+                {c.section && <button className="linkish" onClick={() => setSection(c.section)}>{sectionName(c.section)} {c.code}</button>}
+                {c.section && ": "}{c.body}
+                <span className="quiet"> · {c.author}, round {c.round}, {new Date(c.created_at).toLocaleString()}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {d.since_last_review && d.since_last_review.length > 0 && (
+        <details className="compare">
+          <summary><b>{d.since_last_review.length} changes since the last review</b></summary>
+          <Differences list={d.since_last_review} />
+        </details>
+      )}
       {(d.differences || []).length > 0 && (
         <details className="compare">
           <summary><b>{d.differences.length} differences</b> from {d.kind === "root" ? d.base_model || "the start" : `${d.target_model} now`}</summary>
@@ -901,9 +1098,13 @@ export function DraftPage({ id }) {
       )}
 
       <div className="tabs" role="tablist">
-        {SECTIONS.map(([k, l]) => (
-          <button key={k} role="tab" aria-selected={section === k} className={section === k ? "tab on" : "tab"} onClick={() => setSection(k)}>{l} <span className="quiet">{d.counts[k]}</span></button>
-        ))}
+        {SECTIONS.map(([k, l]) => {
+          const n = comments.filter((c) => c.section === k && !c.resolved_at).length;
+          return (
+            <button key={k} role="tab" aria-selected={section === k} className={section === k ? "tab on" : "tab"} onClick={() => setSection(k)}>
+              {l} <span className="quiet">{d.counts[k]}</span>{n > 0 && <span className="comment-count" title={`${n} open comments`}>💬 {n}</span>}</button>
+          );
+        })}
       </div>
       <div className="tab-panel">
         {!items.length ? <p className="quiet">None.</p> : (
@@ -913,13 +1114,19 @@ export function DraftPage({ id }) {
               <tbody>
                 {items.map((x, i) => {
                   const key = section === "allowed" || section === "rules" ? String(i) : x.code;
+                  const ck = itemKey(section, x);
+                  const notes = openOn(section, ck);
                   return (
-                    <tr key={key}>
+                    <tr key={key} className={notes.length ? "has-comment" : ""}>
                       <td className="quiet">{section === "allowed" || section === "rules" ? i + 1 : x.code}</td>
-                      <td>{itemText(section, x)}</td>
+                      <td>{itemText(section, x)}{notes.map((c) => <div key={c.id} className="item-comment">💬 {c.body} <span className="quiet">· {c.author}</span></div>)}</td>
                       <td className="quiet">{itemMore(section, x)}</td>
-                      <td className="row-actions"><button className="small" disabled={!open || !may || busy === key} onClick={() => remove(key)}
-                        title={!open ? `This draft was ${d.status}` : !may ? `Changing the draft: ${mayWhy}` : section === "entity_types" ? "Take it out of the draft, with its allowed relationships and rules" : section === "relationship_types" ? "Take it out of the draft, with its allowed relationships" : section === "attributes" ? "Take it out of the draft, from every type and rule" : "Take it out of the draft"}>Remove</button></td>
+                      <td className="row-actions">
+                        <button className="small" disabled={d.status === "applied"} onClick={() => setCommentOn({ section, code: ck })}
+                          title={d.status === "applied" ? "This draft was applied" : "Comment on this item"}>💬</button>
+                        <button className="small" disabled={!d.may_edit || busy === key} onClick={() => remove(key)}
+                          title={!d.may_edit ? editWhy : section === "entity_types" ? "Take it out of the draft, with its allowed relationships and rules" : section === "relationship_types" ? "Take it out of the draft, with its allowed relationships" : section === "attributes" ? "Take it out of the draft, from every type and rule" : "Take it out of the draft"}>Remove</button>
+                      </td>
                     </tr>
                   );
                 })}
@@ -928,9 +1135,85 @@ export function DraftPage({ id }) {
           </div>
         )}
       </div>
-      {apply && <ApplyDraftDialog d={d} onClose={() => setApply(false)} />}
-      {reject && <RejectDraftDialog d={d} onClose={() => setReject(false)} />}
+
+      <details className="compare">
+        <summary><b>History</b> <span className="quiet">{(d.events || []).length} steps</span></summary>
+        <ul className="impact-list">
+          {(d.events || []).map((e, i) => (
+            <li key={i}>Round {e.round}: <b>{ACTION_TEXT[e.action] || e.action}</b> by {e.actor} on {new Date(e.at).toLocaleString()}
+              {e.error_count > 0 && <span className="quiet"> ({e.error_count} errors then)</span>}{e.note && <> · <i>{e.note}</i></>}</li>
+          ))}
+        </ul>
+      </details>
+
+      {dialog === "apply" && <ApplyDraftDialog d={d} onClose={() => setDialog(null)} />}
+      {dialog === "reject" && <NoteDialog d={d} action="reject" onClose={() => setDialog(null)} />}
+      {dialog === "send-back" && <NoteDialog d={d} action="send-back" onClose={() => setDialog(null)} />}
+      {dialog === "resubmit" && <NoteDialog d={d} action="resubmit" onClose={() => setDialog(null)} />}
+      {dialog === "reopen" && <NoteDialog d={d} action="reopen" onClose={() => setDialog(null)} />}
+      {commentOn && <CommentDialog d={d} on={commentOn} sectionName={sectionName} onClose={() => setCommentOn(null)} />}
     </section>
+  );
+}
+
+const DRAFT_HELP = {
+  draft: "Waiting for review: a reviewer applies it, sends it back for changes, or rejects it",
+  returned: "Sent back for changes: its maker fixes it and resubmits it",
+  applied: "Applied: it made a model or a metamodel version",
+  rejected: "Rejected: kept for the record; it can be reopened",
+};
+
+const NOTE_TEXT = {
+  reject: ["Reject", "Why (added to the draft as a comment)", "danger", "reason"],
+  "send-back": ["Send back for changes", "What to change (added as a comment; you can also comment on single items)", "primary", "note"],
+  resubmit: ["Resubmit for review", "What you changed (optional)", "primary", "note"],
+  reopen: ["Reopen", "Why it is reopened (optional)", "primary", "note"],
+};
+
+function NoteDialog({ d, action, onClose }) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [title, label, cls, field] = NOTE_TEXT[action];
+  const needs = action === "send-back" && !text.trim() && !d.open_comments;
+  async function send() {
+    setBusy(true); setError("");
+    try { await post(`/api/v1/metamodel-drafts/${d.id}/${action}`, { [field]: text }); refreshAll(); onClose(); }
+    catch (e) { setError(e.message); setBusy(false); }
+  }
+  return (
+    <Modal title={`${title}: ${d.name}`} onClose={onClose}
+      actions={<><button onClick={onClose}>Cancel</button>
+        <button className={cls} disabled={busy || needs} title={needs ? "Say what to change, or add comments on items first" : undefined} onClick={send}>{title}</button></>}>
+      <div className="ed-form">
+        <Field label={label}><textarea value={text} onChange={(e) => setText(e.target.value)} autoFocus /></Field>
+        {action === "send-back" && d.open_comments > 0 && <p className="quiet">{d.open_comments} open comments go with it.</p>}
+        {error && <p className="status bad">{error}</p>}
+      </div>
+    </Modal>
+  );
+}
+
+function CommentDialog({ d, on, sectionName, onClose }) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function send() {
+    setBusy(true); setError("");
+    try {
+      await post(`/api/v1/metamodel-drafts/${d.id}/comments`, on === "draft" ? { body: text } : { body: text, section: on.section, code: on.code });
+      refreshAll(); onClose();
+    } catch (e) { setError(e.message); setBusy(false); }
+  }
+  return (
+    <Modal title={on === "draft" ? "Comment on the draft" : `Comment on ${sectionName(on.section)} ${on.code}`} onClose={onClose}
+      actions={<><button onClick={onClose}>Cancel</button><button className="primary" disabled={busy || !text.trim()} onClick={send}>Add comment</button></>}>
+      <div className="ed-form">
+        <Field label="Comment" tip="Everyone who can see the draft reads it, including the maker's AI through MCP. Mark it fixed once the draft deals with it.">
+          <textarea value={text} onChange={(e) => setText(e.target.value)} autoFocus /></Field>
+        {error && <p className="status bad">{error}</p>}
+      </div>
+    </Modal>
   );
 }
 
@@ -951,7 +1234,7 @@ function ApplyDraftDialog({ d, onClose }) {
       refreshAll();
       onClose();
       const to = out.model?.id || out.draft?.applied_model_id;
-      if (to) go(`/metamodel/${to}`);
+      if (to) go(`/metamodel/${to}/metamodel`);   // detailed changes are made here, in the metamodel editor
     } catch (e) { setError(e.message); setBusy(false); }
   }
   return (
@@ -959,7 +1242,8 @@ function ApplyDraftDialog({ d, onClose }) {
       actions={<><button onClick={onClose}>Cancel</button><button className="primary" disabled={busy || (d.kind === "root" && !name.trim())} onClick={go2}>{busy ? "Applying..." : "Apply"}</button></>}>
       <div className="ed-form">
         {d.kind === "root" ? <>
-          <p>A new root metamodel is created under Root with this metamodel. You become its Model Admin.</p>
+          <p>A new root metamodel is created under Root with this metamodel. You become its Model Admin. It starts as a draft:
+            change it in detail in its Metamodel tab (it opens there), and a Library Admin publishes it when it is ready.</p>
           <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} /></Field>
           <Field label="Version"><input value={version} onChange={(e) => setVersion(e.target.value)} /></Field>
           <Field label="Also create a project model on it" hint="(optional: its name)"><input value={model} onChange={(e) => setModel(e.target.value)} /></Field>
@@ -976,23 +1260,4 @@ function ApplyDraftDialog({ d, onClose }) {
   );
 }
 
-function RejectDraftDialog({ d, onClose }) {
-  const [reason, setReason] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  async function reject() {
-    setBusy(true); setError("");
-    try { await post(`/api/v1/metamodel-drafts/${d.id}/reject`, { reason }); refreshAll(); onClose(); }
-    catch (e) { setError(e.message); setBusy(false); }
-  }
-  return (
-    <Modal title={`Reject ${d.name}`} onClose={onClose}
-      actions={<><button onClick={onClose}>Cancel</button><button className="danger" disabled={busy} onClick={reject}>Reject</button></>}>
-      <div className="ed-form">
-        <Field label="Why" hint="(shown to whoever made it)"><textarea value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
-        {error && <p className="status bad">{error}</p>}
-      </div>
-    </Modal>
-  );
-}
 

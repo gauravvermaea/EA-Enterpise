@@ -63,7 +63,7 @@ to a value with letters and digits only and restart the api container.
 MCP Inspector (to try the tools by hand): `npx @modelcontextprotocol/inspector`, then Transport
 *Streamable HTTP*, URL `http://localhost/mcp`, header `Authorization: Bearer P^55w0rd1234&`.
 
-## Tools (read only until build phase 6)
+## Tools (read only until build phase 6, apart from metamodel drafts)
 
 From phase 3.1 every tool answers as the person whose token it is: they see only the models their
 roles and assignments allow (the database enforces it too), and the server refuses to answer when it
@@ -93,6 +93,28 @@ cannot tell who is asking. The laptop development token signs in as a Super Admi
 | `compare_metamodel_versions(model, from_version, to_version?)` | What differs in the metamodel between two versions (`to_version` defaults to the current one) |
 | `list_failing_checks(model, entity_type?)` | Every entity failing a check (rules, mandatory values, relationships outside the metamodel), with counts by type, rule and severity |
 | `search_entities(text, model?)` | Entities whose name, display ID or description contains the text |
+
+### Metamodel drafts (phase 4, D115, D120, D130)
+
+A language model can draft a metamodel, never change one: a person reviews the draft in **Models >
+Metamodel drafts** and applies it, sends it back with comments, or rejects it.
+
+| Tool | What it does |
+| --- | --- |
+| `get_metamodel_spec(model)` | A model's whole metamodel as one document (eax-metamodel/1), the pattern for drafts |
+| `start_metamodel_draft(name, kind?, base?, target?, version?, note?, spec?)` | A new root metamodel (empty or from a copy of `base`) or changes to `target`; `spec` gives everything at once |
+| `draft_set_item(draft, section, item)` | Add or change one layer, pick list, attribute, entity type, relationship type, allowed relationship or rule |
+| `draft_remove_item(draft, section, code)` | Take an item out (with what depends on it) |
+| `draft_replace(draft, spec)` | Replace the whole document |
+| `get_metamodel_draft(draft)` | The draft with its checks, differences, review comments, changes since the last review and history |
+| `list_metamodel_drafts(status?)` | Your drafts and those you review: draft (waiting for review), returned (sent back), applied, rejected |
+| `comment_on_metamodel_draft(draft, body, section?, code?)` | A comment on the draft or on one item |
+| `resolve_draft_comment(draft, comment, resolved?)` | Mark a review comment fixed |
+| `resubmit_metamodel_draft(draft, note?)` | Send a fixed draft for review again: a new round |
+| `get_report_catalogue(model)` | The model's standard reports (SR-01 to SR-30, model overview, heatmaps) with dashboard links, every entity type and attribute with its report view and column (rpt.t_<type>), and which types the standard reports use (phase 5) |
+
+A sent-back draft can be fixed by asking your assistant, for example: "Read the comments on my draft
+Retail bank metamodel, fix what they ask, mark them fixed and resubmit it."
 
 Models, entity types and entities can be given by guid or by name. Lists come back as
 `{"count": n, "items": [...]}`; errors as `{"error": "..."}`.

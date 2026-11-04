@@ -101,3 +101,13 @@ def test_every_response_is_declared_with_a_schema():
     bad = [f"{p.name}: {m.group(0)}" for p in api.glob("*.py")
            for m in re.finditer(r"@blp\.response\(\s*\d+\s*,\s*fields\.", p.read_text())]
     assert bad == []
+
+
+def test_stand_in_ids_are_stable_and_negative():
+    a = mo._synthetic_id("3f1c2e6a-1111-4222-8333-944455556666")
+    assert a < 0 and a == mo._synthetic_id("3f1c2e6a-1111-4222-8333-944455556666")
+    assert a != mo._synthetic_id("another row")
+
+
+def test_content_levels():
+    assert mo.CONTENT_LEVELS == ("metamodel", "content", "history")

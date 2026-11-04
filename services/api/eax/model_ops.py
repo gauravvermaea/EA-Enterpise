@@ -7,7 +7,8 @@
     root, a library model or a model of yours, metamodel only or with its content, optionally with
     its history), or a library model (Library Admins, D118). Copying content runs as a background job.
   * archive / reactivate / delete_model (Super Admins; a package is written first as the backup, D121).
-  * publish / withdraw / restore / promote: the library (Library Admins, D118).
+  * publish (a draft model: its Model Admin; into the library: Library Admins, D131) / withdraw / restore /
+    promote: the library (Library Admins, D118).
   * export_package / read_package / analyse_package / import_package: one zip (manifest.json,
     metamodel.json, one CSV per entity type and relationships.csv) or one Excel workbook (D116).
     An upload is taken to come from another installation: it is placed under its root metamodel,
@@ -36,6 +37,7 @@ from sqlalchemy.exc import DBAPIError
 
 from . import repository as repo
 from .metamodel_edit import EditError, _db_message, code_from, snake_from
+from .reports import refresh_typed_views
 
 SPEC_FORMAT = "eax-metamodel/1"
 PACKAGE_FORMAT = "eax-package/1"
@@ -460,6 +462,7 @@ def apply_spec(conn, model_id: int, spec: dict, mode: str = "new", remove_missin
             if k not in wanted_rules:
                 _exec(conn, "UPDATE core.validation_rules SET is_deleted = true WHERE id = :i", i=r["id"])
                 counts["removed"] += 1
+    refresh_typed_views(conn)   # the typed report views follow the metamodel (D139)
     return counts
 
 
@@ -495,6 +498,7 @@ def copy_into(conn, src_id: int, dst_id: int, content: bool) -> dict:
         counts = conn.execute(text("SELECT core.copy_model(:s, :d, :c)"), {"s": src_id, "d": dst_id, "c": content}).scalar_one()
     except DBAPIError as exc:
         raise EditError(_db_message(exc), 409) from exc
+    refresh_typed_views(conn)
     return dict(counts or {})
 
 
@@ -538,8 +542,8 @@ def create_model(conn, actor: str, p: dict) -> dict:
     if kind == "library":
         row = _create_row(conn, name=p.get("name"), kind="reference", source_id=src["_id"], description=p.get("description", ""),
                           metamodel_name=src["metamodel_name"], owner=p.get("owner", ""), industry=p.get("industry", ""),
-                          version_label=p.get("version_label") or "0.1")
-        content = src["kind"] != "template"
+                          version_label=p.get("version_label") or "0.1", history_from_source=(copy == "history"))
+        content = src["kind"] != "template" and copy in ("content", "history")
     else:
         row = _create_row(conn, name=p.get("name"), kind="project", source_id=src["_id"], parent_id=parent["_id"] if parent else None,
                           description=p.get("description", ""), metamodel_name=src["metamodel_name"], owner=p.get("owner", ""),
@@ -557,18 +561,146 @@ def create_model(conn, actor: str, p: dict) -> dict:
 
 def run_copy(conn, source: str, target: str, actor: str, publish: bool = False) -> dict:
     """The background part of a copy: fills `target` from `source` (metamodel and content), then marks it
-    done (or failed with the reason). With publish, a Library Admin's promotion is locked into the library."""
+    done (or failed with the reason). `publish` is kept for jobs already queued and is ignored (D134)."""
     _actor(conn, actor)
     src, dst = _model_row(conn, source), _model_row(conn, target)
     if not src or not dst:
         raise EditError("The model to copy from or into is gone.", 404)
     _label(conn, f"Copied from {src['name']}")
     counts = copy_into(conn, src["id"], dst["id"], src["kind_code"] != "template")
+    if dst.get("history_from_source") and src["kind_code"] != "template":
+        counts["history_rows"] = load_history(conn, dst["id"], history_portable(conn, src["id"]), f"Before the copy, in {src['name']}")
     note = "Copied from {}: {}".format(src["name"], ", ".join(f"{v} {k.replace('_', ' ')}" for k, v in counts.items() if v))
     _exec(conn, "UPDATE core.models SET copy_state = '', copy_note = :n WHERE id = :i", i=dst["id"], n=note[:500])
-    if publish:
-        _exec(conn, "UPDATE core.models SET is_locked = true, library_state = 'published' WHERE id = :i", i=dst["id"])
+    # nothing is published straight away (D131, D134): a copy is a draft, published by request and approval
     return counts
+
+
+# ================================================================ deep copy: history travels too (D132)
+# A content history row in portable form: ids become guids (entities, relationships, values) and codes
+# (types, attributes), so the same rows can be loaded into a copy here or into another installation.
+CONTENT_LEVELS = ("metamodel", "content", "history")   # metamodel only / with the data / deep: data and its history
+_HIST_TABLES = ("entities", "attribute_values", "relationships")
+_HIST_FKS = {"entity_type_id": "etype", "parent_entity_id": "entity", "entity_id": "entity", "source_entity_id": "entity",
+             "target_entity_id": "entity", "value_ref": "entity", "relationship_id": "rel", "attribute_type_id": "attr",
+             "relationship_type_id": "rtype"}
+
+
+def history_portable(conn, model_id: int) -> list[dict]:
+    """Every history row of a model's entities, attribute values and relationships, oldest first, with
+    its ids made portable (guids and codes)."""
+    maps = {
+        "entity": {r["id"]: str(r["guid"]) for r in _rows(conn, "SELECT id, guid FROM core.entities WHERE model_id = :m", m=model_id)},
+        "rel": {r["id"]: str(r["guid"]) for r in _rows(conn, "SELECT id, guid FROM core.relationships WHERE model_id = :m", m=model_id)},
+        "etype": {r["id"]: r["code"] for r in _rows(conn, "SELECT id, code FROM core.entity_types WHERE model_id = :m", m=model_id)},
+        "attr": {r["id"]: r["code"] for r in _rows(conn, "SELECT id, code FROM core.attribute_types WHERE model_id = :m", m=model_id)},
+        "rtype": {r["id"]: r["code"] for r in _rows(conn, "SELECT id, code FROM core.relationship_types WHERE model_id = :m", m=model_id)},
+    }
+    out = []
+    for r in _rows(conn, """SELECT table_name, row_guid, row_version, operation, data, label, changed_at, changed_by
+                              FROM history.row_versions WHERE model_id = :m AND table_name = ANY (:t)
+                             ORDER BY changed_at, id""", m=model_id, t=list(_HIST_TABLES)):
+        d = {k: v for k, v in (r["data"] or {}).items() if k not in ("id", "model_id", "guid")}
+        for k, kind in _HIST_FKS.items():
+            if d.get(k) is not None:
+                d[k] = maps[kind].get(int(d[k]), f"?{d[k]}")
+        out.append({"table": r["table_name"], "row": str(r["row_guid"]), "version": r["row_version"], "operation": r["operation"],
+                    "label": r["label"] or "", "at": r["changed_at"].isoformat() if hasattr(r["changed_at"], "isoformat") else r["changed_at"],
+                    "by": r["changed_by"], "data": d})
+    return out
+
+
+def _synthetic_id(key: str) -> int:
+    """A stable negative id for a row the copy does not have (deleted before it was made)."""
+    return -(uuid.uuid5(NS, str(key)).int % 9_000_000_000_000_000 + 1)
+
+
+def load_history(conn, model_id: int, rows: list[dict], label: str) -> int:
+    """Loads portable history rows (history_portable, or a package's history) into a model whose content
+    came from the same source, so each entity keeps its whole past (D132). Rows the copy no longer has
+    keep their history under stable stand-in ids."""
+    if not rows:
+        return 0
+    low = lambda v: str(v or "").lower()  # noqa: E731
+    ents, rels, vals = {}, {}, {}
+    guid_of = {}   # (table, id) -> the copy's own row guid, so the copied versions and the copy's own chain up
+    for r in _rows(conn, "SELECT id, guid, origin_guid FROM core.entities WHERE model_id = :m", m=model_id):
+        ents[str(r["guid"])] = r["id"]
+        guid_of[("entities", r["id"])] = str(r["guid"])
+        if r["origin_guid"]:
+            ents[str(r["origin_guid"])] = r["id"]
+    for r in _rows(conn, "SELECT id, guid, origin_guid FROM core.relationships WHERE model_id = :m", m=model_id):
+        rels[str(r["guid"])] = r["id"]
+        guid_of[("relationships", r["id"])] = str(r["guid"])
+        if r["origin_guid"]:
+            rels[str(r["origin_guid"])] = r["id"]
+    live_vals = {}
+    for r in _rows(conn, """SELECT id, guid, origin_guid, entity_id, relationship_id, attribute_type_id, is_deleted
+                              FROM core.attribute_values WHERE model_id = :m""", m=model_id):
+        vals[str(r["guid"])] = r["id"]
+        guid_of[("attribute_values", r["id"])] = str(r["guid"])
+        if r["origin_guid"]:
+            vals[str(r["origin_guid"])] = r["id"]
+        if not r["is_deleted"]:
+            live_vals[(r["entity_id"], r["relationship_id"], r["attribute_type_id"])] = r["id"]
+    codes = {
+        "etype": {low(r["code"]): r["id"] for r in _rows(conn, "SELECT id, code FROM core.entity_types WHERE model_id = :m", m=model_id)},
+        "attr": {low(r["code"]): r["id"] for r in _rows(conn, "SELECT id, code FROM core.attribute_types WHERE model_id = :m", m=model_id)},
+        "rtype": {low(r["code"]): r["id"] for r in _rows(conn, "SELECT id, code FROM core.relationship_types WHERE model_id = :m", m=model_id)},
+    }
+    last = {}   # each value row's last version: only a value that still exists maps onto the copy's value
+    for r in rows:
+        last[(r["table"], r["row"])] = r
+
+    def fk(kind, v):
+        if v is None:
+            return None
+        if kind == "entity":
+            return ents.get(str(v)) or _synthetic_id(v)
+        if kind == "rel":
+            return rels.get(str(v)) or _synthetic_id(v)
+        return codes[kind].get(low(v)) or _synthetic_id(f"{kind}:{v}")
+
+    out = []
+    for r in rows:
+        if r.get("table") not in _HIST_TABLES:
+            continue
+        d = dict(r.get("data") or {})
+        for k, kind in _HIST_FKS.items():
+            if k in d:
+                d[k] = fk(kind, d[k])
+        g = str(r["row"])
+        if r["table"] == "entities":
+            rid = ents.get(g)
+        elif r["table"] == "relationships":
+            rid = rels.get(g)
+        else:
+            rid = vals.get(g)
+            end = last.get((r["table"], g), r)
+            if rid is None and not (end.get("data") or {}).get("is_deleted") and end.get("operation") != "delete":
+                rid = live_vals.get((d.get("entity_id"), d.get("relationship_id"), d.get("attribute_type_id")))
+        rid = rid or _synthetic_id(g)
+        d["id"], d["model_id"] = rid, model_id
+        own = guid_of.get((r["table"], rid))
+        out.append({"t": r["table"], "r": rid, "g": own or (g if _is_guid(g) else str(uuid.uuid5(NS, g))), "v": int(r.get("version") or 1),
+                    "o": r.get("operation") or "update", "d": d, "l": " · ".join(x for x in (label, r.get("label") or "") if x),
+                    "a": r.get("at"), "b": r.get("by") or "unknown"})
+    n = 0
+    for i in range(0, len(out), 2000):
+        n += _exec(conn, """
+            INSERT INTO history.row_versions (table_name, row_id, row_guid, model_id, row_version, operation, data, label, changed_at, changed_by)
+            SELECT x.t, x.r, x.g::uuid, :m, x.v, x.o, x.d, x.l, x.a::timestamptz, x.b
+              FROM jsonb_to_recordset(CAST(:rows AS jsonb)) AS x(t text, r bigint, g text, v int, o text, d jsonb, l text, a text, b text)""",
+                   m=model_id, rows=json.dumps(out[i:i + 2000], default=str)).rowcount
+    return n
+
+
+def _is_guid(v: str) -> bool:
+    try:
+        uuid.UUID(str(v))
+        return True
+    except ValueError:
+        return False
 
 
 def copy_failed(conn, target: str, reason: str) -> None:
@@ -623,20 +755,124 @@ def delete_model(conn, model: Any, confirm_name: str, actor: str, backup_dir: st
 
 # ================================================================ the library (D118)
 
-def publish(conn, model: Any, actor: str) -> dict:
-    """A Library Admin publishes a root or library model that was being built: it is locked (read-only)."""
+# ---------------------------------------------------------------- publishing a draft model (D131, D134)
+# Draft -> request publishing -> approve (published) or send back with a note -> request again. The steps
+# are always there, even when the maker may approve their own model (an admin): request, then approve.
+
+def _publish_event(conn, model_id: int, action: str, note: str, actor: str) -> None:
+    _exec(conn, "INSERT INTO core.model_publish_events (model_id, action, note, actor) VALUES (:m, :a, :n, :w)",
+          m=model_id, a=action, n=(note or "").strip(), w=actor)
+
+
+def _is_model_admin(conn, user, m: dict) -> bool:
+    from . import permissions as perms
+    return user is None or perms.SUPER_ADMIN in user.roles or perms.MODEL_ADMIN in perms.model_roles(conn, user.username, m["id"])
+
+
+def may_approve(conn, user, m: dict) -> bool:
+    """Who approves a model's publishing (D134): Super Admins; Library Admins for roots and library models;
+    for a project model its own Model Admins and those of the model it was copied from or merges into."""
+    from . import permissions as perms
+    if user is None or perms.SUPER_ADMIN in user.roles:
+        return True
+    if m["kind"] in ("template", "reference"):
+        return perms.LIBRARY_ADMIN in user.roles
+    for mid in (m["id"], m.get("source_model_id"), m.get("parent_model_id")):
+        if mid and perms.MODEL_ADMIN in perms.model_roles(conn, user.username, mid):
+            return True
+    return False
+
+
+def publishing(conn, model: Any, user=None) -> dict:
+    """A model's publishing state and its steps so far, and what this person may do next."""
+    m = repo.get_model(conn, model)
+    events = _rows(conn, """SELECT action, note, actor, at FROM core.model_publish_events WHERE model_id = :m ORDER BY id""",
+                   m=m["_id"])
+    st = m["approval_state"]
+    open_ = m["is_draft"] and st in ("editing", "returned")
+    return {"draft": m["is_draft"], "state": st, "events": events, "approver": _approver_text(m),
+            "may_request": open_ and (_is_model_admin(conn, user, m)
+                                      or (m["kind"] in ("template", "reference") and may_approve(conn, user, m))),
+            "may_approve": m["is_draft"] and st == "requested" and may_approve(conn, user, m),
+            "may_withdraw_request": m["is_draft"] and st == "requested" and _is_model_admin(conn, user, m)}
+
+
+def request_publish(conn, model: Any, actor: str, user=None, note: str = "") -> dict:
+    """The maker (a Model Admin of the draft) asks for it to be published; an approver then approves it."""
     _actor(conn, actor)
     m = repo.get_model(conn, model)
-    if m["kind"] not in ("template", "reference"):
-        raise EditError("Only root metamodels and library (reference) models are published.")
-    if m["is_locked"]:
+    if not m["is_draft"]:
         raise EditError(f"{m['name']} is already published.", 409)
     if m["copy_state"] == "copying":
-        raise EditError(f"{m['name']} is still being copied; publish it when the copy is done.", 409)
+        raise EditError(f"{m['name']} is still being copied; request publishing when the copy is done.", 409)
+    if m["approval_state"] == "requested":
+        raise EditError(f"Publishing {m['name']} is already waiting for approval.", 409)
+    if not (_is_model_admin(conn, user, m) or (m["kind"] in ("template", "reference") and may_approve(conn, user, m))):
+        raise EditError(f"Requesting publishing of {m['name']} needs the Model Admin role on it.", 403)
     try:
-        _exec(conn, "UPDATE core.models SET is_locked = true, library_state = 'published' WHERE id = :i", i=m["_id"])
+        _exec(conn, "UPDATE core.models SET approval_state = 'requested' WHERE id = :i", i=m["_id"])
     except DBAPIError as exc:
         raise EditError(_db_message(exc), 403) from exc
+    _publish_event(conn, m["_id"], "requested", note, actor)
+    return repo.get_model(conn, model)
+
+
+def withdraw_publish_request(conn, model: Any, actor: str, user=None, note: str = "") -> dict:
+    _actor(conn, actor)
+    m = repo.get_model(conn, model)
+    if m["approval_state"] != "requested":
+        raise EditError(f"{m['name']} is not waiting for approval.", 409)
+    if not _is_model_admin(conn, user, m):
+        raise EditError(f"Withdrawing the request needs the Model Admin role on {m['name']}.", 403)
+    _exec(conn, "UPDATE core.models SET approval_state = 'editing' WHERE id = :i", i=m["_id"])
+    _publish_event(conn, m["_id"], "request_withdrawn", note, actor)
+    return repo.get_model(conn, model)
+
+
+def send_back_publish(conn, model: Any, actor: str, user=None, note: str = "") -> dict:
+    """An approver sends a requested draft back to its makers with a note; they change it and ask again."""
+    _actor(conn, actor)
+    m = repo.get_model(conn, model)
+    if m["approval_state"] != "requested":
+        raise EditError(f"{m['name']} is not waiting for approval.", 409)
+    if not may_approve(conn, user, m):
+        raise EditError(f"Sending {m['name']} back needs the role that approves it ({_approver_text(m)}).", 403)
+    if not (note or "").strip():
+        raise EditError("Say what to change.")
+    try:
+        _exec(conn, "UPDATE core.models SET approval_state = 'returned' WHERE id = :i", i=m["_id"])
+    except DBAPIError as exc:
+        raise EditError(_db_message(exc), 403) from exc
+    _publish_event(conn, m["_id"], "sent_back", note, actor)
+    return repo.get_model(conn, model)
+
+
+def _approver_text(m: dict) -> str:
+    return ("a Library Admin" if m["kind"] in ("template", "reference")
+            else "a Model Admin of the model or of the model it comes from, or a Super Admin")
+
+
+def publish(conn, model: Any, actor: str, user=None, note: str = "") -> dict:
+    """Approves a requested draft and publishes it (D131, D134). A project model: others with a role on it
+    may then create models from it. A root or library model: published into the library, locked."""
+    _actor(conn, actor)
+    m = repo.get_model(conn, model)
+    if not m["is_draft"]:
+        raise EditError(f"{m['name']} is already published.", 409)
+    if m["approval_state"] != "requested":
+        raise EditError(f"{m['name']} is a draft: request publishing first, then it is approved.", 409)
+    if m["copy_state"] == "copying":
+        raise EditError(f"{m['name']} is still being copied; publish it when the copy is done.", 409)
+    if user is not None and not may_approve(conn, user, m):
+        raise EditError(f"Approving {m['name']} needs {_approver_text(m)}.", 403)
+    try:
+        if m["kind"] in ("template", "reference"):
+            _exec(conn, "UPDATE core.models SET is_locked = true, library_state = 'published' WHERE id = :i", i=m["_id"])
+        else:
+            _exec(conn, "UPDATE core.models SET is_draft = false WHERE id = :i", i=m["_id"])
+    except DBAPIError as exc:
+        raise EditError(_db_message(exc), 403) from exc
+    _publish_event(conn, m["_id"], "approved", note, actor)
     return repo.get_model(conn, model)
 
 
@@ -657,16 +893,15 @@ def withdraw(conn, model: Any, actor: str, restore: bool = False) -> dict:
 
 def promote(conn, model: Any, p: dict, actor: str) -> dict:
     """A Library Admin promotes a model into the library: a copy of it (metamodel and content) becomes a
-    library model (a root when the model is a root), published once the copy is done."""
+    library model (a root when the model is a root). Like every new model it starts as a draft (being
+    built) and is published by a Library Admin after review (D131)."""
     m = repo.get_model(conn, model)
+    if m["is_draft"]:
+        raise EditError(f"{m['name']} is a draft: publish it before promoting it to the library.", 409)
     kind = "root" if m["kind"] == "template" else "library"
-    out = create_model(conn, actor, {"kind": kind, "source": str(m["id"]), "name": p.get("name") or m["name"],
+    out = create_model(conn, actor, {"kind": kind, "source": str(m["id"]), "name": p.get("name") or m["name"], "copy": p.get("copy"),
                                      "version_label": p.get("version_label") or "1.0", "industry": p.get("industry", ""),
                                      "description": p.get("description") or m["description"], "owner": p.get("owner", "")})
-    if out.get("_copy"):
-        out["_copy"]["publish"] = True
-    else:
-        out["model"] = publish(conn, str(out["model"]["id"]), actor)
     return out
 
 
@@ -722,6 +957,48 @@ def package_content(conn, model: Any) -> dict:
     return {"entities": types, "relationships": rel_rows}
 
 
+def readable_history(conn, model: Any) -> list[dict]:
+    """The content's change history as rows to read (Excel, CSV): entity, when, who, what changed, old and
+    new. Creations of the starting content are left out; every later change is listed (D132)."""
+    m = repo.get_model(conn, model)
+    ids = [r["id"] for r in _rows(conn, """
+        SELECT DISTINCT e.id FROM core.entities e
+          JOIN history.row_versions h ON h.model_id = e.model_id
+           AND ((h.table_name = 'entities' AND h.row_id = e.id)
+             OR (h.table_name = 'attribute_values' AND h.data->>'entity_id' = e.id::text)
+             OR (h.table_name = 'relationships' AND (h.data->>'source_entity_id' = e.id::text OR h.data->>'target_entity_id' = e.id::text)))
+         WHERE e.model_id = :m AND (h.operation <> 'insert' OR h.changed_at > e.created_at + interval '2 seconds'
+                                    OR h.changed_at < e.created_at)""", m=m["_id"])]
+    out = []
+    for eid in ids:
+        e = _one(conn, "SELECT guid FROM core.entities WHERE id = :i", i=eid)
+        h = repo.get_entity_history(conn, str(m["id"]), str(e["guid"]), limit=100000)
+        ent = h["entity"]
+        for ev in reversed(h["events"]):
+            for c in ev["changes"] or [{"field": "", "old": None, "new": None, "action": ev.get("action") or ""}]:
+                out.append({"entity": ent.get("name"), "display_id": ent.get("display_id"), "entity_type": ent.get("entity_type"),
+                            "at": ev["at"], "by": ev["by"], "kind": ev.get("kind"), "item": ev.get("item"),
+                            "change": c.get("action") or ev.get("action") or "", "field": c.get("field"), "old": c.get("old"),
+                            "new": c.get("new"), "label": ev.get("label") or ""})
+    return out
+
+
+def readable_metamodel_history(conn, model: Any) -> tuple[list[dict], list[dict]]:
+    """The metamodel's versions and every change in them, as rows to read."""
+    h = repo.metamodel_history(conn, model, per_version=100000)
+    versions, changes = [], []
+    for v in sorted(h["versions"], key=lambda x: x["version"]):
+        versions.append({"version": v["version"], "note": v.get("note") or "", "published_at": v.get("changed_at"),
+                         "published_by": v.get("changed_by"),
+                         "summary": ", ".join(f"{c['count']} {c['kind']}" for c in v.get("counts") or [])})
+        for it in v.get("items") or []:
+            for f in it.get("fields") or [{"field": "", "old": None, "new": None}]:
+                changes.append({"version": v["version"], "at": it.get("at"), "by": it.get("by"), "kind": it.get("kind"),
+                                "item": it.get("item"), "change": it.get("change"), "field": f.get("field"),
+                                "old": f.get("old"), "new": f.get("new")})
+    return versions, changes
+
+
 def _manifest(conn, m: dict, spec: dict, content: dict, actor: str | None = None) -> dict:
     root = None
     chain = _rows(conn, """WITH RECURSIVE up AS (SELECT id, source_model_id, 0 AS d FROM core.models WHERE id = :i
@@ -754,16 +1031,32 @@ ENTITY_COLS = ["key", "display_id", "name", "description", "parent", "status"]
 REL_COLS = ["key", "type", "source", "target", "name", "description", "status"]
 
 
-def export_package(conn, model: Any, fmt: str = "zip", actor: str | None = None) -> tuple[bytes, str, str]:
+def export_package(conn, model: Any, fmt: str = "zip", actor: str | None = None,
+                   content_level: str = "content") -> tuple[bytes, str, str]:
     """One model as a package: a zip (manifest.json, metamodel.json, entities/<TypeCode>.csv,
-    relationships.csv) or one Excel workbook (D116). Returns (bytes, file name, content type)."""
+    relationships.csv) or one Excel workbook (D116). content_level (D132): metamodel (no data),
+    content (with the data) or history (a deep package: the data, its full change history and the
+    metamodel's version history, readable and loadable). Returns (bytes, file name, content type)."""
+    if content_level not in CONTENT_LEVELS:
+        raise EditError("Content is metamodel, content or history.")
     m = repo.get_model(conn, model)
     spec = metamodel_spec(conn, model)
-    content = package_content(conn, model) if m["kind"] != "template" else {"entities": {}, "relationships": []}
+    with_data = content_level != "metamodel" and m["kind"] != "template"
+    content = package_content(conn, model) if with_data else {"entities": {}, "relationships": []}
     manifest = _manifest(conn, m, spec, content, actor)
+    hist = {}
+    if content_level == "history":
+        mv, mc = readable_metamodel_history(conn, model)
+        hist = {"metamodel_versions": mv, "metamodel_changes": mc}
+        if with_data:
+            hist["rows"] = history_portable(conn, m["_id"])
+            hist["changes"] = readable_history(conn, model)
+    manifest["includes"] = {"data": with_data, "history": bool(hist.get("rows")), "metamodel_history": content_level == "history"}
+    manifest["counts"]["history_rows"] = len(hist.get("rows") or [])
     base = re.sub(r"[^A-Za-z0-9._-]+", "-", f"{m['name']} {m['version_label']}".strip()).strip("-") or "model"
+    base += {"metamodel": "-metamodel", "content": "", "history": "-deep"}[content_level]
     if fmt == "xlsx":
-        return _to_xlsx(manifest, spec, content), f"{base}.xlsx", \
+        return _to_xlsx(manifest, spec, content, hist), f"{base}.xlsx", \
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
@@ -773,10 +1066,18 @@ def export_package(conn, model: Any, fmt: str = "zip", actor: str | None = None)
             z.writestr(f"entities/{code}.csv", _csv(rows, ENTITY_COLS))
         if content["relationships"]:
             z.writestr("relationships.csv", _csv(content["relationships"], REL_COLS))
+        if hist:
+            z.writestr("history/metamodel-versions.csv", _csv(hist["metamodel_versions"], ["version", "published_at", "published_by", "note"]))
+            z.writestr("history/metamodel-changes.csv", _csv(hist["metamodel_changes"], ["version", "at", "by", "kind", "item", "change", "field", "old", "new"]))
+            if hist.get("rows") is not None:
+                z.writestr("history/changes.csv", _csv(hist["changes"], ["entity", "display_id", "entity_type", "at", "by", "kind", "item", "change", "field", "old", "new"]))
+                z.writestr("history/history.json", json.dumps(hist["rows"], ensure_ascii=False, default=str))
         z.writestr("README.txt", "EA Explorer model package (eax-package/1). manifest.json says what it is and what it is built "
                                  "on; metamodel.json is the metamodel (eax-metamodel/1); entities/<TypeCode>.csv hold the "
                                  "entities of each type (key, display_id, name, description, parent, status, then one column per "
-                                 "attribute code); relationships.csv the relationships (key, type, source, target, ...).\n")
+                                 "attribute code); relationships.csv the relationships (key, type, source, target, ...). A deep package also has "
+                                 "history/: the metamodel's versions and changes, the content's changes (CSV, to read) and "
+                                 "history.json (every version of every row, loaded when the package is uploaded with its history).\n")
     return buf.getvalue(), f"{base}.zip", "application/zip"
 
 
@@ -792,7 +1093,7 @@ _XL_SHEETS = [  # sheet, section, columns
 _XL_ITEMS = ["owner", "code", "attribute", "required", "section", "default", "help"]
 
 
-def _to_xlsx(manifest: dict, spec: dict, content: dict) -> bytes:
+def _to_xlsx(manifest: dict, spec: dict, content: dict, hist: dict | None = None) -> bytes:
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill
     wb = Workbook()
@@ -833,6 +1134,18 @@ def _to_xlsx(manifest: dict, spec: dict, content: dict) -> bytes:
     if content["relationships"]:
         rows = content["relationships"]
         sheet("Relationships", REL_COLS + sorted({k for r in rows for k in r} - set(REL_COLS)), rows)
+    if hist:   # a deep package (D132): the histories, to read, and the rows to load again
+        def when(rows):
+            return [{k: (v.strftime("%Y-%m-%d %H:%M:%S") if isinstance(v, (dt.datetime, dt.date)) else v) for k, v in r.items()}
+                    for r in rows]
+        sheet("Metamodel versions", ["version", "published_at", "published_by", "note", "summary"], when(hist["metamodel_versions"]))
+        sheet("Metamodel changes", ["version", "at", "by", "kind", "item", "change", "field", "old", "new"], when(hist["metamodel_changes"]))
+        if hist.get("rows") is not None:
+            sheet("Change history", ["entity", "display_id", "entity_type", "at", "by", "kind", "item", "change", "field", "old", "new",
+                                     "label"], when(hist["changes"]))
+            data = sheet("History data", ["table", "row", "version", "operation", "at", "by", "label", "data"],
+                         [dict(r, data=json.dumps(r["data"], ensure_ascii=False, default=str)) for r in hist["rows"]])
+            data["J1"] = "Every version of every row, loaded again when the package is uploaded with its history. Do not edit."
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
@@ -853,7 +1166,8 @@ def read_package(data: bytes, filename: str = "") -> dict:
                     ents[n[len("entities/"):-4]] = list(csv.DictReader(io.StringIO(z.read(n).decode("utf-8-sig"))))
             rels = list(csv.DictReader(io.StringIO(z.read("relationships.csv").decode("utf-8-sig")))) \
                 if "relationships.csv" in names else []
-            return {"manifest": manifest, "spec": spec, "entities": ents, "relationships": rels, "format": "zip"}
+            hist = json.loads(z.read("history/history.json")) if "history/history.json" in names else []
+            return {"manifest": manifest, "spec": spec, "entities": ents, "relationships": rels, "history": hist, "format": "zip"}
         if "xl/workbook.xml" in names:
             return _from_xlsx(data)
     raise EditError("This zip is not an EA Explorer package: it has no manifest.json and metamodel.json.")
@@ -915,7 +1229,15 @@ def _from_xlsx(data: bytes) -> dict:
         code = codes.get(k) or next((c for c in codes if c.startswith(k[:28])), k)
         fixed[code] = rows
     rels = [{k: str(v) for k, v in r.items()} for r in rows_of("Relationships")]
-    return {"manifest": manifest, "spec": spec, "entities": fixed, "relationships": rels, "format": "xlsx"}
+    hist = []
+    for r in rows_of("History data"):
+        try:
+            hist.append({"table": r.get("table"), "row": str(r.get("row")), "version": int(r.get("version") or 1),
+                         "operation": r.get("operation"), "at": str(r.get("at")), "by": r.get("by"), "label": r.get("label") or "",
+                         "data": json.loads(r.get("data") or "{}")})
+        except (ValueError, TypeError):
+            continue
+    return {"manifest": manifest, "spec": spec, "entities": fixed, "relationships": rels, "history": hist, "format": "xlsx"}
 
 
 def _roots(conn) -> list[dict]:
@@ -953,17 +1275,19 @@ def analyse_package(conn, pkg: dict) -> dict:
     places.append({"code": "own_root", "root_id": None, "root": "Root", "named": False, "matches": True, "differences": [],
                    "difference_count": 0})
     counts = {"entity_types": len(spec.get("entity_types") or []),
-              "entities": sum(len(v) for v in pkg["entities"].values()), "relationships": len(pkg["relationships"])}
+              "entities": sum(len(v) for v in pkg["entities"].values()), "relationships": len(pkg["relationships"]),
+              "history_rows": len(pkg.get("history") or [])}
     return {"manifest": man, "format": pkg["format"], "counts": counts, "findings": findings, "missing": missing,
             "errors": sum(1 for f in findings if f["level"] == "error"), "placements": places}
 
 
 def import_package(conn, pkg: dict, placement: str, actor: str, name: str | None = None, as_kind: str | None = None,
-                   root: str | None = None) -> dict:
+                   root: str | None = None, content_level: str | None = None) -> dict:
     """Loads a package (D108): placement root (under the root metamodel `root`, which its metamodel must
     match completely; without `root`, the matching one named in the package) or own_root (its
     metamodel becomes a root of its own under Root, with the model under that root). as_kind: library
-    (a reference model, published) or project (a working model); a package of a root makes a root."""
+    (a reference model) or project (a working model); a package of a root makes a root. Every upload
+    starts as a draft, published after review (D131)."""
     _actor(conn, actor)
     man, spec = pkg["manifest"], pkg["spec"]
     errors = [f for f in validate_spec(conn, spec) if f["level"] == "error"]
@@ -1009,9 +1333,17 @@ def import_package(conn, pkg: dict, placement: str, actor: str, name: str | None
                       description=mm.get("description", ""), metamodel_name=root_model["metamodel_name"], owner=mm.get("owner", ""),
                       industry=mm.get("industry", ""), version_label=(mm.get("version") or "1.0") if want == "library" else "")
     copy_into(conn, root_model["_id"], row["id"], False)
-    counts = load_content(conn, row["id"], pkg["entities"], pkg["relationships"], spec)
-    if want == "library":
-        publish(conn, str(row["guid"]), actor)
+    # what to load (D132): the metamodel only, the data, or the data with its history (when the package has it)
+    level = content_level or ("history" if pkg.get("history") else "content")
+    if level not in CONTENT_LEVELS:
+        raise EditError("Load metamodel, content or history.")
+    counts = {}
+    if level != "metamodel":
+        counts = load_content(conn, row["id"], pkg["entities"], pkg["relationships"], spec)
+    if level == "history" and pkg.get("history"):
+        counts["history_rows"] = load_history(conn, row["id"], pkg["history"],
+                                              f"Before the upload, in {mm.get('name')} ({man.get('exported_at') or 'package'})")
+    # like every new model, an upload starts as a draft and is published after review (D131)
     return {"model": repo.get_model(conn, str(row["guid"])), "root": root_model, "counts": counts}
 
 
@@ -1167,7 +1499,7 @@ def framework_preview(conn, model: Any, target: Any, type_map: dict | None = Non
 
 
 def framework_move(conn, model: Any, target: Any, mode: str, actor: str, type_map: dict | None = None,
-                   name: str | None = None) -> dict:
+                   name: str | None = None, with_data: bool = True) -> dict:
     """Moves a model onto another root metamodel (D121). mode copy: a new model under the target root
     with the content mapped across (the old model stays as it is). mode in_place: the model takes the
     target's metamodel as one metamodel version: the target's items are added, entities move to their
@@ -1183,6 +1515,8 @@ def framework_move(conn, model: Any, target: Any, mode: str, actor: str, type_ma
                           source_id=t["_id"], description=m["description"], metamodel_name=t["metamodel_name"], owner=m["owner"],
                           industry=m["industry"])
         copy_into(conn, t["_id"], row["id"], False)
+        if not with_data:   # the target's metamodel only, for a fresh start or a comparison later (D132)
+            return {"model": repo.get_model(conn, str(row["guid"])), "mode": "copy", "counts": {}, "preview": prev}
         content = package_content(conn, model)
         ents = {}
         for code, rows in content["entities"].items():
@@ -1248,7 +1582,9 @@ def framework_move(conn, model: Any, target: Any, mode: str, actor: str, type_ma
 def _draft(conn, draft: Any) -> dict:
     g = repo._as_guid(draft)
     d = _one(conn, """SELECT d.*, b.guid AS base_guid, b.name AS base_name, t.guid AS target_guid, t.name AS target_name,
-                             a.guid AS applied_guid, a.name AS applied_name
+                             a.guid AS applied_guid, a.name AS applied_name,
+                             (SELECT count(*) FROM core.metamodel_draft_comments c
+                               WHERE c.draft_id = d.id AND c.resolved_at IS NULL) AS open_comments
                         FROM core.metamodel_drafts d
                         LEFT JOIN core.models b ON b.id = d.base_model_id
                         LEFT JOIN core.models t ON t.id = d.target_model_id
@@ -1267,7 +1603,8 @@ def draft_out(d: dict, conn=None) -> dict:
            "base_model_id": d.get("base_guid"), "base_model": d.get("base_name"),
            "target_model_id": d.get("target_guid"), "target_model": d.get("target_name"),
            "applied_model_id": d.get("applied_guid"), "applied_model": d.get("applied_name"),
-           "spec": spec, "checks": d["checks"] or [],
+           "spec": spec, "checks": d["checks"] or [], "round": d.get("round") or 1,
+           "open_comments": d.get("open_comments") or 0,
            "counts": {k: len(spec.get(k) or []) for k in ("layers", "pick_lists", "attributes", "entity_types",
                                                            "relationship_types", "allowed", "rules")}}
     return out
@@ -1318,13 +1655,16 @@ def draft_create(conn, user, p: dict, via: str = "mcp") -> dict:
                       VALUES (:n, :k, :b, :t, CAST(:s AS jsonb), CAST(:c AS jsonb), :note, :via) RETURNING guid""",
              n=name, k=kind, b=base["_id"] if base else None, t=target["_id"] if target else None,
              s=json.dumps(spec, default=str), c=json.dumps(checks), note=p.get("note") or "", via=via)
-    return draft_out(_draft(conn, d["guid"]))
+    made = _draft(conn, d["guid"])
+    _draft_event(conn, made, "created", p.get("note") or "", user)
+    return draft_out(made)
 
 
 def draft_list(conn, user, status: str | None = None) -> list[dict]:
-    from . import permissions as perms
     rows = _rows(conn, """SELECT d.*, b.guid AS base_guid, b.name AS base_name, t.guid AS target_guid, t.name AS target_name,
-                                 a.guid AS applied_guid, a.name AS applied_name
+                                 a.guid AS applied_guid, a.name AS applied_name,
+                                 (SELECT count(*) FROM core.metamodel_draft_comments c
+                                   WHERE c.draft_id = d.id AND c.resolved_at IS NULL) AS open_comments
                             FROM core.metamodel_drafts d
                             LEFT JOIN core.models b ON b.id = d.base_model_id
                             LEFT JOIN core.models t ON t.id = d.target_model_id
@@ -1333,10 +1673,7 @@ def draft_list(conn, user, status: str | None = None) -> list[dict]:
                            ORDER BY d.modified_at DESC""", s=status)
     out = []
     for d in rows:
-        mine = user is None or perms.SUPER_ADMIN in user.roles or d["proposed_by"] == user.username
-        if not mine and d["target_guid"]:
-            mine = perms.MODEL_ADMIN in perms.model_roles(conn, user.username, d["target_guid"])
-        if mine:
+        if _sees(conn, user, d):
             x = draft_out(d)
             x.pop("spec")
             out.append(x)
@@ -1354,16 +1691,159 @@ def draft_get(conn, user, draft: Any) -> dict:
         out["differences"] = spec_diff(base, d["spec"]) if base["entity_types"] else []
     else:
         out["differences"] = []
+    out["comments"] = [
+        {"id": c["guid"], "round": c["round"], "section": c["section"], "code": c["item_code"], "body": c["body"],
+         "author": c["author"], "created_at": c["created_at"], "resolved_at": c["resolved_at"], "resolved_by": c["resolved_by"]}
+        for c in _rows(conn, """SELECT * FROM core.metamodel_draft_comments WHERE draft_id = :d ORDER BY created_at""", d=d["id"])]
+    events = _rows(conn, """SELECT id, round, action, note, error_count, actor, at, spec FROM core.metamodel_draft_events
+                             WHERE draft_id = :d ORDER BY id""", d=d["id"])
+    out["events"] = [{k: e[k] for k in ("round", "action", "note", "error_count", "actor", "at")} for e in events]
+    # what the maker changed since the reviewer last sent it back (or reopened it), so the review is quick
+    last = next((e for e in reversed(events) if e["action"] in ("sent_back", "reopened") and e["spec"]), None)
+    out["since_last_review"] = spec_diff(last["spec"], d["spec"]) if last else None
+    out["may_review"] = _reviews(conn, user, d)
+    out["may_edit"] = d["status"] in ("draft", "returned") and (out["may_review"] or _is_maker(user, d))
     return out
 
 
-def _may_see(conn, user, d: dict) -> None:
+def _is_maker(user, d: dict) -> bool:
+    return user is None or d["proposed_by"] == user.username
+
+
+def _reviews(conn, user, d: dict) -> bool:
+    """Who reviews a draft (applies, sends back, rejects): Model Creators and Library Admins for a new root,
+    the target model's Model Admins for changes, and Super Admins (D120, D130)."""
     from . import permissions as perms
-    if user is None or perms.SUPER_ADMIN in user.roles or d["proposed_by"] == user.username:
-        return
-    if d["target_guid"] and perms.MODEL_ADMIN in perms.model_roles(conn, user.username, d["target_guid"]):
-        return
-    raise EditError("This draft is someone else's.", 404)
+    if user is None or perms.SUPER_ADMIN in user.roles:
+        return True
+    if d["kind"] == "root":
+        return bool({perms.MODEL_CREATOR, perms.LIBRARY_ADMIN} & set(user.roles))
+    return bool(d["target_guid"]) and perms.MODEL_ADMIN in perms.model_roles(conn, user.username, d["target_guid"])
+
+
+def _sees(conn, user, d: dict) -> bool:
+    return _is_maker(user, d) or _reviews(conn, user, d)
+
+
+def _may_see(conn, user, d: dict) -> None:
+    if not _sees(conn, user, d):
+        raise EditError("This draft is someone else's.", 404)
+
+
+def _review_needs(d: dict) -> str:
+    return ("the Model Creator or Library Admin role" if d["kind"] == "root"
+            else f"the Model Admin role on {d.get('target_name') or 'its model'}")
+
+
+def _may_review(conn, user, d: dict) -> None:
+    _may_see(conn, user, d)
+    if not _reviews(conn, user, d):
+        raise EditError(f"Reviewing this draft needs {_review_needs(d)}.", 403)
+
+
+def _may_change(conn, user, d: dict) -> None:
+    _may_see(conn, user, d)
+    if d["status"] not in ("draft", "returned"):
+        raise EditError(f"This draft was {d['status']}" + ("; reopen it to change it." if d["status"] == "rejected" else "."), 409)
+
+
+def _draft_event(conn, d: dict, action: str, note: str, user, spec: dict | None = None) -> None:
+    errors = sum(1 for c in (d.get("checks") or []) if c.get("level") == "error")
+    _exec(conn, """INSERT INTO core.metamodel_draft_events (draft_id, round, action, note, spec, error_count, actor)
+                   VALUES (:d, :r, :a, :n, CAST(:s AS jsonb), :e, :who)""",
+          d=d["id"], r=d.get("round") or 1, a=action, n=note or "", s=json.dumps(spec if spec is not None else d["spec"], default=str),
+          e=errors, who=(user.username if user else "system"))
+
+
+def _add_comment(conn, d: dict, body: str, author: str, section: str | None = None, code: str | None = None,
+                 resolved: bool = False) -> None:
+    """resolved: a note for the record (the maker's 'what I changed'), not something left to fix."""
+    _exec(conn, """INSERT INTO core.metamodel_draft_comments (draft_id, round, section, item_code, body, author, resolved_at, resolved_by)
+                   VALUES (:d, :r, :s, :c, :b, :a, CASE WHEN :x THEN now() END, CASE WHEN :x THEN :a END)""",
+          d=d["id"], r=d.get("round") or 1, s=section, c=code, b=body, a=author, x=resolved)
+
+
+def draft_comment(conn, user, draft: Any, body: str, section: str | None = None, code: str | None = None) -> dict:
+    """A review comment on a draft (D130): on the whole draft, or on one item (section and its code; for
+    allowed relationships and rules a readable key such as 'App Serves Cap')."""
+    d = _draft(conn, draft)
+    _may_see(conn, user, d)
+    if d["status"] == "applied":
+        raise EditError("This draft was applied; comment on the model instead.", 409)
+    body = (body or "").strip()
+    if not body:
+        raise EditError("Write the comment.")
+    if bool(section) != bool(code):
+        raise EditError("A comment on an item gives both its section and its code.")
+    if section and section not in SECTIONS:
+        raise EditError(f"Section is one of {', '.join(SECTIONS)}.")
+    _add_comment(conn, d, body, user.username if user else "system", section or None, code or None)
+    _exec(conn, "UPDATE core.metamodel_drafts SET modified_at = now() WHERE id = :i", i=d["id"])
+    return draft_get(conn, user, d["guid"])
+
+
+def draft_resolve_comment(conn, user, draft: Any, comment: Any, resolved: bool = True) -> dict:
+    """Marks a comment fixed (or open again): the draft's maker or a reviewer."""
+    d = _draft(conn, draft)
+    _may_see(conn, user, d)
+    g = repo._as_guid(comment)
+    row = _one(conn, "SELECT id FROM core.metamodel_draft_comments WHERE guid = CAST(:g AS uuid) AND draft_id = :d",
+               g=str(g), d=d["id"]) if g else None
+    if not row:
+        raise EditError(f"No comment {comment!r} on this draft.", 404)
+    if resolved:
+        _exec(conn, "UPDATE core.metamodel_draft_comments SET resolved_at = now(), resolved_by = :u WHERE id = :i",
+              u=user.username if user else "system", i=row["id"])
+    else:
+        _exec(conn, "UPDATE core.metamodel_draft_comments SET resolved_at = NULL, resolved_by = NULL WHERE id = :i", i=row["id"])
+    return draft_get(conn, user, d["guid"])
+
+
+def draft_send_back(conn, user, draft: Any, actor: str, note: str = "") -> dict:
+    """A reviewer sends the draft back for changes (D130): it becomes editable for its maker (and their
+    language model), with the reviewer's comments; the metamodel as reviewed is kept in the history."""
+    d = _draft(conn, draft)
+    _may_review(conn, user, d)
+    if d["status"] != "draft":
+        raise EditError(f"Only a draft waiting for review is sent back; this one was {d['status']}.", 409)
+    if note and note.strip():
+        _add_comment(conn, d, note.strip(), actor)
+    if not note.strip() and not _one(conn, """SELECT 1 AS x FROM core.metamodel_draft_comments
+                                               WHERE draft_id = :d AND resolved_at IS NULL""", d=d["id"]):
+        raise EditError("Say what to change: a note, or comments on the items.")
+    _exec(conn, """UPDATE core.metamodel_drafts SET status = 'returned', decided_at = now(), decided_by = :a, modified_at = now()
+                   WHERE id = :i""", a=actor, i=d["id"])
+    _draft_event(conn, d, "sent_back", note, user)
+    return draft_get(conn, user, d["guid"])
+
+
+def draft_resubmit(conn, user, draft: Any, actor: str, note: str = "") -> dict:
+    """The maker (or a reviewer) sends a fixed draft back for review: a new round."""
+    d = _draft(conn, draft)
+    _may_see(conn, user, d)
+    if d["status"] != "returned":
+        raise EditError(f"Only a draft sent back for changes is resubmitted; this one is {d['status']}.", 409)
+    _exec(conn, """UPDATE core.metamodel_drafts SET status = 'draft', round = round + 1, modified_at = now() WHERE id = :i""", i=d["id"])
+    d = _draft(conn, d["guid"])
+    if note and note.strip():
+        _add_comment(conn, d, f"Resubmitted: {note.strip()}", actor, resolved=True)
+    _draft_event(conn, d, "resubmitted", note, user)
+    return draft_get(conn, user, d["guid"])
+
+
+def draft_reopen(conn, user, draft: Any, actor: str, note: str = "") -> dict:
+    """A rejected draft is opened again for changes, as a new round (its maker or a reviewer)."""
+    d = _draft(conn, draft)
+    _may_see(conn, user, d)
+    if d["status"] != "rejected":
+        raise EditError(f"Only a rejected draft is reopened; this one is {d['status']}.", 409)
+    _exec(conn, """UPDATE core.metamodel_drafts SET status = 'returned', round = round + 1, decided_at = NULL, decided_by = NULL,
+                   modified_at = now() WHERE id = :i""", i=d["id"])
+    d = _draft(conn, d["guid"])
+    if note and note.strip():
+        _add_comment(conn, d, f"Reopened: {note.strip()}", actor, resolved=True)
+    _draft_event(conn, d, "reopened", note, user)
+    return draft_get(conn, user, d["guid"])
 
 
 SECTIONS = ("layers", "pick_lists", "attributes", "entity_types", "relationship_types", "allowed", "rules")
@@ -1394,9 +1874,7 @@ def draft_edit(conn, user, draft: Any, action: str, section: str | None = None, 
       replace spec              the whole metamodel document at once
     Returns the draft with its checks."""
     d = _draft(conn, draft)
-    _may_see(conn, user, d)
-    if d["status"] != "draft":
-        raise EditError(f"This draft was {d['status']}; start a new one.", 409)
+    _may_change(conn, user, d)
     s = d["spec"] or empty_spec()
     if action == "replace":
         if not isinstance(spec, dict):
@@ -1450,7 +1928,9 @@ def draft_apply(conn, user, draft: Any, actor: str, p: dict) -> dict:
     (remove_missing also retires what the draft leaves out). Optionally a project model is created
     from a new root (create_model: its name)."""
     d = _draft(conn, draft)
-    _may_see(conn, user, d)
+    _may_review(conn, user, d)
+    if d["status"] == "returned":
+        raise EditError("This draft was sent back for changes: resubmit it before applying it.", 409)
     if d["status"] != "draft":
         raise EditError(f"This draft was already {d['status']}.", 409)
     spec = d["spec"]
@@ -1488,16 +1968,20 @@ def draft_apply(conn, user, draft: Any, actor: str, p: dict) -> dict:
         raise EditError(_db_message(exc), 403 if "Not allowed" in str(exc.orig) else 409) from exc
     _exec(conn, """UPDATE core.metamodel_drafts SET status = 'applied', decided_at = now(), decided_by = :a, applied_model_id = :m,
                    modified_at = now() WHERE id = :i""", a=actor, m=applied, i=d["id"])
+    _draft_event(conn, d, "applied", "", user)
     out["draft"] = draft_out(_draft(conn, d["guid"]))
     return out
 
 
 def draft_reject(conn, user, draft: Any, actor: str, reason: str) -> dict:
     d = _draft(conn, draft)
-    _may_see(conn, user, d)
-    if d["status"] != "draft":
+    _may_review(conn, user, d)
+    if d["status"] not in ("draft", "returned"):
         raise EditError(f"This draft was already {d['status']}.", 409)
-    _exec(conn, """UPDATE core.metamodel_drafts SET status = 'rejected', decided_at = now(), decided_by = :a,
-                   note = trim(note || E'\\n' || 'Rejected: ' || :r), modified_at = now() WHERE id = :i""",
-          a=actor, r=reason or "no reason given", i=d["id"])
-    return draft_out(_draft(conn, d["guid"]))
+    reason = (reason or "").strip()
+    _exec(conn, """UPDATE core.metamodel_drafts SET status = 'rejected', decided_at = now(), decided_by = :a, modified_at = now()
+                   WHERE id = :i""", a=actor, i=d["id"])
+    if reason:
+        _add_comment(conn, d, f"Rejected: {reason}", actor)
+    _draft_event(conn, d, "rejected", reason, user)
+    return draft_get(conn, user, d["guid"])

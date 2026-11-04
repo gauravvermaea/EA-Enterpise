@@ -94,11 +94,13 @@ BEGIN
     INSERT INTO core.models (name, kind_code, source_model_id, metamodel_name, version_label)
     VALUES ('Check reference', 'reference', pg_temp.m('ArchiMate 4'), 'ArchiMate 4', '0.1') RETURNING id INTO v_ref;
     ASSERT (SELECT library_state FROM core.models WHERE id = v_ref) = 'building', 'a new reference model is building';
+    UPDATE core.models SET approval_state = 'requested' WHERE id = v_ref;          -- request, then approve (D134)
     UPDATE core.models SET is_locked = true, library_state = 'published' WHERE id = v_ref;
     ASSERT (SELECT is_locked FROM core.models WHERE id = v_ref), 'published: locked';
     UPDATE core.models SET library_state = 'withdrawn' WHERE id = v_ref;
     ASSERT (SELECT library_state FROM core.models WHERE id = v_ref) = 'withdrawn', 'withdrawn while locked';
     UPDATE core.models SET library_state = 'published' WHERE id = v_ref;
+    UPDATE core.models SET approval_state = 'requested' WHERE name = 'Check root';
     UPDATE core.models SET is_locked = true, library_state = 'published' WHERE name = 'Check root';
     ASSERT (SELECT library_state FROM core.models WHERE name = 'Check root') = 'published', 'an own root can be a library model (D119)';
 END $$;
@@ -124,6 +126,58 @@ BEGIN
     INSERT INTO core.metamodel_drafts (name, kind, spec, proposed_via) VALUES ('Check root draft', 'root', '{"format": "eax-metamodel/1"}', 'mcp');
     ASSERT (SELECT status FROM core.metamodel_drafts WHERE name = 'Check root draft') = 'draft', 'a draft waits for review';
 END $$;
+
+-- draft models (D131): a person's new model is a draft; others may not create models from it until it is published
+DO $$
+DECLARE
+    v_m bigint;
+BEGIN
+    ASSERT NOT (SELECT is_draft FROM core.models WHERE name = 'ArchiMate 4'), 'the installer''s models are published';
+    PERFORM pg_temp.as_user('check_creator', 'model-creator');
+    INSERT INTO core.models (name, kind_code, source_model_id, metamodel_name)
+    VALUES ('Check draft', 'project', pg_temp.m('Karoo Re (independent)'), 'ArchiMate 4') RETURNING id INTO v_m;
+    ASSERT (SELECT is_draft FROM core.models WHERE id = v_m), 'a new model starts as a draft';
+    INSERT INTO core.model_users (model_id, username, role) VALUES (v_m, 'check_reader', 'architect');
+    INSERT INTO core.models (name, kind_code, source_model_id, metamodel_name)
+    VALUES ('Check own try', 'project', v_m, 'ArchiMate 4');   -- its own Model Admin may
+END $$;
+SELECT pg_temp.as_user('check_creator', 'model-creator');
+SELECT pg_temp.expect_error($q$ UPDATE core.models SET is_draft = false WHERE name = 'Check draft' $q$,
+    'request publishing first');
+SELECT pg_temp.as_user('check_reader', 'model-creator');
+SELECT pg_temp.expect_error($q$
+    INSERT INTO core.models (name, kind_code, source_model_id, metamodel_name)
+    VALUES ('Check from draft', 'project', (SELECT id FROM core.models WHERE name = 'Check draft'), 'ArchiMate 4') $q$,
+    'is a draft: it must be published');
+DO $$
+BEGIN
+    PERFORM pg_temp.as_user('check_creator', 'model-creator');
+    UPDATE core.models SET approval_state = 'requested' WHERE name = 'Check draft';   -- request, then approve (D134)
+    UPDATE core.models SET is_draft = false WHERE name = 'Check draft';
+    ASSERT (SELECT published_by FROM core.models WHERE name = 'Check draft') = 'check_creator', 'publishing stamps who';
+    PERFORM pg_temp.as_user('check_reader', 'model-creator');
+    INSERT INTO core.models (name, kind_code, source_model_id, metamodel_name)
+    VALUES ('Check from published', 'project', (SELECT id FROM core.models WHERE name = 'Check draft'), 'ArchiMate 4');
+END $$;
+SELECT pg_temp.as_user('check_creator', 'model-creator');
+SELECT pg_temp.expect_error($q$ UPDATE core.models SET is_draft = true WHERE name = 'Check draft' $q$, 'cannot go back to draft');
+
+-- metamodel draft review (D130): comments on the draft or an item, rounds, events
+DO $$
+DECLARE
+    v_d bigint;
+BEGIN
+    INSERT INTO core.metamodel_drafts (name, kind, status, round) VALUES ('Check review', 'root', 'returned', 2) RETURNING id INTO v_d;
+    INSERT INTO core.metamodel_draft_comments (draft_id, round, section, item_code, body) VALUES (v_d, 2, 'entity_types', 'Device', 'remove it');
+    INSERT INTO core.metamodel_draft_events (draft_id, round, action) VALUES (v_d, 2, 'sent_back');
+    ASSERT (SELECT count(*) FROM core.metamodel_draft_comments WHERE draft_id = v_d AND resolved_at IS NULL) = 1, 'an open comment';
+END $$;
+SELECT pg_temp.expect_error($q$
+    INSERT INTO core.metamodel_draft_comments (draft_id, round, section, body)
+    SELECT id, 1, 'entity_types', 'x' FROM core.metamodel_drafts WHERE name = 'Check review' $q$, 'metamodel_draft_comments_check');
+SELECT pg_temp.expect_error($q$
+    INSERT INTO core.metamodel_draft_events (draft_id, round, action)
+    SELECT id, 1, 'approved' FROM core.metamodel_drafts WHERE name = 'Check review' $q$, 'metamodel_draft_events_action_check');
 
 SELECT 'phase 4 checks passed' AS result;
 ROLLBACK;

@@ -3,7 +3,7 @@
 1. Checks the config file for missing values and unchanged example passwords.
 2. Creates a self-signed TLS certificate if the TLS folder has none.
 3. Renders the Keycloak realm (users, roles, clients) for Keycloak to import.
-4. Builds the Superset sample dashboard bundle (phase 0 demo).
+4. Builds the Superset sample dashboard bundle (phase 0 demo) and the standard report bundles (phase 5).
 
 It is safe to run on every start.
 """
@@ -18,6 +18,7 @@ from string import Template
 
 from .. import permissions
 from ..config import public_url
+from .superset_reports import build_report_bundles
 from .superset_sample import build_sample_bundle
 from .tls import ensure_certificate
 
@@ -164,6 +165,13 @@ def main() -> int:
         db_name=values.get("EAX_DB_NAME", "eaexplorer"),
     )
     print(f"EA Explorer setup: Superset sample dashboard bundle written to {bundle}")
+    reports = build_report_bundles(
+        RENDERED / "superset",
+        db_password=values["EAX_DB_REPORT_PASSWORD"],
+        db_name=values.get("EAX_DB_NAME", "eaexplorer"),
+        public_url=values["EAX_PUBLIC_URL"],
+    )
+    print(f"EA Explorer setup: {len(reports)} standard report bundles written to {RENDERED / 'superset' / 'reports'}")
     print_logins(values)
     print(f"EA Explorer setup: done. Open {values['EAX_PUBLIC_URL']}")
     return 0

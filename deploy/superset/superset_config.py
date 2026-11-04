@@ -52,14 +52,17 @@ AUTH_TYPE = AUTH_DB if env("EAX_SUPERSET_AUTH") == "db" else AUTH_OAUTH
 AUTH_USER_REGISTRATION = True
 AUTH_USER_REGISTRATION_ROLE = "Gamma"
 AUTH_ROLES_SYNC_AT_LOGIN = True
+READER = "EA Explorer reports"   # may read the report datasets, for the models they have (eax_reports_init.py, D138)
 AUTH_ROLES_MAPPING = {
-    # Keycloak's global roles (phase 3.1); rows by model come with the report views (phase 5)
+    # Keycloak's global roles (phase 3.1). Only the Super Admin is a Superset Admin; IT Admins and
+    # Keycloak Admins see no content (D98). Everyone else reads the reports of the models they have.
     "eax-super-admin": ["Admin"],
-    "eax-it-admin": ["Admin"],
-    "eax-model-creator": ["Gamma"],
-    "eax-library-admin": ["Gamma"],
-    "eax-user-admin": ["Gamma"],
-    "eax-user": ["Gamma"],
+    "eax-it-admin": ["Gamma"],
+    "eax-keycloak-admin": ["Gamma"],
+    "eax-user-admin": ["Gamma", READER],
+    "eax-model-creator": ["Gamma", READER],
+    "eax-library-admin": ["Gamma", READER],
+    "eax-user": ["Gamma", READER],
 }
 OAUTH_PROVIDERS = [
     {
@@ -99,5 +102,8 @@ class KeycloakSecurityManager(SupersetSecurityManager):
 CUSTOM_SECURITY_MANAGER = KeycloakSecurityManager
 
 # ---- Features
-FEATURE_FLAGS = {"DASHBOARD_RBAC": True, "EMBEDDED_SUPERSET": False}
+# ENABLE_TEMPLATE_PROCESSING: model access uses {{ current_username() }} (D138)
+FEATURE_FLAGS = {"DASHBOARD_RBAC": True, "EMBEDDED_SUPERSET": False, "ENABLE_TEMPLATE_PROCESSING": True}
+# links in report tables (Open in EA Explorer)
+HTML_SANITIZATION = True
 SQLLAB_CTAS_NO_LIMIT = True

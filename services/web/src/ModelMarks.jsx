@@ -41,8 +41,8 @@ export function StatusMarks({ m }) {
   const ro = readOnlyWhy(m), lock = lockWhy(m);
   return (
     <span className="status-marks">
-      {inLibrary(m) && m.library_state !== "building" && m.library_state !== "withdrawn" && <span title="In the model library" aria-label="In the library">📚</span>}
-      {m.library_state === "building" && <span title="Not yet published in the library: only its makers and Library Admins see it" aria-label="Not yet published">🚧</span>}
+      {inLibrary(m) && m.library_state !== "building" && m.library_state !== "withdrawn" && !m.is_draft && <span title="In the model library" aria-label="In the library">📚</span>}
+      {(m.is_draft || m.library_state === "building") && <span title="Draft: not published yet; only its Model Admins create models from it" aria-label="Draft">📝</span>}
       {m.library_state === "withdrawn" && <span title="Withdrawn from the library: no new models start from it" aria-label="Withdrawn">⛔</span>}
       {m.copy_state === "copying" && <span title="Its content is being copied in the background" aria-label="Copying">⏳</span>}
       {ro && <span title={ro} aria-label="Read-only">👁</span>}
@@ -60,6 +60,7 @@ export function MarksLegend() {
       <span title="Root metamodels and reference models everyone can start from">📚 In the library</span>
       <span title="Shipped library models for everyone; other models where your roles allow no changes">👁 Read-only</span>
       <span title="A Model Admin has locked the metamodel, the content, or the whole model for maintenance">🔒 Locked</span>
+      <span title="Not published yet: only its Model Admins create models from it">📝 Draft</span>
     </div>
   );
 }

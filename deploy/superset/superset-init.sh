@@ -1,6 +1,7 @@
 #!/bin/sh
 # One-shot Superset initialisation (the reports-init service):
-#   metadata database, roles, break-glass admin, and the phase 0 sample dashboard.
+#   metadata database, roles, break-glass admin, the phase 0 sample dashboard, the standard reports
+#   (phase 5), typed report datasets, the reader role and model access (eax_reports_init.py).
 set -e
 
 echo "EA Explorer: Superset database upgrade"
@@ -36,4 +37,17 @@ if [ -f /rendered/superset/sample_dashboard.zip ]; then
   superset import-dashboards -p /rendered/superset/sample_dashboard.zip -u admin \
     || echo "EA Explorer WARNING: sample dashboard import failed; Superset still works (see docs/phase-0.md)"
 fi
+# Phase 5: the standard reports, one zip per dashboard so one failure does not stop the others
+if [ -d /rendered/superset/reports ]; then
+  for z in /rendered/superset/reports/*.zip; do
+    [ -f "$z" ] || continue
+    echo "EA Explorer: importing report $(basename "$z" .zip)"
+    superset import-dashboards -p "$z" -u admin \
+      || echo "EA Explorer WARNING: report $(basename "$z") failed to import; the other reports still work"
+  done
+fi
+
+echo "EA Explorer: report datasets, the reader role and model access"
+python /app/eax/eax_reports_init.py
+
 echo "EA Explorer: Superset ready"

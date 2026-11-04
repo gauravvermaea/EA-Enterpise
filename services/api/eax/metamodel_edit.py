@@ -730,6 +730,9 @@ def apply(conn, model: Any, op: str, payload: dict, actor: str, dry_run: bool = 
         raise EditError(_db_message(exc), 409) from exc
     after = _failing(conn, m, sorted(set(before_types) | set(touched or [])))
     impact = _impact(before, after)
+    if not dry_run:
+        from .reports import refresh_typed_views
+        refresh_typed_views(conn)   # the typed report views follow the metamodel (D139)
     return {"model": m["name"], "op": op, "version": version, "note": note, "dry_run": dry_run,
             "result": result, "impact": impact}
 

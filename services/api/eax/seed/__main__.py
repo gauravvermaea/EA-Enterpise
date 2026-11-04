@@ -23,7 +23,16 @@ import psycopg
 
 from ..config import get_settings
 from ..permissions import TEST_USERS
-from .build import GROUP_KEY, INSURANCE_ID, SAMPLE_ID, TEMPLATE_ID, gid, history_demo_steps, seed_sql, test_models_sql
+from .build import (
+    GROUP_KEY,
+    INSURANCE_ID,
+    SAMPLE_ID,
+    TEMPLATE_ID,
+    gid,
+    history_demo_steps,
+    seed_sql,
+    test_models_sql,
+)
 
 
 def main() -> int:
@@ -57,6 +66,9 @@ def main() -> int:
                 print("EA Explorer: loaded the laptop test models (Fynbos Mutual group, Fynbos Life, Fynbos Commercial, Karoo Re)")
                 history_demo(conn)
             assign_test_users(conn)
+        # the typed report views (rpt.t_*) follow the metamodels just loaded (D139)
+        n = conn.execute("SELECT rpt.refresh_typed_views()").fetchone()[0]
+        print(f"EA Explorer: report views brought up to date ({n} changed)")
     return 0
 
 

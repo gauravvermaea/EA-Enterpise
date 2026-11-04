@@ -4,9 +4,12 @@ Goal: people build their own models on screen: root metamodels, project models (
 independent), library models, and copies of any model, with or without its content and history;
 models travel between installations as one package; a model moves to another framework; and a
 person's own language model can draft a metamodel for someone to review. Version **0.4.0**,
-migration `0008_models`. Decisions D101, D106 (in part), D108, D115 to D125.
+migration `0008_models`. Decisions D101, D106 (in part), D108, D115 to D125, D130 to D136.
 
-## Status: built, waiting for the owner's test
+## Status: accepted and closed (4 Nov 2026, D136); end-to-end test deferred to phase 36.1 (D129)
+
+The demo below and the test checklist at the end stay as they are: they become the phase 4 scripts of
+the automated suite.
 
 ## What phase 4 delivers
 
@@ -64,6 +67,28 @@ migration `0008_models`. Decisions D101, D106 (in part), D108, D115 to D125.
   item by section with *Remove* (removing an entity type takes its allowed relationships and rules
   with it); *Apply* makes the new root (and optionally a model on it) or publishes the changes as one
   metamodel version; *Reject* says why. Whoever may make the change by hand may apply it.
+- **Publishing a draft: request, then approve (D134).** *Actions > Request publishing* (the model's
+  Model Admin), then *Approve and publish* or *Send back* (Library Admins for roots and library models;
+  the model's own Model Admins, those of the model it comes from, or Super Admins for project models).
+  Always two steps, even for one person. The draft work as a whole is revisited in phase 38.2 (D135).
+- **With or without data, or deep (D132, D133).** Creating a model from another, promoting, moving to
+  another framework, downloading and uploading all choose: *without data* (the metamodel only), *with
+  the data*, or *deep* (the data with its full history). A deep copy brings every version of every
+  entity, value and relationship into the copy's own history (labelled "Before the copy, in ..."), so the
+  copy keeps its past even if the source changes or is deleted. *Actions > Download...* makes an Excel
+  workbook or a zip: a deep package adds the sheets Metamodel versions, Metamodel changes and Change
+  history (to read) and History data (loaded again on upload). Every copied row keeps its source's guid
+  (origin_guid) for merging back and comparing later.
+- **Draft models (D131).** Every model you create, upload, promote or move starts as a **draft** (📝): you
+  and the people you give roles work on it, and nobody else can create a model from it. *Actions > Publish
+  the model* (its Model Admin) makes it available; roots and library models are published into the
+  library by a Library Admin. A published model cannot go back to draft.
+- **Draft review in rounds (D130).** On a metamodel draft a reviewer can *Apply*, *Send back* (with a
+  note and comments on single items, 💬) or *Reject*. A sent-back draft is fixed by its maker (remove
+  items, replace it from a JSON file, or let their AI change it through MCP, which reads the comments),
+  comments are ticked as fixed, and *Resubmit* starts a new round; the reviewer sees what changed since
+  the last review. A rejected draft can be *Reopened*. Every step is in the draft's history. Detailed
+  editing happens after applying, in the new model's Metamodel tab (it opens there).
 - **Tooltips** on every new field (ⓘ), button and menu item (D123).
 - **Greyed out, not hidden (D125).** Every button, menu item, option and start tile is shown to every
   role. What your roles do not allow is greyed out, and its tooltip names the role needed and who gives
@@ -132,3 +157,39 @@ empty. Uploads up to 100 MB (nginx, on https and on the laptop's plain http).
 - Showing the source's history inside an entity's History tab for models copied *with history*:
   the flag is stored (`history_from_source`); the History tab shows only the copy's own history
   until the history phase (9).
+
+## Test checklist (for the end-to-end testing phase, 36.1)
+
+Kept for when phase 4 is tested end to end (D129). Each line is what to do and what should happen.
+
+1. **Download, rename, upload** (user_library_admin): Library > Insurance reference model > Zip and Excel download.
+   Upload the zip: 42 types, 715 entities, 248 relationships; Where it goes lists every root, ArchiMate 4 first
+   ("matches completely"), Lean EA greyed with its differences. Rename to "Insurance reference model (test)",
+   upload as a library model: opens published beside the original. Upload the Excel under Root as a root of its
+   own: a new root with a project model under it.
+2. **Create from existing** (user_model_creator): + New model from the Insurance reference model with content:
+   the copying banner, then 715 entities. Karoo Re > Create a model from this: Child (merges into Karoo Re) and
+   Independent (created from Karoo Re only).
+3. **Move to another framework**: on the new model, preview, change a mapping, make a moved copy; the original
+   is unchanged.
+4. **Library actions** (user_library_admin): withdraw the test copy (gone unless Show withdrawn), restore it;
+   promote a project model (a published copy appears).
+5. **Archive and delete**: a Model Admin archives and reactivates. Super Admin: delete Fynbos Mutual (group) is
+   refused (others merge into it); deleting the moved copy works and its zip is in work\data\exports.
+6. **Metamodel drafts**: the list loads (the 0.4.0 500 error is fixed); new draft from a copy of ArchiMate 4.
+   As user_library_admin comment on Equipment (💬) and Send back; as the maker remove Equipment, tick the
+   comment fixed, Resubmit (round 2, "changes since the last review" shows it); Reject, Reopen, Resubmit,
+   Apply: the new root opens in its Metamodel tab as a draft (📝). Optionally draft and fix through MCP.
+11. **Deep copy and deep package**: create a model from the Sample insurance model as a *Deep copy*; open
+   Claims Platform > History: the earlier changes are there, labelled "Before the copy, in Sample insurance
+   model". Download it as Excel, deep: the Change history and Metamodel changes sheets list every change.
+   Upload that workbook with its history: the history comes too.
+10. **Draft models**: a new model shows 📝 and the draft banner; another user with a role on it cannot create
+   a model from it; Actions > Publish the model; now they can.
+7. **Greyed out, not hidden** (user_architect): New model, Upload, most of Actions, Lock and the metamodel
+   buttons greyed, each tooltip naming the role needed; SQL and Users greyed in the top bar.
+8. **Layered ER diagram**: Insurance reference model > ER diagram > Layered: one band per layer; untick layers,
+   save .drawio: the bands are in the file.
+9. **Database checks**: phase4_checks.sql as eax_app ends "phase 4 checks passed"; phases 1 and 2 (postgres),
+   3 and 3.1 (eax_app) still pass.
+

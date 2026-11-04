@@ -30,6 +30,12 @@ def downgrade() -> None:
     raw = op.get_bind().connection.driver_connection
     raw.execute(
         """
+        DROP TRIGGER IF EXISTS models_1b_draft ON core.models;
+        DROP FUNCTION IF EXISTS core.draft_models();
+        DROP TABLE IF EXISTS core.model_publish_events;
+        ALTER TABLE core.models DROP COLUMN IF EXISTS approval_state, DROP COLUMN IF EXISTS is_draft, DROP COLUMN IF EXISTS published_at, DROP COLUMN IF EXISTS published_by;
+        DROP TABLE IF EXISTS core.metamodel_draft_events;
+        DROP TABLE IF EXISTS core.metamodel_draft_comments;
         DROP TABLE IF EXISTS core.metamodel_drafts;
         DROP FUNCTION IF EXISTS core.copy_model(bigint, bigint, boolean);
         DROP TRIGGER IF EXISTS models_2_dependants ON core.models;

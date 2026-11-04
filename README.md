@@ -5,16 +5,32 @@ a governed metamodel, an architecture repository, diagrams (draw.io), reports (A
 documents (Mayan EDMS), sign-in through Keycloak, and an MCP server so you can connect your own
 language model. Everything runs in Docker containers from one config file.
 
-**Status: build phase 3.1 (version 0.3.1): roles and permissions.** The platform runs end to end; the
+**Status: build phase 5 (version 0.5.0): report views and the thirty standard reports, running (each report checked in the testing phase).** The platform runs end to end; the
 repository database holds the ArchiMate 4 template, a locked insurance reference model and a sample
 model; model pages show entities, relationships, graphs and history; a project model's metamodel can be
 changed from the screens, every change publishing a new metamodel version; a failing-checks screen;
-model locks; roles given in Keycloak and enforced by the API and the database, with test users per role on laptops; an **MCP server** for your own language model ([docs/mcp.md](docs/mcp.md)). Phase notes:
-[0](docs/phase-0.md), [1](docs/phase-1.md), [2](docs/phase-2.md), [3](docs/phase-3.md), [3.1](docs/phase-3.1.md), [4](docs/phase-4.md). Database design:
+model locks; roles given in Keycloak and enforced by the API and the database, with test users per role on laptops; creating models (child or independent), library models, packages (zip and Excel) with an upload wizard, moving to another framework and metamodel drafts by AI; report views and the thirty standard reports as Superset dashboards; an **MCP server** for your own language model ([docs/mcp.md](docs/mcp.md)). Phase notes are listed under [Build phases](#build-phases) below. Database design:
 [docs/database.md](docs/database.md). How it is built (for developers and AI agents):
-[docs/architecture.md](docs/architecture.md), [AGENTS.md](AGENTS.md). Requirements and the build plan:
+[docs/architecture.md](docs/architecture.md), [AGENTS.md](AGENTS.md); the high-level technical architecture (under 10 pages):
+[docs/requirements/EA_Explorer_Technical_Architecture.docx](docs/requirements/EA_Explorer_Technical_Architecture.docx). Requirements and the build plan:
 [docs/requirements](docs/requirements). Decisions: [docs/decisions.md](docs/decisions.md). Open items:
 [docs/todo.md](docs/todo.md).
+
+## Build phases
+
+Each phase has its own notes: what it delivers, a demo, checks, how to upgrade and what is not in it.
+
+| Phase | Name | Version | State | Notes |
+| --- | --- | --- | --- | --- |
+| 0 | Foundations: the platform, sign-in, health, jobs, backups | 0.0.x | closed | [phase-0.md](docs/phase-0.md) |
+| 1 | Metamodel store and the ArchiMate 4 seed (read only) | 0.1.0 | closed | [phase-1.md](docs/phase-1.md) |
+| 2 | Insurance reference model, locked models, library page and versions | 0.2.1 | closed | [phase-2.md](docs/phase-2.md) |
+| 3 | Metamodel editing, metamodel versions and history, failing checks, model locks | 0.3.0 | accepted | [phase-3.md](docs/phase-3.md) |
+| 3.1 | Roles and permissions | 0.3.1 | accepted | [phase-3.1.md](docs/phase-3.1.md) |
+| 4 | Creating and copying models, library models and packages | 0.4.0 | accepted and closed | [phase-4.md](docs/phase-4.md) |
+| 5 | Report views and the thirty standard reports | 0.5.0 | running; each report checked in phase 36.1 | [phase-5.md](docs/phase-5.md) |
+
+The full plan (48 phases) is in [docs/requirements/EA_Explorer_Build_Plan.xlsx](docs/requirements/EA_Explorer_Build_Plan.xlsx).
 
 ## Quick start (laptop)
 

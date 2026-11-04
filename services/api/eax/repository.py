@@ -40,7 +40,7 @@ _MODEL_SQL = """
            m.metamodel_version, m.is_locked, m.status_code AS status,
            m.owner, m.lifecycle, m.industry, m.version_label,
            m.lock_level, m.lock_reason, m.locked_at, m.locked_by,
-           m.library_state, m.copy_state, m.copy_note, m.history_from_source,
+           m.library_state, m.copy_state, m.copy_note, m.history_from_source, m.is_draft, m.approval_state, m.published_at, m.published_by,
            m.created_at, m.created_by, m.modified_at, m.modified_by,
            (SELECT count(*) FROM core.entity_types t WHERE t.model_id = m.id AND NOT t.is_deleted) AS entity_type_count,
            (SELECT count(*) FROM core.entities e WHERE e.model_id = m.id AND NOT e.is_deleted) AS entity_count,
@@ -715,7 +715,8 @@ def _history_rows(conn, m: dict, eid: int):
                (table_name = 'entities' AND row_id = :e)
             OR (table_name = 'attribute_values' AND data->>'entity_id' = :es)
             OR (table_name = 'relationships' AND (data->>'source_entity_id' = :es OR data->>'target_entity_id' = :es)))
-         ORDER BY table_name, row_id, row_version, id""", m=m["_id"], e=eid, es=str(eid))
+         ORDER BY table_name, row_id, changed_at, id""", m=m["_id"], e=eid, es=str(eid))   # by time: a deep copy's
+    # earlier versions (copied from its source, D132) come before the copy's own
     entity_ids, attr_ids, rel_type_ids = set(), set(), set()
     for r in rows:
         d = r["data"]
@@ -943,7 +944,9 @@ def get_entity_history(conn, model: Any, entity: Any, limit: int = 500) -> dict:
             else:
                 c["action"] = "changed"
         if ev["kind"] == "entity" and r["operation"] == "insert":
-            ev["action"] = "created"
+            ev["action"] = "copied" if before is not None else "created"   # a deep copy's own first version
+        if not ev["changes"] and ev["kind"] != "entity":
+            continue      # a value or relationship written again unchanged (for example by a deep copy)
         events.append(ev)
     events.sort(key=lambda x: (x["at"], x["id"]), reverse=True)
     for k in ("_id", "_type", "_origin", "_type_origin"):

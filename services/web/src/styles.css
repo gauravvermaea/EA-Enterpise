@@ -469,3 +469,22 @@ li.retired { opacity: 0.7; }
 .menu-item:disabled { color: var(--quiet); cursor: not-allowed; background: none; opacity: 1; }
 .menu-why { display: block; font-size: 11px; color: var(--quiet); margin-top: 1px; }
 .topbar nav .nav-off { color: var(--quiet); opacity: 0.5; cursor: not-allowed; }
+.draft-banner { background: #eef3fb; color: #1d3f73; border-color: #c4d4ee; }
+.draft-comments { border: 1px solid var(--line); border-radius: 8px; background: var(--card); padding: 10px 14px; margin: 8px 0 12px; }
+.draft-comments-head { display: flex; gap: 10px; align-items: center; margin-bottom: 6px; }
+.comment-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.comment-list li { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: start; font-size: 14px; }
+.comment-list li.resolved { opacity: 0.6; text-decoration: line-through; }
+.comment-count { margin-left: 6px; font-size: 12px; color: #6b4600; }
+tr.has-comment td { background: #fff8e6; }
+.item-comment { font-size: 12px; color: #6b4600; margin-top: 2px; }
+label.button.file-button { display: inline-flex; align-items: center; cursor: pointer; font: inherit; padding: 6px 14px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+label.button.file-button.off { opacity: 0.55; cursor: not-allowed; }
+
+/* Reports tab (phase 5) */
+.report-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; margin: 10px 0 14px; }
+.report-card { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); text-decoration: none; }
+.report-card:hover { border-color: var(--accent, #2f7d9b); }
+.report-code { font-size: 11px; font-weight: 600; color: var(--accent, #2f7d9b); letter-spacing: 0.04em; }
+.reports-tab .toolbar { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
+.grid-table.inner { margin: 4px 0 6px 16px; width: calc(100% - 16px); }

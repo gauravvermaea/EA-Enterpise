@@ -87,6 +87,16 @@ async def list_models() -> Any:
 
 
 @mcp.tool()
+async def get_report_catalogue(model: str) -> Any:
+    """What can be reported on for a model: the standard reports (SR-01 to SR-15, model overview,
+    pick-list heatmaps) with their dashboard links, every entity type and attribute with the report
+    view and column it is in (rpt.t_<type>, for SQL or BI tools on the read-only report login), and
+    which types count as applications, capabilities and so on in the standard reports."""
+    from . import reports
+    return await _run(reports.model_reports, model)
+
+
+@mcp.tool()
 async def list_library() -> Any:
     """The model library: read-only reference models (for example the Insurance reference model)
     with their industry, version, description and how many entities of each type they hold.
@@ -322,15 +332,44 @@ async def draft_replace(draft: str, spec: dict) -> Any:
 
 @mcp.tool()
 async def get_metamodel_draft(draft: str) -> Any:
-    """A draft: its metamodel document, its checks (errors and warnings) and what it changes against the
-    model it starts from. Applying it is done by a person in the screens."""
+    """A draft: its metamodel document, its checks (errors and warnings), what it changes against the model
+    it starts from, its review comments (open ones say what to fix, on the whole draft or on an item by
+    section and code), what changed since the last review, and its history. Applying it is done by a
+    person in the screens."""
     return await _run(lambda conn: model_ops.draft_get(conn, permissions.current.get(), draft))
 
 
 @mcp.tool()
 async def list_metamodel_drafts(status: str | None = None) -> Any:
-    """Your metamodel drafts (draft, applied or rejected)."""
+    """Your metamodel drafts, and those you review: status draft (waiting for review), returned (sent back
+    for changes: read its comments with get_metamodel_draft and fix it), applied or rejected."""
     return await _run(lambda conn: model_ops.draft_list(conn, permissions.current.get(), status))
+
+
+@mcp.tool()
+async def comment_on_metamodel_draft(draft: str, body: str, section: str | None = None, code: str | None = None) -> Any:
+    """Add a comment to a draft, on the whole draft or on one item (section and code), for example to say
+    how a reviewer's comment was dealt with."""
+    return await _run(_drafting(model_ops.draft_comment, "draft.commented", draft, body, section, code), begin=True)
+
+
+@mcp.tool()
+async def resolve_draft_comment(draft: str, comment: str, resolved: bool = True) -> Any:
+    """Mark a review comment fixed once the draft deals with it (or open again with resolved false)."""
+    return await _run(_drafting(model_ops.draft_resolve_comment, "draft.comment_resolved", draft, comment, resolved), begin=True)
+
+
+@mcp.tool()
+async def resubmit_metamodel_draft(draft: str, note: str = "") -> Any:
+    """Send a draft that was sent back for changes to its reviewer again, once the comments are dealt with
+    and its checks show no errors: a new review round. `note` says what was changed."""
+    def run(conn):
+        who = permissions.current.get()
+        out = model_ops.draft_resubmit(conn, who, draft, who.username, note)
+        audit.record(conn, actor=who.username, action="draft.resubmitted", object_type="draft", object_id=str(out.get("id", "")),
+                     source="mcp")
+        return out
+    return await _run(run, begin=True)
 
 
 def _authenticate(header: str) -> permissions.Principal | None:

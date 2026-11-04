@@ -236,8 +236,10 @@ function LibraryButtons({ m }) {
   };
   return (
     <>
-      {m.library_state === "building" && <button disabled={busy || !curator} onClick={() => act("publish")}
-        title={curator ? "Everyone can then see it and start from it" : `Publishing: ${why}`}>Publish</button>}
+      {m.library_state === "building" && m.approval_state !== "requested" && <button disabled={busy || !curator} onClick={() => act("request-publish")}
+        title={curator ? "Ask for it to be published; it is then approved (two steps, D134)" : `Publishing: ${why}`}>Request publishing</button>}
+      {m.library_state === "building" && m.approval_state === "requested" && <button disabled={busy || !curator} onClick={() => act("publish")}
+        title={curator ? "Approve: everyone can then see it and start from it" : `Approving: ${why}`}>Approve and publish</button>}
       {m.library_state === "published" && <button disabled={busy || !curator || top} onClick={() => act("withdraw")}
         title={top ? "Root is the top of the hierarchy and always stays" : curator ? "Nobody can start a new model from it; models built on it keep working" : `Withdrawing: ${why}`}>Withdraw</button>}
       {m.library_state === "withdrawn" && <button disabled={busy || !curator} onClick={() => act("restore")}

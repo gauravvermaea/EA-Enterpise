@@ -3,7 +3,9 @@
 Technical documentation for developers and AI agents picking up the work. What the product does is
 in the [requirements](requirements) and the phase notes (`phase-N.md`); why things are as they are is
 in [decisions.md](decisions.md); the database in detail is in [database.md](database.md). Start with
-[../AGENTS.md](../AGENTS.md) if you are an agent.
+[../AGENTS.md](../AGENTS.md) if you are an agent. A short overview for architects (containers, application,
+data, security, integration, and the logical and physical technology architecture) is
+[requirements/EA_Explorer_Technical_Architecture.docx](requirements/EA_Explorer_Technical_Architecture.docx).
 
 ## The containers
 
@@ -16,8 +18,8 @@ One Docker Compose stack (`docker-compose.yml`, plus `deploy/compose/docker-comp
 | `proxy` | nginx: TLS, routes `/` to web, `/api` and `/mcp` to api, `/auth` to Keycloak, reports.* and docs.* hosts | `deploy/proxy/templates/default.conf.template` |
 | `web` | The React screens, built by Vite, served by nginx | `services/web` |
 | `api` | Flask REST API (gunicorn, port 8000), the job runner (Procrastinate) and the MCP server (uvicorn, port 8001), side by side, reached only through nginx; runs migrations and the seed on start | `services/api` (`entrypoint.sh`) |
-| `setup` | One-off: certificates, Keycloak realm, Superset sample | `services/api` (`python -m eax.setup`) |
-| `db` | PostgreSQL 16: databases `eaexplorer` (repository), `keycloak`, `superset`, `mayan` | `deploy/postgres/initdb` |
+| `setup` | One-off: certificates, Keycloak realm, Superset sample and the standard report bundles | `services/api` (`python -m eax.setup`) |
+| `db` | PostgreSQL 17: databases `eaexplorer` (repository), `keycloak`, `superset`, `mayan` | `deploy/postgres/initdb` |
 | `keycloak` | Sign-in (OIDC); realm `eaexplorer` from `deploy/keycloak/realm-eaexplorer.json.tmpl` | image |
 | `reports`, `reports-init` | Apache Superset | `deploy/superset` |
 | `dms`, `dms-broker` | Mayan EDMS and its Valkey broker | image |
@@ -48,7 +50,8 @@ eax/
   api/              REST blueprints: heartbeat, me, jobs, audit, metamodel (reads),
                     metamodel_edit (phase 3 writes), sql; schemas.py holds marshmallow schemas
   seed/             ArchiMate 4 template, insurance reference model, sample model (rows)
-  setup/            first-start setup (TLS, Superset sample)
+  setup/            first-start setup (TLS, Superset sample, standard report bundles: superset_reports.py)
+  reports.py        typed report views refresh, known users, the report catalogue (report_defs.py lists the reports)
 migrations/         Alembic; versions/000N_*.py, big SQL in migrations/sql/000N_*.sql
 tests/              pytest (no database needed) and tests/sql/phaseN_checks.sql (need the database)
 version.toml        the API's version; must equal the newest core.schema_versions row
@@ -96,6 +99,18 @@ token. Main files: `StartPage.jsx`, `Metamodel.jsx` (model page and its tabs), `
 failing checks, locks), `EntityGraph.jsx`, `HierarchyMap.jsx`, `RelationMatrix.jsx`,
 `MetamodelDiagram.jsx` (elkjs layouts), `exporting.js` (CSV, SVG, PNG, .drawio), `Sql.jsx`, `Mcp.jsx`,
 `Library.jsx`, `ModelSwitcher.jsx`. Styles in one `styles.css`.
+
+## Reports (phase 5)
+
+- The database's `rpt` schema holds the report views, read by the login `eax_report` through SECURITY
+  DEFINER functions: generic views, one typed view per entity type (`rpt.t_<type>`, remade by
+  `rpt.refresh_typed_views()` after the seed and every metamodel change), the standard reports
+  `rpt.sr01..sr30` and `rpt.mo_*`, and `rpt.model_access` (who has which model, D138).
+- The setup service builds one Superset bundle per dashboard (`eax/setup/superset_reports.py`); the
+  `reports-init` service imports them, then `deploy/superset/eax_reports_init.py` adds the typed datasets,
+  the role *EA Explorer reports* and one model-access rule. Heatmaps are SQL datasets banded by thresholds
+  chosen in the dashboard (`filter_values`, `rpt.heat_thresholds`, D141).
+- Each model's Reports tab and the MCP tool `get_report_catalogue` read `GET /api/v1/models/<id>/reports`.
 
 ## Building and testing
 

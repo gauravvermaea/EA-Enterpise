@@ -20,7 +20,7 @@ from flask_smorest import Blueprint, abort
 from marshmallow import INCLUDE, Schema, fields
 from sqlalchemy.exc import DBAPIError
 
-from .. import audit, permissions
+from .. import audit, permissions, reports
 from .. import model_ops as mo
 from .. import repository as repo
 from ..auth import require_auth
@@ -62,7 +62,8 @@ class CreateIn(Schema):
     source = fields.String(load_default=None, metadata={"description": "The model to start from (guid or name): a root "
                                                                           "metamodel, a library model or a model you may read"})
     parent = fields.String(load_default=None, metadata={"description": "Derive from (merge back into) this project model"})
-    copy = fields.String(load_default=None, metadata={"description": "metadata | content | history (default content; roots: metamodel)"})
+    copy = fields.String(load_default=None, metadata={"description": "metamodel (no data) | content (with the data) | history "
+                                                                     "(a deep copy: the data and its full history, D132). Default content; roots: metamodel"})
     version_label = fields.String(load_default="")
     industry = fields.String(load_default="")
     description = fields.String(load_default="")
@@ -79,6 +80,7 @@ class CreateOut(Schema):
 
 class PromoteIn(Schema):
     name = fields.String(load_default=None)
+    copy = fields.String(load_default=None, metadata={"description": "metamodel, content (default) or history (deep copy)"})
     version_label = fields.String(load_default="1.0")
     industry = fields.String(load_default="")
     description = fields.String(load_default=None)
@@ -91,6 +93,8 @@ class DeleteQuery(Schema):
 
 class PackageQuery(Schema):
     format = fields.String(load_default="zip", metadata={"description": "zip (manifest, metamodel JSON, CSV) or xlsx (one workbook)"})
+    content = fields.String(load_default="content", metadata={"description": "metamodel (no data), content (with the data) or history "
+                                                                             "(deep: the data, its change history and the metamodel's history, D132)"})
 
 
 class MoveIn(Schema):
@@ -98,6 +102,7 @@ class MoveIn(Schema):
     mode = fields.String(load_default="copy", metadata={"description": "copy (a new model) or in_place"})
     map = fields.Dict(load_default=None, metadata={"description": "Entity type code -> target type code (null: leave out)"})
     name = fields.String(load_default=None, metadata={"description": "copy: the new model's name"})
+    with_data = fields.Boolean(load_default=True, metadata={"description": "copy: bring the content across (false: the target's metamodel only)"})
 
 
 class MovePreviewQuery(Schema):
@@ -137,6 +142,20 @@ class DraftApplyIn(Schema):
 
 class RejectIn(Schema):
     reason = fields.String(load_default="")
+
+
+class NoteIn(Schema):
+    note = fields.String(load_default="", metadata={"description": "Shown to everyone on the draft as a comment"})
+
+
+class CommentIn(Schema):
+    body = fields.String(required=True)
+    section = fields.String(load_default=None, metadata={"description": "On one item: its section (entity_types, ...)"})
+    code = fields.String(load_default=None, metadata={"description": "On one item: its code"})
+
+
+class ResolveIn(Schema):
+    resolved = fields.Boolean(load_default=True)
 
 
 class DraftQuery(Schema):
@@ -245,14 +264,87 @@ class DeleteModel(MethodView):
                       "model.deleted", model_id)
 
 
+# ---------------------------------------------------------------- publishing a draft model (D131, D134)
+@blp.route("/models/<uuid:model_id>/publishing")
+class Publishing(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def get(self, model_id):
+        """A model's publishing state, its steps so far (requested, sent back, approved) and what you may do next"""
+        with get_engine().connect() as conn:
+            try:
+                return mo.publishing(conn, model_id, g.user)
+            except repo.NotFound as exc:
+                abort(404, message=str(exc))
+
+
+# ---------------------------------------------------------------- reports (phase 5, D71, D137)
+@blp.route("/models/<uuid:model_id>/reports")
+class ModelReports(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def get(self, model_id):
+        """The model's standard reports (dashboard links) and report catalogue: every entity type and
+        attribute with the report view and column it is in (rpt.t_<type>), and which types count as
+        applications, capabilities, ... for the standard reports"""
+        with get_engine().connect() as conn:
+            try:
+                return reports.model_reports(conn, model_id)
+            except repo.NotFound as exc:
+                abort(404, message=str(exc))
+
+
+def _publish_step(action: str, fn):
+    def view(data, model_id):
+        return _write(lambda conn: fn(conn, model_id, g.user.username, g.user, data.get("note", "")), action, model_id, data)
+    return view
+
+
+@blp.route("/models/<uuid:model_id>/request-publish")
+class RequestPublish(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.arguments(NoteIn)
+    @blp.response(200, ModelOut)
+    @require_auth()
+    def post(self, data, model_id):
+        """Ask for a draft model to be published (its Model Admin); an approver then approves or sends it back"""
+        return _publish_step("model.publish_requested", mo.request_publish)(data, model_id)
+
+
 @blp.route("/models/<uuid:model_id>/publish")
 class Publish(MethodView):
     @blp.doc(security=SECURITY)
+    @blp.arguments(NoteIn)
     @blp.response(200, ModelOut)
-    @require_auth("library.curate")
-    def post(self, model_id):
-        """Publish a root or library model into the library: it is locked (Library Admins, D118)"""
-        return _write(lambda conn: mo.publish(conn, model_id, g.user.username), "library.published", model_id)
+    @require_auth()
+    def post(self, data, model_id):
+        """Approve a requested draft and publish it (D134): Library Admins for roots and library models (locked
+        into the library); for a project model its Model Admins or those of the model it comes from"""
+        return _publish_step("model.published", mo.publish)(data, model_id)
+
+
+@blp.route("/models/<uuid:model_id>/send-back-publish")
+class SendBackPublish(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.arguments(NoteIn)
+    @blp.response(200, ModelOut)
+    @require_auth()
+    def post(self, data, model_id):
+        """Send a requested draft back to its makers with a note (approvers)"""
+        return _publish_step("model.publish_sent_back", mo.send_back_publish)(data, model_id)
+
+
+@blp.route("/models/<uuid:model_id>/withdraw-publish-request")
+class WithdrawPublishRequest(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.arguments(NoteIn)
+    @blp.response(200, ModelOut)
+    @require_auth()
+    def post(self, data, model_id):
+        """Take back a request to publish (the model's Model Admin)"""
+        return _publish_step("model.publish_request_withdrawn", mo.withdraw_publish_request)(data, model_id)
 
 
 @blp.route("/models/<uuid:model_id>/withdraw")
@@ -302,12 +394,12 @@ class Package(MethodView):
         fmt = "xlsx" if query["format"] == "xlsx" else "zip"
         try:
             with get_engine().connect() as conn:
-                data, filename, ctype = mo.export_package(conn, model_id, fmt, g.user.username)
+                data, filename, ctype = mo.export_package(conn, model_id, fmt, g.user.username, query["content"])
         except repo.NotFound as exc:
             abort(404, message=str(exc))
         with get_engine().begin() as conn:
             audit.record(conn, actor=g.user.username, action="model.downloaded", object_type="model", object_id=str(model_id),
-                         details={"format": fmt}, request_id=getattr(g, "request_id", None))
+                         details={"format": fmt, "content": query["content"]}, request_id=getattr(g, "request_id", None))
         return Response(data, mimetype=ctype, headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
@@ -358,6 +450,8 @@ class Import(MethodView):
         "type": "object", "properties": {"file": {"type": "string", "format": "binary"},
                                          "placement": {"type": "string", "enum": ["root", "own_root"]},
                                          "root": {"type": "string", "description": "placement root: the root metamodel (id)"},
+                                         "content": {"type": "string", "enum": ["metamodel", "content", "history"],
+                                                     "description": "what to load (default: everything the package has)"},
                                          "name": {"type": "string"}, "as_kind": {"type": "string", "enum": ["library", "project"]}}}}}})
     @blp.response(201, Free)
     @require_auth()
@@ -374,7 +468,8 @@ class Import(MethodView):
         if not wants_library and not (_user_can("models.create") or _user_can("library.curate")):
             abort(403, message="Uploading a model needs the Model Creator role.")
         out = _write(lambda conn: mo.import_package(conn, pkg, placement, g.user.username, request.form.get("name") or None,
-                                                    as_kind, request.form.get("root") or None), "package.uploaded", None,
+                                                    as_kind, request.form.get("root") or None, request.form.get("content") or None),
+                     "package.uploaded", None,
                      {"package": pkg["manifest"].get("model", {}).get("name"), "placement": placement})
         return {"model": repo_model_out(out["model"]), "root": repo_model_out(out.get("root")), "counts": out["counts"]}
 
@@ -412,7 +507,7 @@ class Move(MethodView):
         """Move the model to another root metamodel (D121): copy (a new model, the content mapped across) or
         in_place (the model takes the new metamodel as one version; its Model Admin)"""
         out = _write(lambda conn: mo.framework_move(conn, model_id, data["target"], data["mode"], g.user.username, data.get("map"),
-                                                    data.get("name")), "model.framework_moved", model_id, data)
+                                                    data.get("name"), data.get("with_data", True)), "model.framework_moved", model_id, data)
         out["model"] = repo_model_out(out["model"])
         return out
 
@@ -492,6 +587,71 @@ class DraftReject(MethodView):
     @blp.response(200, Free)
     @require_auth()
     def post(self, data, draft_id):
-        """Reject a draft; it is kept for the record"""
+        """Reject a draft (from waiting for review or sent back); it is kept, and can be reopened as a new round"""
         return _write(lambda conn: mo.draft_reject(conn, g.user, draft_id, g.user.username, data["reason"]), "draft.rejected",
                       draft_id, data)
+
+
+# Review rounds (D130): send back for changes, resubmit, reopen, and comments on the draft or its items
+def _round(action: str, fn):
+    def view(data, draft_id):
+        return _write(lambda conn: fn(conn, g.user, draft_id, g.user.username, data.get("note", "")), action, draft_id, data)
+    return view
+
+
+@blp.route("/metamodel-drafts/<uuid:draft_id>/send-back")
+class DraftSendBack(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.arguments(NoteIn)
+    @blp.response(200, Free)
+    @require_auth()
+    def post(self, data, draft_id):
+        """Send a draft back to its maker for changes (reviewers): it becomes editable, with your note and comments"""
+        return _round("draft.sent_back", mo.draft_send_back)(data, draft_id)
+
+
+@blp.route("/metamodel-drafts/<uuid:draft_id>/resubmit")
+class DraftResubmit(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.arguments(NoteIn)
+    @blp.response(200, Free)
+    @require_auth()
+    def post(self, data, draft_id):
+        """Send a fixed draft back for review: a new round"""
+        return _round("draft.resubmitted", mo.draft_resubmit)(data, draft_id)
+
+
+@blp.route("/metamodel-drafts/<uuid:draft_id>/reopen")
+class DraftReopen(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.arguments(NoteIn)
+    @blp.response(200, Free)
+    @require_auth()
+    def post(self, data, draft_id):
+        """Open a rejected draft again for changes, as a new round"""
+        return _round("draft.reopened", mo.draft_reopen)(data, draft_id)
+
+
+@blp.route("/metamodel-drafts/<uuid:draft_id>/comments")
+class DraftComments(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.arguments(CommentIn)
+    @blp.response(201, Free)
+    @require_auth()
+    def post(self, data, draft_id):
+        """Comment on a draft, or on one of its items (section and code)"""
+        return _write(lambda conn: mo.draft_comment(conn, g.user, draft_id, data["body"], data.get("section"), data.get("code")),
+                      "draft.commented", draft_id, {"section": data.get("section"), "code": data.get("code")})
+
+
+@blp.route("/metamodel-drafts/<uuid:draft_id>/comments/<uuid:comment_id>/resolve")
+class DraftCommentResolve(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.arguments(ResolveIn)
+    @blp.response(200, Free)
+    @require_auth()
+    def post(self, data, draft_id, comment_id):
+        """Mark a comment fixed (resolved true) or open again (false)"""
+        return _write(lambda conn: mo.draft_resolve_comment(conn, g.user, draft_id, comment_id, data["resolved"]),
+                      "draft.comment_resolved", draft_id, {"comment": str(comment_id), "resolved": data["resolved"]})
+

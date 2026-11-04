@@ -14,7 +14,7 @@
 --     types, mappings or pick-list values removed since) are not applied to that model.
 --   * Deleting a model: Super Admins only, refused while other models are derived from it or built on
 --     it; soft (is_deleted), kept in history (D121).
---   * core.metamodel_drafts: metamodels drafted by a language model through MCP (or uploaded), reviewed
+--   * core.metamodel_drafts (with review comments and events, D130): metamodels drafted by a language model through MCP (or uploaded), reviewed
 --     and applied by a person (D115, D120).
 -- =====================================================================================
 
@@ -66,12 +66,104 @@ CREATE TRIGGER models_1_library_state BEFORE INSERT ON core.models
 ALTER TABLE core.models ADD CONSTRAINT models_library_state
     CHECK ((kind_code IN ('template', 'reference')) = (library_state <> ''));
 
+-- ---------------------------------------------------------------- draft models (D131)
+-- Every model a person creates starts as a draft and is not published straight away: only its Model
+-- Admins (and the people they give roles) work on it, and nobody else may create a model from it. Its
+-- Model Admin publishes a project model; a Library Admin publishes a root or library model (library_state
+-- building -> published). The installer's and the seed's models (no person set) start published.
+ALTER TABLE core.models
+    ADD COLUMN is_draft     boolean NOT NULL DEFAULT false,
+    -- the publishing workflow of a draft (D134): editing -> requested (waiting for approval) -> approved
+    -- (published), or returned (sent back with comments) -> requested again
+    ADD COLUMN approval_state text NOT NULL DEFAULT '' CHECK (approval_state IN ('', 'editing', 'requested', 'returned')),
+    ADD COLUMN published_at timestamptz,
+    ADD COLUMN published_by text;
+COMMENT ON COLUMN core.models.is_draft IS 'A new model not yet published: only its Model Admins use it or create models from it (D131)';
+
+CREATE FUNCTION core.draft_models() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    v_from core.models%ROWTYPE;
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        IF core.session_roles() IS NOT NULL THEN
+            NEW.is_draft := true;             -- made by a person: a draft until approved and published
+            NEW.published_at := NULL; NEW.published_by := NULL;
+        ELSE
+            NEW.is_draft := coalesce(NEW.library_state, '') = 'building' AND NOT NEW.is_locked;
+            IF NOT NEW.is_draft THEN NEW.published_at := now(); NEW.published_by := core.current_actor(); END IF;
+        END IF;
+        NEW.approval_state := CASE WHEN NEW.is_draft THEN 'editing' ELSE '' END;
+        -- nobody creates a model from a draft except the draft's own Model Admins (to try it out)
+        FOR v_from IN SELECT * FROM core.models WHERE id IN (NEW.source_model_id, NEW.parent_model_id) LOOP
+            IF v_from.is_draft AND core.session_roles() IS NOT NULL
+               AND NOT ('super-admin' = ANY (core.session_roles()))
+               AND NOT ('model-admin' = ANY (core.model_roles(v_from.id)))
+               AND NOT (NEW.kind_code IN ('template', 'reference') AND core.may_curate_library()) THEN
+                RAISE EXCEPTION 'Model "%" is a draft: it must be published before other people create models from it', v_from.name
+                    USING ERRCODE = 'insufficient_privilege';
+            END IF;
+        END LOOP;
+        RETURN NEW;
+    END IF;
+    -- UPDATE: a published model stays published (withdraw a library model instead)
+    IF OLD.is_draft = false AND NEW.is_draft THEN
+        RAISE EXCEPTION 'Model "%" is published and cannot go back to draft', OLD.name;
+    END IF;
+    -- a root or library model is published when the library publishes it
+    IF NEW.kind_code IN ('template', 'reference') AND NEW.library_state IN ('published', 'withdrawn') THEN
+        NEW.is_draft := false;
+    END IF;
+    IF OLD.is_draft AND NOT NEW.is_draft THEN
+        -- publishing is the approval of a request (D134): even an admin approving their own model asks first
+        IF OLD.approval_state <> 'requested' AND core.session_roles() IS NOT NULL THEN
+            RAISE EXCEPTION 'Model "%" is a draft: request publishing first, then it is approved', OLD.name
+                USING ERRCODE = 'insufficient_privilege';
+        END IF;
+        NEW.published_at := now(); NEW.published_by := core.current_actor(); NEW.approval_state := '';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+CREATE TRIGGER models_1b_draft BEFORE INSERT OR UPDATE ON core.models
+    FOR EACH ROW EXECUTE FUNCTION core.draft_models();
+
+-- Who may approve a model's publishing (D134): Super Admins; Library Admins for roots and library models;
+-- for a project model its own Model Admins (an admin may approve their own, after requesting it) and the
+-- Model Admins of the model it was copied from or merges into. (Arguments, not a read of core.models, so
+-- the row-level security policy on core.models can call it.)
+CREATE FUNCTION core.may_approve_draft(p_model bigint, p_kind text, p_source bigint, p_parent bigint) RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, core AS $$
+    SELECT core.session_roles() IS NOT NULL AND (
+           'super-admin' = ANY (core.session_roles())
+        OR (p_kind IN ('template', 'reference') AND core.session_roles() && ARRAY['library-admin'])
+        OR (p_kind = 'project' AND EXISTS (
+               SELECT 1 FROM core.model_users u
+                WHERE u.username = lower(core.current_actor()) AND u.role = 'model-admin'
+                  AND u.model_id IN (p_model, p_source, p_parent))))
+$$;
+
+-- The publishing workflow of a model, step by step, with the notes (D134)
+CREATE TABLE core.model_publish_events (
+    id        bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    model_id  bigint NOT NULL REFERENCES core.models (id),
+    action    text NOT NULL CHECK (action IN ('requested', 'approved', 'sent_back', 'request_withdrawn')),
+    note      text NOT NULL DEFAULT '',
+    actor     text NOT NULL DEFAULT core.current_actor(),
+    at        timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX model_publish_events_model_idx ON core.model_publish_events (model_id, id);
+UPDATE core.models SET is_draft = (library_state = 'building' AND NOT is_locked),
+       approval_state = CASE WHEN library_state = 'building' AND NOT is_locked THEN 'editing' ELSE '' END, published_at = CASE WHEN library_state = 'building' THEN NULL ELSE created_at END,
+       published_by = CASE WHEN library_state = 'building' THEN NULL ELSE created_by END;
+
 -- Whoever creates a model sees it straight away (before their Model Admin role is written, so the
 -- INSERT ... RETURNING that creates it can read it back)
 DROP POLICY read_by_model ON core.models;
 CREATE POLICY read_by_model ON core.models FOR SELECT USING (
     kind_code IN ('template', 'reference') OR core.may_read_model(id)
-    OR (created_by = core.current_actor() AND core.session_roles() IS NOT NULL));
+    OR (created_by = core.current_actor() AND core.session_roles() IS NOT NULL)
+    -- a draft waiting for approval is seen by those who may approve it (D134)
+    OR (approval_state = 'requested' AND core.may_approve_draft(id, kind_code, source_model_id, parent_model_id)));
 
 -- ---------------------------------------------------------------- locked models (replaces 0003)
 -- The installer's login may still do anything. A Library Admin (or Super Admin) may now also publish a
@@ -134,6 +226,10 @@ BEGIN
         END IF;
         IF NEW.kind_code IN ('template', 'reference') AND core.may_curate_library() THEN
             RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;   -- the library's curator
+        END IF;
+        IF TG_OP = 'UPDATE' AND OLD.approval_state = 'requested' AND NEW.approval_state IN ('', 'returned')
+           AND core.may_approve_draft(OLD.id, OLD.kind_code, OLD.source_model_id, OLD.parent_model_id) THEN
+            RETURN NEW;   -- an approver approves (publishes) or sends back a requested draft (D134)
         END IF;
         IF TG_OP = 'INSERT' THEN
             -- a new model: judged on the model it comes from (Model Admins may derive from theirs)
@@ -468,7 +564,10 @@ CREATE TABLE core.metamodel_drafts (
     target_model_id bigint REFERENCES core.models (id),   -- changes: the model they apply to
     spec          jsonb NOT NULL DEFAULT '{}'::jsonb,     -- the metamodel, in the package format (eax-metamodel/1)
     checks        jsonb NOT NULL DEFAULT '[]'::jsonb,     -- the last check's findings
-    status        text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'applied', 'rejected')),
+    -- draft: being made or waiting for review; returned: sent back for changes (editable, with comments);
+    -- applied; rejected (final, but may be reopened as a new round)
+    status        text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'returned', 'applied', 'rejected')),
+    round         integer NOT NULL DEFAULT 1 CHECK (round >= 1),   -- review round: +1 on resubmit and reopen
     note          text NOT NULL DEFAULT '',               -- what the person asked for, or why it was rejected
     proposed_via  text NOT NULL DEFAULT 'mcp' CHECK (proposed_via IN ('mcp', 'upload', 'screen')),
     proposed_by   text NOT NULL DEFAULT core.current_actor(),
@@ -480,15 +579,48 @@ CREATE TABLE core.metamodel_drafts (
     CHECK ((kind = 'changes') = (target_model_id IS NOT NULL))
 );
 CREATE INDEX metamodel_drafts_by_idx ON core.metamodel_drafts (proposed_by, status);
+
+-- Review comments on a draft (D130): on the whole draft or on one item (section + code), per round;
+-- the maker (or their language model through MCP) fixes the draft and marks comments resolved.
+CREATE TABLE core.metamodel_draft_comments (
+    id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    guid        uuid NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+    draft_id    bigint NOT NULL REFERENCES core.metamodel_drafts (id) ON DELETE CASCADE,
+    round       integer NOT NULL,
+    section     text CHECK (section IS NULL OR section IN ('layers', 'pick_lists', 'attributes', 'entity_types',
+                                                         'relationship_types', 'allowed', 'rules')),
+    item_code   text,                                  -- the item's code (allowed and rules: a readable key)
+    body        text NOT NULL CHECK (body <> ''),
+    author      text NOT NULL DEFAULT core.current_actor(),
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    resolved_at timestamptz,
+    resolved_by text,
+    CHECK ((section IS NULL) = (item_code IS NULL))
+);
+CREATE INDEX metamodel_draft_comments_draft_idx ON core.metamodel_draft_comments (draft_id, round);
+
+-- What happened to a draft, round by round, with the metamodel as it stood at each step (D130)
+CREATE TABLE core.metamodel_draft_events (
+    id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    draft_id    bigint NOT NULL REFERENCES core.metamodel_drafts (id) ON DELETE CASCADE,
+    round       integer NOT NULL,
+    action      text NOT NULL CHECK (action IN ('created', 'sent_back', 'resubmitted', 'rejected', 'reopened', 'applied')),
+    note        text NOT NULL DEFAULT '',
+    spec        jsonb,                                 -- the draft's metamodel at that moment
+    error_count integer NOT NULL DEFAULT 0,
+    actor       text NOT NULL DEFAULT core.current_actor(),
+    at          timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX metamodel_draft_events_draft_idx ON core.metamodel_draft_events (draft_id, id);
 COMMENT ON TABLE core.metamodel_drafts IS 'Metamodels drafted by a language model (MCP) or uploaded, waiting for a person to review and apply them (D115)';
 
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'eax_migrator') THEN
-        GRANT SELECT ON core.metamodel_drafts TO eax_migrator;
+        GRANT SELECT ON core.metamodel_drafts, core.metamodel_draft_comments, core.metamodel_draft_events, core.model_publish_events TO eax_migrator;
     END IF;
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'eax_report') THEN
-        REVOKE ALL ON core.metamodel_drafts FROM eax_report;
+        REVOKE ALL ON core.metamodel_drafts, core.metamodel_draft_comments, core.metamodel_draft_events, core.model_publish_events FROM eax_report;
     END IF;
 END;
 $$;

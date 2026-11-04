@@ -20,7 +20,18 @@ Tick an item (`[x]`) when it is done; remove it at the next tidy-up.
 ## Phase 3.1 (version 0.3.1)
 
 - [x] **Phase 3.1 accepted** (4 Nov 2026). Was: test phase 3.1 (Gaurav): `.\eax clean-run`, the demo and checks in [phase-3.1.md](phase-3.1.md).
-- [ ] Superset rows by model (phase 5) and Mayan cabinets by model (phase 13), as planned.
+- [x] Superset reports by model (phase 5, D138). Mayan cabinets by model (phase 13), as planned.
+
+## Phase 5 (version 0.5.0)
+
+- [x] **Phase 5 runs** (4 Nov 2026): the reports basically work.
+- [ ] **Check each of the 32 report dashboards** in the testing phase 36.1 (D143), with the checklist in [phase-5.md](phase-5.md).
+
+## Deployment (to discuss when we reach the deployment phase)
+
+- [ ] **Publish the EA Explorer images on Docker Hub** (api, web, superset, backup) so an installation can pull
+  them instead of building. How to build and push (GitHub Actions on a version tag, an eax command, or
+  both), the namespace and the tags are to be discussed then (owner, 4 Nov 2026).
 
 ## Decisions waiting before their phase
 
@@ -92,6 +103,12 @@ Noted 4 Nov 2026 (D99). To discuss and settle when we build the final deployment
 - [ ] **A key vault for secrets**: database passwords, client secrets, the break-glass password and
   every other password held in a vault (for example HashiCorp Vault, Azure Key Vault or AWS Secrets
   Manager) instead of the config file; containers read them at start.
+
+- [ ] **End-to-end testing of phase 4 onwards** (D129): deferred to phase 36.1; the checklist is in
+  docs/phase-4.md and each later phase adds its own.
+
+- [ ] **Drafts, approvals and publishing** (D135): design session and stories in phase 38.2. Known gap: a
+  Model Admin of a draft's source model cannot see the requested draft to approve it.
 
 ## Backlog (to work out later)
 

@@ -22,7 +22,7 @@ import jwt
 from flask import g, request
 from flask_smorest import abort
 
-from . import permissions
+from . import permissions, reports
 from .config import get_settings
 
 BREAK_GLASS_ISSUER = "eaexplorer-break-glass"
@@ -141,6 +141,7 @@ def require_auth(permission: str | None = None) -> Callable:
         def wrapper(*args, **kwargs):
             user = current_user()
             g.user = user
+            reports.note_user(user.username, user.roles)   # who is who, for the reports' model access (D138)
             token = permissions.current.set(permissions.Principal(user.username, tuple(user.roles), user.break_glass))
             try:
                 if permission:

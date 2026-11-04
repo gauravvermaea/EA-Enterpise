@@ -30,8 +30,11 @@ const TOOLS = [
   ["draft_set_item", "Add or change one item in a draft: a layer, pick list, attribute, entity type, relationship type, allowed relationship or rule"],
   ["draft_remove_item", "Take one item out of a draft"],
   ["draft_replace", "Replace a draft's whole metamodel document in one go"],
-  ["get_metamodel_draft", "A draft with its checks and its differences from the model it changes"],
-  ["list_metamodel_drafts", "Metamodel drafts, waiting, applied or rejected"],
+  ["get_metamodel_draft", "A draft with its checks, differences, review comments, changes since the last review and history"],
+  ["list_metamodel_drafts", "Metamodel drafts: waiting for review, sent back for changes, applied or rejected"],
+  ["comment_on_metamodel_draft", "Comment on a draft or on one of its items"],
+  ["resolve_draft_comment", "Mark a review comment fixed"],
+  ["resubmit_metamodel_draft", "Send a fixed draft for review again: a new round"],
 ];
 
 function Snippet({ title, text }) {
