@@ -29,10 +29,11 @@ Everything that creates the database is code in this repository; nothing is crea
 | `services/api/migrations/versions/0002_metamodel.py` | Runs the two SQL files above (and drops them on downgrade) |
 | `services/api/migrations/sql/0003_library.sql` (run by `versions/0003_library.py`) | Schema versions, model properties, locks on templates and reference models, the installer's rights |
 | `services/api/migrations/sql/0004_screens.sql` (run by `versions/0004_screens.py`) | Version 0.2.1 only (no schema change) |
+| `services/api/migrations/sql/0005_metamodel_editing.sql` (run by `versions/0005_metamodel_editing.py`) | Metamodel versions, attribute defaults, metamodel version on entities, model locks |
 | `services/api/tests/sql/sample_history.sql` | Gives Claims Platform in the sample model a history to try the timeline on (changes the sample model) |
 | `services/api/eax/jobs_schema.py` | The job queue tables (Procrastinate) |
 | `services/api/eax/seed/` | The ArchiMate 4 template, the insurance reference model and the sample model (rows, not structure), loaded by the installer's login |
-| `services/api/tests/sql/phase1_checks.sql`, `phase2_checks.sql`, `phase2_installer_check.sql` | Checks for all of it, in transactions that are rolled back |
+| `services/api/tests/sql/phase1_checks.sql`, `phase2_checks.sql`, `phase2_installer_check.sql`, `phase3_checks.sql` | Checks for all of it, in transactions that are rolled back |
 
 The api container runs them in that order on every start (`entrypoint.sh`: `alembic upgrade
 head`, the job tables, then the seed); each step only does what is not done yet. Each later build
@@ -44,7 +45,7 @@ phase is accepted.
 The database carries a version in `core.schema_versions` (one row per version, written by the
 migration that moves it; `core.schema_version()` gives the newest). The API's version is in
 `services/api/version.toml`. They must be equal: the heartbeat and the service health check warn when
-they differ. Phase N is version 0.N.0 (phase 2: 0.2.0).
+they differ. Phase N is version 0.N.0 (phase 3: 0.3.0); additions between phases take a patch number (0.2.1).
 
 ## Locked models and the installer's login
 
@@ -57,6 +58,36 @@ seed step. The check is on the session's login, so `SET ROLE` does not get round
 to the `postgres` superuser too. (A superuser can still switch the triggers off; that is a deliberate
 act outside the product.) A new version of a reference model is a new model beside the old one: the
 name is unique per `version_label`.
+
+## Metamodel versions (phase 3)
+
+- `core.models.metamodel_version` is the current version; `core.metamodel_versions` has one row per
+  published version (model, version, note, who, when). Version 1 is the initial metamodel.
+- `core.publish_metamodel_version(model, note)` moves to the next version and sets
+  `eax.history_label` to `metamodel vN` for the rest of the transaction, so every history row the
+  change writes is labelled with its version. The editor (`eax/metamodel_edit.py`) calls it first in
+  every change (D72: one change, one version).
+- `core.entities.created_mm_version` and `modified_mm_version` are stamped by the trigger
+  `entities_mm_version`.
+- `core.item_attributes.default_value` and `help_text`: the default for new entities.
+- Removing an attribute or a relationship type sets `is_deleted` on its values or relationships (and
+  their values): the history triggers keep each one (D75).
+
+## Model locks (phase 3)
+
+`core.models.lock_level` is `none`, `metamodel`, `content` (metamodel and content) or `maintenance`,
+with `lock_reason`, `locked_at` and `locked_by` (stamped by the trigger `models_1_lock_level`; a
+locked model must be unlocked before it is locked another way). Triggers `<table>_1_model_lock` on the
+nine metamodel tables and the four content tables call `core.refuse_model_lock()`: a metamodel lock
+refuses the metamodel tables, a content lock refuses both, a maintenance lock refuses everyone but
+`locked_by`. `metamodel_versions_lock` stops a version being published under a lock. The installer's
+login passes, as for `is_locked`. They are separate from `is_locked`, the installer's permanent lock
+on templates and reference models.
+
+## The SQL window
+
+Read-only for everyone (D52): `eax/sqlconsole.py` runs each statement in a transaction that is always
+rolled back, so a change shows what it would do and is then undone.
 
 ## The idea
 

@@ -1,5 +1,5 @@
 // SQL window: write a query, run it, see the results. Uses POST /api/v1/sql/query with a
-// PostgreSQL login. Rolled back at the end unless "Allow changes" is ticked. The login stays in this page only.
+// PostgreSQL login. Read-only (D52): every run is rolled back at the end. The login stays in this page only.
 import { useState } from "react";
 import { apiFetch, keycloak } from "./auth";
 import { config } from "./config";
@@ -35,7 +35,6 @@ function ResultTable({ r, n }) {
 export default function Sql() {
   const [login, setLogin] = useState({ database: "eaexplorer", username: "eax_app", password: "" });
   const [sql, setSql] = useState(EXAMPLE);
-  const [allowChanges, setAllowChanges] = useState(false);
   const [busy, setBusy] = useState(false);
   const [out, setOut] = useState(null);
   const [error, setError] = useState(null);
@@ -55,7 +54,7 @@ export default function Sql() {
     try {
       setOut(await apiFetch("/api/v1/sql/query", {
         method: "POST",
-        body: JSON.stringify({ ...login, sql: text, allow_changes: allowChanges }),
+        body: JSON.stringify({ ...login, sql: text }),
       }));
     } catch (e) {
       setError(e.message);
@@ -82,14 +81,13 @@ export default function Sql() {
       <p className="quiet">
         Runs on this installation's PostgreSQL with a database login
         {config.deployment === "laptop" && <> (laptop: user <code>eax_app</code> or <code>postgres</code>, password <code>P^55w0rd1234&amp;</code>)</>}.
-        Nothing is saved unless you tick <em>Allow changes</em>: otherwise each run is rolled back at the end.
+        Read-only: every run is rolled back at the end, so nothing is ever saved. Changes go through the screens, the API or psql in the database container.
         Temporary tables (<code>eax.get_entity('Capability', 'caps')</code>) last for one run.
       </p>
       <div className="sql-login">
         {field("database", "Database")}
         {field("username", "User")}
         {field("password", "Password", "password")}
-        <label><input type="checkbox" checked={allowChanges} onChange={(e) => setAllowChanges(e.target.checked)} /> Allow changes</label>
       </div>
       <details className="sql-tables" open>
         <summary>Tables and how they join</summary>
@@ -116,7 +114,7 @@ export default function Sql() {
       {out && (
         <>
           <p className="quiet">
-            Done in {out.duration_ms} ms{out.committed ? " · changes committed" : " · rolled back, nothing saved"}
+            Done in {out.duration_ms} ms{" · rolled back, nothing saved"}
           </p>
           {out.notices.map((m, i) => <p key={i} className="quiet">{m}</p>)}
           {out.results.map((r, i) => <ResultTable key={i} r={r} n={i + 1} />)}

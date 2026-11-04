@@ -75,6 +75,9 @@ MCP Inspector (to try the tools by hand): `npx @modelcontextprotocol/inspector`,
 | `find_paths(model, source, target, max_steps?, relationship_types?)` | The shortest chains connecting two entities, through relationships either way and the parent hierarchy |
 | `get_family_tree(model, entity, levels?)` | Every parent of an entity up to the top and its parts down `levels` levels |
 | `get_entity_as_of(model, entity, event?, at?)` | The entity as it was after a history event or at a time: every field, value and relationship then beside now |
+| `get_metamodel_history(model)` | Every published metamodel version with its note, who and when, and each change: what, old and new values |
+| `compare_metamodel_versions(model, from_version, to_version?)` | What differs in the metamodel between two versions (`to_version` defaults to the current one) |
+| `list_failing_checks(model, entity_type?)` | Every entity failing a check (rules, mandatory values, relationships outside the metamodel), with counts by type, rule and severity |
 | `search_entities(text, model?)` | Entities whose name, display ID or description contains the text |
 
 Models, entity types and entities can be given by guid or by name. Lists come back as

@@ -23,7 +23,7 @@ def _audit(query: dict, outcome: str, **extra) -> None:
             audit.record(conn, actor=g.user.username, action="sql.query", object_type="database",
                          object_id=query.get("database") or "eaexplorer", source="api",
                          request_id=getattr(g, "request_id", None),
-                         details={"db_user": query["username"], "allow_changes": query["allow_changes"],
+                         details={"db_user": query["username"],
                                   "outcome": outcome, "sql": query["sql"][:2000], **extra})
     except Exception:  # the audit must never hide the query's own result
         pass
@@ -39,13 +39,13 @@ class SqlQuery(MethodView):
         """Run SQL with a database login
 
         One or more statements; every result set comes back (at most 1,000 rows each, 30-second
-        limit). Rolled back at the end unless `allow_changes` is true. Temporary tables last for this run only.
+        limit). Read-only: always rolled back at the end, nothing is kept. Temporary tables last for this run only.
         """
         if not sqlconsole.enabled():
             abort(404, message="The SQL window is turned off on this installation (EAX_SQL_CONSOLE_ENABLED=false).")
         try:
             result = sqlconsole.run(query.get("database") or "", query["username"], query["password"],
-                                    query["sql"], allow_changes=query["allow_changes"])
+                                    query["sql"])
         except sqlconsole.SqlConsoleError as exc:
             _audit(query, "error", error=str(exc)[:500])
             abort(exc.status, message=str(exc), errors=exc.details)

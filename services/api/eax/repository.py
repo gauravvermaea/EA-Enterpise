@@ -39,6 +39,7 @@ _MODEL_SQL = """
            s.guid AS source_model_id, s.name AS source_model_name, m.metamodel_name,
            m.metamodel_version, m.is_locked, m.status_code AS status,
            m.owner, m.lifecycle, m.industry, m.version_label,
+           m.lock_level, m.lock_reason, m.locked_at, m.locked_by,
            m.created_at, m.created_by, m.modified_at, m.modified_by,
            (SELECT count(*) FROM core.entity_types t WHERE t.model_id = m.id AND NOT t.is_deleted) AS entity_type_count,
            (SELECT count(*) FROM core.entities e WHERE e.model_id = m.id AND NOT e.is_deleted) AS entity_count,
@@ -116,7 +117,8 @@ def get_metamodel(conn, model: Any) -> dict:
           JOIN core.layers l ON l.id = et.layer_id
          WHERE et.model_id = :m AND NOT et.is_deleted ORDER BY et.sort_order, et.name""", m=mid)
     rel_types = _rows(conn, """
-        SELECT guid AS id, code, name, verb, category, is_directed, description FROM core.relationship_types
+        SELECT guid AS id, code, name, verb, category, is_directed, description, status_code AS status
+          FROM core.relationship_types
          WHERE model_id = :m AND NOT is_deleted ORDER BY sort_order, name""", m=mid)
     for layer in layers:
         layer["entity_types"] = [t for t in types if t["layer_id"] == layer["id"]]
@@ -129,7 +131,7 @@ def _find_type(conn, model_id: int, entity_type: Any) -> dict:
     where = "et.guid = :t" if guid else "lower(:t) IN (lower(et.code), lower(et.name), lower(et.table_name))"
     rows = _rows(conn, f"""
         SELECT et.id AS _id, et.guid AS id, et.code, et.name, et.description, et.aspect, et.id_prefix,
-               et.table_name, l.name AS layer, l.colour
+               et.table_name, l.name AS layer, l.guid AS layer_id, l.colour, et.status_code AS status
           FROM core.entity_types et JOIN core.layers l ON l.id = et.layer_id
          WHERE {where} AND et.model_id = :m AND NOT et.is_deleted""", t=guid or str(entity_type), m=model_id)
     if not rows:
@@ -138,7 +140,8 @@ def _find_type(conn, model_id: int, entity_type: Any) -> dict:
 
 
 _ALLOWED_SQL = """
-    SELECT rt.name AS relationship_type, rt.verb, o.guid AS other_type_id, o.name AS other_type, ar.note
+    SELECT ar.guid AS id, rt.name AS relationship_type, rt.guid AS relationship_type_id, rt.verb,
+           o.guid AS other_type_id, o.name AS other_type, ar.note
       FROM core.allowed_relationships ar
       JOIN core.relationship_types rt ON rt.id = ar.relationship_type_id
       JOIN core.entity_types o ON o.id = ar.{other}
@@ -152,8 +155,9 @@ def get_entity_type(conn, model: Any, entity_type: Any) -> dict:
     et = _find_type(conn, mid, entity_type)
     tid = et["_id"]
     et["attributes"] = _rows(conn, """
-        SELECT at.code, at.name, at.description, at.column_name, at.data_type_code AS data_type,
-               dt.name AS data_type_name, at.unit, ia.is_required, ia.section,
+        SELECT ia.guid AS item_id, at.guid AS attribute_id, at.code, at.name, at.description, at.column_name,
+               at.data_type_code AS data_type, dt.name AS data_type_name, at.unit, ia.is_required, ia.section,
+               ia.default_value, ia.help_text, pl.guid AS pick_list_id,
                pl.name AS pick_list,
                coalesce((SELECT array_agg(v.value ORDER BY v.sort_order) FROM core.pick_list_values v
                           WHERE v.pick_list_id = at.pick_list_id AND NOT v.is_deleted),
@@ -165,7 +169,9 @@ def get_entity_type(conn, model: Any, entity_type: Any) -> dict:
          WHERE ia.entity_type_id = :t AND NOT ia.is_deleted
          ORDER BY ia.sort_order, at.name""", t=tid)
     et["rules"] = _rows(conn, """
-        SELECT coalesce(at.name, initcap(vr.field_name)) AS field, rt.name AS rule,
+        SELECT vr.guid AS id, coalesce(at.name, initcap(vr.field_name)) AS field, rt.name AS rule,
+               vr.rule_type_code, at.guid AS attribute_id, vr.field_name,
+               (vr.entity_type_id IS NULL) AS all_types,
                vr.param1, vr.param2, vr.severity, vr.message
           FROM core.validation_rules vr
           JOIN core.rule_types rt ON rt.code = vr.rule_type_code
@@ -488,6 +494,7 @@ def type_table(conn, model: Any, entity_type: Any, limit: int = 10000) -> dict:
     rows = _rows(conn, """
         SELECT e.id AS _id, e.guid AS id, e.display_id, e.name, e.description, e.status_code AS status,
                pe.guid AS parent_id, pe.name AS parent_name, e.modified_at, e.modified_by, e.row_version,
+               e.created_mm_version, e.modified_mm_version,
                (SELECT count(*) FROM core.relationships r
                  WHERE (r.source_entity_id = e.id OR r.target_entity_id = e.id) AND NOT r.is_deleted) AS relationship_count
           FROM core.entities e LEFT JOIN core.entities pe ON pe.id = e.parent_entity_id
@@ -503,6 +510,8 @@ def type_table(conn, model: Any, entity_type: Any, limit: int = 10000) -> dict:
         r["errors"] = sum(1 for w in found if w["severity"] == "error")
         r["warnings"] = len(found) - r["errors"]
         r["messages"] = [w["message"] for w in found]
+        r["checks"] = [{"rule": w["rule"], "field": w["field"], "code": w["code"], "severity": w["severity"],
+                        "message": w["message"]} for w in found]
         del r["_id"]
     return {"entity_type": et, "columns": columns, "rows": rows, "rules": len(rules)}
 
@@ -516,6 +525,7 @@ def _find_entity(conn, m: dict, entity: Any) -> dict:
                et.guid AS entity_type_id, l.name AS layer, l.colour,
                pe.guid AS parent_id, pe.name AS parent_name,
                e.created_at, e.created_by, e.modified_at, e.modified_by, e.row_version,
+               e.created_mm_version, e.modified_mm_version,
                e.origin_guid AS _origin, et.origin_guid AS _type_origin
           FROM core.entities e
           JOIN core.entity_types et ON et.id = e.entity_type_id
@@ -747,7 +757,7 @@ def get_entity_as_of(conn, model: Any, entity: Any, event: int | None = None, at
 
 def _aware(d):
     import datetime as _dt
-    return d if d.tzinfo else d.replace(tzinfo=_dt.timezone.utc)
+    return d if d.tzinfo else d.replace(tzinfo=_dt.UTC)
 
 
 def _as_datetime(v):
@@ -1043,3 +1053,230 @@ def entity_paths(conn, model: Any, source: Any, target: Any, max_steps: int = 6,
             "steps": (len(paths[0]) - 1) if paths else None,
             "paths": [[guid[i] for i in p] for p in paths],
             "source": {"id": s["id"], "name": s["name"]}, "target": {"id": t["id"], "name": t["name"]}}
+
+
+# ---------------------------------------------------------------- metamodel versions and history (phase 3)
+
+MM_TABLES = ["layers", "entity_types", "relationship_types", "pick_lists", "pick_list_values", "attribute_types",
+             "item_attributes", "validation_rules", "allowed_relationships"]
+MM_KIND = {"layers": "layer", "entity_types": "entity type", "relationship_types": "relationship type",
+           "pick_lists": "pick list", "pick_list_values": "pick-list value", "attribute_types": "attribute definition",
+           "item_attributes": "attribute", "validation_rules": "rule", "allowed_relationships": "mapping"}
+_MM_NOISE = _NOISE | {"sort_order", "table_name", "column_name"}
+_VERSION_OF_ROW = """coalesce(substring(h.label from '^metamodel v([0-9]+)')::int,
+                               core.metamodel_version_at(h.model_id, h.changed_at))"""
+
+
+def metamodel_versions(conn, model: Any) -> list[dict]:
+    """The published versions of a model's metamodel, newest first, with how many changes each made."""
+    m = get_model(conn, model)
+    return _rows(conn, f"""
+        SELECT v.version, v.note, v.changed_at, v.changed_by, v.guid AS id,
+               (SELECT count(*) FROM history.row_versions h
+                 WHERE h.model_id = v.model_id AND h.table_name = ANY (:t) AND {_VERSION_OF_ROW} = v.version) AS changes
+          FROM core.metamodel_versions v WHERE v.model_id = :m ORDER BY v.version DESC""", m=m["_id"], t=MM_TABLES)
+
+
+def _mm_names(conn, model_id: int) -> dict:
+    """Names for the ids that appear in metamodel history rows (including retired and removed rows)."""
+    def pairs(sql):
+        return {r["id"]: r for r in _rows(conn, sql, m=model_id)}
+    return {
+        "layers": pairs("SELECT id, name FROM core.layers WHERE model_id = :m"),
+        "entity_types": pairs("SELECT id, name FROM core.entity_types WHERE model_id = :m"),
+        "relationship_types": pairs("SELECT id, name, verb FROM core.relationship_types WHERE model_id = :m"),
+        "attribute_types": pairs("SELECT id, name FROM core.attribute_types WHERE model_id = :m"),
+        "pick_lists": pairs("SELECT id, name FROM core.pick_lists WHERE model_id = :m"),
+    }
+
+
+def _mm_item(table: str, d: dict, names: dict) -> str:
+    n = lambda kind, i: (names[kind].get(int(i)) or {}).get("name", "?") if i else ""
+    if table == "item_attributes":
+        owner = n("entity_types", d.get("entity_type_id")) or n("relationship_types", d.get("relationship_type_id"))
+        return f"{n('attribute_types', d.get('attribute_type_id'))} on {owner}"
+    if table == "allowed_relationships":
+        rt = names["relationship_types"].get(int(d.get("relationship_type_id") or 0)) or {}
+        return f"{n('entity_types', d.get('source_type_id'))} {rt.get('verb', '?')} {n('entity_types', d.get('target_type_id'))}"
+    if table == "validation_rules":
+        return d.get("message") or d.get("rule_type_code") or "rule"
+    if table == "pick_list_values":
+        return f"{d.get('value')} in {n('pick_lists', d.get('pick_list_id'))}"
+    return d.get("name") or d.get("code") or "?"
+
+
+def _mm_fields(table: str, d: dict, names: dict) -> dict:
+    out = {}
+    for k, v in d.items():
+        if k in _MM_NOISE or k in ("model_id",):
+            continue
+        if k.endswith("_id") and v is not None and k != "id":
+            kind = {"layer_id": "layers", "entity_type_id": "entity_types", "relationship_type_id": "relationship_types",
+                    "attribute_type_id": "attribute_types", "pick_list_id": "pick_lists", "source_type_id": "entity_types",
+                    "target_type_id": "entity_types"}.get(k)
+            if kind:
+                v = (names[kind].get(int(v)) or {}).get("name", v)
+            k = k[:-3]
+        if k == "status_code":
+            k = "status"
+        if k == "is_deleted":
+            k, v = "removed", ("yes" if v else None)
+        out[k] = v
+    return out
+
+
+def _mm_change(table: str, op: str, before: dict | None, d: dict, names: dict) -> dict:
+    new, old = _mm_fields(table, d, names), (_mm_fields(table, before, names) if before else {})
+    if before is None or op == "insert":
+        what = "added"
+    elif new.get("removed") and not old.get("removed"):
+        what = "removed"
+    elif new.get("status") == "retired" and old.get("status") != "retired":
+        what = "retired"
+    elif old.get("removed") and not new.get("removed"):
+        what = "restored"
+    else:
+        what = "changed"
+    fields = []
+    if what == "changed" or what == "added":
+        for k in new.keys() | old.keys():
+            if k in ("removed",):
+                continue
+            a, b = old.get(k), new.get(k)
+            if what == "added":
+                if b not in (None, "", False):
+                    fields.append({"field": k.replace("_", " "), "old": None, "new": str(b)})
+            elif a != b and not (a in (None, "") and b in (None, "")):
+                fields.append({"field": k.replace("_", " "), "old": None if a is None else str(a), "new": None if b is None else str(b)})
+    return {"kind": MM_KIND[table], "table": table, "item": _mm_item(table, d, names), "change": what,
+            "fields": sorted(fields, key=lambda f: f["field"])}
+
+
+def metamodel_history(conn, model: Any, per_version: int = 300) -> dict:
+    """Every change to a model's metamodel, grouped by the version it was published in (newest first):
+    what changed (kind, item, added/changed/retired/removed, old and new values), who and when. The
+    first version (the metamodel the model started with) is summarised by counts."""
+    m = get_model(conn, model)
+    mid = m["_id"]
+    versions = {v["version"]: {**v, "items": [], "counts": {}} for v in metamodel_versions(conn, m["id"])}
+    rows = _rows(conn, f"""
+        SELECT h.id, h.table_name, h.row_id, h.row_version, h.operation, h.data, h.changed_at, h.changed_by,
+               {_VERSION_OF_ROW} AS version
+          FROM history.row_versions h
+         WHERE h.model_id = :m AND h.table_name = ANY (:t)
+         ORDER BY h.table_name, h.row_id, h.row_version, h.id""", m=mid, t=MM_TABLES)
+    names = _mm_names(conn, mid)
+    previous: dict[tuple, dict] = {}
+    for r in rows:
+        key = (r["table_name"], r["row_id"])
+        before = previous.get(key)
+        previous[key] = r["data"]
+        v = versions.setdefault(r["version"], {"version": r["version"], "note": "", "changed_at": r["changed_at"],
+                                               "changed_by": r["changed_by"], "items": [], "counts": {}})
+        kind = MM_KIND[r["table_name"]]
+        v["counts"][kind] = v["counts"].get(kind, 0) + 1
+        if r["version"] == 1 or len(v["items"]) >= per_version:
+            continue
+        ch = _mm_change(r["table_name"], r["operation"], before, r["data"], names)
+        ch.update({"at": r["changed_at"], "by": r["changed_by"], "history_id": r["id"]})
+        v["items"].append(ch)
+    out = sorted(versions.values(), key=lambda v: v["version"], reverse=True)
+    for v in out:
+        v["counts"] = [{"kind": k, "count": n} for k, n in sorted(v["counts"].items())]
+    return {"model": m["name"], "current_version": m["metamodel_version"], "versions": out}
+
+
+def _mm_state(conn, model_id: int, version: int) -> dict[tuple, dict]:
+    """Every metamodel row as it was at the end of a version: (table, row id) -> data."""
+    return {(r["table_name"], r["row_id"]): r["data"] for r in _rows(conn, f"""
+        SELECT DISTINCT ON (h.table_name, h.row_id) h.table_name, h.row_id, h.data
+          FROM history.row_versions h
+         WHERE h.model_id = :m AND h.table_name = ANY (:t) AND {_VERSION_OF_ROW} <= :v
+         ORDER BY h.table_name, h.row_id, h.row_version DESC, h.id DESC""", m=model_id, t=MM_TABLES, v=version)}
+
+
+def metamodel_compare(conn, model: Any, from_version: int, to_version: int | None = None) -> dict:
+    """What differs between two versions of a model's metamodel (to_version: the current one when
+    left out): items added, removed, retired and changed, with their old and new values."""
+    m = get_model(conn, model)
+    mid = m["_id"]
+    to_version = int(to_version or m["metamodel_version"])
+    from_version = int(from_version)
+    for v in (from_version, to_version):
+        if not 1 <= v <= m["metamodel_version"]:
+            raise NotFound(f"Version {v} does not exist (the metamodel is at version {m['metamodel_version']}).")
+    a, b = _mm_state(conn, mid, from_version), _mm_state(conn, mid, to_version)
+    names = _mm_names(conn, mid)
+    gone = lambda d: d is None or d.get("is_deleted")
+    items = []
+    for key in set(a) | set(b):
+        da, db = a.get(key), b.get(key)
+        table = key[0]
+        if gone(da) and gone(db):
+            continue
+        if gone(da):
+            ch = {"kind": MM_KIND[table], "table": table, "item": _mm_item(table, db, names), "change": "added",
+                  "fields": _mm_change(table, "insert", None, db, names)["fields"]}
+        elif gone(db):
+            ch = {"kind": MM_KIND[table], "table": table, "item": _mm_item(table, da, names), "change": "removed", "fields": []}
+        else:
+            ch = _mm_change(table, "update", da, db, names)
+            if ch["change"] == "changed" and not ch["fields"]:
+                continue
+        items.append(ch)
+    order = list(MM_KIND.values())
+    items.sort(key=lambda c: (order.index(c["kind"]), c["item"], c["change"]))
+    summary = {}
+    for c in items:
+        summary.setdefault(c["kind"], {}).setdefault(c["change"], 0)
+        summary[c["kind"]][c["change"]] += 1
+    return {"model": m["name"], "from_version": from_version, "to_version": to_version, "items": items,
+            "summary": [{"kind": k, **v} for k, v in summary.items()]}
+
+
+def list_pick_lists(conn, model: Any) -> list[dict]:
+    """The model's pick lists with their values (retired values marked)."""
+    m = get_model(conn, model)
+    lists = _rows(conn, """SELECT id AS _id, guid AS id, code, name, description FROM core.pick_lists
+                            WHERE model_id = :m AND NOT is_deleted ORDER BY name""", m=m["_id"])
+    values = _rows(conn, """SELECT pick_list_id AS _p, guid AS id, value, status_code AS status FROM core.pick_list_values
+                             WHERE model_id = :m AND NOT is_deleted ORDER BY sort_order, value""", m=m["_id"])
+    for pl in lists:
+        pl["values"] = [{k: v for k, v in x.items() if k != "_p"} for x in values if x["_p"] == pl["_id"]]
+        del pl["_id"]
+    return lists
+
+
+def failing_checks(conn, model: Any, entity_type: Any = None) -> dict:
+    """Every entity of a model that fails a check: rule results (missing mandatory values, values out
+    of range, patterns, duplicates...) and relationships outside the metamodel, one row per failure,
+    with the entity's metamodel versions, plus counts by type, rule and severity."""
+    m = get_model(conn, model)
+    types = [_find_type(conn, m["_id"], entity_type)["id"]] if entity_type else [
+        r["guid"] for r in _rows(conn, """SELECT DISTINCT et.guid, et.sort_order FROM core.entities e
+             JOIN core.entity_types et ON et.id = e.entity_type_id
+            WHERE e.model_id = :m AND NOT e.is_deleted ORDER BY et.sort_order""", m=m["_id"])]
+    rows = []
+    for t in types:
+        table = type_table(conn, m["id"], t)
+        et = table["entity_type"]
+        for r in table["rows"]:
+            for c in r["checks"]:
+                rows.append({"entity_id": r["id"], "display_id": r["display_id"], "name": r["name"],
+                             "entity_type": et["name"], "entity_type_id": et["id"], "colour": et["colour"],
+                             "rule": c["rule"], "field": c["field"], "severity": c["severity"], "message": c["message"],
+                             "created_mm_version": r["created_mm_version"], "modified_mm_version": r["modified_mm_version"]})
+    for r in list_relationships(conn, m["id"]):
+        if r["allowed"]:
+            continue
+        rows.append({"entity_id": r["source_id"], "display_id": r["source_display_id"], "name": r["source_name"],
+                     "entity_type": r["source_type"], "entity_type_id": None, "colour": r["source_colour"],
+                     "rule": "outside_metamodel", "field": "Relationship", "severity": "warning",
+                     "message": f"{r['source_name']} {r['verb']} {r['target_name']}: no mapping allows {r['relationship_type']} "
+                                f"from {r['source_type']} to {r['target_type']}",
+                     "created_mm_version": None, "modified_mm_version": None})
+    count = lambda key: [{"name": k, "count": v} for k, v in sorted(
+        {x[key]: sum(1 for y in rows if y[key] == x[key]) for x in rows}.items(), key=lambda kv: -kv[1])]
+    return {"model": m["name"], "metamodel_version": m["metamodel_version"], "rows": rows,
+            "entities": len({r["entity_id"] for r in rows}), "failures": len(rows),
+            "by_type": count("entity_type"), "by_rule": count("rule"), "by_severity": count("severity")}

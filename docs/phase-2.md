@@ -5,7 +5,7 @@ the API and the database one version number. Version **0.2.0**.
 Requirements: REF-001 to REF-004, REF-007, REF-016 (insurance reference model), MOD-004, MOD-008,
 MM-023, MM-024, ADM-043 (versions), UI-017 to UI-019 (model screens). Decisions D43 to D50.
 
-## Status: accepted on 4 November 2026 (0.2.0); 0.2.1 built, waiting for a look
+## Status: closed on 4 November 2026 (0.2.0 accepted, then 0.2.1)
 
 ## What phase 2 delivers
 

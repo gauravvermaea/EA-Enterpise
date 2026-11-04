@@ -40,3 +40,22 @@ docs/requirements/EA_Explorer_Requirements.xlsx (sheet "Decisions").
 | D61 | No commits until a commits phase designed with the user; every save visible at once; git-like compare and merge screens |
 | D62 | Document management in Mayan is a whole phase, designed with the user first; a document repository per model |
 | D63 | Lineage shows ancestors, what changed and where it was edited, and merges; a merged model becomes read-only and work continues in a fresh child |
+| D64 | A metamodel change is never blocked by existing content: defaults (empty allowed), optionally applied to existing entities; a failing-checks screen |
+| D65 | The metamodel has a version and a history view; every entity records the metamodel version it was created and last changed in |
+| D66 | Merging a child back carries its metamodel changes into the parent with its content |
+| D67 | Model Admins lock models three ways (metamodel; metamodel and content; maintenance) until they unlock them; enforced by the database |
+| D68 | Dedupe works within one model only |
+| D69 | Model Admins get a change log report of who changed what |
+| D70 | Custom views can be shared as view templates; what a template cannot express becomes a development feature |
+| D71 | The metamodel is exposed for report builders: catalogue API, described Superset datasets, report designer |
+| D72 | Each metamodel change publishes a new metamodel version at once, with a note; there are no drafts |
+| D73 | Active Directory and LDAP sign-in are not planned for now (SEC-003 moved out of phase 4); Keycloak's own users only |
+| D74 | Complete backup and restore: all databases with their history, Mayan files, Keycloak users and roles, Superset; the backup location (server or folder) chosen from the web; scheduled; restore from the web |
+| D75 | Removing an attribute removes its values; removing a relationship type removes its relationships; both stay in history |
+| D76 | Technical documentation and hand-over files for other AI agents (docs/architecture.md, CLAUDE.md, AGENTS.md) are kept current every phase |
+| D77 | Import, export and survey sheets are generated from the metamodel: choose entity types; one sheet per type plus one for relationships. Open: an Excel workbook or a CSV set (relationships need to point at real entities) |
+| D78 | Collection sets: send out sheets, upload what comes back to a staging area, review and edit in the application, then load |
+| D79 | Data entry page: choose an entity type and its columns appear; a + on each row adds relationships, to existing entities only (a new entity is saved first) |
+| D80 | A break-glass local account with Super Admin rights works when Keycloak or sign-in is down; sealed password, every use audited and alerted |
+| D81 | Model hierarchy: a read-only Empty model, then root metamodels (kind "Root metamodel", with framework and version: ArchiMate 4, later ArchiMate 5, or an organisation's own), then reference and project models. Shipped roots are read-only; an organisation's roots are edited by Model Admins until locked; a root starts empty or from a copy of another root (phase 4) |
+| D82 | A model moves to a new framework version either by a copy with a type mapping or by an in-place upgrade (history keeps the state before); both are offered |

@@ -12,6 +12,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "./auth";
 import { downloadCsv } from "./exporting";
+import { EditButton, entityTypeSpec, mappingSpec, relationshipTypeSpec } from "./MetamodelEditor";
 
 const EntityGraph = lazy(() => import("./EntityGraph"));
 const HierarchyMap = lazy(() => import("./HierarchyMap"));
@@ -21,20 +22,34 @@ const PAGE = 100;
 
 // ---------------------------------------------------------------- helpers
 const cache = new Map();   // GET results kept for a minute, so moving between tabs is quick
+let generation = 0;        // moves on after every change, so every screen reads afresh
+
+// After a change: forget every cached answer and tell the screens to read again
+export function refreshAll() {
+  cache.clear();
+  generation += 1;
+  window.dispatchEvent(new Event("eax-refresh"));
+}
 
 export function useApi(path) {
   const [state, setState] = useState({ data: null, error: null });
+  const [gen, setGen] = useState(generation);
+  useEffect(() => {
+    const on = () => setGen(generation);
+    window.addEventListener("eax-refresh", on);
+    return () => window.removeEventListener("eax-refresh", on);
+  }, []);
   useEffect(() => {
     if (!path) { setState({ data: null, error: null }); return undefined; }
     const hit = cache.get(path);
     if (hit && Date.now() - hit.at < 60000) { setState({ data: hit.data, error: null }); return undefined; }
     let live = true;
-    setState({ data: null, error: null });
+    setState((s) => ({ data: s.data && gen !== 0 ? s.data : null, error: null }));
     apiFetch(path)
       .then((data) => { cache.set(path, { data, at: Date.now() }); if (live) setState({ data, error: null }); })
       .catch((e) => live && setState({ data: null, error: e.message }));
     return () => { live = false; };
-  }, [path]);
+  }, [path, gen]);
   return state;
 }
 
@@ -129,7 +144,7 @@ export function EntityTypesTab({ model, m }) {
         <CsvButton name={`${m.name} - entity types`} rows={() => [["Entity type", "Layer", "Entities", "Attributes", "Code", "Description"],
           ...shown.map((t) => [t.name, t.layer, t.entity_count, t.attribute_count, t.code, t.description])]} />
         <span className="er-spacer" />
-        <Later label="+ Entity type" phase={3} model={m} what="Adding an entity type" />
+        <EditButton model={model} m={m} label="+ Entity type" spec={() => entityTypeSpec(mm.layers)} />
         <Later label="+ Entity" phase={6} model={m} what="Adding an entity" />
       </div>
       <div className="scroll">
@@ -215,12 +230,12 @@ export function TypeEntitiesTable({ model, m, typeId }) {
   }), (r, k) => (k.startsWith("v:") ? r.values[k.slice(2)] : k === "checks" ? r.errors * 1000 + r.warnings : r[k]));
   const pageRows = rows.slice(page * PAGE, (page + 1) * PAGE);
   const withIssues = t.rows.filter((r) => r.errors || r.warnings).length;
-  const colSpan = 7 + cols.length;
+  const colSpan = 8 + cols.length;
 
   function exportCsv() {
-    const header = ["Display ID", "Name", "Description", "Parent", "Status", ...t.columns.map((c) => c.name), "Relationships", "Errors", "Warnings", "Messages"];
+    const header = ["Display ID", "Name", "Description", "Parent", "Status", ...t.columns.map((c) => c.name), "Relationships", "Errors", "Warnings", "Messages", "Created in metamodel v", "Last changed in metamodel v"];
     const body = rows.map((r) => [r.display_id, r.name, r.description, r.parent_name, r.status,
-      ...t.columns.map((c) => r.values[c.code]), r.relationship_count, r.errors, r.warnings, r.messages.join("; ")]);
+      ...t.columns.map((c) => r.values[c.code]), r.relationship_count, r.errors, r.warnings, r.messages.join("; "), r.created_mm_version, r.modified_mm_version]);
     downloadCsv([header, ...body], `${m.name} - ${et.name}`);
   }
 
@@ -267,6 +282,7 @@ export function TypeEntitiesTable({ model, m, typeId }) {
               {head("parent_name", "Parent")}
               {cols.map((c) => head(`v:${c.code}`, <>{c.name}{c.is_required && <span className="req" title="Required">*</span>}</>, { key: c.code }))}
               {head("relationship_count", "Rel.", { className: "num" })}
+              {head("modified_mm_version", "Metamodel v", { title: "Metamodel version it was created in / last changed in" })}
               {head("modified_at", "Changed")}
             </tr>
           </thead>
@@ -287,6 +303,8 @@ export function TypeEntitiesTable({ model, m, typeId }) {
                     {v ?? ""}{v !== undefined && c.unit ? ` ${c.unit}` : ""}</td>;
                 })}
                 <td className="num">{r.relationship_count}</td>
+                <td className="quiet nowrap" title={`Created in metamodel v${r.created_mm_version}, last changed in v${r.modified_mm_version}`}>
+                  v{r.created_mm_version}{r.modified_mm_version !== r.created_mm_version ? ` / v${r.modified_mm_version}` : ""}</td>
                 <td className="quiet nowrap" title={`by ${r.modified_by}`}>{new Date(r.modified_at).toLocaleDateString()}</td>
               </tr>,
               open[r.id] && <RelationsUnder key={`${r.id}-rel`} model={model} entityId={r.id} colSpan={colSpan} />,
@@ -319,8 +337,8 @@ export function RelationshipTypesTab({ model, m }) {
         <CsvButton name={`${m.name} - relationship types`} rows={() => [["Relationship type", "Reads as", "Category", "Directed", "In this model", "Allowed type pairs", "Outside the rules", "Description"],
           ...rows.map((r) => [r.name, r.verb, r.category, r.is_directed ? "yes" : "no", r.relationship_count, r.allowed_pairs, r.outside_rules, r.description])]} />
         <span className="er-spacer" />
-        <Later label="+ Relationship type" phase={3} model={m} what="Adding a relationship type" />
-        <Later label="+ Mapping" phase={3} model={m} what="Adding a mapping (which entity types a relationship type may connect)" />
+        <EditButton model={model} m={m} label="+ Relationship type" spec={relationshipTypeSpec()} />
+        <MappingButton model={model} m={m} relTypes={data} />
         <Later label="+ Relationship" phase={6} model={m} what="Adding a relationship" />
       </div>
       <table className="grid-table click-rows">
@@ -347,6 +365,12 @@ export function RelationshipTypesTab({ model, m }) {
       </p>
     </div>
   );
+}
+
+function MappingButton({ model, m, relTypes }) {
+  const { data: mm } = useApi(`/api/v1/models/${model}/metamodel`);
+  const types = mm ? mm.layers.flatMap((l) => l.entity_types).filter((t) => t.status !== "retired") : [];
+  return <EditButton model={model} m={m} label="+ Mapping" spec={() => mappingSpec(types, relTypes)} />;
 }
 
 export function RelationshipsOfType({ model, m, relTypeId }) {
@@ -495,7 +519,7 @@ function DetailsTab({ model, m, e }) {
           <p>{e.children.map((c, i) => <span key={c.id}>{i > 0 && ", "}<a href={`#/metamodel/${model}/entity/${c.id}`}>{c.name}</a></span>)}</p>
         </>
       )}
-      <p className="quiet">Created {new Date(e.created_at).toLocaleString()} by {e.created_by} · changed {new Date(e.modified_at).toLocaleString()} by {e.modified_by} · version {e.row_version}</p>
+      <p className="quiet">Created {new Date(e.created_at).toLocaleString()} by {e.created_by} in metamodel v{e.created_mm_version} · changed {new Date(e.modified_at).toLocaleString()} by {e.modified_by} in metamodel v{e.modified_mm_version} · version {e.row_version}</p>
     </div>
   );
 }
@@ -780,7 +804,7 @@ export function EntityPage({ model, m, entityId, sub }) {
         <div className="entity-card-head">
           <div className="entity-head">
             <h2><Swatch colour={e.colour} /> {e.name}</h2>
-            <span className="quiet">{e.display_id} · {e.entity_type} · {e.layer} layer · {e.status}</span>
+            <span className="quiet">{e.display_id} · {e.entity_type} · {e.layer} layer · {e.status} · metamodel v{e.created_mm_version}{e.modified_mm_version !== e.created_mm_version ? `, changed in v${e.modified_mm_version}` : ""}</span>
             <Checks errors={errors} warnings={e.warnings.length - errors} messages={e.warnings.map((w) => w.message)} />
           </div>
           {e.description && <p className="entity-desc">{e.description}</p>}

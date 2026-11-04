@@ -4,6 +4,8 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP"]
+# long SQL and help strings read better unbroken; small lambdas are used as local key functions
+ignore = ["E501", "E731"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

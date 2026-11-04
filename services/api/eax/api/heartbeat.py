@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from flask import g
 from flask.views import MethodView
@@ -11,10 +11,10 @@ from flask_smorest import Blueprint
 from sqlalchemy import text
 
 from .. import __version__, audit, health
-from ..versioning import database_version, version_warning
 from ..auth import require_auth
 from ..config import get_settings
 from ..db import get_engine
+from ..versioning import database_version, version_warning
 from .schemas import Heartbeat, HeartbeatRecordIn, HeartbeatRecordOut, ServicesHealth
 
 blp = Blueprint(
@@ -69,7 +69,7 @@ class HeartbeatView(MethodView):
             "versions_match": (db["version"] == __version__) if db["reachable"] else None,
             "warning": warning,
             "deployment": settings.deployment,
-            "time": datetime.now(timezone.utc),
+            "time": datetime.now(UTC),
             "database": db,
             "jobs": jobs,
         }

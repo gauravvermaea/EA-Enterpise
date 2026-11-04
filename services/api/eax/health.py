@@ -21,7 +21,7 @@ import os
 import socket
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import text
@@ -197,7 +197,7 @@ def check_backup() -> dict:
     if newest is None:
         return _result("Backup", "Backup (ours)", "warning", "no backup yet (run: eax backup)", started, str(BACKUP_DIR))
     hours = (time.time() - newest) / 3600
-    when = datetime.fromtimestamp(newest, timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    when = datetime.fromtimestamp(newest, UTC).strftime("%Y-%m-%d %H:%M UTC")
     status = "up" if hours <= max_hours else "warning"
     return _result("Backup", "Backup (ours)", status, f"newest {when} ({hours:.0f} h ago; limit {max_hours:.0f} h)",
                    started, str(BACKUP_DIR))
@@ -221,7 +221,7 @@ def check_all() -> dict:
     overall = "down" if database_down else "degraded" if statuses & {"down", "warning"} else "ok"
     return {
         "status": overall,
-        "time": datetime.now(timezone.utc),
+        "time": datetime.now(UTC),
         "duration_ms": round((time.perf_counter() - started) * 1000),
         "counts": {k: sum(1 for s in services if s["status"] == k) for k in ("up", "warning", "down", "off")},
         "services": services,

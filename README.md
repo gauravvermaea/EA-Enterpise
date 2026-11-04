@@ -5,12 +5,16 @@ a governed metamodel, an architecture repository, diagrams (draw.io), reports (A
 documents (Mayan EDMS), sign-in through Keycloak, and an MCP server so you can connect your own
 language model. Everything runs in Docker containers from one config file.
 
-**Status: build phase 1 (metamodel, read only).** The platform runs end to end (phase 0) and the
-repository database is in place: the ArchiMate 4 starter metamodel, a sample model, the
-`eax.get_entity` functions, read-only model pages (entities, relationships, metamodel) and an
-**MCP server** for your own language model ([docs/mcp.md](docs/mcp.md)). See [docs/phase-1.md](docs/phase-1.md), [docs/phase-2.md](docs/phase-2.md)
-and the database design in [docs/database.md](docs/database.md); the requirements and the 42-phase
-build plan are in [docs/requirements](docs/requirements). Open items: [docs/todo.md](docs/todo.md).
+**Status: build phase 3 (version 0.3.0): metamodel editing.** The platform runs end to end; the
+repository database holds the ArchiMate 4 template, a locked insurance reference model and a sample
+model; model pages show entities, relationships, graphs and history; a project model's metamodel can be
+changed from the screens, every change publishing a new metamodel version; a failing-checks screen;
+model locks; an **MCP server** for your own language model ([docs/mcp.md](docs/mcp.md)). Phase notes:
+[0](docs/phase-0.md), [1](docs/phase-1.md), [2](docs/phase-2.md), [3](docs/phase-3.md). Database design:
+[docs/database.md](docs/database.md). How it is built (for developers and AI agents):
+[docs/architecture.md](docs/architecture.md), [AGENTS.md](AGENTS.md). Requirements and the build plan:
+[docs/requirements](docs/requirements). Decisions: [docs/decisions.md](docs/decisions.md). Open items:
+[docs/todo.md](docs/todo.md).
 
 ## Quick start (laptop)
 

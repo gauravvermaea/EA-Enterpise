@@ -27,7 +27,8 @@ class HeartbeatJob(MethodView):
         The job runner in the api container picks it up, writes a heartbeat row and an
         audit event.
         """
-        from ..jobs import app as jobs_app, record_heartbeat
+        from ..jobs import app as jobs_app
+        from ..jobs import record_heartbeat
 
         with jobs_app.open():
             job_id = record_heartbeat.defer(note=data["note"], requested_by=g.user.username)

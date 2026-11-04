@@ -7,17 +7,24 @@ Tick an item (`[x]`) when it is done; remove it at the next tidy-up.
 
 - [x] **Accept phase 1** (accepted 4 Nov 2026).
 - [x] **Accept phase 2** (accepted 4 Nov 2026; checks passed, MCP tried from Claude Code).
-- [ ] **Look at 0.2.1** (rest of phase 2): `.\eax clean-run`, `sample_history.sql`, then "Try it" in
-  [phase-2.md](phase-2.md): picture kinds, .drawio, timeline, lineage, CSV.
+- [x] **Phase 2 closed** (4 Nov 2026, version 0.2.1).
 - [x] **Role and permission model agreed** (4 Nov 2026, D58-D63): see the Roles sheet of the requirements
   workbook and phase 3.1 in the plan. Still to agree before phase 3.1 (marked "?" in the Roles sheet):
   who changes the metamodel (Model Admin only, or Architects too?) and whether the Model Admin also
   edits and commits content.
 
-## Next version (phase 3)
+## Phase 3 (version 0.3.0)
 
-- [ ] **SQL window read-only** (asked 4 Nov 2026): remove *Allow changes*; every run is rolled back
-  at the end, whoever signs in. Changes go through the screens, the API or `psql` in the db container.
+- [x] **SQL window read-only** (D52): *Allow changes* removed; every run is rolled back.
+- [ ] **Test phase 3** (Gaurav): `.\eax clean-run`, the demo and checks in [phase-3.md](phase-3.md).
+
+## Decisions waiting before their phase
+
+- [ ] **Import, export and survey sheets** (D77): an Excel workbook (one tab per entity type plus a
+  relationships tab, drop-downs that point at existing entities) or a set of CSV files. Decide
+  before the import phase.
+- [ ] **Entity type retire**: retiring keeps the type's entities. Should removing an entity type also
+  remove its entities (as removing an attribute removes its values, D75)?
 
 ## Waiting on input (Gaurav)
 

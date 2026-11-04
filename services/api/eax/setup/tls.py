@@ -27,7 +27,7 @@ def ensure_certificate(folder: Path, hostname: str) -> bool:
         x509.NameAttribute(NameOID.COMMON_NAME, hostname),
         x509.NameAttribute(NameOID.ORGANIZATION_NAME, "EA Explorer (self-signed)"),
     ])
-    now = dt.datetime.now(dt.timezone.utc)
+    now = dt.datetime.now(dt.UTC)
     cert = (
         x509.CertificateBuilder()
         .subject_name(subject)

@@ -17,10 +17,30 @@ from .. import repository as repo
 from ..auth import require_auth
 from ..db import get_engine
 from .schemas import (
-    AsOfQuery, EntitiesOut, EntitiesQuery, EntityAsOfOut, EntityDetailOut, EntityGraphOut, EntityHistoryOut, EntityListQuery,
-    EntitySummaryOut, EntityTypeDetail, GraphQuery, HistoryQuery, LibraryModelOut, MermaidOut, MermaidQuery,
-    Metamodel, MetamodelDiagram, ModelListQuery, ModelOut, PathQuery, RelationshipListQuery, RelationshipOut,
-    RelationshipTypeSummaryOut, TypeTableOut,
+    AsOfQuery,
+    EntitiesOut,
+    EntitiesQuery,
+    EntityAsOfOut,
+    EntityDetailOut,
+    EntityGraphOut,
+    EntityHistoryOut,
+    EntityListQuery,
+    EntitySummaryOut,
+    EntityTypeDetail,
+    GraphQuery,
+    HistoryQuery,
+    LibraryModelOut,
+    MermaidOut,
+    MermaidQuery,
+    Metamodel,
+    MetamodelDiagram,
+    ModelListQuery,
+    ModelOut,
+    PathQuery,
+    RelationshipListQuery,
+    RelationshipOut,
+    RelationshipTypeSummaryOut,
+    TypeTableOut,
 )
 
 blp = Blueprint(

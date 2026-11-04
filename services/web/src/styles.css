@@ -272,3 +272,53 @@ tr.expanded > td { background: #fafbfc; padding: 6px 12px 10px 46px; white-space
 .model-switch select { max-width: 360px; font-weight: 600; border-color: transparent; background: transparent; }
 .model-switch.here select { color: var(--accent); }
 @media (max-width: 900px) { .model-switch { order: 4; width: 100%; } .model-switch select { max-width: none; flex: 1; } }
+
+/* ---- phase 3: metamodel editor, history, failing checks, model locks ---- */
+.ed-backdrop { position: fixed; inset: 0; background: rgba(20, 30, 45, 0.45); display: flex; align-items: flex-start; justify-content: center; padding: 6vh 16px; z-index: 50; overflow-y: auto; }
+.ed-dialog { background: var(--card); border-radius: 10px; width: min(640px, 100%); box-shadow: 0 12px 40px rgba(0,0,0,0.25); }
+.ed-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-bottom: 1px solid var(--line); }
+.ed-head h2 { margin: 0; font-size: 17px; }
+.ed-form { padding: 14px 20px; display: grid; gap: 12px; }
+.ed-field { display: grid; gap: 4px; }
+.ed-field > span { font-size: 13px; font-weight: 600; }
+.ed-field .quiet { font-size: 12px; font-weight: 400; }
+.ed-field input[type=text], .ed-field input:not([type]), .ed-field input[type=number], .ed-field input[type=date], .ed-field select, .ed-field textarea { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; width: 100%; box-sizing: border-box; }
+.ed-field textarea { min-height: 64px; }
+.ed-field.check { grid-template-columns: auto 1fr; align-items: center; }
+.ed-actions { display: flex; gap: 10px; justify-content: flex-end; padding: 12px 20px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.ed-btn { white-space: nowrap; }
+.ed-bar { margin: 4px 0 12px; }
+button.danger { background: var(--bad); border-color: var(--bad); color: #fff; }
+button.small { padding: 2px 9px; font-size: 12px; }
+button.tiny { padding: 0 6px; font-size: 12px; line-height: 18px; margin-left: 4px; }
+.row-actions { white-space: nowrap; }
+.row-actions button + button { margin-left: 4px; }
+.small-note { font-size: 12px; }
+.impact { margin: 0 20px 12px; padding: 10px 14px; border-radius: 8px; background: var(--accent-soft); font-size: 13px; }
+.impact ul { margin: 4px 0; padding-left: 18px; }
+.impact-list { max-height: 180px; overflow-y: auto; }
+.all-pass { color: var(--ok); font-weight: 600; }
+.pick-values { display: flex; flex-wrap: wrap; gap: 6px; }
+.pick-value { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--line); border-radius: 12px; padding: 1px 4px 1px 10px; font-size: 13px; background: var(--card); }
+.retired, .retired a, .pick-value.retired { color: var(--quiet); text-decoration: line-through; }
+li.retired { opacity: 0.7; }
+.mm-versions { display: grid; gap: 12px; }
+.mm-versions > section { border: 1px solid var(--line); border-radius: 8px; background: var(--card); padding: 10px 14px; }
+.vtag { display: inline-block; font-weight: 700; font-size: 12px; border-radius: 8px; padding: 1px 8px; background: var(--accent-soft); color: var(--accent); margin-right: 8px; }
+.chg { margin: 4px 0; }
+.chg-field { font-size: 12px; color: var(--quiet); margin-left: 16px; }
+.chg-field del { color: var(--bad); } .chg-field ins { color: var(--ok); text-decoration: none; }
+.small-link { font-size: 12px; margin-left: 12px; }
+.compare { border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; background: var(--card); margin: 8px 0 14px; }
+.compare select { margin: 0 6px; }
+.lock-ctl { position: relative; display: inline-block; }
+.lock-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; width: 340px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.15); padding: 12px; display: grid; gap: 8px; }
+.lock-opt { display: grid; grid-template-columns: auto 1fr; gap: 6px; align-items: start; font-size: 13px; }
+.lock-banner { margin: 6px 0 10px; padding: 8px 14px; border-radius: 8px; background: #fff2d6; color: #6b4600; border: 1px solid #f0d49a; font-size: 14px; }
+.lock-banner.content { background: #fbe4e2; color: #7a1a14; border-color: #efb9b3; }
+.model-lock { font-weight: 600; }
+@media (max-width: 700px) { .lock-pop { width: calc(100vw - 32px); right: -8px; } }
+.ed-dialog > p, .ed-dialog > div > p { margin-left: 20px; margin-right: 20px; }
+.model-lock button { margin-left: 10px; }
+.removals { margin: 0 20px 10px; padding: 8px 14px; border-radius: 8px; background: #fbe4e2; color: #7a1a14; font-size: 13px; }
+.ed-dialog p { white-space: normal; overflow-wrap: anywhere; }

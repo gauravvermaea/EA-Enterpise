@@ -10,7 +10,7 @@ from __future__ import annotations
 import io
 import uuid
 import zipfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import quote
 
@@ -137,7 +137,7 @@ def bundle_files(db_password: str, db_name: str = "eaexplorer") -> dict[str, dic
     meta = {
         "version": "1.0.0",
         "type": "Dashboard",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
     return {
         "metadata.yaml": meta,

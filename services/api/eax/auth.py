@@ -6,9 +6,9 @@ issuer (the public Keycloak address) and the audience "eax-api".
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import lru_cache, wraps
-from typing import Callable
 
 import jwt
 from flask import g, request

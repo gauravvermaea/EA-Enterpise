@@ -213,6 +213,29 @@ async def get_entity_as_of(model: str, entity: str, event: int | None = None, at
 
 
 @mcp.tool()
+async def get_metamodel_history(model: str) -> Any:
+    """Every change to a model's metamodel, grouped by the version it was published in (newest first):
+    what was added, changed, retired or removed (entity types, attributes, pick lists, relationship
+    types, mappings, rules), with old and new values, who and when."""
+    return await _run(repo.metamodel_history, model)
+
+
+@mcp.tool()
+async def compare_metamodel_versions(model: str, from_version: int, to_version: int | None = None) -> Any:
+    """What differs between two versions of a model's metamodel (to_version: the current one when left
+    out): items added, removed, retired and changed with their old and new values."""
+    return await _run(repo.metamodel_compare, model, from_version, to_version)
+
+
+@mcp.tool()
+async def list_failing_checks(model: str, entity_type: str | None = None) -> Any:
+    """Every entity of a model that fails a check (missing mandatory values, rule failures, duplicates,
+    relationships outside the metamodel), one row per failure with its rule, severity and message,
+    plus counts by type, rule and severity. Use it to find what needs fixing."""
+    return await _run(repo.failing_checks, model, entity_type)
+
+
+@mcp.tool()
 async def search_entities(text: str, model: str | None = None) -> Any:
     """Find entities whose name, display ID or description contains the text, in one model or in
     every model you may read."""

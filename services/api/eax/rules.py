@@ -25,8 +25,9 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+from collections.abc import Iterable
 from decimal import Decimal, InvalidOperation
-from typing import Any, Iterable
+from typing import Any
 
 BUILT_IN = {"name": "Name", "description": "Description", "display_id": "Display ID"}
 

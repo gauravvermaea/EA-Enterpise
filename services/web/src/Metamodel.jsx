@@ -5,15 +5,20 @@
 //   #/metamodel/<model>/rels[/<id>]      tab Relationship types, and the relationships of one type
 //   #/metamodel/<model>/graph            tab Graph: entities and their relationships
 //   #/metamodel/<model>/entity/<id>[/relations|/history|/graph]   one entity
-//   #/metamodel/<model>/metamodel        tab Metamodel: layers, entity types, relationship types
+//   #/metamodel/<model>/checks           tab Failing checks: every entity failing a check (phase 3)
+//   #/metamodel/<model>/metamodel[/lists|/history]   tab Metamodel: definition, pick lists, history and versions
 //   #/metamodel/<model>/type/<id>        one entity type's definition: attributes, rules, allowed relationships
 //   #/metamodel/<model>/diagram[/<id>]   tab ER diagram (MetamodelDiagram.jsx)
 import { lazy, Suspense, useState } from "react";
 import { keycloak } from "./auth";
 import { CopyButton, LockBadge } from "./Library";
 import {
-  CsvButton, EntityPage, EntityTypesTab, GraphTab, Later, RelationshipsOfType, RelationshipTypesTab, Swatch, TypeEntitiesTable, useApi,
+  CsvButton, EntityPage, EntityTypesTab, GraphTab, RelationshipsOfType, RelationshipTypesTab, Swatch, TypeEntitiesTable, useApi,
 } from "./ModelViews";
+import {
+  attributeSpec, EditButton, entityTypeSpec, FailingChecks, lifecycleSpec, LockBanner, LockControl, mappingSpec,
+  MetamodelHistory, PickLists, relationshipTypeSpec, removeAttributeSpec, ruleSpec, simpleSpec,
+} from "./MetamodelEditor";
 
 // the diagram and its layout library load only when the ER diagram tab is opened
 const MetamodelDiagram = lazy(() => import("./MetamodelDiagram"));
@@ -94,10 +99,13 @@ function grouped(list) {
   return out;
 }
 
-function Allowed({ title, list, model }) {
+function Allowed({ title, list, model, m, typeName, outgoing }) {
   const groups = grouped(list);
   const names = Object.keys(groups);
   if (!names.length) return null;
+  const removeSpec = (a) => simpleSpec(
+    `Remove mapping: ${outgoing ? `${typeName} ${a.verb} ${a.other_type}` : `${a.other_type} ${a.verb} ${typeName}`}`, "mapping.remove", { id: a.id },
+    "Existing relationships of this kind are kept and show as outside the metamodel.", true, "Remove");
   return (
     <>
       <h3>{title}</h3>
@@ -109,7 +117,8 @@ function Allowed({ title, list, model }) {
               <td>
                 {groups[rel].length >= 40 ? <em>any type ({groups[rel].length})</em>
                   : groups[rel].map((a, i) => (
-                    <span key={a.other_type_id}>{i > 0 && ", "}<a href={`#/metamodel/${model}/type/${a.other_type_id}`}>{a.other_type}</a></span>
+                    <span key={a.other_type_id} className="mapping">{i > 0 && ", "}<a href={`#/metamodel/${model}/type/${a.other_type_id}`}>{a.other_type}</a>
+                      {m.kind === "project" && <EditButton model={model} m={m} label="×" className="tiny" title="Remove this mapping" spec={() => removeSpec(a)} />}</span>
                   ))}
               </td>
             </tr>
@@ -120,14 +129,32 @@ function Allowed({ title, list, model }) {
   );
 }
 
-function TypeDetail({ model, typeId, holdsContent }) {
+function TypeDetail({ model, m, mm, typeId, holdsContent }) {
   const { data: t, error } = useApi(`/api/v1/models/${model}/entity-types/${typeId}`);
   const { data: list } = useApi(holdsContent ? `/api/v1/models/${model}/entity-list?type=${typeId}` : null);
+  const { data: pickLists } = useApi(m.kind === "project" ? `/api/v1/models/${model}/metamodel/pick-lists` : null);
   if (error) return <p className="status bad">{error}</p>;
   if (!t) return <p>Loading...</p>;
+  const hasEntities = !!(list && list.length);
+  const types = mm.layers.flatMap((l) => l.entity_types).filter((x) => x.status !== "retired");
+  const retired = t.status === "retired";
   return (
     <div>
-      <h2><Swatch colour={t.colour} /> {t.name}</h2>
+      <h2><Swatch colour={t.colour} /> {t.name} {retired && <span className="sev warning">retired</span>}</h2>
+      {m.kind === "project" && (
+        <div className="toolbar ed-bar">
+          <EditButton model={model} m={m} label="+ Attribute" spec={() => attributeSpec(t, pickLists || [], hasEntities)} />
+          <EditButton model={model} m={m} label="+ Lifecycle" spec={() => lifecycleSpec(t)} />
+          <EditButton model={model} m={m} label="+ Mapping" spec={() => mappingSpec(types, mm.relationship_types, t.id)} />
+          <EditButton model={model} m={m} label="+ Rule" spec={() => ruleSpec(t)} />
+          <span className="er-spacer" />
+          <EditButton model={model} m={m} label="Change type" spec={() => entityTypeSpec(mm.layers, t)} />
+          {retired
+            ? <EditButton model={model} m={m} label="Restore" spec={simpleSpec(`Restore ${t.name}`, "entity_type.restore", { id: t.id }, "The type is offered again for new entities.")} />
+            : <EditButton model={model} m={m} label="Retire" spec={simpleSpec(`Retire ${t.name}`, "entity_type.retire", { id: t.id },
+              `Retired types are no longer offered for new entities. ${hasEntities ? `Its ${list.length} existing entities are kept unchanged.` : ""}`, true, "Retire")} />}
+        </div>
+      )}
       <p className="quiet">
         {t.layer} layer · {t.aspect} · display IDs {t.id_prefix}-0001 · code <code>{t.code}</code> ·
         SQL <code>eax.get_entity('{t.name}', '{t.table_name}')</code> ·{" "}
@@ -143,48 +170,84 @@ function TypeDetail({ model, typeId, holdsContent }) {
         [], ["Rule field", "Rule", "Param 1", "Param 2", "Severity", "Message"], ...t.rules.map((r) => [r.field, r.rule, r.param1, r.param2, r.severity, r.message])]} /></h3>
       <p className="quiet">Every entity also has a display ID, name, description, parent, status and history.</p>
       <table className="grid-table">
-        <thead><tr><th>Attribute</th><th>Type</th><th>Required</th><th>Section</th><th>Values</th></tr></thead>
+        <thead><tr><th>Attribute</th><th>Type</th><th>Required</th><th>Default</th><th>Section</th><th>Values</th>{m.kind === "project" && <th />}</tr></thead>
         <tbody>
           {t.attributes.map((a) => (
             <tr key={a.code}>
               <td title={a.description}>{a.name}<br /><code className="quiet">{a.column_name}</code></td>
               <td>{a.data_type_name}{a.unit && ` (${a.unit})`}</td>
               <td>{a.is_required ? "Yes" : ""}</td>
+              <td className="quiet">{a.default_value ?? ""}</td>
               <td>{a.section}</td>
               <td className="quiet">{a.pick_list_values.join(", ")}</td>
+              {m.kind === "project" && (
+                <td className="nowrap row-actions">
+                  <EditButton model={model} m={m} label="Change" className="small" spec={() => attributeSpec(t, pickLists || [], hasEntities, a)} />
+                  <EditButton model={model} m={m} label="Remove" className="small" spec={() => removeAttributeSpec(t, a)} />
+                </td>
+              )}
             </tr>
           ))}
+          {!t.attributes.length && <tr><td colSpan="7" className="quiet">No attributes yet.</td></tr>}
         </tbody>
       </table>
       {t.rules.length > 0 && (
         <>
           <h3>Validation rules</h3>
           <table className="grid-table">
-            <thead><tr><th>Field</th><th>Rule</th><th>Severity</th><th>Message</th></tr></thead>
-            <tbody>{t.rules.map((r, i) => <tr key={i}><td>{r.field}</td><td>{r.rule}</td><td>{r.severity}</td><td>{r.message}</td></tr>)}</tbody>
+            <thead><tr><th>Field</th><th>Rule</th><th>Parameters</th><th>Severity</th><th>Message</th>{m.kind === "project" && <th />}</tr></thead>
+            <tbody>{t.rules.map((r, i) => (
+              <tr key={i}>
+                <td>{r.field}{r.all_types && <span className="quiet" title="Applies to every entity type"> (all types)</span>}</td><td>{r.rule}</td>
+                <td className="quiet">{[r.param1, r.param2].filter(Boolean).join(" · ")}</td>
+                <td><span className={`sev ${r.severity}`}>{r.severity}</span></td><td>{r.message}</td>
+                {m.kind === "project" && (
+                  <td className="nowrap row-actions">
+                    <EditButton model={model} m={m} label="Change" className="small" spec={() => ruleSpec(t, r)} />
+                    <EditButton model={model} m={m} label="Remove" className="small" spec={simpleSpec(`Remove rule: ${r.message}`, "rule.remove", { id: r.id },
+                      "Entities failing only this rule will pass again.", true, "Remove")} />
+                  </td>
+                )}
+              </tr>))}</tbody>
           </table>
         </>
       )}
-      <Allowed title={`From ${t.name} to other types`} list={t.outgoing} model={model} />
-      <Allowed title={`From other types to ${t.name}`} list={t.incoming} model={model} />
+      <Allowed title={`From ${t.name} to other types`} list={t.outgoing} model={model} m={m} typeName={t.name} outgoing />
+      <Allowed title={`From other types to ${t.name}`} list={t.incoming} model={model} m={m} typeName={t.name} />
     </div>
   );
 }
 
-function MetamodelView({ model, m, typeId, holdsContent }) {
+const MM_VIEWS = [["", "Definition"], ["lists", "Pick lists"], ["history", "History and versions"]];
+
+function MetamodelView({ model, m, typeId, holdsContent, sub }) {
   const { data: mm, error } = useApi(`/api/v1/models/${model}/metamodel`);
   if (error) return <p className="status bad">{error}</p>;
   if (!mm) return <p>Loading...</p>;
+  const view = typeId ? "" : (sub || "");
+  const seg = (
+    <div className="seg small" role="tablist">
+      {MM_VIEWS.map(([k, l]) => <button key={k} className={view === k ? "on" : ""} onClick={() => go(`/metamodel/${model}/metamodel${k ? `/${k}` : ""}`)}>{l}</button>)}
+    </div>
+  );
+  if (view === "lists") return <>{seg}<PickLists model={model} m={m} /></>;
+  if (view === "history") return <>{seg}<MetamodelHistory model={model} m={m} /></>;
+  const types = mm.layers.flatMap((l) => l.entity_types).filter((x) => x.status !== "retired");
   return (
     <>
+    {seg}
     <div className="toolbar">
-      <span className="quiet">The definition of this model: what may be stored and how it is checked.</span>
+      <span className="quiet">Metamodel <strong>version {m.metamodel_version}</strong>: what may be stored and how it is checked.
+        {m.kind === "project" ? " Every change publishes a new version." : ""}</span>
       <span className="er-spacer" />
-      <Later label="+ Entity type" phase={3} model={m} what="Adding an entity type" />
-      <Later label="+ Attribute" phase={3} model={m} what="Adding an attribute" />
-      <Later label="+ Relationship type" phase={3} model={m} what="Adding a relationship type" />
-      <Later label="+ Mapping" phase={3} model={m} what="Adding a mapping (an allowed relationship between two entity types)" />
-      <Later label="+ Rule" phase={3} model={m} what="Adding a validation rule" />
+      {m.kind === "project" ? (
+        <>
+          <EditButton model={model} m={m} label="+ Entity type" spec={() => entityTypeSpec(mm.layers)} />
+          <EditButton model={model} m={m} label="+ Relationship type" spec={relationshipTypeSpec()} />
+          <EditButton model={model} m={m} label="+ Mapping" spec={() => mappingSpec(types, mm.relationship_types)} />
+          <span className="quiet small-note">+ Attribute and + Rule: on an entity type's page</span>
+        </>
+      ) : <span className="quiet">{m.is_locked ? "Read-only: copy this model to change its metamodel (build phase 4)." : ""}</span>}
     </div>
     <div className="mm">
       <div className="layers">
@@ -193,7 +256,7 @@ function MetamodelView({ model, m, typeId, holdsContent }) {
             <h3><Swatch colour={l.colour} /> {l.name}</h3>
             <ul>
               {l.entity_types.map((t) => (
-                <li key={t.id}>
+                <li key={t.id} className={t.status === "retired" ? "retired" : ""}>
                   <a href={`#/metamodel/${model}/type/${t.id}`} className={t.id === typeId ? "current" : ""}>{t.name}</a>
                   {t.entity_count > 0 && <span className="count">{t.entity_count}</span>}
                 </li>
@@ -203,11 +266,23 @@ function MetamodelView({ model, m, typeId, holdsContent }) {
         ))}
         <div className="layer">
           <h3>Relationship types</h3>
-          <ul>{mm.relationship_types.map((r) => <li key={r.id} title={r.description}>{r.name} <span className="quiet">({r.verb})</span></li>)}</ul>
+          <ul>{mm.relationship_types.map((r) => (
+            <li key={r.id} title={r.description} className={r.status === "retired" ? "retired" : ""}>
+              <span>{r.name} <span className="quiet">({r.verb})</span></span>
+              {m.kind === "project" && (
+                <span className="row-actions">
+                  <EditButton model={model} m={m} label="✎" className="tiny" title={`Change ${r.name}`} spec={() => relationshipTypeSpec(r)} />
+                  {r.status === "retired"
+                    ? <EditButton model={model} m={m} label="↺" className="tiny" title={`Restore ${r.name}`} spec={simpleSpec(`Restore ${r.name}`, "relationship_type.restore", { id: r.id }, "")} />
+                    : <EditButton model={model} m={m} label="×" className="tiny" title={`Remove ${r.name}`} spec={simpleSpec(`Remove relationship type ${r.name}`, "relationship_type.remove", { id: r.id },
+                      `Every ${r.name} relationship in this model is removed with it. Each stays in the history of the entities it connected. Check impact shows how many.`, true, "Remove")} />}
+                </span>
+              )}
+            </li>))}</ul>
         </div>
       </div>
       <div className="detail">
-        {typeId ? <TypeDetail model={model} typeId={typeId} holdsContent={holdsContent} />
+        {typeId ? <TypeDetail model={model} m={m} mm={mm} typeId={typeId} holdsContent={holdsContent} />
           : <p className="quiet">Choose an entity type on the left.</p>}
       </div>
     </div>
@@ -226,7 +301,8 @@ function ModelPage({ model, view, itemId, sub }) {
   const tab = !v ? (holdsContent ? "types" : "metamodel")
     : v === "type" ? "metamodel" : v === "entity" ? "types" : v;
   const tabs = [
-    ...(holdsContent ? [["types", "Entity types", m.entity_type_count], ["rels", "Relationship types", null], ["graph", "Graph", null]] : []),
+    ...(holdsContent ? [["types", "Entity types", m.entity_type_count], ["rels", "Relationship types", null], ["graph", "Graph", null],
+      ["checks", "Failing checks", null]] : []),
     ["metamodel", "Metamodel", null], ["diagram", "ER diagram", null],
   ];
   return (
@@ -236,6 +312,7 @@ function ModelPage({ model, view, itemId, sub }) {
         <h1>{m.name} {m.version_label && <span className="quiet">{m.version_label}</span>}</h1>
         <LockBadge model={m} />
         {m.is_locked && <CopyButton />}
+        <LockControl model={model} m={m} />
         <button className="linkish" onClick={() => setShowProps((x) => !x)}>{showProps ? "Hide details" : "Details"}</button>
       </div>
       <p className="quiet">
@@ -254,6 +331,7 @@ function ModelPage({ model, view, itemId, sub }) {
           </p>
         </div>
       )}
+      <LockBanner m={m} />
       <div className="tabs" role="tablist">
         {tabs.map(([k, label]) => (
           <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "tab on" : "tab"} onClick={() => go(`/metamodel/${model}/${k}`)}>{label}</button>
@@ -264,8 +342,9 @@ function ModelPage({ model, view, itemId, sub }) {
         : tab === "types" ? (itemId ? <TypeEntitiesTable model={model} m={m} typeId={itemId} /> : <EntityTypesTab model={model} m={m} />)
         : tab === "rels" ? (itemId ? <RelationshipsOfType model={model} m={m} relTypeId={itemId} /> : <RelationshipTypesTab model={model} m={m} />)
         : tab === "graph" ? <GraphTab model={model} kind={itemId} />
+        : tab === "checks" ? <FailingChecks model={model} m={m} />
         : tab === "diagram" ? <Suspense fallback={<p>Loading the diagram...</p>}><MetamodelDiagram model={model} focus={itemId || null} /></Suspense>
-        : <MetamodelView model={model} m={m} typeId={v === "type" ? itemId : null} holdsContent={holdsContent} />}
+        : <MetamodelView model={model} m={m} typeId={v === "type" ? itemId : null} holdsContent={holdsContent} sub={v === "metamodel" ? itemId : null} />}
       </div>
     </section>
   );

@@ -93,6 +93,10 @@ class ModelOut(Schema):
     lifecycle = fields.String(metadata={"description": "active or archived"})
     industry = fields.String(metadata={"description": "Reference models: the industry"})
     version_label = fields.String(metadata={"description": "Reference models: their version"})
+    lock_level = fields.String(metadata={"description": "none, metamodel, content or maintenance (set by a Model Admin)"})
+    lock_reason = fields.String()
+    locked_at = fields.DateTime(allow_none=True)
+    locked_by = fields.String(allow_none=True)
     created_at = fields.DateTime()
     created_by = fields.String()
     modified_at = fields.DateTime()
@@ -156,6 +160,7 @@ class RelationshipTypeOut(Schema):
     category = fields.String()
     is_directed = fields.Boolean()
     description = fields.String()
+    status = fields.String(metadata={"description": "published or retired"})
 
 
 class Metamodel(Schema):
@@ -165,6 +170,11 @@ class Metamodel(Schema):
 
 
 class AttributeOut(Schema):
+    item_id = fields.UUID(metadata={"description": "This attribute on this type (for changing it)"})
+    attribute_id = fields.UUID(metadata={"description": "The attribute definition, shared by the types that use it"})
+    default_value = fields.String(allow_none=True)
+    help_text = fields.String()
+    pick_list_id = fields.UUID(allow_none=True)
     code = fields.String()
     name = fields.String()
     description = fields.String()
@@ -179,6 +189,11 @@ class AttributeOut(Schema):
 
 
 class RuleOut(Schema):
+    id = fields.UUID()
+    rule_type_code = fields.String()
+    attribute_id = fields.UUID(allow_none=True)
+    field_name = fields.String(allow_none=True)
+    all_types = fields.Boolean(metadata={"description": "The rule applies to every entity type"})
     field = fields.String()
     rule = fields.String()
     param1 = fields.String()
@@ -188,6 +203,8 @@ class RuleOut(Schema):
 
 
 class AllowedOut(Schema):
+    id = fields.UUID(metadata={"description": "The mapping (for removing it)"})
+    relationship_type_id = fields.UUID()
     relationship_type = fields.String()
     verb = fields.String()
     other_type_id = fields.UUID()
@@ -196,6 +213,8 @@ class AllowedOut(Schema):
 
 
 class EntityTypeDetail(Schema):
+    status = fields.String()
+    layer_id = fields.UUID()
     id = fields.UUID()
     code = fields.String()
     name = fields.String()
@@ -383,6 +402,8 @@ class EntityDetailOut(Schema):
     modified_by = fields.String()
     row_version = fields.Integer()
     entity_type_code = fields.String()
+    created_mm_version = fields.Integer(allow_none=True)
+    modified_mm_version = fields.Integer(allow_none=True)
     model = fields.Nested(LineageModelOut, metadata={"description": "The model the entity is part of"})
     lineage = fields.Nested(LineageOut)
     attributes = fields.List(fields.Nested(EntityAttributeValueOut))
@@ -417,9 +438,13 @@ class TypeTableRowOut(Schema):
     errors = fields.Integer()
     warnings = fields.Integer()
     messages = fields.List(fields.String())
+    checks = fields.List(fields.Dict(), metadata={"description": "Each failed check: rule, field, code, severity, message"})
+    created_mm_version = fields.Integer(allow_none=True, metadata={"description": "Metamodel version it was created in"})
+    modified_mm_version = fields.Integer(allow_none=True, metadata={"description": "Metamodel version it was last changed in"})
 
 
 class TypeTableTypeOut(Schema):
+    status = fields.String()
     id = fields.UUID()
     code = fields.String()
     name = fields.String()
@@ -637,7 +662,6 @@ class SqlQueryIn(Schema):
     username = fields.String(required=True, metadata={"description": "PostgreSQL user, for example eax_app or postgres"})
     password = fields.String(required=True, load_only=True)
     sql = fields.String(required=True, metadata={"description": "One or more SQL statements"})
-    allow_changes = fields.Boolean(load_default=False, metadata={"description": "Commit the run; otherwise it is rolled back at the end"})
 
 
 class SqlResultSet(Schema):
@@ -651,7 +675,7 @@ class SqlResultSet(Schema):
 class SqlQueryOut(Schema):
     results = fields.List(fields.Nested(SqlResultSet))
     notices = fields.List(fields.String())
-    committed = fields.Boolean()
+    committed = fields.Boolean(metadata={"description": "Always false: the SQL window is read-only"})
     duration_ms = fields.Integer()
 
 

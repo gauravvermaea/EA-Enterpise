@@ -5,9 +5,8 @@ Used by POST /api/v1/sql/query and the web screen #/sql. Rules:
   * The caller must be signed in with the system-admin role AND give a PostgreSQL user and password;
     the database's own permissions then decide what that login may see and do.
   * Only the installation's database server (EAX_DB_HOST) is used; any of its databases may be named.
-  * Nothing is kept unless allow_changes is set: the run is one transaction that is rolled back at
-    the end (not READ ONLY, because eax.get_entity creates temporary tables). With allow_changes it
-    is committed when every statement succeeds.
+  * Read-only for everyone (D52, phase 3): the run is one transaction that is always rolled back at
+    the end (not READ ONLY, because eax.get_entity creates temporary tables), so nothing is kept.
   * One connection per run, so temporary tables (eax.get_entity) live for that run only: put
     SELECT eax.get_entity(...) and the SELECT on its temp table in the same run.
   * 30-second statement timeout and at most 1,000 rows per result; every run is audited.
@@ -64,7 +63,7 @@ def to_json_value(value: Any) -> Any:
     return text if len(text) <= MAX_CELL_CHARS else text[:MAX_CELL_CHARS] + "..."
 
 
-def run(database: str, username: str, password: str, sql: str, allow_changes: bool = False) -> dict:
+def run(database: str, username: str, password: str, sql: str) -> dict:
     """Runs the text (one or more statements) and returns every result set."""
     if not username or not password:
         raise SqlConsoleError("Give a database user name and password.")
@@ -103,11 +102,8 @@ def run(database: str, username: str, password: str, sql: str, allow_changes: bo
                 message += f" (the time limit is {TIMEOUT_SECONDS} seconds)"
             raise SqlConsoleError(message, 400, sqlstate=diag.sqlstate, detail=diag.message_detail,
                                   hint=diag.message_hint, position=diag.statement_position) from exc
-        if allow_changes:
-            conn.commit()
-        else:
-            conn.rollback()
-    return {"results": results, "notices": notices, "committed": allow_changes,
+        conn.rollback()   # read-only: nothing a run does is kept
+    return {"results": results, "notices": notices, "committed": False,
             "duration_ms": round((time.perf_counter() - started) * 1000)}
 
 
