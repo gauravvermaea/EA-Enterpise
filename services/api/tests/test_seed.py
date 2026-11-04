@@ -38,7 +38,7 @@ def test_every_sample_attribute_applies_to_its_type():
 
 def test_seed_sql_shape():
     sql = build.seed_sql(with_template=True, with_sample=True)
-    assert sql.count("INSERT INTO core.models") == 3  # template, insurance reference model, sample
+    assert sql.count("INSERT INTO core.models") == 4  # Root, ArchiMate 4, insurance reference model, sample
     assert "INSERT INTO core.allowed_relationships" in sql
     assert "origin_guid" in sql
     assert "'sample-insurance'" not in sql  # keys are guids, never raw names
@@ -57,3 +57,15 @@ def test_insurance_reference_model_is_consistent():
         assert "meridian" not in f"{name} {desc}".lower(), key
         mapped = {a for a, *_ in A.MAP[_t]}
         assert set(attrs) <= mapped, (key, set(attrs) - mapped)
+
+
+def test_history_demo_has_four_steps_by_different_people():
+    """D110: the laptop history demo saves four versions, each step its own actor and label."""
+    from eax.seed.build import history_demo_steps
+    steps = history_demo_steps()
+    assert len(steps) == 4
+    assert [a for a, _ in steps] == ["user_architect", "user_model_sub_admin", "user_architect", "user_model_admin"]
+    for actor, sql in steps:
+        assert f"set_config('eax.actor', '{actor}', true)" in sql
+        assert "Laptop history demo" in sql
+    assert "is_deleted = true" in steps[2][1]   # a relationship removed

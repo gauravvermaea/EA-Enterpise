@@ -33,6 +33,18 @@ def gid(*parts: str) -> str:
     return str(uuid.uuid5(NAMESPACE, ":".join(parts)))
 
 
+# Laptop test models (phase 3.1): a fictitious insurer derived from the insurance reference model, its
+# life and commercial models derived from it, and an independent model from the template.
+GROUP_KEY, LIFE_KEY, COMMERCIAL_KEY, KAROO_KEY = "fynbos-group", "fynbos-life", "fynbos-commercial", "karoo-re"
+LIFE_PRODUCTS = {"Family Funeral Plan", "Individual Whole Life", "Term Assurance", "Income Protection", "Credit Life",
+                 "Group Life", "Group Disability", "Umbrella Fund Risk", "Linked Investment Plan", "Simple Funeral (pilot)"}
+COMMERCIAL_PRODUCTS = {"Comprehensive Motor", "Household Contents", "Buildings", "Portable Possessions",
+                       "SME Multi-Peril", "Commercial Fleet", "Liability", "Engineering"}
+
+EMPTY_KEY = "empty-root"
+LEAN_KEY = "lean-ea-metamodel-1.0"
+LEAN_PROJECT_KEY = "karoo-digital-lean"
+EMPTY_ID = gid("model", EMPTY_KEY)
 TEMPLATE_ID = gid("model", TEMPLATE_KEY)
 SAMPLE_ID = gid("model", SAMPLE_KEY)
 INSURANCE_ID = gid("model", INSURANCE_KEY)
@@ -242,9 +254,10 @@ def metamodel_sql(model_key: str, origin_key: str | None) -> str:
     return "".join(out)
 
 
-def sample_content_sql() -> str:
-    """Sample entities, attribute values and relationships for the sample model."""
-    m, k = SAMPLE_ID, SAMPLE_KEY
+def sample_content_sql(k: str = SAMPLE_KEY) -> str:
+    """Sample entities, attribute values and relationships for the sample model (or another model
+    given by its key, which gets the same content)."""
+    m = gid("model", k)
     dtype = {code: DATA_TYPES[dt] for code, _n, dt, *_ in A.ATTRS}
     ents, vals, rels = [], [], []
     for type_code, name, desc, attrs in A.SAMPLE_ENTITIES:
@@ -269,15 +282,23 @@ def sample_content_sql() -> str:
                                       "target_entity_id"], rels))
 
 
-def insurance_content_sql() -> str:
-    """The insurance reference model's entities, attribute values, parents and relationships."""
-    m, k = INSURANCE_ID, INSURANCE_KEY
+def insurance_content_sql(k: str = INSURANCE_KEY, origin: str | None = None, keep=None) -> str:
+    """The insurance reference model's entities, attribute values, parents and relationships; or a
+    copy of them in another model (key k), each entity pointing at the one it was copied from (origin)
+    and only those keep(type_code, name) accepts (relationships only between entities kept)."""
+    m = gid("model", k)
     dtype = {code: DATA_TYPES[dt] for code, _n, dt, *_ in A.ATTRS}
     ents, vals, parents, rels = [], [], [], []
+    kept = {key for key, t, name, *_ in INS.ENTITIES if keep is None or keep(t, name)}
     for key, type_code, name, desc, parent, attrs in INS.ENTITIES:
+        if key not in kept:
+            continue
         e = gid(k, "entity", key)
-        ents.append([e, m, gid(k, "entity_type", type_code), name, desc])
-        if parent:
+        if origin:
+            ents.append([e, gid(origin, "entity", key), m, gid(k, "entity_type", type_code), name, desc])
+        else:
+            ents.append([e, m, gid(k, "entity_type", type_code), name, desc])
+        if parent and parent in kept:
             parents.append((e, gid(k, "entity", parent)))
         for attr, value in attrs.items():
             row = {"value_text": None, "value_number": None, "value_date": None}
@@ -285,6 +306,8 @@ def insurance_content_sql() -> str:
             vals.append([gid(k, "attribute_value", key, attr), m, gid(k, "attribute_type", attr), e,
                          row["value_text"], row["value_number"], row["value_date"]])
     for src, rel, tgt, name in INS.RELATIONSHIPS:
+        if src not in kept or tgt not in kept:
+            continue
         rels.append([gid(k, "relationship", src, rel, tgt), m, gid(k, "relationship_type", rel),
                      gid(k, "entity", src), gid(k, "entity", tgt), name])
     # parents after every entity exists (one INSERT cannot point at rows it is still adding)
@@ -292,12 +315,268 @@ def insurance_content_sql() -> str:
                   + ",\n".join(f"    ('{c}'::uuid, '{p}'::uuid)" for c, p in parents)
                   + "\n) AS v (child, parent)\nJOIN core.entities p ON p.guid = v.parent\n"
                   "WHERE c.guid = v.child;\n") if parents else ""
-    return (insert("entity", ["id", "model_id", "entity_type_id", "name", "description"], ents)
+    entity_cols = ["id", "origin_id", "model_id", "entity_type_id", "name", "description"] if origin else \
+        ["id", "model_id", "entity_type_id", "name", "description"]
+    return (insert("entity", entity_cols, ents)
             + parent_sql
             + insert("attribute_value", ["id", "model_id", "attribute_type_id", "entity_id",
                                          "value_text", "value_number", "value_date"], vals)
             + insert("relationship", ["id", "model_id", "relationship_type_id", "source_entity_id",
                                       "target_entity_id", "name"], rels))
+
+
+# Laptop only: a few saved versions of two sample entities, made by different people a moment apart,
+# so the History tab shows values set, changed and cleared and relationships added and removed (D110).
+# Each step is (who, what): the seed runs every step in its own transaction, a second or two apart.
+HISTORY_DEMO = [
+    ("user_architect", "Customer Portal: vendor, version and cost recorded; reads claim records", [
+        ("describe", "Customer Portal", "Self-service web portal for policyholders: claims and policy changes", None),
+        ("set", "Customer Portal", "Vendor", "In-house"),
+        ("set", "Customer Portal", "Version", "1.0"),
+        ("set", "Customer Portal", "AnnualCost", 450000),
+        ("add", "Customer Portal", "Access", "Claim Record"),
+    ]),
+    ("user_model_sub_admin", "Customer Portal goes live; Policy Administration System upgraded", [
+        ("set", "Customer Portal", "Lifecycle", "Production"),
+        ("set", "Customer Portal", "ArchitectureState", "Baseline"),
+        ("set", "Customer Portal", "Version", "1.4"),
+        ("set", "Customer Portal", "GoLiveDate", "2026-03-01"),
+        ("set", "Policy Administration System", "Version", "11.0"),
+        ("set", "Policy Administration System", "AnnualCost", 4600000),
+    ]),
+    ("user_architect", "Customer Portal: new owner, serves the claims department directly", [
+        ("set", "Customer Portal", "Owner", "Head of Digital"),
+        ("set", "Customer Portal", "AnnualCost", 520000),
+        ("remove", "Customer Portal", "Serving", "Claims Platform"),
+        ("add", "Customer Portal", "Serving", "Claims Department"),
+    ]),
+    ("user_model_admin", "Customer Portal made critical and moved to SaaS; Policy Administration System to be phased out", [
+        ("describe", "Customer Portal", "Self-service portal for policyholders and brokers: claims, policy changes and documents", None),
+        ("set", "Customer Portal", "Criticality", 5),
+        ("set", "Customer Portal", "Hosting", "SaaS"),
+        ("clear", "Customer Portal", "Vendor", None),
+        ("add", "Customer Portal", "Realization", "Claims Management"),
+        ("set", "Policy Administration System", "Lifecycle", "Phase Out"),
+        ("set", "Policy Administration System", "Owner", "Head of Policy and Admin IT"),
+    ]),
+]
+
+
+def history_demo_steps(k: str = SAMPLE_KEY) -> list[tuple[str, str]]:
+    """HISTORY_DEMO as (actor, SQL) per step, for the sample model."""
+    m = gid("model", k)
+    dtype = {code: DATA_TYPES[dt] for code, _n, dt, *_ in A.ATTRS}
+    present = {(name, attr) for _t, name, _d, attrs in A.SAMPLE_ENTITIES for attr in attrs}
+    steps = []
+    for actor, note, actions in HISTORY_DEMO:
+        sql = [f"SELECT set_config('eax.actor', {lit(actor)}, true);\n",
+               f"SELECT set_config('eax.history_label', {lit('Laptop history demo: ' + note)}, true);\n"]
+        for op, name, what, value in actions:
+            e = gid(k, "entity", name)
+            if op == "describe":
+                sql.append(f"UPDATE core.entities SET description = {lit(what)} WHERE guid = '{e}';\n")
+            elif op in ("set", "clear"):
+                dt = dtype[what]
+                col = STORAGE[dt]
+                if dt == "date" and value is not None:
+                    value = date.fromisoformat(value)
+                g = gid(k, "attribute_value", name, what)
+                if (name, what) in present or op == "clear":
+                    sql.append(f"UPDATE core.attribute_values SET {col} = {lit(value)} WHERE guid = '{g}';\n")
+                else:
+                    row = {"value_text": None, "value_number": None, "value_date": None}
+                    row[col] = value
+                    sql.append(insert("attribute_value", ["id", "model_id", "attribute_type_id", "entity_id", "value_text",
+                                                          "value_number", "value_date"],
+                                      [[g, m, gid(k, "attribute_type", what), e, row["value_text"], row["value_number"],
+                                        row["value_date"]]]))
+                    present.add((name, what))
+            elif op == "add":
+                sql.append(insert("relationship", ["id", "model_id", "relationship_type_id", "source_entity_id",
+                                                   "target_entity_id"],
+                                  [[gid(k, "relationship", name, what, value), m, gid(k, "relationship_type", what), e,
+                                    gid(k, "entity", value)]]))
+            elif op == "remove":
+                sql.append(f"UPDATE core.relationships SET is_deleted = true "
+                           f"WHERE guid = '{gid(k, 'relationship', name, what, value)}';\n")
+        steps.append((actor, "".join(sql)))
+    return steps
+
+
+def test_models_sql() -> str:
+    """Laptop test models (phase 3.1), for trying roles and model assignments:
+      Fynbos Mutual (group)       project, created from the Insurance reference model (full copy)
+        Fynbos Life               project, derived from the group (merges into it): life products only
+        Fynbos Commercial         project, derived from the group: short-term and commercial products only
+      Karoo Re (independent)      project, created from the ArchiMate 4 template, sample content, plus
+                                  relationship rules and entities that break rules (D113)
+    Fynbos Mutual is a fictitious insurer."""
+    group_id, life_id, com_id, karoo_id = (gid("model", k) for k in (GROUP_KEY, LIFE_KEY, COMMERCIAL_KEY, KAROO_KEY))
+    cols = ["id", "origin_id", "name", "description", "kind_code", "source_model_id", "parent_model_id",
+            "metamodel_name", "owner", "industry"]
+    not_product = lambda t, n, keep: t != "Product" or n in keep  # noqa: E731
+    return "".join([
+        "SELECT set_config('eax.history_label', 'Laptop test models', true);\n",
+        insert("model", cols, [[group_id, INSURANCE_ID, "Fynbos Mutual (group)",
+                                "Test model: Fynbos Mutual, a fictitious South African insurer, created from the Insurance "
+                                "reference model. Its life and commercial models derive from it.",
+                                "project", INSURANCE_ID, None, "ArchiMate 4", "Fynbos group architecture", "Insurance"]]),
+        metamodel_sql(GROUP_KEY, INSURANCE_KEY),
+        insurance_content_sql(GROUP_KEY, INSURANCE_KEY),
+        insert("model", cols, [
+            [life_id, group_id, "Fynbos Life", "Test model: the life and funeral business, derived from the Fynbos group model.",
+             "project", group_id, group_id, "ArchiMate 4", "Fynbos Life architecture", "Insurance"],
+            [com_id, group_id, "Fynbos Commercial", "Test model: the short-term and commercial business, derived from the "
+             "Fynbos group model.", "project", group_id, group_id, "ArchiMate 4", "Fynbos Commercial architecture", "Insurance"]]),
+        metamodel_sql(LIFE_KEY, GROUP_KEY),
+        insurance_content_sql(LIFE_KEY, GROUP_KEY, lambda t, n: not_product(t, n, LIFE_PRODUCTS)),
+        metamodel_sql(COMMERCIAL_KEY, GROUP_KEY),
+        insurance_content_sql(COMMERCIAL_KEY, GROUP_KEY, lambda t, n: not_product(t, n, COMMERCIAL_PRODUCTS)),
+        insert("model", cols, [[karoo_id, TEMPLATE_ID, "Karoo Re (independent)",
+                                "Test model: an independent model created from the ArchiMate 4 template, not related to Fynbos.",
+                                "project", TEMPLATE_ID, None, "ArchiMate 4", "Karoo Re architecture", "Reinsurance"]]),
+        metamodel_sql(KAROO_KEY, TEMPLATE_KEY),
+        sample_content_sql(KAROO_KEY),
+        rules_demo_sql(),
+        lean_sql(),
+    ])
+
+
+# Laptop only: rules about relationships and entities that break rules, in Karoo Re, so each entity's
+# Rules tab and the Failing checks tab have something to show (D113). (type, name, description, values,
+# relationships as (relationship type, other entity, outgoing?)); a key keeps two same-named entities apart.
+RULE_DEMO_RULES = [
+    # entity type, relationship type, other entity type, severity, message
+    ("ApplicationComponent", "Realization", "Capability", "warning", "An application realises at least one capability"),
+    ("ApplicationComponent", "Serving", "", "warning", "An application serves someone or something"),
+    ("Capability", "Realization", "Application Component", "warning", "A capability is realised by at least one application"),
+    ("Requirement", "Realization", "Goal", "error", "A requirement realises a goal"),
+]
+RULE_DEMO_ENTITIES = [
+    ("legacy-sheet", "ApplicationComponent", "Legacy Claims Spreadsheet",
+     "Rules demo: no owner, criticality out of range, a version and URL that break their patterns, a negative cost, "
+     "retiring without a retirement date, and no relationships",
+     {"Lifecycle": "Retiring", "Criticality": 7, "Version": "v2 beta", "AnnualCost": -500, "Url": "intranet/claims"}, []),
+    ("broker-portal-1", "ApplicationComponent", "Broker Portal",
+     "Rules demo: shares its name with another application, went live in 1985, retired before it went live, and realises "
+     "no capability",
+     {"Owner": "Broker Services", "Lifecycle": "Production", "Criticality": 3, "GoLiveDate": "1985-06-01",
+      "RetirementDate": "1980-01-01"}, [("Serving", "Claims Department", True)]),
+    ("broker-portal-2", "ApplicationComponent", "Broker Portal",
+     "Rules demo: a second application with the same name; otherwise every rule passes",
+     {"Owner": "Broker Services", "Lifecycle": "Phase In", "Criticality": 2, "Version": "0.9"},
+     [("Serving", "Claims Department", True), ("Realization", "Claims Management", True)]),
+    ("fraud-detection", "Capability", "Fraud Detection",
+     "Rules demo: a capability level out of range, and no application realises it", {"Owner": "COO", "CapabilityLevel": 6}, []),
+    ("paperless-claims", "Requirement", "Paperless claims",
+     "Rules demo: a requirement that realises no goal", {"Owner": "Claims Operations", "Priority": "Should"}, []),
+    ("dc-exit", "WorkPackage", "Data Centre Exit",
+     "Rules demo: ends before it starts", {"Owner": "Infrastructure", "StartDate": "2026-09-01", "EndDate": "2026-03-31"}, []),
+]
+
+
+def rules_demo_sql(k: str = KAROO_KEY) -> str:
+    """Laptop only (D113): relationship rules for Karoo Re's metamodel, and entities in Karoo Re that break
+    value rules, the relationship rules and the unique-name rule, for the Rules and Failing checks tabs."""
+    m = gid("model", k)
+    dtype = {code: DATA_TYPES[dt] for code, _n, dt, *_ in A.ATTRS}
+    rules = [[gid(k, "validation_rule", "rules-demo", t, r, o), m, gid(k, "entity_type", t), "relationships",
+              "has_relationship", r, o, sev, msg, 900 + i] for i, (t, r, o, sev, msg) in enumerate(RULE_DEMO_RULES)]
+    ents, vals, rels = [], [], []
+    for key, t, name, desc, attrs, links in RULE_DEMO_ENTITIES:
+        e = gid(k, "entity", "rules-demo", key)
+        ents.append([e, m, gid(k, "entity_type", t), name, desc])
+        for attr, value in attrs.items():
+            col = STORAGE[dtype[attr]]
+            if dtype[attr] == "date":
+                value = date.fromisoformat(value)
+            row = {"value_text": None, "value_number": None, "value_date": None}
+            row[col] = value
+            vals.append([gid(k, "attribute_value", "rules-demo", key, attr), m, gid(k, "attribute_type", attr), e,
+                         row["value_text"], row["value_number"], row["value_date"]])
+        for rel, other, outgoing in links:
+            o = gid(k, "entity", other)
+            src, tgt = (e, o) if outgoing else (o, e)
+            rels.append([gid(k, "relationship", "rules-demo", key, rel, other), m, gid(k, "relationship_type", rel), src, tgt])
+    return "".join([
+        "SELECT set_config('eax.history_label', 'Laptop rules demo', true);\n",
+        insert("validation_rule", ["id", "model_id", "entity_type_id", "field_name", "rule_type_code", "param1", "param2",
+                                   "severity", "message", "sort_order"], rules),
+        insert("entity", ["id", "model_id", "entity_type_id", "name", "description"], ents),
+        insert("attribute_value", ["id", "model_id", "attribute_type_id", "entity_id", "value_text", "value_number",
+                                   "value_date"], vals),
+        insert("relationship", ["id", "model_id", "relationship_type_id", "source_entity_id", "target_entity_id"], rels),
+    ])
+
+
+def lean_sql() -> str:
+    """Laptop test models (D81): an organisation's own root metamodel built from scratch, created from the
+    Root model (not ArchiMate): Lean EA metamodel 1.0, with five types in three layers, four relationship
+    types and two attributes; and Karoo Digital, a project model created from it with a little content.
+    The root is not locked: its Model Admin (user_model_creator on laptops) changes it."""
+    k, p = LEAN_KEY, LEAN_PROJECT_KEY
+    layers = [("Business", "ffffb5"), ("Application", "b5ffff"), ("Technology", "c9e7b7")]
+    types = [("Capability", "Capability", "Business", "CAP"), ("BusinessProcess", "Business Process", "Business", "PRC"),
+             ("Application", "Application", "Application", "APP"), ("DataEntity", "Data Entity", "Application", "DAT"),
+             ("Platform", "Platform", "Technology", "PLT")]
+    rels = [("Supports", "supports", "Dependency"), ("Uses", "uses", "Dependency"),
+            ("Owns", "owns", "Structural"), ("RunsOn", "runs on", "Dependency")]
+    allowed = [("Application", "Supports", "Capability"), ("Application", "Supports", "BusinessProcess"),
+               ("BusinessProcess", "Uses", "Application"), ("Application", "Owns", "DataEntity"),
+               ("Application", "RunsOn", "Platform"), ("Capability", "Owns", "Capability")]
+    attrs = [("Owner", "Owner", "text", None), ("Criticality", "Criticality", "list", "Criticality")]
+
+    def metamodel(key, origin):
+        m = gid("model", key)
+        o = (lambda *x: gid(origin, *x)) if origin else (lambda *x: None)
+        out = [insert("layer", ["id", "origin_id", "model_id", "code", "name", "colour", "sort_order"],
+                      [[gid(key, "layer", n), o("layer", n), m, snake(n), n, c, i * 10] for i, (n, c) in enumerate(layers, 1)])]
+        out.append(insert("entity_type", ["id", "origin_id", "model_id", "layer_id", "code", "name", "id_prefix", "table_name", "sort_order"],
+                          [[gid(key, "entity_type", c), o("entity_type", c), m, gid(key, "layer", lay), c, n, pre, snake(c), i * 10]
+                           for i, (c, n, lay, pre) in enumerate(types, 1)]))
+        out.append(insert("relationship_type", ["id", "origin_id", "model_id", "code", "name", "verb", "category", "is_directed", "sort_order"],
+                          [[gid(key, "relationship_type", c), o("relationship_type", c), m, c, c, v, cat, True, i * 10]
+                           for i, (c, v, cat) in enumerate(rels, 1)]))
+        out.append(insert("pick_list", ["id", "origin_id", "model_id", "code", "name"],
+                          [[gid(key, "pick_list", "Criticality"), o("pick_list", "Criticality"), m, "Criticality", "Criticality"]]))
+        out.append(insert("pick_list_value", ["id", "origin_id", "model_id", "pick_list_id", "value", "sort_order"],
+                          [[gid(key, "pick_list_value", "Criticality", v), o("pick_list_value", "Criticality", v), m,
+                            gid(key, "pick_list", "Criticality"), v, i * 10] for i, v in enumerate(["High", "Medium", "Low"], 1)]))
+        out.append(insert("attribute_type", ["id", "origin_id", "model_id", "code", "name", "data_type_code", "pick_list_id", "column_name"],
+                          [[gid(key, "attribute_type", c), o("attribute_type", c), m, c, n, dt,
+                            gid(key, "pick_list", pl) if pl else None, snake(c)] for c, n, dt, pl in attrs]))
+        out.append(insert("item_attribute", ["id", "origin_id", "model_id", "attribute_type_id", "entity_type_id", "is_required", "section", "sort_order"],
+                          [[gid(key, "item_attribute", t, a), o("item_attribute", t, a), m, gid(key, "attribute_type", a),
+                            gid(key, "entity_type", t), False, "General", j * 10]
+                           for t, *_ in types for j, (a, *_r) in enumerate(attrs, 1)]))
+        out.append(insert("allowed_relationship", ["id", "origin_id", "model_id", "relationship_type_id", "source_type_id", "target_type_id"],
+                          [[gid(key, "allowed_relationship", s_, r, t), o("allowed_relationship", s_, r, t), m,
+                            gid(key, "relationship_type", r), gid(key, "entity_type", s_), gid(key, "entity_type", t)]
+                           for s_, r, t in allowed]))
+        return "".join(out)
+
+    cols = ["id", "origin_id", "name", "description", "kind_code", "source_model_id", "metamodel_name", "is_locked",
+            "owner", "version_label", "industry"]
+    ents = [("Capability", "Customer Onboarding"), ("Capability", "Claims Handling"), ("BusinessProcess", "Register a claim"),
+            ("Application", "Karoo Portal"), ("Application", "Claims Engine"), ("DataEntity", "Claim"), ("Platform", "Azure")]
+    links = [("Karoo Portal", "Supports", "Customer Onboarding"), ("Claims Engine", "Supports", "Claims Handling"),
+             ("Register a claim", "Uses", "Claims Engine"), ("Claims Engine", "Owns", "Claim"), ("Claims Engine", "RunsOn", "Azure")]
+    pm = gid("model", p)
+    return "".join([
+        "SELECT set_config('eax.history_label', 'Laptop test models: a root metamodel from scratch', true);\n",
+        insert("model", cols, [[gid("model", k), None, "Lean EA metamodel",
+                                "Test model: an organisation's own root metamodel built from scratch (from the Root model, "
+                                "not ArchiMate): five types in three layers. Its Model Admin changes it.",
+                                "template", EMPTY_ID, "Lean EA metamodel 1.0", False, "Karoo enterprise architecture", "1.0", ""]]),
+        metamodel(k, None),
+        insert("model", cols, [[pm, gid("model", k), "Karoo Digital (lean)",
+                                "Test model: a working model created from the Lean EA metamodel.",
+                                "project", gid("model", k), "Lean EA metamodel 1.0", False, "Karoo digital team", "", "Reinsurance"]]),
+        metamodel(p, k),
+        insert("entity", ["id", "model_id", "entity_type_id", "name"], [[gid(p, "entity", n), pm, gid(p, "entity_type", t), n] for t, n in ents]),
+        insert("relationship", ["id", "model_id", "relationship_type_id", "source_entity_id", "target_entity_id"],
+               [[gid(p, "relationship", a, r, b), pm, gid(p, "relationship_type", r), gid(p, "entity", a), gid(p, "entity", b)] for a, r, b in links]),
+    ])
 
 
 def seed_sql(with_template: bool = True, with_sample: bool = True, with_insurance: bool = True) -> str:
@@ -306,12 +585,19 @@ def seed_sql(with_template: bool = True, with_sample: bool = True, with_insuranc
     parts = ["SELECT set_config('eax.actor', 'system:seed', true);\n"]
     if with_template:
         parts += [
-            "SELECT set_config('eax.history_label', 'ArchiMate 4 seed', true);\n",
+            "SELECT set_config('eax.history_label', 'Root model and ArchiMate 4 seed', true);\n",
+            # the top of the model hierarchy (D81): every root metamodel is created from it
             insert("model", ["id", "name", "description", "kind_code", "metamodel_name", "is_locked", "owner"], [[
+                EMPTY_ID, "Root",
+                "The root of the model hierarchy: no layers, types or content. Every root metamodel (ArchiMate 4, "
+                "ArchiMate 5 when it comes, an organisation's own) is created from it. Read-only.",
+                "template", "None", True, "EA Explorer"]]),
+            insert("model", ["id", "name", "description", "kind_code", "source_model_id", "metamodel_name", "is_locked",
+                             "owner"], [[
                 TEMPLATE_ID, "ArchiMate 4",
-                "The ArchiMate 4 starter metamodel: 42 elements, 11 relationship types and the allowed "
+                "The ArchiMate 4 root metamodel: 42 elements, 11 relationship types and the allowed "
                 "relationships. Read-only; new models start from it.",
-                "template", "ArchiMate 4", True, "EA Explorer"]]),
+                "template", EMPTY_ID, "ArchiMate 4", True, "EA Explorer"]]),
             metamodel_sql(TEMPLATE_KEY, None),
         ]
     if with_insurance:

@@ -1,9 +1,9 @@
 """Changing a model's metamodel, its versions and history, failing checks and model locks (build phase 3).
 
 Writes go through eax.metamodel_edit (one change = one new metamodel version, D72); reads through
-eax.repository. Every write is audited. Who may do what is enforced from build phase 3.1 (roles);
-until then every signed-in user may change project models. Templates and reference models are
-refused by the database whoever asks.
+eax.repository. Every write is audited. Only Model Admins and Super Admins change a metamodel or
+lock a model (D89, phase 3.1), checked here and again by the database. Templates and reference
+models are refused by the database whoever asks.
 """
 
 from __future__ import annotations
@@ -201,7 +201,9 @@ def _write(model_id, action: str, details: dict, fn, *args, dry_run: bool = Fals
             abort(404, message=str(exc))
         except DBAPIError as exc:
             trans.rollback()
-            abort(409, message=ed._db_message(exc))
+            # insufficient_privilege: the database's own permission check (phase 3.1)
+            abort(403 if getattr(getattr(exc, "orig", None), "sqlstate", None) == "42501" else 409,
+                  message=ed._db_message(exc))
         if dry_run:
             trans.rollback()
             return result
@@ -218,7 +220,7 @@ class MetamodelChange(MethodView):
     @blp.doc(security=SECURITY)
     @blp.arguments(ChangeIn)
     @blp.response(200, ChangeOut)
-    @require_auth()
+    @require_auth("model.metamodel")
     def post(self, body, model_id):
         """Make one change to a project model's metamodel (or, with dry_run, see what it would do)
 
@@ -290,7 +292,7 @@ class ModelLock(MethodView):
     @blp.doc(security=SECURITY)
     @blp.arguments(LockIn)
     @blp.response(200, LockOut)
-    @require_auth()
+    @require_auth("model.lock")
     def put(self, body, model_id):
         """Lock the model: metamodel (metamodel read-only), content (metamodel and content read-only) or
         maintenance (only you may change it until you lift the lock)"""
@@ -298,7 +300,7 @@ class ModelLock(MethodView):
 
     @blp.doc(security=SECURITY)
     @blp.response(200, LockOut)
-    @require_auth()
+    @require_auth("model.lock")
     def delete(self, model_id):
         """Lift the model's lock"""
         return _write(model_id, "model.unlock", {}, ed.clear_lock, model_id, g.user.username)

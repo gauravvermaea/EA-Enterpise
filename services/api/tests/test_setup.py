@@ -16,6 +16,43 @@ def test_certificate_is_created_once(tmp_path):
     assert ensure_certificate(tmp_path, "localhost") is False
 
 
+def test_site_certificate_is_signed_by_the_local_ca(tmp_path):
+    """D107: a local CA signs the site certificate; its key is not kept; it may vouch only for our names."""
+    from cryptography import x509
+    from cryptography.hazmat.primitives.asymmetric import padding
+    ensure_certificate(tmp_path, "eax.example.test")
+    ca = x509.load_pem_x509_certificate((tmp_path / "ca.crt").read_bytes())
+    site = x509.load_pem_x509_certificates((tmp_path / "tls.crt").read_bytes())[0]
+    ca.public_key().verify(site.signature, site.tbs_certificate_bytes, padding.PKCS1v15(), site.signature_hash_algorithm)
+    assert site.issuer == ca.subject
+    sans = site.extensions.get_extension_for_class(x509.SubjectAlternativeName).value.get_values_for_type(x509.DNSName)
+    assert {"eax.example.test", "reports.eax.example.test", "docs.eax.example.test", "localhost"} <= set(sans)
+    nc = ca.extensions.get_extension_for_class(x509.NameConstraints).value
+    assert {g.value for g in nc.permitted_subtrees if isinstance(g, x509.DNSName)} == {"eax.example.test", "localhost"}
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["ca.crt", "tls.crt", "tls.key"]   # no CA key on disk
+
+
+def test_certificate_is_remade_for_a_new_host_but_an_organisations_own_is_left(tmp_path):
+    ensure_certificate(tmp_path, "localhost")
+    assert ensure_certificate(tmp_path, "eax.example.test") is True    # ours, for another host: remade
+    own = tmp_path / "own"
+    own.mkdir()
+    ensure_certificate(own, "localhost")
+    (own / "ca.crt").unlink()
+    import datetime as dt
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    k = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name([x509.NameAttribute(x509.oid.NameOID.ORGANIZATION_NAME, "Fynbos Mutual")])
+    now = dt.datetime.now(dt.UTC)
+    cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(k.public_key())
+            .serial_number(1).not_valid_before(now).not_valid_after(now + dt.timedelta(days=5)).sign(k, hashes.SHA256()))
+    (own / "tls.crt").write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    assert ensure_certificate(own, "eax.example.test") is False   # an organisation's own: never touched
+
+
 def test_realm_renders_to_valid_json(tmp_path, monkeypatch):
     for line in (REPO / "deploy/templates/eaexplorer.laptop.env").read_text().splitlines():
         if line and not line.startswith("#") and "=" in line:

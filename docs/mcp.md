@@ -6,19 +6,28 @@ hosted. The start page has an **MCP server** page with ready-to-copy connection 
 
 | | Laptop | Server |
 | --- | --- | --- |
-| Address | `http://localhost:8001/mcp` (also `https://localhost/mcp`) | `https://<EAX_HOSTNAME>/mcp` |
+| Address | `http://localhost/mcp` or `https://localhost/mcp` (both through nginx) | `https://<EAX_HOSTNAME>/mcp` |
 | Transport | Streamable HTTP | Streamable HTTP |
 | Sign-in | `Authorization: Bearer P^55w0rd1234&` (EAX_MCP_DEV_TOKEN) or a Keycloak token | `Authorization: Bearer <Keycloak access token>` |
 
-On a laptop use the plain-http address: MCP clients reject the self-signed certificate of
-`https://localhost`. The development token is accepted on laptops only.
+Everything goes through nginx (D107). On a laptop the MCP server answers on both
+`http://localhost/mcp` (this computer only, no certificate needed) and `https://localhost/mcp`. For
+https, trust the local certificate once with `.\eax trust`; MCP clients that run on Node (Claude
+Code, `mcp-remote` for Claude Desktop) also need to be told about it, because Node does not read the
+Windows certificate store:
+
+```powershell
+setx NODE_EXTRA_CA_CERTS "C:\path\to\EA-Explorer\work\data\tls\ca.crt"   # then open a new window
+```
+
+The development token is accepted on laptops only.
 
 ## Connect
 
 Claude Code:
 
 ```powershell
-claude mcp add --transport http eaexplorer http://localhost:8001/mcp --header "Authorization: Bearer P^55w0rd1234&"
+claude mcp add --transport http eaexplorer http://localhost/mcp --header "Authorization: Bearer P^55w0rd1234&"
 ```
 
 Claude Desktop (`claude_desktop_config.json`; needs Node.js for `npx`):
@@ -28,7 +37,7 @@ Claude Desktop (`claude_desktop_config.json`; needs Node.js for `npx`):
   "mcpServers": {
     "eaexplorer": {
       "command": "npx",
-      "args": ["-y", "mcp-remote", "http://localhost:8001/mcp", "--header", "Authorization:${EAX_TOKEN}"],
+      "args": ["-y", "mcp-remote", "http://localhost/mcp", "--header", "Authorization:${EAX_TOKEN}"],
       "env": { "EAX_TOKEN": "Bearer P^55w0rd1234&" }
     }
   }
@@ -43,7 +52,7 @@ start it again; *eaexplorer* then appears under the tools. The token goes in `en
 **Why not "Add custom connector"?** The *Connectors > Add custom connector* screen in Claude Desktop
 and claude.ai asks for an `https://` address because Anthropic's servers make those calls, not your
 computer. They cannot reach `localhost` at all, even over https. On a laptop use Claude Code or the
-config file above: both run on your computer and talk to `http://localhost:8001` directly.
+config file above: both run on your computer and talk to `http://localhost/mcp` on your own computer.
 Custom connectors become possible on a server installation with a public https address and sign-in
 through Keycloak (requirement AI-011, build phase 26).
 
@@ -52,9 +61,13 @@ shell: run the command in PowerShell (not cmd), or set `EAX_MCP_DEV_TOKEN` in `w
 to a value with letters and digits only and restart the api container.
 
 MCP Inspector (to try the tools by hand): `npx @modelcontextprotocol/inspector`, then Transport
-*Streamable HTTP*, URL `http://localhost:8001/mcp`, header `Authorization: Bearer P^55w0rd1234&`.
+*Streamable HTTP*, URL `http://localhost/mcp`, header `Authorization: Bearer P^55w0rd1234&`.
 
 ## Tools (read only until build phase 6)
+
+From phase 3.1 every tool answers as the person whose token it is: they see only the models their
+roles and assignments allow (the database enforces it too), and the server refuses to answer when it
+cannot tell who is asking. The laptop development token signs in as a Super Admin.
 
 | Tool | What it returns |
 | --- | --- |
@@ -70,6 +83,7 @@ MCP Inspector (to try the tools by hand): `npx @modelcontextprotocol/inspector`,
 | `list_relationships(model, relationship_type?)` | Every relationship (or of one type): source, type, target, allowed by the metamodel or not |
 | `list_relationship_types(model)` | Relationship types with how often each is used and how many uses break the rules |
 | `check_entities(model, entity_type)` | One type's entities with their values and validation results (errors, warnings, messages) |
+| `get_entity_rules(model, entity)` | Every rule applied to the entity (values, duplicates, relationships it must have): passed, failed or not applicable; and each relationship against the metamodel |
 | `get_entity_history(model, entity)` | Every change to the entity, its attribute values and relationships: when, who, old and new values |
 | `get_neighbourhood(model, entity, depth?, direction?, relationship_types?)` | The entity and everything within 1 to 3 steps (relationships and parent hierarchy) as nodes and edges; `direction` out or in follows one way only (impact, dependencies; up to 6 steps) |
 | `find_paths(model, source, target, max_steps?, relationship_types?)` | The shortest chains connecting two entities, through relationships either way and the parent hierarchy |
@@ -86,7 +100,7 @@ Models, entity types and entities can be given by guid or by name. Lists come ba
 ## How it is built and kept up to date
 
 `services/api/eax/mcp_server.py` runs in the api container next to the REST API (uvicorn on port
-8001, behind the proxy at `/mcp`; switch it off with `EAX_MCP_ENABLED=false`). Its tools call
+8001 inside Docker, reached only through nginx at `/mcp`, D107; switch it off with `EAX_MCP_ENABLED=false`). Its tools call
 `eax.repository`, the same functions as the REST API, so **every build phase adds its repository
 functions there and the matching MCP tools at the same time**. Write tools (create and change
 content, through the staging and publishing workflow) arrive with data entry.

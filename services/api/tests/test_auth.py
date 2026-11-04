@@ -20,7 +20,7 @@ def make_token(private_key, **overrides):
     claims = {
         "iss": ISSUER, "aud": ["eax-api", "account"], "sub": "u1", "iat": now, "exp": now + 300,
         "preferred_username": "eaadmin", "email": "eaadmin@example.org",
-        "realm_access": {"roles": ["viewer", "system-admin"]},
+        "realm_access": {"roles": ["eax-it-admin", "offline_access"]},
     }
     claims.update(overrides)
     return jwt.encode(claims, private_key, algorithm="RS256")
@@ -29,9 +29,11 @@ def make_token(private_key, **overrides):
 def test_valid_token_gives_user_and_roles(keypair):
     private, public = keypair
     claims = auth.decode_token(make_token(private), key=public)
-    user = auth.user_from_claims(claims)
+    user = auth.user_from_claims(claims, {"eax-user": {"user"}, "eax-it-admin": {"it-admin"}})
     assert user.username == "eaadmin"
-    assert user.has_role("system-admin")
+    assert user.keycloak_roles == ["eax-it-admin", "offline_access"]
+    assert user.roles == ["it-admin"] and user.can("system.operate") and not user.can("model.read")
+    assert user.can("model.content", "architect")   # a model role, given per model
 
 
 def test_issuer_with_explicit_port_is_accepted(keypair):

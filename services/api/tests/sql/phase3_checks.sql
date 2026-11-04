@@ -31,6 +31,11 @@ BEGIN
            (SELECT count(*) FROM core.models), 'every model has its first metamodel version';
     ASSERT NOT EXISTS (SELECT 1 FROM core.entities WHERE created_mm_version IS NULL), 'entities carry their metamodel version';
 
+    -- a model created after the migration starts at version 1 too
+    INSERT INTO core.models (name, kind_code, metamodel_name) VALUES ('Check new model', 'project', 'ArchiMate 4');
+    ASSERT (SELECT v.version FROM core.metamodel_versions v JOIN core.models m ON m.id = v.model_id
+             WHERE m.name = 'Check new model') = 1, 'a new model has its first metamodel version';
+
     -- publishing a version bumps the model, writes the version row and labels the history
     v_ver := core.publish_metamodel_version(v_m, 'check: new entity type');
     ASSERT v_ver = (SELECT metamodel_version FROM core.models WHERE id = v_m), 'model carries the new version';

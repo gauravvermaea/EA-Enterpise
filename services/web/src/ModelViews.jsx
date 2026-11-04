@@ -606,6 +606,9 @@ function moments(events) {
     if (!g || g.key !== key) out.push(g = { key, id: ev.id, at: ev.at, by: ev.by, events: [] });
     g.events.push(ev);
   }
+  // within a moment: the entity itself first (created or changed), then its values, then relationships
+  const order = { entity: 0, attribute: 1, relationship: 2 };
+  out.forEach((g) => g.events.sort((x, y) => (order[x.kind] ?? 9) - (order[y.kind] ?? 9)));
   return out;
 }
 
@@ -615,13 +618,26 @@ function AsOfPanel({ model, m, entityId, point, list, index, setPoint }) {
   const rows = [...a.fields.map((f) => ({ ...f, section: "Basic", name: f.field })), ...a.attributes];
   const changed = rows.filter((r) => r.changed).length;
   const removed = a.relationships.filter((r) => !r.still_there);
+  // what this moment itself did (highlighted; hover a highlighted value for its old value)
+  const created = !!a.moment?.created;
+  const here = rows.filter((r) => r.changed_here).length;
+  const addedHere = a.relationships.filter((r) => r.added_here).length;
+  const removedHere = a.moment?.removed_relationships || [];
+  const did = [
+    created && "created the entity",
+    here && `${created ? "set" : "changed"} ${here} value${here > 1 ? "s" : ""}`,
+    addedHere && `added ${addedHere} relationship${addedHere > 1 ? "s" : ""}`,
+    removedHere.length && `removed ${removedHere.length} relationship${removedHere.length > 1 ? "s" : ""}`,
+  ].filter(Boolean);
   return (
     <div>
       <div className="asof-head">
         <div>
           <strong>As it was on {new Date(a.as_of.at).toLocaleString()}</strong>
           <span className="quiet"> · after a change by {a.as_of.by} · change {a.as_of.position} of {a.as_of.of}</span>
-          <div className="quiet">{changed ? `${changed} value${changed > 1 ? "s" : ""} differ from now (shaded)` : "Every value is the same as now"}
+          <div className="asof-did">This change {did.length ? did.join(", ") : "changed nothing shown here"}
+            {here > 0 && <span className="quiet"> (highlighted in yellow{created ? "" : ", shown as old → new"})</span>}</div>
+          <div className="quiet">{changed ? `${changed} value${changed > 1 ? "s" : ""} differ from now (shaded in the Now column)` : "Every value is the same as now"}
             {removed.length > 0 && ` · ${removed.length} relationship${removed.length > 1 ? "s" : ""} since removed`}
             {a.added_since.length > 0 && ` · ${a.added_since.length} added since`}</div>
         </div>
@@ -637,25 +653,44 @@ function AsOfPanel({ model, m, entityId, point, list, index, setPoint }) {
             ...a.added_since.map((r) => ["Relationship", `${r.direction === "outgoing" ? "" : "← "}${r.verb} ${r.other_name}`, "", "yes", "yes"])]} />
       </div>
       <table className="grid-table attr-table asof">
-        <thead><tr><th>Field</th><th>Then</th><th>Now</th></tr></thead>
+        <thead><tr><th>Field</th><th>Then: this change, old → new</th><th>Now</th></tr></thead>
         <tbody>
-          {rows.map((r, i) => (
-            <tr key={`${r.name}-${i}`} className={r.changed ? "was-different" : ""}>
-              <th>{r.name}</th>
-              <td>{r.then ?? <span className="quiet">not set</span>}</td>
-              <td className="quiet">{r.now ?? "not set"}</td>
-            </tr>
-          ))}
+          {rows.map((r, i) => {
+            const isHere = r.changed_here;
+            const how = created ? "set" : r.before == null ? "set" : r.then == null ? "cleared" : "changed";
+            return (
+              <tr key={`${r.name}-${i}`} className={isHere ? "changed-here" : ""}>
+                <th>{r.name}{isHere && <span className={`here-chip ${how}`}>{created ? "set when created" : `${how} here`}</span>}</th>
+                <td className={isHere ? "then-here" : ""}>
+                  {isHere && !created ? (
+                    <span className="old-new">
+                      <span className="old-val" title="Old value, before this change">{r.before ?? <em>not set</em>}</span>
+                      <span className="arrow" aria-label="changed to">→</span>
+                      <span className="new-val" title="New value, after this change">{r.then ?? <em>not set</em>}</span>
+                    </span>
+                  ) : (r.then ?? <span className="quiet">not set</span>)}
+                </td>
+                <td className={r.changed ? "differs-now" : "quiet"}>{r.now ?? "not set"}</td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
       <h3>Relationships then ({a.relationships.length})</h3>
       {!a.relationships.length && <p className="quiet">None.</p>}
       <ul className="asof-rels">
         {a.relationships.map((r, i) => (
-          <li key={i} className={r.still_there ? "" : "gone"}>
+          <li key={i} className={`${r.still_there ? "" : "gone"}${r.added_here ? " added-here" : ""}`}>
             {r.direction === "outgoing" ? <>{a.entity.name} <em>{r.verb}</em> → </> : <>← <em>{r.verb}</em> </>}
             {r.other_id ? <a href={`#/metamodel/${model}/entity/${r.other_id}`}>{r.other_name}</a> : r.other_name}
+            {r.added_here && <span className="here-chip added">added here</span>}
             {!r.still_there && <span className="sev warning">removed since</span>}
+          </li>
+        ))}
+        {removedHere.map((r, i) => (
+          <li key={`gone-${i}`} className="removed-here" title="This change removed the relationship">
+            <del>{r.direction === "outgoing" ? <>{a.entity.name} <em>{r.verb}</em> → </> : <>← <em>{r.verb}</em> </>}{r.other_name}</del>
+            <span className="here-chip removed">removed here</span>
           </li>
         ))}
       </ul>
@@ -704,11 +739,14 @@ function HistoryTab({ model, m, e }) {
                 {g.events.slice(0, 4).map((ev) => (
                   <li key={ev.id}>
                     <span className={`kind ${ev.kind}`}>{ev.kind === "attribute" ? "value" : ev.kind}</span>{" "}
-                    {ev.changes.length ? ev.changes.slice(0, 1).map((c, i) => (
-                      <span key={i}><strong>{c.field}</strong>{" "}
-                        {c.old !== null && c.old !== undefined && <><del>{c.old}</del> → </>}{c.new ?? <em className="quiet">removed</em>}</span>
+                    {ev.action === "created" ? <span><span className="act created">created</span> <strong>{ev.item}</strong></span>
+                    : ev.changes.length ? ev.changes.slice(0, 1).map((c, i) => (
+                      <span key={i}><span className={`act ${c.action}`}>{c.action}</span> <strong>{c.field}</strong>{" "}
+                        {c.action === "changed" && <><del>{c.old}</del> → {c.new}</>}
+                        {(c.action === "set" || c.action === "added") && c.new}
+                        {(c.action === "cleared" || c.action === "removed") && <del>{c.old}</del>}</span>
                     )) : <span className="quiet">{verbOf(ev.operation)} {ev.item}</span>}
-                    {ev.changes.length > 1 && <span className="quiet"> +{ev.changes.length - 1} more</span>}
+                    {ev.action !== "created" && ev.changes.length > 1 && <span className="quiet"> +{ev.changes.length - 1} more</span>}
                   </li>
                 ))}
                 {g.events.length > 4 && <li className="quiet">and {g.events.length - 4} more changes</li>}
@@ -789,12 +827,87 @@ function Lineage({ e }) {
   );
 }
 
+// Every rule applied to the entity and its relationships: passed, failed or not applicable (D113)
+const RULE_STATUS = { failed: ["✗", "Failed"], passed: ["✓", "Passed"], not_applicable: ["–", "Not applicable"] };
+
+function RulesTab({ model, e }) {
+  const { data, error } = useApi(`/api/v1/models/${model}/entities/${e.id}/rules`);
+  const [show, setShow] = useState("all");
+  if (!data) return <Loading error={error} />;
+  const s = data.summary;
+  const keep = (x) => show === "all" || x.status === show;
+  const rules = data.rules.filter(keep);
+  const rels = data.relationships.filter(keep);
+  const badge = (x) => (
+    <span className={`rule-status ${x.status}${x.status === "failed" ? ` ${x.severity}` : ""}`} title={RULE_STATUS[x.status][1]}>
+      {RULE_STATUS[x.status][0]} {x.status === "failed" ? (x.severity === "error" ? "Error" : "Warning") : RULE_STATUS[x.status][1]}
+    </span>
+  );
+  return (
+    <div>
+      <div className="toolbar">
+        {[["all", `All (${s.checks})`], ["failed", `Failed (${s.failed})`], ["passed", `Passed (${s.passed})`],
+          ["not_applicable", `Not applicable (${s.not_applicable})`]].map(([k, l]) => (
+          <button key={k} className={`chip${show === k ? " on" : ""}`} onClick={() => setShow(k)}>{l}</button>
+        ))}
+        <CsvButton name={`${e.display_id} ${e.name} - rules`} rows={() => [["Status", "Severity", "Field", "Rule", "Checks", "Value", "Message"],
+          ...data.rules.map((r) => [r.status, r.severity, r.field, r.rule_name, r.checks, r.value, r.message]),
+          ...data.relationships.map((r) => [r.status, r.severity, "Relationship", "Allowed by the metamodel",
+            `${r.direction === "outgoing" ? "" : "← "}${r.verb} ${r.other_name} (${r.other_type})`, "", r.message])]} />
+        <span className="er-spacer" />
+        <span className={s.failed ? "status bad" : "status ok"}>
+          {s.failed ? `${s.errors} error${s.errors === 1 ? "" : "s"}, ${s.warnings} warning${s.warnings === 1 ? "" : "s"}` : "Every rule passes"}
+        </span>
+      </div>
+      <h3>Rules on values and relationships ({rules.length})</h3>
+      {!rules.length ? <p className="quiet">None {show === "all" ? "apply to this entity type" : "here"}.</p> : (
+        <table className="grid-table rules-table">
+          <thead><tr><th>Result</th><th>Field</th><th>Rule</th><th>What it checks</th><th>Value</th><th>Why</th></tr></thead>
+          <tbody>
+            {rules.map((r, i) => (
+              <tr key={i} className={`rule-row ${r.status}${r.status === "failed" ? ` ${r.severity}` : ""}`}>
+                <td>{badge(r)}</td>
+                <td><strong>{r.field}</strong></td>
+                <td>{r.rule_name}</td>
+                <td>{r.checks}</td>
+                <td>{r.value ?? <span className="quiet">{r.rule === "has_relationship" ? "none found" : "not set"}</span>}</td>
+                <td className={r.status === "failed" ? "" : "quiet"}>{r.message || ""}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <h3>Each relationship against the metamodel ({rels.length})</h3>
+      {!rels.length ? <p className="quiet">None{show === "all" ? ": this entity has no relationships" : " here"}.</p> : (
+        <table className="grid-table rules-table">
+          <thead><tr><th>Result</th><th>Relationship</th><th>Other entity</th><th>Why</th></tr></thead>
+          <tbody>
+            {rels.map((r) => (
+              <tr key={r.id} className={`rule-row ${r.status}${r.status === "failed" ? ` ${r.severity}` : ""}`}>
+                <td>{badge(r)}</td>
+                <td>{r.direction === "outgoing" ? <>{e.name} <em>{r.verb}</em> →</> : <>← <em>{r.verb}</em></>}</td>
+                <td><a href={`#/metamodel/${model}/entity/${r.other_id}`}>{r.other_name}</a> <span className="quiet">{r.other_display_id} · {r.other_type}</span></td>
+                <td className={r.status === "failed" ? "" : "quiet"}>{r.message || "Allowed by the metamodel"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <p className="quiet">The rules come from the metamodel (version {data.metamodel_version}): required attributes, pick lists and the
+        type's validation rules, including the relationships an entity must have. Rules warn, they never block a save; the model's
+        Failing checks tab lists every entity that fails one.</p>
+    </div>
+  );
+}
+
 export function EntityPage({ model, m, entityId, sub }) {
   const { data: e, error } = useApi(`/api/v1/models/${model}/entities/${entityId}`);
   if (!e) return <Loading error={error} />;
   const tab = sub || "details";
   const errors = e.warnings.filter((w) => w.severity === "error").length;
-  const tabs = [["details", "Details"], ["relations", `Relations (${e.relationships.length})`], ["history", "History"], ["graph", "Graph"]];
+  const failing = e.warnings.length + e.relationships.filter((r) => !r.allowed).length;
+  const tabs = [["details", "Details"], ["relations", `Relations (${e.relationships.length})`],
+    ["rules", failing ? `Rules (${failing} failing)` : "Rules ✓"], ["history", "History"], ["graph", "Graph"]];
   return (
     <div>
       <p className="quiet crumbs">
@@ -820,6 +933,7 @@ export function EntityPage({ model, m, entityId, sub }) {
           {/* keyed by entity, so moving to another entity starts each tab afresh */}
           {tab === "details" && <DetailsTab key={e.id} model={model} m={m} e={e} />}
           {tab === "relations" && <RelationsTab key={e.id} model={model} m={m} e={e} />}
+          {tab === "rules" && <RulesTab key={e.id} model={model} e={e} />}
           {tab === "history" && <HistoryTab key={e.id} model={model} m={m} e={e} />}
           {tab === "graph" && <EntityGraphTab key={e.id} model={model} e={e} />}
         </div>

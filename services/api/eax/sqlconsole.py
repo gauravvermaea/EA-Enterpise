@@ -2,7 +2,7 @@
 
 Used by POST /api/v1/sql/query and the web screen #/sql. Rules:
   * Turned on with EAX_SQL_CONSOLE_ENABLED (default: on for laptops, off for servers).
-  * The caller must be signed in with the system-admin role AND give a PostgreSQL user and password;
+  * The caller must be signed in with the Super Admin or IT Admin role AND give a PostgreSQL user and password;
     the database's own permissions then decide what that login may see and do.
   * Only the installation's database server (EAX_DB_HOST) is used; any of its databases may be named.
   * Read-only for everyone (D52, phase 3): the run is one transaction that is always rolled back at

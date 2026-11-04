@@ -18,8 +18,11 @@ for that run (the script is not signed); the long form is
 | Stop (data kept) | `.\eax down` | `./eax.sh down` |
 | Backup now | `.\eax backup` | `./eax.sh backup` |
 | Show logins (laptop) | `.\eax logins` | `./eax.sh logins` |
-| Empty the work folder | `.\eax cleanup` | `./eax.sh cleanup` |
+| Trust the local certificate (optional, once) | `.\eax trust` | `./eax.sh trust` |
+| Remove that trust | `.\eax trust --remove` | `./eax.sh trust --remove` |
+| Empty the work folder (keeps the certificate) | `.\eax cleanup` | `./eax.sh cleanup` |
 | Empty it and delete the databases | `.\eax cleanup --all` | `./eax.sh cleanup --all` |
+| Also delete the certificate | `.\eax cleanup --all --certificate` | `./eax.sh cleanup --all --certificate` |
 | List backups | `docker compose --env-file work/eaexplorer.env exec backup list.sh` | same |
 
 ## The work folder and logs

@@ -41,11 +41,25 @@ class HeartbeatRecordOut(Schema):
     requested_by = fields.String()
 
 
+class AssignedModelOut(Schema):
+    id = fields.UUID()
+    name = fields.String()
+    kind = fields.String()
+    roles = fields.List(fields.String(), metadata={"description": "Your roles on the model"})
+    role = fields.String(metadata={"description": "The highest of them"})
+    permissions = fields.List(fields.String(), metadata={"description": "What they allow there (model.*)"})
+
+
 class Me(Schema):
     username = fields.String()
     email = fields.String(allow_none=True)
     name = fields.String(allow_none=True)
-    roles = fields.List(fields.String())
+    roles = fields.List(fields.String(), metadata={"description": "Global EA Explorer roles, mapped from the Keycloak roles"})
+    keycloak_roles = fields.List(fields.String(), metadata={"description": "The realm roles Keycloak gave"})
+    permissions = fields.Dict(keys=fields.String(), values=fields.Boolean())
+    sees_every_model = fields.Boolean()
+    models = fields.List(fields.Nested(AssignedModelOut), metadata={"description": "Models where you have a role, with the role"})
+    break_glass = fields.Boolean()
 
 
 class JobRequestIn(Schema):
@@ -124,9 +138,19 @@ class RelationshipCountOut(Schema):
     count = fields.Integer()
 
 
+class LayerCountOut(Schema):
+    name = fields.String()
+    colour = fields.String()
+    types = fields.Integer()
+
+
 class LibraryModelOut(ModelOut):
+    is_top = fields.Boolean(metadata={"description": "The Root model at the top of the hierarchy"})
+    built_on = fields.String(allow_none=True, metadata={"description": "The root metamodel it is built on (ArchiMate 4, ...)"})
     counts_by_type = fields.List(fields.Nested(TypeCountOut))
     relationship_counts = fields.List(fields.Nested(RelationshipCountOut))
+    layers = fields.List(fields.Nested(LayerCountOut))
+    relationship_type_count = fields.Integer()
 
 
 class EntityTypeSummary(Schema):
@@ -467,6 +491,7 @@ class HistoryChangeOut(Schema):
     field = fields.String()
     old = fields.String(allow_none=True)
     new = fields.String(allow_none=True)
+    action = fields.String(metadata={"description": "set (first value), changed, cleared, added or removed (relationships)"})
 
 
 class HistoryEventOut(Schema):
@@ -479,6 +504,50 @@ class HistoryEventOut(Schema):
     kind = fields.String(metadata={"description": "entity, attribute or relationship"})
     item = fields.String(allow_none=True)
     changes = fields.List(fields.Nested(HistoryChangeOut))
+    action = fields.String(allow_none=True, metadata={"description": "created, when this event created the entity"})
+
+
+class RuleResultOut(Schema):
+    field = fields.String(metadata={"description": "The field, attribute or Relationships"})
+    code = fields.String()
+    rule = fields.String(metadata={"description": "Rule type code (required, mandatory, regex, has_relationship...)"})
+    rule_name = fields.String()
+    checks = fields.String(metadata={"description": "What the rule asks, in words"})
+    severity = fields.String(metadata={"description": "error or warning"})
+    status = fields.String(metadata={"description": "passed, failed or not_applicable"})
+    message = fields.String(allow_none=True, metadata={"description": "Why it failed or did not apply"})
+    value = fields.String(allow_none=True, metadata={"description": "The value checked (for a relationship rule: the matching relationships)"})
+
+
+class RelationshipCheckOut(Schema):
+    id = fields.UUID()
+    relationship_type = fields.String()
+    verb = fields.String()
+    direction = fields.String()
+    other_id = fields.UUID()
+    other_name = fields.String()
+    other_display_id = fields.String(allow_none=True)
+    other_type = fields.String()
+    status = fields.String(metadata={"description": "passed (the metamodel allows it) or failed"})
+    severity = fields.String()
+    message = fields.String(allow_none=True)
+
+
+class RuleSummaryOut(Schema):
+    checks = fields.Integer()
+    passed = fields.Integer()
+    failed = fields.Integer()
+    errors = fields.Integer()
+    warnings = fields.Integer()
+    not_applicable = fields.Integer()
+
+
+class EntityRulesOut(Schema):
+    entity = fields.Dict()
+    metamodel_version = fields.Integer()
+    summary = fields.Nested(RuleSummaryOut)
+    rules = fields.List(fields.Nested(RuleResultOut), metadata={"description": "Every rule applied, failed first"})
+    relationships = fields.List(fields.Nested(RelationshipCheckOut), metadata={"description": "Each relationship: allowed by the metamodel or not"})
 
 
 class EntityHistoryOut(Schema):
@@ -567,7 +636,9 @@ class AsOfValueOut(Schema):
     section = fields.String()
     then = fields.String(allow_none=True)
     now = fields.String(allow_none=True)
-    changed = fields.Boolean()
+    changed = fields.Boolean(metadata={"description": "Then differs from now"})
+    before = fields.String(allow_none=True, metadata={"description": "The old value: just before this moment"})
+    changed_here = fields.Boolean(metadata={"description": "This moment changed it (from before to then)"})
 
 
 class AsOfRelationshipOut(Schema):
@@ -582,6 +653,22 @@ class AsOfRelationshipOut(Schema):
     other_colour = fields.String(allow_none=True)
     relationship_type_code = fields.String(allow_none=True)
     still_there = fields.Boolean()
+    added_here = fields.Boolean(metadata={"description": "This moment created the relationship"})
+
+
+class AsOfMomentRelationshipOut(Schema):
+    id = fields.UUID(allow_none=True)
+    relationship_type = fields.String()
+    verb = fields.String()
+    direction = fields.String()
+    other_name = fields.String()
+
+
+class AsOfMomentOut(Schema):
+    created = fields.Boolean(metadata={"description": "The entity was created at this moment"})
+    changes = fields.Integer(metadata={"description": "Recorded changes in this moment"})
+    removed_relationships = fields.List(fields.Nested(AsOfMomentRelationshipOut),
+                                        metadata={"description": "Relationships this moment removed"})
 
 
 class AsOfEntityOut(Schema):
@@ -595,6 +682,7 @@ class AsOfEntityOut(Schema):
 class EntityAsOfOut(Schema):
     entity = fields.Nested(AsOfEntityOut)
     as_of = fields.Nested(AsOfPointOut)
+    moment = fields.Nested(AsOfMomentOut, metadata={"description": "What this moment (one person, one second) changed"})
     fields_ = fields.List(fields.Nested(AsOfValueOut), data_key="fields", attribute="fields")
     attributes = fields.List(fields.Nested(AsOfValueOut))
     relationships = fields.List(fields.Nested(AsOfRelationshipOut), metadata={"description": "Its relationships then"})

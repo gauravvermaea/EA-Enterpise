@@ -17,6 +17,7 @@ const TOOLS = [
   ["check_entities", "One type's entities with their values and validation errors and warnings"],
   ["get_entity_history", "Every change to an entity, its values and relationships"],
   ["get_neighbourhood", "An entity and everything connected to it; or one way only (impact, dependencies)"],
+  ["get_entity_rules", "Every rule applied to an entity and its relationships: passed, failed or not applicable"],
   ["get_entity_as_of", "An entity as it was at a point in its history, beside now"],
   ["get_metamodel_history", "Every metamodel version: what changed, who and when"],
   ["compare_metamodel_versions", "What differs between two metamodel versions"],
@@ -43,7 +44,9 @@ function Snippet({ title, text }) {
 
 export default function Mcp() {
   const laptop = config.deployment === "laptop";
-  const url = laptop ? "http://localhost:8001/mcp" : `${config.publicUrl}/mcp`;
+  // Laptop: plain http through nginx works without trusting a certificate; https works once the local
+  // certificate is trusted (.\eax trust) and Node is told about it (NODE_EXTRA_CA_CERTS), D107.
+  const url = laptop ? "http://localhost/mcp" : `${config.publicUrl}/mcp`;
   const token = laptop ? "P^55w0rd1234&" : "<a Keycloak access token>";
   const desktop = JSON.stringify({
     mcpServers: {
@@ -64,7 +67,8 @@ export default function Mcp() {
       </p>
       <table className="facts">
         <tbody>
-          <tr><th>Address</th><td><code>{url}</code>{laptop && <span className="quiet"> (also {config.publicUrl}/mcp through the proxy)</span>}</td></tr>
+          <tr><th>Address</th><td><code>{url}</code>{laptop && <span className="quiet"> (this computer only), or <code>{config.publicUrl}/mcp</code> once you have run <code>.\eax trust</code> and
+            set <code>NODE_EXTRA_CA_CERTS</code> to <code>work\data\tls\ca.crt</code></span>}</td></tr>
           <tr><th>Transport</th><td>Streamable HTTP</td></tr>
           <tr><th>Sign-in</th><td>Header <code>Authorization: Bearer {token}</code>
             {laptop ? <span className="quiet"> (the laptop development token, EAX_MCP_DEV_TOKEN)</span>

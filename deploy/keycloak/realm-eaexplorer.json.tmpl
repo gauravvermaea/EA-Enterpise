@@ -15,36 +15,44 @@
   "roles": {
     "realm": [
       {
-        "name": "system-admin",
-        "description": "Installation, users, identity providers, backups, monitoring"
+        "name": "eax-super-admin",
+        "description": "EA Explorer Super Admin: everything, everywhere; also administers this realm",
+        "composite": true,
+        "composites": {
+          "client": {
+            "realm-management": [
+              "realm-admin"
+            ]
+          }
+        }
       },
       {
-        "name": "model-owner",
-        "description": "Owns models: copy, branch, merge, grant roles, publish"
+        "name": "eax-it-admin",
+        "description": "EA Explorer IT Admin: health, backups, jobs, logs, SQL window; not model content"
       },
       {
-        "name": "metamodel-editor",
-        "description": "Changes the metamodel of a model"
+        "name": "eax-user-admin",
+        "description": "EA Explorer User Admin: sees people, their roles and their models (not the models themselves); maps Keycloak roles to EA Explorer's global roles"
       },
       {
-        "name": "architect",
-        "description": "Creates and changes content, diagrams and loads"
+        "name": "eax-keycloak-admin",
+        "description": "EA Explorer Keycloak Admin: administers this realm (users, roles, identity providers)",
+        "composite": true,
+        "composites": {
+          "client": {
+            "realm-management": [
+              "realm-admin"
+            ]
+          }
+        }
       },
       {
-        "name": "contributor",
-        "description": "Changes entities assigned to them; changes are staged"
+        "name": "eax-model-creator",
+        "description": "EA Explorer Model Creator: creates models and becomes the Model Admin of each model they create (roles on a model are given in EA Explorer, per model)"
       },
       {
-        "name": "reviewer",
-        "description": "Reviews and publishes staged change sets"
-      },
-      {
-        "name": "viewer",
-        "description": "Reads published content, diagrams, reports and documents"
-      },
-      {
-        "name": "api-client",
-        "description": "Integrations and service accounts"
+        "name": "eax-user",
+        "description": "EA Explorer User: may sign in; sees the models where they have a role (given per model in EA Explorer). Every new user has it"
       },
       {
         "name": "offline_access",
@@ -61,7 +69,7 @@
     "composite": true,
     "composites": {
       "realm": [
-        "viewer",
+        "eax-user",
         "offline_access",
         "uma_authorization"
       ]
@@ -144,6 +152,18 @@
       ]
     },
     {
+      "clientId": "eax-admin",
+      "name": "EA Explorer API (reads users and roles)",
+      "description": "Service account the API uses to list people and their roles; it never changes them",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${EAX_KC_SERVICE_SECRET}",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true
+    },
+    {
       "clientId": "mayan",
       "name": "Documents (Mayan EDMS)",
       "enabled": true,
@@ -192,12 +212,7 @@
         }
       ],
       "realmRoles": [
-        "system-admin",
-        "model-owner",
-        "metamodel-editor",
-        "architect",
-        "reviewer",
-        "viewer",
+        "eax-super-admin",
         "offline_access",
         "uma_authorization"
       ],
@@ -205,6 +220,18 @@
         "account": [
           "view-profile",
           "manage-account"
+        ]
+      }
+    },
+    {
+      "username": "service-account-eax-admin",
+      "enabled": true,
+      "serviceAccountClientId": "eax-admin",
+      "clientRoles": {
+        "realm-management": [
+          "view-users",
+          "query-users",
+          "view-realm"
         ]
       }
     }

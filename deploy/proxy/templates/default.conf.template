@@ -27,12 +27,46 @@ proxy_read_timeout       300s;
 ssl_certificate     /etc/nginx/tls/tls.crt;
 ssl_certificate_key /etc/nginx/tls/tls.key;
 ssl_protocols       TLSv1.2 TLSv1.3;
+# tls.crt is the site certificate followed by the local CA (D107), or your organisation's chain
 
-# ---- plain HTTP: redirect everything to HTTPS
+# ---- plain HTTP (D107): the API (with Swagger) and the MCP server answer on http too when
+# EAX_HTTP_API_MCP is true (laptops: for MCP clients and tools that cannot use a certificate; the laptop
+# binds port 80 to this computer only). Everything else, and everything on servers, goes to HTTPS.
 server {
     listen 80 default_server;
     server_name _;
-    return 301 https://$host:${EAX_HTTPS_PORT}$request_uri;
+    set $plain_api "${EAX_HTTP_API_MCP}";
+
+    location /api/ {
+        if ($plain_api != "true") { return 301 https://$host:${EAX_HTTPS_PORT}$request_uri; }
+        set $upstream http://api:8000;
+        proxy_set_header Host              $host:${EAX_HTTP_PORT};
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto http;
+        proxy_set_header X-Forwarded-Host  $host;
+        proxy_set_header X-Forwarded-Port  ${EAX_HTTP_PORT};
+        proxy_pass $upstream;
+    }
+
+    location /mcp {
+        if ($plain_api != "true") { return 301 https://$host:${EAX_HTTPS_PORT}$request_uri; }
+        set $upstream http://api:8001;
+        proxy_set_header Host              $host:${EAX_HTTP_PORT};
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto http;
+        proxy_set_header X-Forwarded-Host  $host;
+        proxy_set_header X-Forwarded-Port  ${EAX_HTTP_PORT};
+        proxy_pass $upstream;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 3600s;
+    }
+
+    location / {
+        return 301 https://$host:${EAX_HTTPS_PORT}$request_uri;
+    }
 }
 
 # ---- main site: our screens, the API, Keycloak, draw.io
@@ -43,7 +77,9 @@ server {
 
     add_header X-Content-Type-Options nosniff always;
     add_header Referrer-Policy strict-origin-when-cross-origin always;
-    add_header Strict-Transport-Security "max-age=31536000" always;
+    # HSTS only where the certificate is trusted by everyone (servers). On a laptop it stays off, so
+    # people who do not run "eax trust" can still accept the browser warning, as before (D107).
+    add_header Strict-Transport-Security "${EAX_HSTS}" always;
 
     location / {
         set $upstream http://web:8080;

@@ -6,7 +6,7 @@
 //   LockControl        model locks: metamodel, metamodel and content, maintenance (D67)
 // The server decides (and the database enforces) what may be changed; the screens only offer it.
 import { useEffect, useMemo, useState } from "react";
-import { apiFetch, keycloak } from "./auth";
+import { apiFetch, can, currentUser, canOn } from "./auth";
 import { downloadCsv } from "./exporting";
 import { refreshAll, Swatch, useApi } from "./ModelViews";
 
@@ -15,30 +15,41 @@ const DATA_TYPES = [
   ["currency", "Currency amount"], ["percent", "Percentage"], ["date", "Date"], ["boolean", "Yes / no"],
   ["list", "Pick list"], ["url", "Web address"], ["email", "Email address"], ["entity_ref", "Link to an entity"],
 ];
+// [code, name, what it checks, parameters: [label, kind]]; kind: number, date, regex, attr, date_attr, text
 const RULE_TYPES = [
   ["mandatory", "Mandatory", "A value is required", []],
-  ["min_value", "Minimum", "Number at least", ["Minimum"]],
-  ["max_value", "Maximum", "Number at most", ["Maximum"]],
-  ["range", "Range", "Number from ... to ...", ["From", "To"]],
-  ["min_length", "Minimum length", "Text at least ... characters", ["Characters"]],
-  ["max_length", "Maximum length", "Text at most ... characters", ["Characters"]],
-  ["regex", "Pattern", "Text matches a regular expression", ["Regular expression"]],
-  ["date_range", "Date range", "Date from ... to ...", ["From (YYYY-MM-DD)", "To (YYYY-MM-DD)"]],
-  ["date_order", "Date order", "Date after another attribute", ["Attribute code it must be after"]],
-  ["required_if", "Required if", "Required when another attribute has a value", ["Attribute code", "Value"]],
+  ["min_value", "Minimum", "Number at least", [["Minimum", "number"]]],
+  ["max_value", "Maximum", "Number at most", [["Maximum", "number"]]],
+  ["range", "Range", "Number from ... to ...", [["From", "number"], ["To", "number"]]],
+  ["min_length", "Minimum length", "Text at least ... characters", [["Characters", "number"]]],
+  ["max_length", "Maximum length", "Text at most ... characters", [["Characters", "number"]]],
+  ["regex", "Pattern", "Text matches a regular expression", [["Regular expression", "regex"]]],
+  ["date_range", "Date range", "Date from ... to ...", [["From", "date"], ["To", "date"]]],
+  ["date_order", "Date order", "Date after another date attribute", [["Must be after", "date_attr"]]],
+  ["required_if", "Required if", "Required when another attribute has a value", [["When attribute", "attr"], ["Has the value", "text"]]],
   ["unique", "Unique", "No other entity of the type has the same value", []],
+  ["has_relationship", "Has relationship", "At least one relationship of a type, to or from a type (D113)",
+    [["Relationship type (empty: any)", "reltype"], ["Entity type at the other end (empty: any)", "othertype"]]],
 ];
+const REGEX_PRESETS = [
+  ["^[A-Z]{3}-\\d{4}$", "Code like ABC-1234"], ["^https?://\\S+$", "Web address"], ["^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", "Email address"],
+  ["^\\d+(\\.\\d+){1,3}$", "Version like 4.2 or 4.2.1"], ["^[A-Za-z0-9 _-]+$", "Letters, digits, spaces, _ and - only"],
+];
+
 const LOCKS = {
   metamodel: ["Metamodel lock", "The metamodel is read-only; content can still be edited"],
   content: ["Metamodel and content lock", "The whole model is read-only"],
   maintenance: ["Maintenance lock", "Only you can change the model (metamodel and content) until you lift the lock"],
 };
 
-const me = () => keycloak.tokenParsed?.preferred_username || "";
+const me = () => currentUser().preferred_username || "";
 
 // Can the metamodel of this model be changed by the signed-in user? (The server checks again.)
+// Working models and an organisation's own root metamodels (not the shipped, locked ones) can change (D81)
+export const changeableModel = (m) => !!m && !m.is_locked && (m.kind === "project" || m.kind === "template");
+
 export function metamodelEditable(m) {
-  if (!m || m.kind !== "project" || m.is_locked) return false;
+  if (!changeableModel(m)) return false;
   if (m.lock_level === "metamodel" || m.lock_level === "content") return false;
   if (m.lock_level === "maintenance" && m.locked_by !== me()) return false;
   return true;
@@ -46,16 +57,49 @@ export function metamodelEditable(m) {
 
 function whyNot(m) {
   if (m.is_locked) return `${m.name} is locked (read-only). Copy it into a project model to change its metamodel (build phase 4).`;
-  if (m.kind !== "project") return "Only project models have a metamodel that can be changed.";
+  if (!changeableModel(m)) return "This model is read-only: copy it to change its metamodel.";
   if (m.lock_level !== "none") return `${m.name} is locked (${LOCKS[m.lock_level]?.[0].toLowerCase()}) by ${m.locked_by}.`;
   return "";
 }
 
 // ---------------------------------------------------------------- one change
-function Field({ f, value, set }) {
+// A regular expression with a live check, ready-made patterns and a box to try a value against it.
+// The server checks the pattern again (Python's rules, which match JavaScript's for ordinary patterns).
+function RegexInput({ id, value, set }) {
+  const [sample, setSample] = useState("");
+  let error = "";
+  let re = null;
+  try { if (value) re = new RegExp(value); } catch (e) { error = e.message; }
+  return (
+    <div className="regex">
+      <input type="text" id={id} className={`mono${error ? " bad-input" : ""}`} value={value ?? ""} onChange={(e) => set(e.target.value)}
+        placeholder="for example ^[A-Z]{3}-\d{4}$" spellCheck={false} />
+      <select value="" onChange={(e) => e.target.value && set(e.target.value)} aria-label="Ready-made patterns">
+        <option value="">Ready-made patterns...</option>
+        {REGEX_PRESETS.map(([p, l]) => <option key={p} value={p}>{l}: {p}</option>)}
+      </select>
+      {error ? <small className="status bad">Not a valid pattern: {error}</small>
+        : value ? <small className="quiet">Valid pattern. ^ and $ anchor the start and end; without them it matches anywhere in the value.</small> : null}
+      <div className="regex-try">
+        <input type="text" placeholder="Try a value" value={sample} onChange={(e) => setSample(e.target.value)} aria-label="Try a value" />
+        {re && sample !== "" && (re.test(sample)
+          ? <span className="all-pass">✓ matches</span> : <span className="status bad">✗ does not match</span>)}
+      </div>
+    </div>
+  );
+}
+
+function Field({ f: field, value, set, values }) {
+  const f = typeof field.type === "function" ? { ...field, ...field.type(values || {}) } : field;
   const common = { id: `f-${f.name}`, value: value ?? "", onChange: (e) => set(f.name, e.target.value) };
   let input;
-  if (f.type === "select") {
+  if (f.type === "regex") {
+    input = <RegexInput id={`f-${f.name}`} value={value} set={(v) => set(f.name, v)} />;
+  } else if (f.type === "date") {
+    input = <input type="date" {...common} />;
+  } else if (f.type === "number") {
+    input = <input type="number" step="any" {...common} />;
+  } else if (f.type === "select") {
     input = (
       <select {...common}>
         {f.blank !== false && <option value="">{f.blank || "Choose..."}</option>}
@@ -165,7 +209,7 @@ export function ChangeDialog({ model, m, spec, onClose }) {
         ) : (
           <>
             {spec.intro && <p className="quiet">{spec.intro}</p>}
-            {shown.length > 0 && <div className="ed-form">{shown.map((f) => <Field key={f.name} f={f} value={values[f.name]} set={set} />)}</div>}
+            {shown.length > 0 && <div className="ed-form">{shown.map((f) => <Field key={f.name} f={f} value={values[f.name]} set={set} values={values} />)}</div>}
             {error && <p className="status bad">{error}</p>}
             {preview && (
               <>
@@ -193,6 +237,7 @@ export function ChangeDialog({ model, m, spec, onClose }) {
 // A button that opens a ChangeDialog, or shows why it cannot (a locked or read-only model)
 export function EditButton({ model, m, label, spec, className = "", title }) {
   const [open, setOpen] = useState(false);
+  if (!canOn(model, "model.metamodel")) return null;   // only the model's Model Admins (and Super Admins) change its metamodel (D89)
   const ok = metamodelEditable(m);
   return (
     <>
@@ -231,6 +276,16 @@ export function entityTypeSpec(layers, t = null) {
   };
 }
 
+// The input for a default value, by the attribute's data type: a date picker for dates, numbers for
+// numbers, yes or no, or the pick list's values.
+function defaultInput(dataType, listValues) {
+  if (dataType === "date") return { type: "date" };
+  if (["integer", "decimal", "currency", "percent"].includes(dataType)) return { type: "number" };
+  if (dataType === "boolean") return { type: "select", options: [["yes", "Yes"], ["no", "No"]], blank: "(no default)" };
+  if (dataType === "list" && listValues?.length) return { type: "select", options: listValues.map((x) => [x, x]), blank: "(no default)" };
+  return { type: "text" };
+}
+
 export function attributeSpec(t, pickLists, hasEntities, a = null) {
   const defaultHelp = "Given to new entities. Empty means no default.";
   const applyField = { name: "apply_default_to_existing", label: `Put the default on the existing ${t.name} entities that have no value`, type: "check",
@@ -243,7 +298,7 @@ export function attributeSpec(t, pickLists, hasEntities, a = null) {
         { name: "name", label: "Name", required: true, initial: a.name },
         { name: "is_required", label: "Mandatory", type: "check", initial: a.is_required },
         { name: "default_value", label: "Default value", initial: a.default_value ?? "", help: defaultHelp, sendEmpty: true,
-          type: a.data_type === "list" ? "select" : undefined, options: (a.pick_list_values || []).map((x) => [x, x]), blank: "(no default)" },
+          ...defaultInput(a.data_type, a.pick_list_values) },
         applyField,
         { name: "section", label: "Section on the form", initial: a.section },
         { name: "unit", label: "Unit", initial: a.unit, sendEmpty: true },
@@ -263,7 +318,10 @@ export function attributeSpec(t, pickLists, hasEntities, a = null) {
         when: (v) => v.data_type === "list" },
       { name: "values", label: "Values, one per line", type: "lines", when: (v) => v.data_type === "list" && !v.pick_list },
       { name: "is_required", label: "Mandatory", type: "check" },
-      { name: "default_value", label: "Default value", help: defaultHelp, when: (v) => v.data_type && v.data_type !== "entity_ref" },
+      { name: "default_value", label: "Default value", help: defaultHelp, when: (v) => v.data_type && v.data_type !== "entity_ref",
+        type: (v) => defaultInput(v.data_type, v.data_type !== "list" ? null : v.pick_list
+          ? (pickLists.find((p) => p.id === v.pick_list)?.values || []).filter((x) => x.status !== "retired").map((x) => x.value)
+          : String(v.values || "").split(/\r?\n/).map((x) => x.trim()).filter(Boolean)) },
       applyField,
       { name: "section", label: "Section on the form", initial: "General" },
       { name: "unit", label: "Unit", placeholder: "for example ZAR or days", when: (v) => ["integer", "decimal", "currency", "percent"].includes(v.data_type) },
@@ -316,37 +374,58 @@ export function mappingSpec(types, relTypes, source = null) {
   };
 }
 
+function paramField(t, [label, kind], i, initial) {
+  const attrs = (t.attributes || []);
+  const f = { name: `param${i + 1}`, label, initial, required: kind === "regex" || kind === "attr" || kind === "date_attr" };
+  if (kind === "regex") return { ...f, type: "regex" };
+  if (kind === "date") return { ...f, type: "date", help: "Leave one empty for no limit on that side" };
+  if (kind === "number") return { ...f, type: "number", required: true };
+  if (kind === "attr") return { ...f, type: "select", options: attrs.map((a) => [a.code, a.name]) };
+  if (kind === "date_attr") return { ...f, type: "select", options: attrs.filter((a) => a.data_type === "date").map((a) => [a.code, a.name]) };
+  // relationship rules (D113): what the metamodel allows this type to be linked by, and to
+  const allowed = [...(t.outgoing || []), ...(t.incoming || [])];
+  const uniq = (xs) => [...new Set(xs)].sort().map((x) => [x, x]);
+  if (kind === "reltype") return { ...f, type: "select", options: uniq(allowed.map((a) => a.relationship_type)) };
+  if (kind === "othertype") return { ...f, type: "select", options: uniq(allowed.map((a) => a.other_type)) };
+  return f;
+}
+
 export function ruleSpec(t, r = null) {
   if (r) {
-    const rt = RULE_TYPES.find((x) => x[0] === r.rule_type_code) || [r.rule_type_code, r.rule, "", ["Parameter 1", "Parameter 2"]];
+    const rt = RULE_TYPES.find((x) => x[0] === r.rule_type_code) || [r.rule_type_code, r.rule, "", [["Parameter 1", "text"], ["Parameter 2", "text"]]];
     return {
       title: `Change rule on ${r.field}`, op: "rule.update", fixed: { id: r.id },
       fields: [
-        ...rt[3].map((label, i) => ({ name: `param${i + 1}`, label, initial: r[`param${i + 1}`] })),
+        ...rt[3].map((p, i) => paramField(t, p, i, r[`param${i + 1}`])),
         { name: "severity", label: "Severity", type: "select", options: [["error", "Error"], ["warning", "Warning"]], initial: r.severity, blank: false },
         { name: "message", label: "Message shown when it fails", initial: r.message, required: true },
       ],
     };
   }
-  const targets = [["field:name", "Name (built-in)"], ["field:description", "Description (built-in)"], ...t.attributes.map((a) => [`attr:${a.attribute_id}`, a.name])];
+  const targets = [["field:name", "Name (built-in)"], ["field:description", "Description (built-in)"], ["field:relationships", "Relationships (use the rule Has relationship)"],
+    ...t.attributes.map((a) => [`attr:${a.attribute_id}`, a.name])];
   return {
     title: `New rule on ${t.name}`, op: "rule.create",
     intro: "Rules warn, they never block a save: a value that fails is kept and shows as an error or warning until fixed.",
     fields: [
       { name: "target", label: "Checks", type: "select", options: targets, required: true },
       { name: "rule_type", label: "Rule", type: "select", options: RULE_TYPES.map(([c, n, d]) => [c, `${n}: ${d}`]), required: true },
-      ...[0, 1].map((i) => ({ name: `param${i + 1}`, label: `Parameter ${i + 1}`,
-        when: (v) => (RULE_TYPES.find((x) => x[0] === v.rule_type)?.[3].length || 0) > i,
-        help: "" })),
+      ...RULE_TYPES.flatMap(([code, , , params]) => params.map((p, i) => ({
+        ...paramField(t, p, i), name: `${code}__param${i + 1}`, when: (v) => v.rule_type === code }))),
       { name: "scope", label: "Applies to", type: "select", options: [["type", `${t.name} only`], ["all", "Every entity type with this attribute or field"]], initial: "type", blank: false },
       { name: "severity", label: "Severity", type: "select", options: [["error", "Error"], ["warning", "Warning"]], initial: "error", blank: false },
       { name: "message", label: "Message shown when it fails", placeholder: "for example Owner is required" },
     ],
     toPayload: (p) => {
-      const out = { ...p };
+      const out = {};
+      for (const [k, v] of Object.entries(p)) {
+        const m = k.match(/^(\w+)__(param\d)$/);
+        if (!m) out[k] = v; else if (m[1] === p.rule_type) out[m[2]] = v;
+      }
       const [kind, ref] = String(p.target || "").split(":");
       delete out.target; delete out.scope;
-      if (kind === "field") out.field_name = ref; else out.attribute = ref;
+      if (p.rule_type === "has_relationship") { /* about relationships: no field or attribute */ }
+      else if (kind === "field") out.field_name = ref; else out.attribute = ref;
       if (p.scope !== "all") out.entity_type = t.id;
       return out;
     },
@@ -565,7 +644,11 @@ export function LockControl({ model, m }) {
   const [level, setLevel] = useState("metamodel");
   const [reason, setReason] = useState("");
   const [error, setError] = useState("");
-  if (m.kind !== "project" || m.is_locked) return null;
+  if (!changeableModel(m)) return null;
+  if (!canOn(model, "model.lock")) {
+    return m.lock_level && m.lock_level !== "none"
+      ? <span className={`model-lock ${m.lock_level}`}>🔒 {LOCKS[m.lock_level][0]} · {m.locked_by}</span> : null;
+  }
   async function call(method, body) {
     setError("");
     try {

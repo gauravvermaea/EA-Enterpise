@@ -19,6 +19,8 @@ Every rule row has: rule_type_code, field_name (a built-in field such as name) o
   list          the value is one of the pick list's values
   entity_ref    the value links to an entity of type param1
   unique        no other entity of the same type has this value
+  has_relationship  (on the built-in field "relationships") at least one relationship of type param1
+                (name or code; empty: any) to or from an entity of type param2 (empty: any), D113
 """
 
 from __future__ import annotations
@@ -29,7 +31,21 @@ from collections.abc import Iterable
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-BUILT_IN = {"name": "Name", "description": "Description", "display_id": "Display ID"}
+BUILT_IN = {"name": "Name", "description": "Description", "display_id": "Display ID", "relationships": "Relationships"}
+
+
+def _same(a: Any, *names: Any) -> bool:
+    a = str(a or "").strip().lower()
+    return any(a == str(n or "").strip().lower() for n in names)
+
+
+def matching_relationships(rule: dict, relationships: Iterable[dict]) -> list[dict]:
+    """The entity's relationships a has_relationship rule asks for: of type param1 (name or code;
+    empty: any) with an entity of type param2 at the other end (name or code; empty: any)."""
+    p1, p2 = str(rule.get("param1") or "").strip(), str(rule.get("param2") or "").strip()
+    return [r for r in relationships or []
+            if (not p1 or _same(p1, r.get("type"), r.get("type_code")))
+            and (not p2 or _same(p2, r.get("other_type"), r.get("other_type_code")))]
 
 
 def _empty(value: Any) -> bool:
@@ -65,6 +81,8 @@ def check(rule: dict, value: Any, values: dict[str, Any], duplicate: bool) -> bo
     (missing values are the business of mandatory, required_if and the required flag)."""
     kind = rule["rule_type_code"]
     p1, p2 = rule.get("param1"), rule.get("param2")
+    if kind == "has_relationship":
+        return bool(matching_relationships(rule, value))
     if kind == "mandatory":
         return not _empty(value)
     if kind == "required_if":
@@ -127,6 +145,8 @@ def default_message(rule: dict, label: str) -> str:
         "list": f"{label} is not one of the allowed values",
         "entity_ref": f"{label} must link to a {p1}",
         "unique": f"Another entity of this type has the same {label.lower()}",
+        "has_relationship": "Needs a " + (f"{p1} relationship" if p1 else "relationship")
+                            + (f" to or from a {p2}" if p2 else ""),
     }.get(kind, f"{label} breaks rule {kind}")
 
 
@@ -181,3 +201,99 @@ def evaluate(entity: dict, attributes: Iterable[dict], rules: Iterable[dict],
 def summary(warnings: list[dict]) -> dict:
     return {"errors": sum(1 for w in warnings if w["severity"] == "error"),
             "warnings": sum(1 for w in warnings if w["severity"] != "error")}
+
+
+# what each rule type checks, for a rule that passed or did not apply
+RULE_NAMES = {
+    "required": "Required (metamodel)", "mandatory": "Mandatory", "required_if": "Required when",
+    "min_length": "Minimum length", "max_length": "Maximum length", "min_value": "Minimum value",
+    "max_value": "Maximum value", "range": "Range", "regex": "Pattern", "date_range": "Date range",
+    "date_order": "Date order", "list": "Pick list value", "entity_ref": "Links to type", "unique": "Unique",
+    "has_relationship": "Has relationship",
+}
+_ABOUT_CONTENT = {"min_length", "max_length", "min_value", "max_value", "range", "regex", "date_range",
+                  "date_order", "list", "entity_ref"}
+
+
+def results(entity: dict, attributes: Iterable[dict], rules: Iterable[dict],
+            duplicate_name: bool = False) -> list[dict]:
+    """Every check applied to one entity, passed, failed or not applicable (D113): the metamodel's
+    required flag and pick lists on its attributes, and every validation rule for its type. Same rules
+    and arguments as evaluate(); one dict per check: field, code, rule, rule_name, checks (what the rule
+    asks), severity, status (passed, failed, not_applicable), message (why it failed or did not apply),
+    value (as displayed)."""
+    attributes = list(attributes)
+    by_code = {a["code"].lower(): a for a in attributes}
+    values = {a["code"].lower(): a.get("value") for a in attributes}
+    out: list[dict] = []
+
+    def shown(v):
+        if isinstance(v, list):
+            return None
+        if _empty(v):
+            return None
+        if isinstance(v, Decimal):
+            return _fmt(v)
+        return str(v)
+
+    def add(code, label, rule, severity, status, message, value):
+        kind = rule["rule_type_code"]
+        out.append({"field": label, "code": code, "rule": kind, "rule_name": RULE_NAMES.get(kind, kind),
+                    "checks": default_message(rule, label).replace(" is not one of the allowed values",
+                                                                    " is one of the pick list's values")
+                    .replace("Another entity of this type has the same", "No other entity of this type has the same"),
+                    "severity": severity, "status": status, "message": message, "value": shown(value)})
+
+    for a in attributes:
+        if a.get("is_required"):
+            ok = not _empty(a.get("value"))
+            add(a["code"], a["name"], {"rule_type_code": "required"}, "error", "passed" if ok else "failed",
+                None if ok else f"{a['name']} is required", a.get("value"))
+        if a.get("pick_list_values"):
+            r = {"rule_type_code": "list"}
+            if _empty(a.get("value")):
+                add(a["code"], a["name"], r, "warning", "not_applicable", "No value to check", None)
+            else:
+                ok = str(a["value"]) in a["pick_list_values"]
+                add(a["code"], a["name"], r, "warning", "passed" if ok else "failed",
+                    None if ok else f"{a['name']} \"{a['value']}\" is not one of the pick list values", a.get("value"))
+
+    for rule in rules:
+        field = (rule.get("field_name") or "").lower()
+        if field:
+            label, value, code = BUILT_IN.get(field, field.title()), entity.get(field), field
+        else:
+            a = by_code.get(str(rule.get("attribute_code") or "").lower())
+            if a is None:
+                continue
+            if rule["rule_type_code"] == "mandatory" and a.get("is_required"):
+                continue
+            label, value, code = a["name"], a.get("value"), a["code"]
+            rule = {**rule, "allowed_values": a.get("pick_list_values"), "ref_type": a.get("ref_type")}
+        kind = rule["rule_type_code"]
+        severity = rule.get("severity") or "warning"
+        if kind in _ABOUT_CONTENT and _empty(value):
+            add(code, label, rule, severity, "not_applicable", "No value to check", value)
+            continue
+        if kind == "required_if":
+            other = values.get(str(rule.get("param1") or "").lower())
+            if other is None or str(other).strip().lower() != str(rule.get("param2") or "").strip().lower():
+                add(code, label, rule, severity, "not_applicable",
+                    f"Applies only when {rule.get('param1')} is {rule.get('param2')}", value)
+                continue
+        ok = check(rule, value, values, duplicate_name)
+        if kind == "has_relationship":
+            found = matching_relationships(rule, value)
+            add(code, label, rule, severity, "passed" if ok else "failed",
+                None if ok else (rule.get("message") or default_message(rule, label)), None)
+            out[-1]["value"] = ", ".join(f"{r.get('verb') or r.get('type')} {r.get('other_name', '')}".strip()
+                                         for r in found[:5]) + (f" (+{len(found) - 5} more)" if len(found) > 5 else "") \
+                if found else None
+            continue
+        add(code, label, rule, severity, "passed" if ok else "failed",
+            None if ok else (rule.get("message") or default_message(rule, label)), value)
+
+    status_order = {"failed": 0, "passed": 1, "not_applicable": 2}
+    order = {a["code"].lower(): i for i, a in enumerate(attributes)}
+    out.sort(key=lambda w: (status_order[w["status"]], w["severity"] != "error", order.get(w["code"].lower(), -1)))
+    return out

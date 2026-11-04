@@ -30,6 +30,7 @@ Operations (payload fields in brackets; ids are guids; "type" means an entity ty
   mapping.add          relationship_type, source_type, target_type, [note]
   mapping.remove       id
   rule.create          rule_type, (attribute | field_name), [entity_type, param1, param2, severity, message]
+                       (has_relationship: no attribute or field; param1 relationship type, param2 other entity type)
   rule.update          id, [param1, param2, severity, message]
   rule.remove          id
 Model locks (D67) are set with set_lock / clear_lock; the database enforces them.
@@ -549,6 +550,38 @@ def _op_mapping_remove(conn, m, p):
             [a["source_type_id"], a["target_type_id"]])
 
 
+def check_rule_params(rule_type: str, p1: Any, p2: Any) -> None:
+    """Refuses parameters a rule could never use: a regular expression that does not compile, a date
+    that is not YYYY-MM-DD, a number that is not a number."""
+    p1, p2 = str(p1 or "").strip(), str(p2 or "").strip()
+    if rule_type == "regex":
+        if not p1:
+            raise EditError("Give the regular expression the value must match.")
+        try:
+            re.compile(p1)
+        except re.error as exc:
+            raise EditError(f"The regular expression {p1!r} is not valid: {exc}.") from exc
+    elif rule_type == "date_range":
+        for v in (p1, p2):
+            if v:
+                try:
+                    dt.date.fromisoformat(v)
+                except ValueError as exc:
+                    raise EditError(f"{v!r} is not a date (YYYY-MM-DD).") from exc
+        if not (p1 or p2):
+            raise EditError("Give a from date, a to date or both.")
+        if p1 and p2 and p1 > p2:
+            raise EditError("The from date is after the to date.")
+    elif rule_type in ("min_value", "max_value", "range", "min_length", "max_length"):
+        for v in (p1, p2) if rule_type == "range" else (p1,):
+            try:
+                Decimal(v)
+            except InvalidOperation as exc:
+                raise EditError(f"{v!r} is not a number.") from exc
+        if rule_type == "range" and Decimal(p1) > Decimal(p2):
+            raise EditError("The from value is more than the to value.")
+
+
 def _op_rule_create(conn, m, p):
     _need(p, "rule_type")
     mid = m["_id"]
@@ -556,7 +589,15 @@ def _op_rule_create(conn, m, p):
     if not rtype:
         raise EditError(f"Unknown rule type {p['rule_type']!r}.")
     attr_id, field, label = None, None, None
-    if p.get("attribute"):
+    if rtype["code"] == "has_relationship":   # D113: about the entity's relationships, not a value
+        field, label = "relationships", "Relationships"
+        if p.get("param1") and not _one(conn, """SELECT 1 AS x FROM core.relationship_types WHERE model_id = :m
+                AND NOT is_deleted AND lower(:r) IN (lower(code), lower(name))""", m=mid, r=str(p["param1"])):
+            raise EditError(f"No relationship type {p['param1']!r} in this model.", 404)
+        if p.get("param2") and not _one(conn, """SELECT 1 AS x FROM core.entity_types WHERE model_id = :m
+                AND NOT is_deleted AND lower(:t) IN (lower(code), lower(name))""", m=mid, t=str(p["param2"])):
+            raise EditError(f"No entity type {p['param2']!r} in this model.", 404)
+    elif p.get("attribute"):
         g = repo._as_guid(p["attribute"])
         a = _one(conn, f"""SELECT id, name FROM core.attribute_types WHERE model_id = :m AND
                             {'guid = :a' if g else 'lower(:a) IN (lower(code), lower(name))'}""", m=mid, a=g or str(p["attribute"]))
@@ -565,8 +606,11 @@ def _op_rule_create(conn, m, p):
         attr_id, label = a["id"], a["name"]
     elif p.get("field_name") in ("name", "description", "display_id"):
         field, label = p["field_name"], p["field_name"].replace("_", " ").capitalize()
+    elif p.get("field_name") == "relationships":
+        raise EditError("Relationships take the rule Has relationship.")
     else:
         raise EditError("Give the attribute the rule checks, or the field (name, description or display_id).")
+    check_rule_params(rtype["code"], p.get("param1"), p.get("param2"))
     type_id = _type_by_ref(conn, mid, p["entity_type"])["id"] if p.get("entity_type") else None
     severity = p.get("severity") or "error"
     if severity not in ("error", "warning"):
@@ -591,6 +635,7 @@ def _op_rule_update(conn, m, p):
         raise EditError("Nothing to change.")
     if fields.get("severity") not in (None, "error", "warning"):
         raise EditError("Severity is error or warning.")
+    check_rule_params(r["rule_type_code"], fields.get("param1", r["param1"]), fields.get("param2", r["param2"]))
     sets = ", ".join(f"{k} = :{k}" for k in fields)
     _exec(conn, f"UPDATE core.validation_rules SET {sets} WHERE id = :id", id=r["id"], **fields)
     affected = [r["entity_type_id"]] if r["entity_type_id"] else _types_with_entities(conn, m["_id"])
@@ -669,8 +714,8 @@ def apply(conn, model: Any, op: str, payload: dict, actor: str, dry_run: bool = 
     if op not in OPS:
         raise EditError(f"Unknown change {op!r}. Known: {', '.join(sorted(OPS))}.")
     m = repo.get_model(conn, model)
-    if m["kind"] != "project" or m["is_locked"]:
-        raise EditError(f"Model {m['name']!r} is read-only ({m['kind_name'].lower()}): change the metamodel of a project model.", 409)
+    if m["kind"] not in ("project", "template") or m["is_locked"]:
+        raise EditError(f"Model {m['name']!r} is read-only ({m['kind_name'].lower()}): change the metamodel of a working model or of your own root metamodel.", 409)
     mid = m["_id"]
     conn.execute(text("SELECT set_config('eax.actor', :a, true)"), {"a": actor})
     before_types = _types_named(conn, mid, op, payload)
@@ -722,7 +767,7 @@ def set_lock(conn, model: Any, level: str, reason: str, actor: str) -> dict:
     if level not in LOCK_LEVELS:
         raise EditError(f"Lock level is one of {', '.join(LOCK_LEVELS)}.")
     m = repo.get_model(conn, model)
-    if m["kind"] != "project" or m["is_locked"]:
+    if m["kind"] not in ("project", "template") or m["is_locked"]:
         raise EditError(f"Model {m['name']!r} is already read-only ({m['kind_name'].lower()}).", 409)
     conn.execute(text("SELECT set_config('eax.actor', :a, true)"), {"a": actor})
     try:

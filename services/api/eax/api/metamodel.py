@@ -25,6 +25,7 @@ from .schemas import (
     EntityGraphOut,
     EntityHistoryOut,
     EntityListQuery,
+    EntityRulesOut,
     EntitySummaryOut,
     EntityTypeDetail,
     GraphQuery,
@@ -81,7 +82,7 @@ class Library(MethodView):
     @blp.response(200, LibraryModelOut(many=True))
     @require_auth()
     def get(self):
-        """The model library: read-only reference models with their counts by type
+        """The model library: root metamodels and reference models, with what each is built on and its counts by type
 
         Reference models are locked: nobody can change them (the database refuses it), and they are
         updated only by a product release, which adds a new version beside the old one.
@@ -186,6 +187,21 @@ class EntityHistoryView(MethodView):
     def get(self, query, model_id, entity_id):
         """Every recorded change to an entity, its attribute values and its relationships, newest first"""
         return _call(repo.get_entity_history, model_id, entity_id, query["limit"])
+
+
+@blp.route("/<uuid:model_id>/entities/<uuid:entity_id>/rules")
+class EntityRulesView(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, EntityRulesOut)
+    @require_auth()
+    def get(self, model_id, entity_id):
+        """Every rule applied to an entity and its relationships: passed, failed or not applicable
+
+        The metamodel's required flags and pick lists, the validation rules of its type (including the
+        relationships it must have, D113) and, for each of its relationships, whether the metamodel
+        allows it. Failed first. Checks warn, they never block a save (D48).
+        """
+        return _call(repo.get_entity_rules, model_id, entity_id)
 
 
 @blp.route("/<uuid:model_id>/entities/<uuid:entity_id>/as-of")

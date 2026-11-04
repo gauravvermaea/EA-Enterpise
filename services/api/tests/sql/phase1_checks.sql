@@ -21,7 +21,7 @@ END $$;
 DO $$
 DECLARE
     v_model bigint := (SELECT id FROM core.models WHERE name = 'Sample insurance model');
-    v_tpl   bigint := (SELECT id FROM core.models WHERE kind_code = 'template');
+    v_tpl   bigint := (SELECT id FROM core.models WHERE name = 'ArchiMate 4');
     n bigint;
     t text[];
 BEGIN
@@ -32,13 +32,15 @@ BEGIN
         'every sample type points back at the template';
 
     -- get_entity: the caller names the tables; a used name is refused; drop_entity removes them
-    t := eax.get_entity('Application Component', 'apps');
+    -- in the sample model (laptops also load test models copied from it: phase 3.1)
+    t := eax.get_entity('Application Component', 'apps', (SELECT guid FROM core.models WHERE id = v_model));
     ASSERT t = ARRAY['apps', 'apps_rel'], 'table names as given';
     ASSERT (SELECT count(*) FROM apps) = 3, 'three sample applications';
     ASSERT (SELECT data_type FROM information_schema.columns
              WHERE table_name = 'apps' AND column_name = 'go_live_date') = 'date', 'typed columns';
-    ASSERT (SELECT count(*) FROM apps_rel WHERE entity_name = 'Claims Platform') = 5,
-        'Claims Platform has five relationships';
+    -- five as seeded; four on a laptop, where the history demo removes Customer Portal serving it (D110)
+    ASSERT (SELECT count(*) FROM apps_rel WHERE entity_name = 'Claims Platform') IN (4, 5),
+        'Claims Platform has five relationships (four after the laptop history demo)';
     t := eax.get_entity('Application Component', 'e_' || replace(gen_random_uuid()::text, '-', ''));
     ASSERT t[1] ~ '^e_[0-9a-f]{32}$', 'guid-based name';
     -- in the sample model (from phase 2 the insurance reference model has one too)
@@ -80,6 +82,7 @@ SELECT pg_temp.expect_error($q$
     INSERT INTO core.relationships (model_id, relationship_type_id, source_entity_id, target_entity_id)
     SELECT e1.model_id, rt.id, e1.id, e2.id FROM core.entities e1, core.entities e2, core.relationship_types rt
      WHERE e1.name = 'Claim Record' AND e2.name = 'Settle claims faster' AND rt.code = 'Serving' AND rt.model_id = e1.model_id
+       AND e2.model_id = e1.model_id AND e1.model_id = (SELECT id FROM core.models WHERE name = 'Sample insurance model')
 $q$, 'does not allow');
 SELECT pg_temp.expect_error($q$
     INSERT INTO core.attribute_values (model_id, attribute_type_id, entity_id, value_text)
@@ -98,11 +101,11 @@ $q$, 'does not apply');
 SELECT pg_temp.expect_error($q$
     INSERT INTO core.entities (model_id, entity_type_id, name)
     SELECT model_id, id, 'X' FROM core.entity_types
-     WHERE code = 'Goal' AND model_id = (SELECT id FROM core.models WHERE kind_code = 'template')
+     WHERE code = 'Goal' AND model_id = (SELECT id FROM core.models WHERE name = 'ArchiMate 4')
 $q$, 'is locked');  -- phase 2: the template is locked, so the lock refuses before the template rule
 SELECT pg_temp.expect_error($q$
     INSERT INTO core.models (name, kind_code, parent_model_id)
-    SELECT 'Under template', 'project', id FROM core.models WHERE kind_code = 'template'
+    SELECT 'Under template', 'project', id FROM core.models WHERE name = 'ArchiMate 4'
 $q$, 'cannot be a parent');
 SELECT pg_temp.expect_error($q$
     UPDATE core.models SET parent_model_id = (SELECT id FROM core.models WHERE name = 'Copy 1.1.1')

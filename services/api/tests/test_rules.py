@@ -75,3 +75,29 @@ def test_unknown_rule_types_and_bad_patterns_never_raise():
     rules = [{"rule_type_code": "something_new", "attribute_code": "Version", "severity": "error"},
              {"rule_type_code": "regex", "attribute_code": "Version", "param1": "([", "severity": "warning"}]
     assert evaluate({"name": "x"}, attrs, rules) == []
+
+
+def test_relationship_rules_and_every_result():
+    """D113: a has_relationship rule checks the entity's relationships (type and the type at the other
+    end, either direction); results() lists every rule passed, failed or not applicable, failed first."""
+    from eax import rules as R
+    rels = [{"type": "Serving", "type_code": "Serving", "verb": "serves", "other_type": "Business Actor",
+             "other_type_code": "BusinessActor", "other_name": "Claims Department"}]
+    rules_ = [
+        {"rule_type_code": "has_relationship", "field_name": "relationships", "param1": "Serving", "param2": "",
+         "severity": "warning", "message": ""},
+        {"rule_type_code": "has_relationship", "field_name": "relationships", "param1": "realization",
+         "param2": "capability", "severity": "warning", "message": "Realises a capability"},
+        {"rule_type_code": "regex", "attribute_code": "Version", "param1": r"^\d+(\.\d+)*$", "severity": "warning",
+         "message": ""},
+    ]
+    attrs = [{"code": "Owner", "name": "Owner", "is_required": True, "value": None},
+             {"code": "Version", "name": "Version", "value": None}]
+    entity = {"name": "X", "relationships": rels}
+    warnings = R.evaluate(entity, attrs, rules_)
+    assert [w["rule"] for w in warnings] == ["required", "has_relationship"]
+    res = R.results(entity, attrs, rules_)
+    assert [(r["rule"], r["status"]) for r in res] == [
+        ("required", "failed"), ("has_relationship", "failed"), ("has_relationship", "passed"), ("regex", "not_applicable")]
+    assert res[2]["value"] == "serves Claims Department"
+    assert res[1]["message"] == "Realises a capability"

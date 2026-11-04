@@ -43,6 +43,11 @@ class Settings:
     )
     realm: str = field(default_factory=lambda: _env("EAX_KEYCLOAK_REALM", "eaexplorer"))
     api_audience: str = field(default_factory=lambda: _env("EAX_API_AUDIENCE", "eax-api"))
+    # phase 3.1: the API's own Keycloak client (service account) for reading users and roles
+    admin_client_id: str = field(default_factory=lambda: _env("EAX_KC_SERVICE_CLIENT", "eax-admin"))
+    admin_client_secret: str = field(default_factory=lambda: _env("EAX_KC_SERVICE_SECRET"))
+    # phase 3.1: the break-glass account's password (D80); empty turns break-glass sign-in off
+    break_glass_password: str = field(default_factory=lambda: _env("EAX_BREAK_GLASS_PASSWORD"))
 
     @property
     def public_base_url(self) -> str:

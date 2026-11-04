@@ -5,17 +5,18 @@
 // From the roles phase (3.1) the list holds only the models the user may open.
 import { useEffect, useState } from "react";
 import { apiFetch } from "./auth";
+import { KINDS, marksText } from "./ModelMarks";
 
 const KEY = "eax.lastModel";
 const remember = (id) => { try { localStorage.setItem(KEY, id); } catch { /* storage may be blocked */ } };
 const recall = () => { try { return localStorage.getItem(KEY); } catch { return null; } };
 const KIND_ORDER = ["template", "reference", "project"];
-const KIND_LABEL = { template: "Templates", reference: "Reference models (read-only)", project: "Project models" };
+const KIND_LABEL = { template: "Root metamodels", reference: "Reference models", project: "Project models" };
 
 export default function ModelSwitcher({ route }) {
   const [models, setModels] = useState(null);
   const parts = route.replace(/^#/, "").split("/");
-  const inModel = parts[1] === "metamodel" && parts[2] ? parts[2] : null;
+  const inModel = parts[1] === "metamodel" && parts[2] && parts[2] !== "hierarchy" ? parts[2] : null;
   const current = inModel || recall();
 
   useEffect(() => { if (inModel) remember(inModel); }, [inModel]);
@@ -45,7 +46,7 @@ export default function ModelSwitcher({ route }) {
           const list = models.filter((x) => x.kind === k);
           return list.length ? (
             <optgroup key={k} label={KIND_LABEL[k]}>
-              {list.map((x) => <option key={x.id} value={x.id}>{x.is_locked ? "🔒 " : ""}{x.name}{x.version_label ? ` ${x.version_label}` : ""}</option>)}
+              {list.map((x) => <option key={x.id} value={x.id}>{KINDS[x.kind]?.glyph} {x.name}{x.version_label ? ` ${x.version_label}` : ""}{marksText(x) ? `  ${marksText(x)}` : ""}</option>)}
             </optgroup>
           ) : null;
         })}

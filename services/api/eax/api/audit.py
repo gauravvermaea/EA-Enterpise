@@ -16,7 +16,7 @@ class AuditList(MethodView):
     @blp.arguments(AuditQuery, location="query")
     @blp.response(200, AuditEvent(many=True))
     @blp.doc(security=[{"bearerAuth": []}])
-    @require_auth(role="system-admin")
+    @require_auth("system.operate")
     def get(self, args):
         """Latest audit events (system administrators)"""
         with get_engine().connect() as conn:

@@ -52,3 +52,20 @@ def test_impact_lists_new_and_fixed_failures():
 def test_unknown_operation():
     with pytest.raises(ed.EditError):
         ed.apply(None, "m", "entity_type.explode", {}, "me")
+
+
+@pytest.mark.parametrize("rule_type, p1, p2", [
+    ("regex", "^[A-Z]{3}-\\d+$", ""), ("date_range", "2026-01-01", "2026-12-31"), ("date_range", "", "2030-01-01"),
+    ("range", "1", "5"), ("max_length", "120", ""), ("mandatory", "", ""),
+])
+def test_rule_parameters_that_work(rule_type, p1, p2):
+    ed.check_rule_params(rule_type, p1, p2)
+
+
+@pytest.mark.parametrize("rule_type, p1, p2", [
+    ("regex", "([A-Z", ""), ("regex", "", ""), ("date_range", "2026-13-01", ""), ("date_range", "", ""),
+    ("date_range", "2027-01-01", "2026-01-01"), ("range", "5", "1"), ("min_value", "abc", ""),
+])
+def test_rule_parameters_refused(rule_type, p1, p2):
+    with pytest.raises(ed.EditError):
+        ed.check_rule_params(rule_type, p1, p2)

@@ -13,6 +13,7 @@ Everything local lives in the work folder, which is never committed: the config 
 # No param() block on purpose: options such as --all, --yes and --scratch must reach the script as
 # plain text, and an advanced-script parameter block would reject them as unknown parameters.
 $Command = if ($args.Count -gt 0) { [string]$args[0] } else { "help" }
+if ($Command -eq "run") { $Command = "up" }   # run: the everyday start, the same as up
 $Rest = @($args | Select-Object -Skip 1 | ForEach-Object { [string]$_ })
 $ErrorActionPreference = "Stop"
 Set-Location -Path $PSScriptRoot
@@ -145,7 +146,51 @@ function Show-Urls {
     Write-Log "Reports:     https://reports.$h$s/"
     Write-Log "Documents:   https://docs.$h$s/"
     Write-Log "Keycloak:    https://$h$s/auth/admin/"
-    if ((Get-Setting "EAX_MCP_ENABLED" "false") -eq "true") { Write-Log "MCP server:  https://$h$s/mcp  (laptop: http://localhost:8001/mcp)" }
+    if ((Get-Setting "EAX_MCP_ENABLED" "false") -eq "true") { Write-Log "MCP server:  https://$h$s/mcp" }
+    if ((Get-Setting "EAX_HTTP_API_MCP" "false") -eq "true") {
+        $hp = Get-Setting "EAX_HTTP_PORT" "80"; $hs = if ($hp -eq "80") { "" } else { ":$hp" }
+        Write-Log "Also on plain http (this computer only): http://localhost$hs/api/docs and http://localhost$hs/mcp"
+    }
+    Show-TrustHint
+}
+
+# ------------------------------------------------------------------ the local certificate (D107)
+# The setup service makes a local certificate authority (ca.crt) and signs the site certificate with it.
+# "trust" adds ca.crt to this Windows user's trusted root certificates (Windows asks you to confirm),
+# after removing earlier EA Explorer ones, so Edge, Chrome and Windows tools trust https://localhost.
+function Get-CaPath {
+    $d = Get-Setting "EAX_TLS_DIR" "./work/data/tls"
+    if ($d -notmatch '[\\/]') { throw "EAX_TLS_DIR is the Docker volume '$d', not a folder: copy ca.crt out with docker compose cp setup:/tls/ca.crt ." }
+    return Join-Path (Join-Path $PSScriptRoot $d) "ca.crt"
+}
+function Get-OurCas { Get-ChildItem Cert:\CurrentUser\Root | Where-Object { $_.Subject -like "*O=EA Explorer (self-signed)*" } }
+function Show-TrustHint {
+    try { $ca = Get-CaPath } catch { return }
+    if (-not (Test-Path $ca)) { return }
+    $want = (New-Object System.Security.Cryptography.X509Certificates.X509Certificate2 $ca).Thumbprint
+    if (-not (Get-OurCas | Where-Object { $_.Thumbprint -eq $want })) {
+        Write-Log "Optional: run  .\eax trust  once so the browser stops warning about the certificate (it survives clean-run)." "Yellow"
+        Write-Log "Without it, accept the warning once for localhost, reports.localhost and docs.localhost, as before." "Yellow"
+    }
+}
+function Invoke-Trust([string[]]$Options) {
+    $ca = Get-CaPath
+    if ($Options -contains "--remove") {
+        $old = @(Get-OurCas); $old | Remove-Item
+        Write-Log "Removed $($old.Count) EA Explorer certificate(s) from your trusted root certificates."
+        return
+    }
+    if (-not (Test-Path $ca)) { throw "No $ca yet: run .\eax up first (the setup service makes it)." }
+    $new = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2 $ca
+    Get-OurCas | Where-Object { $_.Thumbprint -ne $new.Thumbprint } | Remove-Item
+    if (Get-OurCas | Where-Object { $_.Thumbprint -eq $new.Thumbprint }) { Write-Log "Already trusted: $($new.Subject)" }
+    else {
+        Write-Log "Adding $($new.Subject) to your trusted root certificates. Windows asks you to confirm: choose Yes." "Yellow"
+        Import-Certificate -FilePath $ca -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
+        Write-Log "Trusted. Restart the browser. It may vouch only for this installation's names (localhost and EAX_HOSTNAME)."
+    }
+    Write-Log "Firefox: set security.enterprise_roots.enabled to true in about:config, or import $ca there."
+    Write-Log "MCP clients that run on Node (Claude Code, mcp-remote): setx NODE_EXTRA_CA_CERTS `"$ca`"  and open a new window."
 }
 
 function Show-Logins {
@@ -166,13 +211,31 @@ function Show-Logins {
         @("PostgreSQL Superset",              "superset",                                     (Get-Setting "EAX_SUPERSET_DB_PASSWORD"),    "database superset"),
         @("PostgreSQL Mayan",                 "mayan",                                        (Get-Setting "EAX_MAYAN_DB_PASSWORD"),       "database mayan"),
         @("Mayan broker (Valkey)",            "(none)",                                       (Get-Setting "EAX_DMS_BROKER_PASSWORD"),     "password only"),
-        @("MCP server (development token)",   "(bearer)",                                     (Get-Setting "EAX_MCP_DEV_TOKEN"),           "http://localhost:8001/mcp"),
-        @("Keycloak client secrets",          "superset/mayan",                               (Get-Setting "EAX_SUPERSET_OIDC_SECRET"),    "OIDC clients")
+        @("MCP server (development token)",   "(bearer)",                                     (Get-Setting "EAX_MCP_DEV_TOKEN"),           "https://localhost/mcp or http://localhost/mcp"),
+        @("Keycloak client secrets",          "superset/mayan",                               (Get-Setting "EAX_SUPERSET_OIDC_SECRET"),    "OIDC clients"),
+        @("Keycloak API client (eax-admin)",  "eax-admin",                                    (Get-Setting "EAX_KC_SERVICE_SECRET"),       "reads people and roles"),
+        @("Break-glass account",              "break-glass",                                  (Get-Setting "EAX_BREAK_GLASS_PASSWORD"),    "when Keycloak is down: start page")
     )
+    # Test users (phase 3.1): their global Keycloak role and the model roles the seed gives them
+    $testPw = Get-Setting "EAX_TEST_USER_PASSWORD" ""
+    if (-not $testPw) { $testPw = Get-Setting "EAX_FIRST_ADMIN_PASSWORD" }
+    $tests = @(
+        @("user_super_admin", "eax-super-admin", "everything, every model"),
+        @("user_it_admin", "eax-it-admin", "runs the installation; no models"),
+        @("user_keycloak_admin", "eax-keycloak-admin", "Keycloak console of the realm"),
+        @("user_user_admin", "eax-user-admin", "Users page, role mapping; reads no model"),
+        @("user_model_creator", "eax-model-creator", "creates models; Model Admin: Karoo Re, Lean EA metamodel, Karoo Digital"),
+        @("user_model_admin", "eax-user", "Model Admin: Fynbos group, Fynbos Life; Architect: Sample"),
+        @("user_architect", "eax-user", "Architect: Sample, Fynbos Life; Model Sub Admin + Report Viewer: Fynbos Commercial"),
+        @("user_model_sub_admin", "eax-user", "Model Sub Admin: Sample, Fynbos Life, Fynbos Commercial, Karoo Re"),
+        @("user_report_viewer", "eax-user", "Report Viewer: Fynbos group, Sample"),
+        @("user_global_architect", "eax-user", "Architect on every model")
+    )
+    foreach ($t in $tests) { $rows += ,@("Test user ($($t[1]))", $t[0], $testPw, $t[2]) }
     Write-Log ""
     Write-Log "================ DEVELOPMENT LOGINS (laptop only - never use these on a server) ================" "Yellow"
-    Write-Log ("{0,-34} {1,-14} {2,-16} {3}" -f "Account", "User", "Password", "Notes")
-    foreach ($r in $rows) { Write-Log ("{0,-34} {1,-14} {2,-16} {3}" -f $r[0], $r[1], $r[2], $r[3]) }
+    Write-Log ("{0,-38} {1,-22} {2,-16} {3}" -f "Account", "User", "Password", "Notes")
+    foreach ($r in $rows) { Write-Log ("{0,-38} {1,-22} {2,-16} {3}" -f $r[0], $r[1], $r[2], $r[3]) }
     Write-Log "=================================================================================================" "Yellow"
 }
 
@@ -181,9 +244,9 @@ function Show-PartUrls([string[]]$Services) {
     Write-Log ""
     Write-Log "Started: $($Services -join ', ') (and what they depend on). The rest stays stopped."
     if ($Services -contains "api") {
-        Write-Log "API directly (laptop, no proxy or sign-in needed for public endpoints):"
-        Write-Log "  Swagger:    http://localhost:8000/api/docs"
-        Write-Log "  Heartbeat:  http://localhost:8000/api/v1/heartbeat"
+        Write-Log "The API goes through nginx: start it too with  .\eax up api proxy  (no Keycloak needed for public endpoints):"
+        Write-Log "  Swagger:    https://localhost/api/docs   (laptop also http://localhost/api/docs)"
+        Write-Log "  Heartbeat:  https://localhost/api/v1/heartbeat"
     }
     Write-Log "Stop everything with .\eax down"
 }
@@ -229,11 +292,13 @@ Getting started
                         value before starting. Refuses to overwrite an existing config file.
   check                 Checks that Docker Desktop is running and that the config file and compose
                         files are valid. Starts nothing.
+  run                   The everyday start, after the first clean-run: the same as up. Keeps the
+                        databases, documents and settings from last time.
   up [service...]       Builds our images, pulls the others, and starts every container in the
                         background. Then prints the addresses and (laptop) the logins.
                         Name services to start only those and what they depend on, for example
-                        "up api" starts the API and PostgreSQL only (needs about 1 GB). On a laptop
-                        the API is then at http://localhost:8000/api/docs.
+                        "up api proxy" starts the API, PostgreSQL and nginx only (about 1 GB);
+                        the API is then at https://localhost/api/docs (laptop also http://).
 
 Finding problems
   debug [service...]    Same as up, but does not stop on failure: it saves a diagnostics report and
@@ -250,6 +315,10 @@ Finding problems
 
 Everyday use
   url                   Prints the addresses to open (and the logins on a laptop).
+  trust [--remove]      Adds EA Explorer's local certificate (work\data\tls\ca.crt) to your Windows
+                        trusted root certificates, so the browser stops warning about https://localhost.
+                        Run it once after the first start: clean-run keeps the certificate. --remove
+                        takes EA Explorer's certificates out again.
   logins                Prints every user name and password (laptop only).
   down                  Stops and removes the containers. Data in Docker volumes and in work\ is kept.
   backup                Takes a backup now into work\data\backups (laptop) or EAX_BACKUP_DIR.
@@ -258,11 +327,12 @@ Everyday use
                         a separate scratch database to inspect first.
 
 Starting again
-  cleanup [--all] [--yes]
+  cleanup [--all] [--yes] [--certificate]
                         Stops the containers and deletes everything in the work folder: the config
                         file, logs and laptop data folders (including backups). With --all it also
                         deletes the Docker volumes, so the databases and documents start empty.
-                        Asks you to type yes unless --yes is given. Run init afterwards.
+                        The local certificate (work\data\tls) is kept, so you need not trust it
+                        again; --certificate deletes it too. Asks you to type yes unless --yes is given.
   clean-run [laptop|server]
                         Starts again from scratch in one step: cleanup --all --yes, then init
                         (laptop if not given), then up. Deletes the databases and everything in
@@ -290,9 +360,9 @@ function Show-Help([string]$Name) {
 
 # Stops the containers and empties the work folder (no log: the logs folder is being deleted)
 function Invoke-Cleanup([string[]]$Options) {
-    $all = $false; $yes = $false
+    $all = $false; $yes = $false; $cert = $false
     foreach ($o in $Options) {
-        switch ($o) { "--all" { $all = $true } "--yes" { $yes = $true } "-y" { $yes = $true } default { throw "Unknown option $o" } }
+        switch ($o) { "--all" { $all = $true } "--yes" { $yes = $true } "-y" { $yes = $true } "--certificate" { $cert = $true } default { throw "Unknown option $o" } }
     }
     Write-Host "This deletes everything in ${WorkDir}: the config file, all logs and the laptop data folders (including backups)." -ForegroundColor Yellow
     if ($all) { Write-Host "With --all it also deletes the Docker volumes: the databases and documents start empty." -ForegroundColor Yellow }
@@ -306,8 +376,17 @@ function Invoke-Cleanup([string[]]$Options) {
     } elseif ($all) {
         Write-Host "No $EnvFile, so the Docker volumes cannot be found by name; list them with: docker volume ls"
     }
-    if (Test-Path $WorkDir) { Get-ChildItem -Path $WorkDir -Force | Remove-Item -Recurse -Force }
-    Write-Host "The work folder is empty. Run .\eax init laptop to start again."
+    if (Test-Path $WorkDir) {
+        if ($cert) { Get-ChildItem -Path $WorkDir -Force | Remove-Item -Recurse -Force }
+        else {
+            # keep work\data\tls: the local certificate you trusted with .\eax trust (D107)
+            Get-ChildItem -Path $WorkDir -Force | Where-Object { $_.Name -ne "data" } | Remove-Item -Recurse -Force
+            $data = Join-Path $WorkDir "data"
+            if (Test-Path $data) { Get-ChildItem -Path $data -Force | Where-Object { $_.Name -ne "tls" } | Remove-Item -Recurse -Force }
+        }
+    }
+    if ($cert) { Write-Host "The work folder is empty. Run .\eax init laptop to start again." }
+    else { Write-Host "The work folder is empty apart from the local certificate (work\data\tls). Run .\eax init laptop to start again." }
 }
 
 # ------------------------------------------------------------------ commands
@@ -381,6 +460,7 @@ try {
         "restore" { Invoke-Compose (@("exec", "-T", "backup", "restore.sh") + $RestArgs) | Out-Null }
         "url"     { Show-Urls; Show-Logins }
         "logins"  { if (-not (Test-Path $EnvFile)) { throw "No $EnvFile yet: run .\eax init first." }; Show-Logins }
+        "trust"   { if (-not (Test-Path $EnvFile)) { throw "No $EnvFile yet: run .\eax init first." }; Invoke-Trust $RestArgs }
         default   { throw "Unknown command '$Command'. Run .\eax help" }
     }
 } catch {

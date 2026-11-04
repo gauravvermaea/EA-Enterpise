@@ -208,8 +208,27 @@ def check_api() -> dict:
     return _result("API", "Flask (ours)", "up", f"version {__version__}, {get_settings().deployment}", started)
 
 
+def check_break_glass() -> dict:
+    """D80: a used break-glass password is an alert until it is changed."""
+    started = time.perf_counter()
+    name, kind = "Break-glass account", "Emergency sign-in (ours)"
+    try:
+        from .api.break_glass import status
+        with get_engine().connect() as conn:
+            st = status(conn)
+    except Exception as exc:  # noqa: BLE001
+        return _result(name, kind, "warning", f"could not read: {exc.__class__.__name__}", started)
+    if not st["enabled"]:
+        return _result(name, kind, "off", "not set up (EAX_BREAK_GLASS_PASSWORD is empty)", started)
+    if st["change_password"]:
+        return _result(name, kind, "warning", f"used on {st['last_used_at']:%Y-%m-%d %H:%M} UTC: change "
+                       "EAX_BREAK_GLASS_PASSWORD and restart (see the audit log for what was done)", started)
+    last = f"; last used {st['last_used_at']:%Y-%m-%d}" if st["last_used_at"] else "; never used"
+    return _result(name, kind, "up", "sealed" + last, started)
+
+
 CHECKS = [check_api, check_database, check_jobs, check_keycloak, check_web, check_proxy, check_reports,
-          check_dms, check_dms_broker, check_drawio, check_mcp, check_backup]
+          check_dms, check_dms_broker, check_drawio, check_mcp, check_backup, check_break_glass]
 
 
 def check_all() -> dict:

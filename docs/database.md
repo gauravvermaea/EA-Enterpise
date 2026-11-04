@@ -30,10 +30,12 @@ Everything that creates the database is code in this repository; nothing is crea
 | `services/api/migrations/sql/0003_library.sql` (run by `versions/0003_library.py`) | Schema versions, model properties, locks on templates and reference models, the installer's rights |
 | `services/api/migrations/sql/0004_screens.sql` (run by `versions/0004_screens.py`) | Version 0.2.1 only (no schema change) |
 | `services/api/migrations/sql/0005_metamodel_editing.sql` (run by `versions/0005_metamodel_editing.py`) | Metamodel versions, attribute defaults, metamodel version on entities, model locks |
+| `services/api/migrations/sql/0006_roles.sql` (run by `versions/0006_roles.py`) | EA Explorer's roles and the Keycloak role mapping, model assignments, model ancestors, row-level security and permission triggers |
+| `services/api/migrations/sql/0007_relationship_rules.sql` (run by `versions/0007_relationship_rules.py`) | The rule type `has_relationship` (an entity must have a relationship of a type, to or from a type) on the built-in field `relationships` (D113) |
 | `services/api/tests/sql/sample_history.sql` | Gives Claims Platform in the sample model a history to try the timeline on (changes the sample model) |
 | `services/api/eax/jobs_schema.py` | The job queue tables (Procrastinate) |
 | `services/api/eax/seed/` | The ArchiMate 4 template, the insurance reference model and the sample model (rows, not structure), loaded by the installer's login |
-| `services/api/tests/sql/phase1_checks.sql`, `phase2_checks.sql`, `phase2_installer_check.sql`, `phase3_checks.sql` | Checks for all of it, in transactions that are rolled back |
+| `services/api/tests/sql/phase1_checks.sql`, `phase2_checks.sql`, `phase2_installer_check.sql`, `phase3_checks.sql`, `phase3_1_checks.sql` | Checks for all of it, in transactions that are rolled back |
 
 The api container runs them in that order on every start (`entrypoint.sh`: `alembic upgrade
 head`, the job tables, then the seed); each step only does what is not done yet. Each later build
@@ -83,6 +85,31 @@ refuses the metamodel tables, a content lock refuses both, a maintenance lock re
 `locked_by`. `metamodel_versions_lock` stops a version being published under a lock. The installer's
 login passes, as for `is_locked`. They are separate from `is_locked`, the installer's permanent lock
 on templates and reference models.
+
+## Roles and permissions (phase 3.1)
+
+- `core.app_roles`: EA Explorer's roles with their `scope`: global (Super Admin, IT Admin, User Admin,
+  Keycloak Admin, Model Creator, User) or model (Model Admin, Model Sub Admin, Architect, Report Viewer).
+- `core.role_mappings`: which Keycloak role gives which global role (defaults `eax-<role>`); global
+  roles are given in Keycloak only (D92). Only global roles can be mapped.
+- `core.model_users`: people's roles on a model (model_id, username, role), several per person allowed
+  (D96); given by the model's Model Admin. `core.model_ancestors`: every model's ancestors through
+  `parent_model_id` and `source_model_id`, rebuilt by a trigger on `core.models` (D60).
+- The API sets `eax.actor` and `eax.user_roles` (global roles) on every connection (`eax/db.py`). Empty
+  means no user (installer, seed, jobs, an administrator's psql): nothing is restricted. A signed-in
+  person with no global role gets `none`.
+- Reading: row-level security (`FORCE`, since the API's login owns the tables) on `core.models`,
+  `entities`, `relationships` and `attribute_values`: Super Admins read every model; everyone else the
+  models they have a role on, their ancestors, and the library (templates and reference models, D98).
+  `core.can_read_model()` (used by `eax.get_entity`) asks the same question. `core.assignments()` lists
+  every model role for the Users page (User Admins read no model); it uses `eax.rls_bypass` for the
+  length of the call, which counts only for the tables' owner.
+- Writing: triggers `<table>_00_access` (before the lock triggers) call `core.refuse_unpermitted()`,
+  which asks `core.why_not(model, part)`: the metamodel, the model row (locks, properties) and its
+  people need that model's Model Admin; content needs its Model Admin, Model Sub Admin or Architect;
+  a new model needs Model Creator (or Model Admin of the model it derives from), and its creator
+  becomes its Model Admin (D97). `role_mappings` needs User Admin. Super Admin passes everything.
+- Checks: `tests/sql/phase3_1_checks.sql`, run as `eax_app`.
 
 ## The SQL window
 

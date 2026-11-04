@@ -65,23 +65,42 @@ def list_models(conn, search: str | None = None, kind: str | None = None,
 
 
 def get_library(conn) -> list[dict]:
-    """The model library: reference models (read-only industry and reference content) with their
-    counts by entity type, for browsing and previewing before copying one."""
-    models = list_models(conn, kind="reference")
+    """The model library: the root metamodels (the Root model, ArchiMate 4, an organisation's own) and
+    the reference models (read-only industry content), each with the root it is built on and its counts
+    by entity type, for browsing before copying one (D81, D101)."""
+    models = list_models(conn, kind="template") + list_models(conn, kind="reference")
+    by_id = {str(m["id"]): m for m in models}
     for m in models:
+        # the root metamodel it is built on: up the created-from chain to the one just below the Root
+        # model (the top of the hierarchy: the only template created from nothing)
+        top = lambda x: x["kind"] == "template" and not x.get("source_model_id")
+        up, root = m, None
+        for _ in range(20):
+            src = by_id.get(str(up.get("source_model_id")))
+            if not src or top(src):
+                break
+            root, up = src, src
+        m["is_top"] = top(m)
+        m["built_on"] = root["name"] if root else (None if top(m) else m["name"] if m["kind"] == "template" else None)
         m["counts_by_type"] = _rows(conn, """
             SELECT et.name AS entity_type, l.name AS layer, l.colour, count(e.id) AS count
               FROM core.entity_types et
               JOIN core.layers l ON l.id = et.layer_id
-              JOIN core.entities e ON e.entity_type_id = et.id AND NOT e.is_deleted
+              LEFT JOIN core.entities e ON e.entity_type_id = et.id AND NOT e.is_deleted
              WHERE et.model_id = :m AND NOT et.is_deleted
              GROUP BY et.name, l.name, l.colour, l.sort_order, et.sort_order
-             ORDER BY count(e.id) DESC, l.sort_order, et.sort_order""", m=m["_id"])
+             HAVING count(e.id) > 0 OR :tpl
+             ORDER BY count(e.id) DESC, l.sort_order, et.sort_order""", m=m["_id"], tpl=m["kind"] == "template")
         m["relationship_counts"] = _rows(conn, """
             SELECT rt.name AS relationship_type, count(*) AS count
               FROM core.relationships r JOIN core.relationship_types rt ON rt.id = r.relationship_type_id
              WHERE r.model_id = :m AND NOT r.is_deleted
              GROUP BY rt.name, rt.sort_order ORDER BY count(*) DESC, rt.sort_order""", m=m["_id"])
+        m["layers"] = _rows(conn, """SELECT l.name, l.colour, count(et.id) AS types FROM core.layers l
+              LEFT JOIN core.entity_types et ON et.layer_id = l.id AND NOT et.is_deleted
+             WHERE l.model_id = :m GROUP BY l.name, l.colour, l.sort_order ORDER BY l.sort_order""", m=m["_id"])
+        m["relationship_type_count"] = _rows(conn, "SELECT count(*) AS n FROM core.relationship_types WHERE model_id = :m AND NOT is_deleted",
+                                             m=m["_id"])[0]["n"]
     return models
 
 
@@ -473,6 +492,30 @@ def _duplicate_names(conn, model_id: int, type_id: int) -> set[str]:
          GROUP BY lower(name) HAVING count(*) > 1""", m=model_id, t=type_id)}
 
 
+def _relationships_by_entity(conn, entity_ids: list[int]) -> dict[int, list[dict]]:
+    """Each entity's live relationships, for rules about relationships (D113): type, the entity type at
+    the other end, which way, and whether the metamodel allows it."""
+    if not entity_ids:
+        return {}
+    out: dict[int, list[dict]] = {}
+    for r in _rows(conn, f"""
+        SELECT x.e AS _entity, r.guid AS id, rt.name AS type, rt.code AS type_code, rt.verb,
+               CASE WHEN r.source_entity_id = x.e THEN 'outgoing' ELSE 'incoming' END AS direction,
+               o.guid AS other_id, o.name AS other_name, o.display_id AS other_display_id,
+               ot.name AS other_type, ot.code AS other_type_code, {_ALLOWED_EXISTS} AS allowed
+          FROM unnest(CAST(:ids AS bigint[])) AS x(e)
+          JOIN core.relationships r ON (r.source_entity_id = x.e OR r.target_entity_id = x.e) AND NOT r.is_deleted
+          JOIN core.relationship_types rt ON rt.id = r.relationship_type_id
+          JOIN core.entities s ON s.id = r.source_entity_id
+          JOIN core.entities t ON t.id = r.target_entity_id
+          JOIN core.entities o ON o.id = CASE WHEN r.source_entity_id = x.e THEN r.target_entity_id ELSE r.source_entity_id END
+          JOIN core.entity_types ot ON ot.id = o.entity_type_id
+         WHERE NOT o.is_deleted
+         ORDER BY rt.sort_order, o.name""", ids=list(entity_ids)):
+        out.setdefault(r.pop("_entity"), []).append(r)
+    return out
+
+
 def _warnings(entity: dict, attrs: list[dict], rules: list[dict], duplicates: set[str]) -> list[dict]:
     from . import rules as rule_check
     for_rules = [{**a, "value": a["typed"]} for a in attrs]
@@ -503,10 +546,12 @@ def type_table(conn, model: Any, entity_type: Any, limit: int = 10000) -> dict:
     values = _load_values(conn, "e.model_id = :m AND e.entity_type_id = :t AND NOT e.is_deleted", m=m["_id"], t=tid)
     rules = _rules_for_type(conn, m["_id"], tid)
     duplicates = _duplicate_names(conn, m["_id"], tid)
+    rels = _relationships_by_entity(conn, [r["_id"] for r in rows]) \
+        if any(x["rule_type_code"] == "has_relationship" for x in rules) else {}
     for r in rows:
         attrs = values.get(r["_id"], [])
         r["values"] = {a["code"]: a["value"] for a in attrs if a["value"] is not None}
-        found = _warnings(r, attrs, rules, duplicates)
+        found = _warnings({**r, "relationships": rels.get(r["_id"], [])}, attrs, rules, duplicates)
         r["errors"] = sum(1 for w in found if w["severity"] == "error")
         r["warnings"] = len(found) - r["errors"]
         r["messages"] = [w["message"] for w in found]
@@ -573,7 +618,8 @@ def get_entity_detail(conn, model: Any, entity: Any) -> dict:
     eid, tid = e.pop("_id"), e.pop("_type")
     e.pop("_origin"), e.pop("_type_origin")
     attrs = _load_values(conn, "e.id = :e", e=eid).get(eid, [])
-    warnings = _warnings(e, attrs, _rules_for_type(conn, m["_id"], tid), _duplicate_names(conn, m["_id"], tid))
+    warnings = _warnings({**e, "relationships": _relationships_by_entity(conn, [eid]).get(eid, [])}, attrs,
+                         _rules_for_type(conn, m["_id"], tid), _duplicate_names(conn, m["_id"], tid))
     for a in attrs:
         a.pop("typed")
         a["warnings"] = [w for w in warnings if w["code"].lower() == a["code"].lower()]
@@ -615,6 +661,40 @@ def get_entity_detail(conn, model: Any, entity: Any) -> dict:
          WHERE ar.target_type_id = :t AND NOT ar.is_deleted
          ORDER BY 1 DESC, 2, 5""", t=tid)
     return e
+
+
+def get_entity_rules(conn, model: Any, entity: Any) -> dict:
+    """Every rule applied to one entity and whether it passed, failed or did not apply (D113): the
+    metamodel's required flags and pick lists, the validation rules of its type (values, patterns,
+    dates, duplicates, relationships it must have), and for each of its relationships whether the
+    metamodel allows it. Failed first. Checks warn, they never block (D48)."""
+    from . import rules as rule_check
+    m = get_model(conn, model)
+    e = _find_entity(conn, m, entity)
+    eid, tid = e["_id"], e["_type"]
+    attrs = _load_values(conn, "e.id = :e", e=eid).get(eid, [])
+    rels = _relationships_by_entity(conn, [eid]).get(eid, [])
+    rules = _rules_for_type(conn, m["_id"], tid)
+    results = rule_check.results({**e, "relationships": rels}, [{**a, "value": a["typed"]} for a in attrs], rules,
+                                 duplicate_name=(e.get("name") or "").lower() in _duplicate_names(conn, m["_id"], tid))
+    rel_checks = [{
+        "id": r["id"], "relationship_type": r["type"], "verb": r["verb"], "direction": r["direction"],
+        "other_id": r["other_id"], "other_name": r["other_name"], "other_display_id": r["other_display_id"],
+        "other_type": r["other_type"], "status": "passed" if r["allowed"] else "failed", "severity": "warning",
+        "message": None if r["allowed"] else (f"No mapping in the metamodel allows {r['type']} "
+                                              f"{'from' if r['direction'] == 'outgoing' else 'to'} {e['entity_type']} "
+                                              f"{'to' if r['direction'] == 'outgoing' else 'from'} {r['other_type']}"),
+    } for r in rels]
+    every = results + rel_checks
+    count = lambda st, sev=None: sum(1 for x in every if x["status"] == st and (sev is None or x["severity"] == sev))
+    return {
+        "entity": {k: e[k] for k in ("id", "display_id", "name", "entity_type")},
+        "metamodel_version": m["metamodel_version"],
+        "summary": {"checks": len(every), "passed": count("passed"), "failed": count("failed"),
+                    "errors": count("failed", "error"), "warnings": count("failed", "warning"),
+                    "not_applicable": count("not_applicable")},
+        "rules": results, "relationships": rel_checks,
+    }
 
 
 # ---------------------------------------------------------------- history
@@ -696,30 +776,49 @@ def get_entity_as_of(conn, model: Any, entity: Any, event: int | None = None, at
     state: dict[tuple, dict] = {}
     for r in cut:
         state[(r["table_name"], r["row_id"])] = r
+    # what changed at this moment (the same person within the same second, as the timeline groups it):
+    # the state just before it, to highlight what this moment changed and show the old value on hover
+    sec = lambda r: (int(_as_datetime(r["changed_at"]).timestamp()), r["changed_by"])
+    moment = {r["id"] for r in cut if sec(r) == sec(point)}
+    before: dict[tuple, dict] = {}
+    for r in cut:
+        if r["id"] not in moment:
+            before[(r["table_name"], r["row_id"])] = r
+    alive = lambda r: r is not None and not r["data"].get("is_deleted") and r["operation"] != "delete"
     row = state.get(("entities", eid))
     then = row["data"] if row else {}
+    prev_row = before.get(("entities", eid))
+    prev = prev_row["data"] if alive(prev_row) else {}
+    created_here = not alive(prev_row) and alive(row)
     now_detail = get_entity_detail(conn, model, e["id"])
     fields = []
     for label, key, now in (("Name", "name", e["name"]), ("Description", "description", e["description"]),
                             ("Parent", "parent_entity_id", e["parent_name"]), ("Status", "status_code", e["status"])):
-        value = then.get(key)
+        value, old = then.get(key), prev.get(key)
         if key == "parent_entity_id":
             value = names.get(int(value)) if value else None
-        fields.append({"field": label, "then": None if value in (None, "") else str(value),
-                       "now": None if now in (None, "") else str(now)})
-    then_values = {}
-    for (table, _), r in state.items():
-        if table == "attribute_values" and not r["data"].get("is_deleted") and r["operation"] != "delete":
-            then_values[int(r["data"]["attribute_type_id"])] = attr_value(r["data"])
+            old = names.get(int(old)) if old else None
+        value = None if value in (None, "") else str(value)
+        old = None if old in (None, "") else str(old)
+        fields.append({"field": label, "then": value, "now": None if now in (None, "") else str(now),
+                       "before": old, "changed_here": value != old})
+
+    def values_of(st):
+        out = {}
+        for (table, _), r in st.items():
+            if table == "attribute_values" and alive(r):
+                out[int(r["data"]["attribute_type_id"])] = attr_value(r["data"])
+        return out
+    then_values, before_values = values_of(state), values_of(before)
     attributes = []
     for a in _load_values(conn, "e.id = :e", e=eid).get(eid, []):
-        t, n = then_values.get(a["_attr"]), a["value"]
+        t, n, b = then_values.get(a["_attr"]), a["value"], before_values.get(a["_attr"])
         attributes.append({"code": a["code"], "name": a["name"], "section": a["section"], "then": t, "now": n,
-                           "changed": (t or None) != (n or None)})
+                           "changed": (t or None) != (n or None), "before": b, "changed_here": (t or None) != (b or None)})
     for f in fields:
         f["changed"] = f["then"] != f["now"]
     then_rels = []
-    for (table, _), r in state.items():
+    for (table, rel_row), r in state.items():
         d = r["data"]
         if table != "relationships" or d.get("is_deleted") or r["operation"] == "delete":
             continue
@@ -728,7 +827,19 @@ def get_entity_as_of(conn, model: Any, entity: Any, event: int | None = None, at
         other = int(d["target_entity_id" if outgoing else "source_entity_id"])
         then_rels.append({"id": d.get("guid"), "relationship_type": rt["name"], "verb": rt["verb"],
                           "direction": "outgoing" if outgoing else "incoming", "other_name": names.get(other, "?"),
-                          "_other": other})
+                          "_other": other, "added_here": not alive(before.get(("relationships", rel_row))) and r["id"] in moment})
+    # relationships this moment removed: there just before it, gone at it
+    removed_here = []
+    for (table, rid), r in state.items():
+        b = before.get((table, rid))
+        if table != "relationships" or r["id"] not in moment or alive(r) or not alive(b):
+            continue
+        d = b["data"]
+        rt = verbs.get(int(d.get("relationship_type_id") or 0), {"name": "?", "verb": "relates to"})
+        outgoing = str(d.get("source_entity_id")) == str(eid)
+        other = int(d["target_entity_id" if outgoing else "source_entity_id"])
+        removed_here.append({"id": d.get("guid"), "relationship_type": rt["name"], "verb": rt["verb"],
+                             "direction": "outgoing" if outgoing else "incoming", "other_name": names.get(other, "?")})
     others = {r["id"]: r for r in _rows(conn, """
         SELECT e.id, e.guid, e.display_id, et.name AS entity_type, l.colour
           FROM core.entities e JOIN core.entity_types et ON et.id = e.entity_type_id JOIN core.layers l ON l.id = et.layer_id
@@ -752,6 +863,7 @@ def get_entity_as_of(conn, model: Any, entity: Any, event: int | None = None, at
                   "position": versions.index((point["changed_at"], point["id"])) + 1, "of": len(versions),
                   "is_current": point["id"] == chrono[-1]["id"]},
         "fields": fields, "attributes": attributes, "relationships": then_rels, "added_since": added_since,
+        "moment": {"created": created_here, "changes": len(moment), "removed_relationships": removed_here},
     }
 
 
@@ -818,6 +930,18 @@ def get_entity_history(conn, model: Any, entity: Any, limit: int = 500) -> dict:
                                       "new": None if gone else ev["item"]})
             elif before.get("status_code") != d.get("status_code"):
                 ev["changes"].append({"field": "Status", "old": before.get("status_code"), "new": d.get("status_code")})
+        # what kind of change each is, so the timeline can say it plainly (D110): a value set for the
+        # first time is not a change of an old value
+        for c in ev["changes"]:
+            rel = ev["kind"] == "relationship" and c["field"] != "Status"
+            if c["old"] in (None, "") and c["new"] not in (None, ""):
+                c["action"] = "added" if rel else "set"
+            elif c["new"] in (None, "") and c["old"] not in (None, ""):
+                c["action"] = "removed" if rel else "cleared"
+            else:
+                c["action"] = "changed"
+        if ev["kind"] == "entity" and r["operation"] == "insert":
+            ev["action"] = "created"
         events.append(ev)
     events.sort(key=lambda x: (x["at"], x["id"]), reverse=True)
     for k in ("_id", "_type", "_origin", "_type_origin"):

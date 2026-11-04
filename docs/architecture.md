@@ -15,7 +15,7 @@ One Docker Compose stack (`docker-compose.yml`, plus `deploy/compose/docker-comp
 | --- | --- | --- |
 | `proxy` | nginx: TLS, routes `/` to web, `/api` and `/mcp` to api, `/auth` to Keycloak, reports.* and docs.* hosts | `deploy/proxy/templates/default.conf.template` |
 | `web` | The React screens, built by Vite, served by nginx | `services/web` |
-| `api` | Flask REST API (gunicorn, port 8000), the job runner (Procrastinate) and the MCP server (uvicorn, port 8001), side by side; runs migrations and the seed on start | `services/api` (`entrypoint.sh`) |
+| `api` | Flask REST API (gunicorn, port 8000), the job runner (Procrastinate) and the MCP server (uvicorn, port 8001), side by side, reached only through nginx; runs migrations and the seed on start | `services/api` (`entrypoint.sh`) |
 | `setup` | One-off: certificates, Keycloak realm, Superset sample | `services/api` (`python -m eax.setup`) |
 | `db` | PostgreSQL 16: databases `eaexplorer` (repository), `keycloak`, `superset`, `mayan` | `deploy/postgres/initdb` |
 | `keycloak` | Sign-in (OIDC); realm `eaexplorer` from `deploy/keycloak/realm-eaexplorer.json.tmpl` | image |
@@ -30,7 +30,9 @@ One Docker Compose stack (`docker-compose.yml`, plus `deploy/compose/docker-comp
 eax/
   app.py            Flask app factory, flask-smorest Api, blueprints, request ids, logging
   config.py         settings from the environment (EAX_*)
-  auth.py           Keycloak token check (require_auth), development token on laptops
+  auth.py           token check (require_auth(permission)), Keycloak roles mapped to ours, break-glass tokens
+  permissions.py    the one permission check (roles, permissions, test users) for REST and MCP
+  keycloak_admin.py reads people and roles from Keycloak (the API's own client, eax-admin)
   db.py             SQLAlchemy engine (psycopg 3)
   repository.py     ALL reads of models, metamodel, entities, history, graphs, checks: one function
                     per question, shared by REST and MCP
@@ -57,6 +59,11 @@ like `metamodel_edit.py` (writes), expose it from a blueprint in `eax/api/` with
 (it then appears in Swagger at `/api/docs`), add an MCP tool in `mcp_server.py` when an agent would
 use it, and a screen in `services/web/src`. Writes run in one transaction (`_write` in
 `api/metamodel_edit.py`): rolled back for a dry run, otherwise audited and committed.
+
+**Who may do it**: every view is wrapped in `require_auth(permission)` (403 first), and the
+signed-in person is set on each database connection (`eax.actor`, `eax.user_roles`, in `db.py`), where
+row-level security and triggers enforce the same rules (migration 0006). MCP tools do the same and
+refuse to run without a known person.
 
 **Who did it**: every write sets `eax.actor` (`set_config('eax.actor', user, true)`); triggers stamp
 `created_by` / `modified_by` and the history from `core.current_actor()`. `eax.history_label`

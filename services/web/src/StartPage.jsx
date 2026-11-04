@@ -1,9 +1,9 @@
 import { groups } from "./services";
 import { config } from "./config";
-import { keycloak, roles } from "./auth";
+import { can, signedIn } from "./auth";
 
 function Tile({ item }) {
-  const allowed = !item.role || roles().includes(item.role);
+  const allowed = !item.perm || can(item.perm);
   if (item.devOnly && config.deployment !== "laptop") return null;
   if (!allowed) return null;
   if (item.live) {
@@ -21,7 +21,7 @@ function Tile({ item }) {
     <div className="tile placeholder" aria-disabled="true">
       <h3>{item.name}</h3>
       <p>{item.text}</p>
-      <span className="badge">arrives in build phase {item.phase}</span>
+      <span className="badge">{item.phase === "later" ? "agreed; phase to be set" : `coming in build phase ${item.phase}`}</span>
     </div>
   );
 }
@@ -32,9 +32,9 @@ export default function StartPage() {
       <section className="intro">
         <h1>Start</h1>
         <p>
-          Every part of EA Explorer is linked from here. Tiles in colour work now; the others show
-          the build phase that delivers them.
-          {!keycloak.authenticated && " Sign in once and every product opens without another login."}
+          Every part of EA Explorer is linked from here. Tiles in colour work now; the grey ones show what is
+          coming and the build phase that delivers it.
+          {!signedIn() && " Sign in once and every product opens without another login."}
         </p>
       </section>
       {groups.map((g) => (

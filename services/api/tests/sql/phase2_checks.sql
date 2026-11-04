@@ -32,7 +32,7 @@ BEGIN
     -- the insurance reference model
     ASSERT v_ins IS NOT NULL, 'insurance reference model loaded';
     ASSERT (SELECT is_locked AND kind_code = 'reference' AND industry = 'Insurance' AND version_label = '1.0'
-              AND source_model_id = (SELECT id FROM core.models WHERE kind_code = 'template')
+              AND source_model_id = (SELECT id FROM core.models WHERE name = 'ArchiMate 4')
               AND parent_model_id IS NULL
               FROM core.models WHERE id = v_ins), 'locked reference model created from the template';
     ASSERT (SELECT count(*) FROM core.entities WHERE model_id = v_ins) = 715, '715 entities';

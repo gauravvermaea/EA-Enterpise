@@ -42,6 +42,8 @@ def downgrade() -> None:
         DROP TRIGGER IF EXISTS relationships_2_retired ON core.relationships;
         DROP FUNCTION IF EXISTS core.refuse_retired_type();
         DROP TRIGGER IF EXISTS models_1_lock_level ON core.models;
+        DROP TRIGGER IF EXISTS models_first_metamodel_version ON core.models;
+        DROP FUNCTION IF EXISTS core.first_metamodel_version();
         DROP TRIGGER IF EXISTS entities_mm_version ON core.entities;
         DROP FUNCTION IF EXISTS core.refuse_model_lock(), core.check_model_lock(), core.stamp_mm_version(),
             core.refuse_version_under_lock() CASCADE;

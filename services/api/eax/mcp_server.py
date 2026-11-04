@@ -3,7 +3,8 @@ the repository through the Model Context Protocol.
 
 Runs inside the api container next to the REST API (see entrypoint.sh):
     uvicorn eax.mcp_server:app --host 0.0.0.0 --port 8001
-Endpoint: /mcp (Streamable HTTP). On a laptop also http://localhost:8001/mcp directly.
+Endpoint: /mcp (Streamable HTTP), reached through nginx: https://<host>/mcp, and on a laptop also
+http://localhost/mcp (D107).
 
 Sign-in: every request carries "Authorization: Bearer <token>", either
   * a Keycloak access token for the eax-api audience (the same token the REST API takes), or
@@ -26,7 +27,7 @@ import anyio
 from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 
-from . import __version__
+from . import __version__, permissions
 from . import repository as repo
 from .auth import decode_token, user_from_claims
 from .db import get_engine
@@ -41,7 +42,8 @@ A model holds a metamodel (layers, entity types, attributes, relationship types,
 relationships) and content (entities and relationships). Template models hold a metamodel only.
 Start with list_models, then get_metamodel or list_entities for a model. Models, entity types and
 entities can be given by guid or by name. check_entities shows what breaks the validation rules;
-get_entity_history shows who changed what. Read only in this build."""
+get_entity_history shows who changed what. You see only the models your roles and model
+assignments allow. Read only in this build."""
 
 mcp = MCPServer(name="EA Explorer", instructions=INSTRUCTIONS, version=__version__)
 
@@ -60,6 +62,9 @@ def _clean(value: Any) -> Any:
 
 async def _run(fn, *args, begin: bool = False, **kwargs) -> Any:
     """Runs a repository function in a worker thread (the database driver is synchronous)."""
+    if permissions.current.get() is None:  # fail closed: never read without knowing who asks
+        return {"error": "Sign in required."}
+
     def work():
         engine = get_engine()
         with (engine.begin() if begin else engine.connect()) as conn:
@@ -171,6 +176,14 @@ async def check_entities(model: str, entity_type: str) -> Any:
 
 
 @mcp.tool()
+async def get_entity_rules(model: str, entity: str) -> Any:
+    """Every rule applied to one entity: required values, pick lists, patterns, ranges, dates,
+    duplicates and the relationships it must have, each passed, failed or not applicable, plus each of
+    its relationships checked against the metamodel. Use it to explain what is wrong with an entity."""
+    return await _run(repo.get_entity_rules, model, entity)
+
+
+@mcp.tool()
 async def get_entity_history(model: str, entity: str) -> Any:
     """Every recorded change to an entity, its attribute values and its relationships, newest first:
     when, who, and each field's old and new value."""
@@ -243,18 +256,20 @@ async def search_entities(text: str, model: str | None = None) -> Any:
 
 
 # ---------------------------------------------------------------- sign-in
-def _authenticate(header: str) -> str | None:
-    """The user name for a bearer token, or None."""
+def _authenticate(header: str) -> permissions.Principal | None:
+    """Who a bearer token belongs to, with their EA Explorer roles (mapped from Keycloak's), or None.
+    The laptop development token is a Super Admin."""
     if not header.lower().startswith("bearer "):
         return None
     token = header.split(" ", 1)[1].strip()
     dev = os.environ.get("EAX_MCP_DEV_TOKEN", "").strip().strip("'\"")
     if dev and os.environ.get("EAX_DEPLOYMENT", "laptop") == "laptop" and hmac.compare_digest(token, dev):
-        return "mcp-dev"
+        return permissions.Principal("mcp-dev", (permissions.SUPER_ADMIN,))
     try:
-        return user_from_claims(decode_token(token)).username
+        user = user_from_claims(decode_token(token))
     except Exception:  # invalid, expired or wrong audience
         return None
+    return permissions.Principal(user.username, tuple(user.roles), user.break_glass)
 
 
 class BearerAuth:
@@ -276,10 +291,11 @@ class BearerAuth:
                                     (b"www-authenticate", b'Bearer realm="eaexplorer"')]})
             await send({"type": "http.response.body", "body": body})
             return
-        token = _actor.set(user)
+        token, who = _actor.set(user.username), permissions.current.set(user)
         try:
             return await self.app(scope, receive, send)
         finally:
+            permissions.current.reset(who)
             _actor.reset(token)
 
 

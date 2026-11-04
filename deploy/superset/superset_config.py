@@ -53,13 +53,12 @@ AUTH_USER_REGISTRATION = True
 AUTH_USER_REGISTRATION_ROLE = "Gamma"
 AUTH_ROLES_SYNC_AT_LOGIN = True
 AUTH_ROLES_MAPPING = {
-    "system-admin": ["Admin"],
-    "model-owner": ["Alpha"],
-    "architect": ["Alpha"],
-    "metamodel-editor": ["Alpha"],
-    "reviewer": ["Gamma"],
-    "contributor": ["Gamma"],
-    "viewer": ["Gamma"],
+    # Keycloak's global roles (phase 3.1); rows by model come with the report views (phase 5)
+    "eax-super-admin": ["Admin"],
+    "eax-it-admin": ["Admin"],
+    "eax-model-creator": ["Gamma"],
+    "eax-user-admin": ["Gamma"],
+    "eax-user": ["Gamma"],
 }
 OAUTH_PROVIDERS = [
     {

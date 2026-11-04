@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 from string import Template
 
+from .. import permissions
 from ..config import public_url
 from .superset_sample import build_sample_bundle
 from .tls import ensure_certificate
@@ -31,8 +32,11 @@ REQUIRED = [
     "EAX_KEYCLOAK_DB_PASSWORD", "EAX_SUPERSET_DB_PASSWORD", "EAX_MAYAN_DB_PASSWORD",
     "EAX_DMS_BROKER_PASSWORD", "EAX_KC_ADMIN_PASSWORD", "EAX_FIRST_ADMIN_USER",
     "EAX_FIRST_ADMIN_EMAIL", "EAX_FIRST_ADMIN_PASSWORD", "EAX_SUPERSET_SECRET_KEY",
-    "EAX_SUPERSET_OIDC_SECRET", "EAX_MAYAN_OIDC_SECRET",
+    "EAX_SUPERSET_OIDC_SECRET", "EAX_MAYAN_OIDC_SECRET", "EAX_KC_SERVICE_SECRET",
 ]
+
+# Laptop only (phase 3.1): one test user per role (eax/permissions.py TEST_USERS)
+TEST_USERS = permissions.TEST_USERS
 
 
 # The shared development password (laptop template). Refused on any other deployment kind.
@@ -91,7 +95,18 @@ def render_realm(values: dict[str, str]) -> Path:
     temporary = values.get("EAX_FIRST_ADMIN_PASSWORD_TEMPORARY", "true").strip().lower() != "false"
     escaped["EAX_FIRST_ADMIN_PASSWORD_TEMPORARY"] = "true" if temporary else "false"
     text = template.substitute(escaped)
-    json.loads(text)  # fail early if the result is not valid JSON
+    realm = json.loads(text)  # fail early if the result is not valid JSON
+    if values.get("EAX_DEPLOYMENT", "laptop") == "laptop":
+        password = values.get("EAX_TEST_USER_PASSWORD") or values.get("EAX_FIRST_ADMIN_PASSWORD", "")
+        for username, role, _models in TEST_USERS:
+            first, *rest = username.split("_")[1:]
+            realm["users"].append({
+                "username": username, "email": f"{username}@example.org", "emailVerified": True, "enabled": True,
+                "firstName": "Test", "lastName": " ".join([first, *rest]).title(),
+                "credentials": [{"type": "password", "value": password, "temporary": False}],
+                "realmRoles": sorted({role, "eax-user", "offline_access", "uma_authorization"}),
+            })
+        text = json.dumps(realm, indent=2)
     KC_IMPORT.mkdir(parents=True, exist_ok=True)
     out = KC_IMPORT / "eaexplorer-realm.json"
     out.write_text(text)
@@ -118,10 +133,13 @@ def print_logins(values: dict[str, str]) -> None:
         ("PostgreSQL Mayan", "mayan", v("EAX_MAYAN_DB_PASSWORD")),
         ("Mayan broker (Valkey)", "(none)", v("EAX_DMS_BROKER_PASSWORD")),
         ("MCP server (dev token)", "(bearer)", v("EAX_MCP_DEV_TOKEN")),
+        ("Break-glass (when Keycloak is down)", "break-glass", v("EAX_BREAK_GLASS_PASSWORD")),
     ]
+    test_password = v("EAX_TEST_USER_PASSWORD") or v("EAX_FIRST_ADMIN_PASSWORD")
+    rows += [(f"Test user ({role.removeprefix('eax-')})", user, test_password) for user, role, _m in TEST_USERS]
     print("EA Explorer setup: DEVELOPMENT LOGINS (laptop only - never use these on a server)")
     for account, user, password in rows:
-        print(f"  {account:<30} {user:<12} {password}")
+        print(f"  {account:<46} {user:<22} {password}")
 
 
 def main() -> int:

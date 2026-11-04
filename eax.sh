@@ -11,6 +11,7 @@ LOG_DIR=work/logs
 STAMP=$(date +%Y%m%d-%H%M%S)
 LOG=""
 CMD="${1:-help}"
+[ "$CMD" = run ] && CMD=up   # run: the everyday start, the same as up
 
 # ------------------------------------------------------------------ help
 help_text() {
@@ -24,11 +25,13 @@ Getting started
                         value before starting. Refuses to overwrite an existing config file.
   check                 Checks that Docker is running and that the config file and compose files
                         are valid. Starts nothing.
+  run                   The everyday start, after the first clean-run: the same as up. Keeps the
+                        databases, documents and settings from last time.
   up [service...]       Builds our images, pulls the others, and starts every container in the
                         background. Then prints the addresses and (laptop) the logins.
                         Name services to start only those and what they depend on, for example
-                        "up api" starts the API and PostgreSQL only (needs about 1 GB). On a laptop
-                        the API is then at http://localhost:8000/api/docs.
+                        "up api proxy" starts the API, PostgreSQL and nginx only (about 1 GB);
+                        the API is then at https://localhost/api/docs (laptop also http://).
 
 Finding problems
   debug [service...]    Same as up, but does not stop on failure: it saves a diagnostics report and
@@ -45,6 +48,9 @@ Finding problems
 
 Everyday use
   url                   Prints the addresses to open (and the logins on a laptop).
+  trust [--remove]      Adds EA Explorer's local certificate (work/data/tls/ca.crt) to this computer's
+                        trusted certificates (macOS: your login keychain; Linux: prints the commands,
+                        which need sudo), so the browser stops warning. Once: clean-run keeps it.
   logins                Prints every user name and password (laptop only).
   down                  Stops and removes the containers. Data in Docker volumes and in work/ is kept.
   backup                Takes a backup now into work/data/backups (laptop) or EAX_BACKUP_DIR.
@@ -53,11 +59,12 @@ Everyday use
                         a separate scratch database to inspect first.
 
 Starting again
-  cleanup [--all] [--yes]
+  cleanup [--all] [--yes] [--certificate]
                         Stops the containers and deletes everything in the work folder: the config
                         file, logs and laptop data folders (including backups). With --all it also
                         deletes the Docker volumes, so the databases and documents start empty.
-                        Asks you to type yes unless --yes is given. Run init afterwards.
+                        The local certificate (work/data/tls) is kept, so you need not trust it
+                        again; --certificate deletes it too. Asks you to type yes unless --yes is given.
   clean-run [laptop|server]
                         Starts again from scratch in one step: cleanup --all --yes, then init
                         (laptop if not given), then up. Deletes the databases and everything in
@@ -165,7 +172,41 @@ show_urls() {
   echo "Reports:     https://reports.$H$S/"
   echo "Documents:   https://docs.$H$S/"
   echo "Keycloak:    https://$H$S/auth/admin/"
-  [ "$(setting EAX_MCP_ENABLED false)" = "true" ] && echo "MCP server:  https://$H$S/mcp  (laptop: http://localhost:8001/mcp)"
+  [ "$(setting EAX_MCP_ENABLED false)" = "true" ] && echo "MCP server:  https://$H$S/mcp"
+  if [ "$(setting EAX_HTTP_API_MCP false)" = "true" ]; then
+    local HP; HP=$(setting EAX_HTTP_PORT 80); [ "$HP" = "80" ] && HP="" || HP=":$HP"
+    echo "Also on plain http (this computer only): http://localhost$HP/api/docs and http://localhost$HP/mcp"
+  fi
+  return 0
+}
+
+# ------------------------------------------------------------------ the local certificate (D107)
+ca_path() {
+  local d; d=$(setting EAX_TLS_DIR ./work/data/tls)
+  case "$d" in */*) echo "$d/ca.crt" ;; *) echo "" ;; esac
+}
+trust() {
+  local ca; ca=$(ca_path)
+  [ -n "$ca" ] || { echo "ERROR: EAX_TLS_DIR is a Docker volume; copy ca.crt out with: docker compose cp setup:/tls/ca.crt ."; exit 1; }
+  if [ "${1:-}" = "--remove" ]; then
+    if [ "$(uname)" = Darwin ]; then
+      while security delete-certificate -c "EA Explorer local CA" ~/Library/Keychains/login.keychain-db >/dev/null 2>&1; do :; done
+      echo "Removed EA Explorer certificates from your login keychain."
+    else
+      echo "Run: sudo rm -f /usr/local/share/ca-certificates/eaexplorer-local-ca.crt && sudo update-ca-certificates --fresh"
+    fi
+    return 0
+  fi
+  [ -f "$ca" ] || { echo "ERROR: no $ca yet: run ./eax.sh up first (the setup service makes it)."; exit 1; }
+  if [ "$(uname)" = Darwin ]; then
+    while security delete-certificate -c "EA Explorer local CA" ~/Library/Keychains/login.keychain-db >/dev/null 2>&1; do :; done
+    security add-trusted-cert -r trustRoot -k ~/Library/Keychains/login.keychain-db "$ca"
+    echo "Trusted (macOS asks for your password). Restart the browser."
+  else
+    echo "Run: sudo cp $ca /usr/local/share/ca-certificates/eaexplorer-local-ca.crt && sudo update-ca-certificates"
+    echo "Chrome and Firefox on Linux keep their own lists: import $ca there (Settings > Certificates > Authorities)."
+  fi
+  echo "MCP clients that run on Node (Claude Code, mcp-remote): export NODE_EXTRA_CA_CERTS=\"$(pwd)/$ca\""
 }
 
 show_logins() {
@@ -188,8 +229,25 @@ show_logins() {
   printf '%-34s %-14s %-16s %s\n' "PostgreSQL Superset" "superset" "$(setting EAX_SUPERSET_DB_PASSWORD)" "database superset"
   printf '%-34s %-14s %-16s %s\n' "PostgreSQL Mayan" "mayan" "$(setting EAX_MAYAN_DB_PASSWORD)" "database mayan"
   printf '%-34s %-14s %-16s %s\n' "Mayan broker (Valkey)" "(none)" "$(setting EAX_DMS_BROKER_PASSWORD)" "password only"
-  printf '%-34s %-14s %-16s %s\n' "MCP server (development token)" "(bearer)" "$(setting EAX_MCP_DEV_TOKEN)" "http://localhost:8001/mcp"
+  printf '%-34s %-14s %-16s %s\n' "MCP server (development token)" "(bearer)" "$(setting EAX_MCP_DEV_TOKEN)" "https://localhost/mcp or http://localhost/mcp"
   printf '%-34s %-14s %-16s %s\n' "Keycloak client secrets" "superset/mayan" "$(setting EAX_SUPERSET_OIDC_SECRET)" "OIDC clients"
+  printf '%-34s %-14s %-16s %s\n' "Keycloak API client (eax-admin)" "eax-admin" "$(setting EAX_KC_SERVICE_SECRET)" "reads people and roles"
+  printf '%-34s %-14s %-16s %s\n' "Break-glass account" "break-glass" "$(setting EAX_BREAK_GLASS_PASSWORD)" "when Keycloak is down: start page"
+  local tpw; tpw="$(setting EAX_TEST_USER_PASSWORD)"; [ -n "$tpw" ] || tpw="$(setting EAX_FIRST_ADMIN_PASSWORD)"
+  echo "Test users (phase 3.1): global role in Keycloak; model roles given per model in EA Explorer:"
+  for row in "user_super_admin|eax-super-admin|everything, every model" \
+             "user_it_admin|eax-it-admin|runs the installation; no models" \
+             "user_keycloak_admin|eax-keycloak-admin|Keycloak console of the realm" \
+             "user_user_admin|eax-user-admin|Users page, role mapping; reads no model" \
+             "user_model_creator|eax-model-creator|creates models; Model Admin: Karoo Re, Lean EA metamodel, Karoo Digital" \
+             "user_model_admin|eax-user|Model Admin: Fynbos group, Fynbos Life; Architect: Sample" \
+             "user_architect|eax-user|Architect: Sample, Fynbos Life; Model Sub Admin + Report Viewer: Fynbos Commercial" \
+             "user_model_sub_admin|eax-user|Model Sub Admin: Sample, Fynbos Life, Fynbos Commercial, Karoo Re" \
+             "user_report_viewer|eax-user|Report Viewer: Fynbos group, Sample" \
+             "user_global_architect|eax-user|Architect on every model"; do
+    IFS='|' read -r u r n <<< "$row"
+    printf '  %-32s %-22s %-16s %s\n' "$r" "$u" "$tpw" "$n"
+  done
   echo "================================================================================================="
 }
 
@@ -198,9 +256,9 @@ show_part_urls() {
   echo
   echo "Started: $* (and what they depend on). The rest stays stopped."
   case " $* " in *" api "*)
-    echo "API directly (laptop, no proxy or sign-in needed for public endpoints):"
-    echo "  Swagger:    http://localhost:8000/api/docs"
-    echo "  Heartbeat:  http://localhost:8000/api/v1/heartbeat" ;;
+    echo "The API goes through nginx: start it too with  ./eax.sh up api proxy  (no Keycloak needed for public endpoints):"
+    echo "  Swagger:    https://localhost/api/docs   (laptop also http://localhost/api/docs)"
+    echo "  Heartbeat:  https://localhost/api/v1/heartbeat" ;;
   esac
   echo "Stop everything with ./eax.sh down"
 }
@@ -215,9 +273,9 @@ watch_containers() {
 
 # Stops the containers and empties the work folder (no log: the logs folder is being deleted)
 cleanup() {
-  local all=false yes=false a
+  local all=false yes=false cert=false a
   for a in "$@"; do
-    case "$a" in --all) all=true ;; --yes|-y) yes=true ;; *) echo "ERROR: unknown option $a"; exit 1 ;; esac
+    case "$a" in --all) all=true ;; --yes|-y) yes=true ;; --certificate) cert=true ;; *) echo "ERROR: unknown option $a"; exit 1 ;; esac
   done
   echo "This deletes everything in $(pwd)/$WORK_DIR: the config file, all logs and the laptop data folders (including backups)."
   $all && echo "With --all it also deletes the Docker volumes: the databases and documents start empty."
@@ -230,8 +288,15 @@ cleanup() {
   elif $all; then
     echo "No $ENV_FILE, so the Docker volumes cannot be found by name; remove them with: docker volume ls"
   fi
-  rm -rf "${WORK_DIR:?}"/* "${WORK_DIR:?}"/.[!.]* 2>/dev/null || true
-  echo "The work folder is empty. Run ./eax.sh init laptop to start again."
+  if $cert; then
+    rm -rf "${WORK_DIR:?}"/* "${WORK_DIR:?}"/.[!.]* 2>/dev/null || true
+    echo "The work folder is empty. Run ./eax.sh init laptop to start again."
+  else
+    # keep work/data/tls: the local certificate you trusted with ./eax.sh trust (D107)
+    find "${WORK_DIR:?}" -mindepth 1 -maxdepth 1 ! -name data -exec rm -rf {} + 2>/dev/null || true
+    [ -d "$WORK_DIR/data" ] && find "$WORK_DIR/data" -mindepth 1 -maxdepth 1 ! -name tls -exec rm -rf {} + 2>/dev/null || true
+    echo "The work folder is empty apart from the local certificate (work/data/tls). Run ./eax.sh init laptop to start again."
+  fi
 }
 
 # Stops early with a plain message when the Docker engine is not reachable
@@ -305,6 +370,7 @@ case "$CMD" in
   restore) shift; run_compose exec -T backup restore.sh "$@" ;;
   url)     show_urls; show_logins ;;
   logins)  [ -f "$ENV_FILE" ] || { echo "ERROR: no $ENV_FILE yet: run ./eax.sh init first."; exit 1; }; show_logins ;;
+  trust)   [ -f "$ENV_FILE" ] || { echo "ERROR: no $ENV_FILE yet: run ./eax.sh init first."; exit 1; }; trust "${2:-}" ;;
   *)       echo "ERROR: unknown command '$CMD'. Run ./eax.sh help"; exit 1 ;;
 esac
 echo "Log: $LOG"

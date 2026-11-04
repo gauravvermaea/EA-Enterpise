@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { apiFetch, keycloak } from "./auth";
+import { apiFetch, signedIn } from "./auth";
 
 function Status({ ok, children }) {
   return <span className={ok ? "status ok" : "status bad"}>{children}</span>;
@@ -126,9 +126,9 @@ export default function Heartbeat() {
           </tbody>
         </table>
       )}
-      {keycloak.authenticated && <Services />}
+      {signedIn() && <Services />}
       <h2>Background job</h2>
-      {keycloak.authenticated ? (
+      {signedIn() ? (
         <>
           <p>Runs a sample job in the job runner: it writes a heartbeat row (shown in the Superset sample dashboard) and an audit event.</p>
           <button className="primary" onClick={runJob} disabled={busy}>{busy ? "Running..." : "Run a background job"}</button>

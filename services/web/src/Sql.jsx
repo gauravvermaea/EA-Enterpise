@@ -1,7 +1,7 @@
 // SQL window: write a query, run it, see the results. Uses POST /api/v1/sql/query with a
 // PostgreSQL login. Read-only (D52): every run is rolled back at the end. The login stays in this page only.
 import { useState } from "react";
-import { apiFetch, keycloak } from "./auth";
+import { apiFetch, keycloak, signedIn } from "./auth";
 import { config } from "./config";
 
 const EXAMPLE = `-- Ctrl+Enter runs. Several statements in one run are fine.
@@ -39,7 +39,7 @@ export default function Sql() {
   const [out, setOut] = useState(null);
   const [error, setError] = useState(null);
 
-  if (!keycloak.authenticated) {
+  if (!signedIn()) {
     return (
       <section>
         <h1>SQL</h1>

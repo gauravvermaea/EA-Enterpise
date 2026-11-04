@@ -33,6 +33,18 @@ CREATE INDEX metamodel_versions_model_idx ON core.metamodel_versions (model_id, 
 INSERT INTO core.metamodel_versions (model_id, version, note, changed_at, changed_by)
 SELECT id, metamodel_version, 'Initial metamodel', created_at, created_by FROM core.models;
 
+-- A model created later (the seed runs after the migrations; copies from phase 4) starts at its
+-- first version too
+CREATE FUNCTION core.first_metamodel_version() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    INSERT INTO core.metamodel_versions (model_id, version, note, changed_at, changed_by)
+    VALUES (NEW.id, NEW.metamodel_version, 'Initial metamodel', NEW.created_at, NEW.created_by);
+    RETURN NULL;
+END;
+$$;
+CREATE TRIGGER models_first_metamodel_version AFTER INSERT ON core.models
+    FOR EACH ROW EXECUTE FUNCTION core.first_metamodel_version();
+
 -- The next version of a model's metamodel: bumps models.metamodel_version, writes the version row
 -- and labels this transaction's history rows "metamodel vN" (": note" when a note is given). Returns N.
 CREATE FUNCTION core.publish_metamodel_version(p_model bigint, p_note text) RETURNS integer

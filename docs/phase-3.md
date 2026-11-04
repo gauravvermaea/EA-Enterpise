@@ -21,7 +21,13 @@ Decisions D64, D65, D67, D52, D72 to D76 and D87.
   - pick lists: add a list, add a value, retire a value (Metamodel > Pick lists);
   - relationship types: add, change, remove, restore;
   - mappings (which relationship type may join which source and target type): add, remove;
-  - validation rules: add, change, remove; on one type or on every type.
+  - validation rules: add, change, remove; on one type or on every type. Each rule asks for its own
+    kind of parameter: a **regular expression** with a live validity check, ready-made patterns and a
+    box to try a value; **date pickers** for date ranges; numbers; and a choice of attribute for
+    "required if" and "date order". The server refuses a pattern that does not compile, a date that
+    is not a date or a range the wrong way round.
+  - default values use the attribute's own input: a **date picker** for dates, a number box, yes or
+    no, or the pick list's values.
 - **Never blocked (D64).** A mandatory attribute added to a type that already has entities asks for
   a default (empty allowed) and whether to put it on the existing entities that have no value. The
   impact check lists the entities that will fail, or pass, because of a change; it informs and never

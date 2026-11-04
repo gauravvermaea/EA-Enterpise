@@ -47,7 +47,9 @@ def create_app(testing: bool = False) -> Flask:
         "bearerAuth", {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}
     )
 
+    from .api.access import blp as access_blp
     from .api.audit import blp as audit_blp
+    from .api.break_glass import blp as break_glass_blp
     from .api.heartbeat import blp as heartbeat_blp
     from .api.jobs import blp as jobs_blp
     from .api.me import blp as me_blp
@@ -55,7 +57,8 @@ def create_app(testing: bool = False) -> Flask:
     from .api.metamodel_edit import blp as metamodel_edit_blp
     from .api.sql import blp as sql_blp
 
-    for blp in (heartbeat_blp, me_blp, jobs_blp, audit_blp, metamodel_blp, metamodel_edit_blp, sql_blp):
+    for blp in (heartbeat_blp, me_blp, access_blp, break_glass_blp, jobs_blp, audit_blp, metamodel_blp,
+                metamodel_edit_blp, sql_blp):
         api.register_blueprint(blp)
 
     @app.before_request

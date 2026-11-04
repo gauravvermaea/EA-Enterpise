@@ -66,10 +66,14 @@ services:
         condition: service_completed_successfully
     ports:
       - "${EAX_HTTPS_PORT:-443}:443"
-      - "${EAX_HTTP_PORT:-80}:80"
+      # plain http: laptops bind it to this computer only (EAX_HTTP_BIND=127.0.0.1), D107
+      - "${EAX_HTTP_BIND:-0.0.0.0}:${EAX_HTTP_PORT:-80}:80"
     environment:
       EAX_HOSTNAME: ${EAX_HOSTNAME:-localhost}
       EAX_HTTPS_PORT: ${EAX_HTTPS_PORT:-443}
+      EAX_HTTP_PORT: ${EAX_HTTP_PORT:-80}
+      EAX_HTTP_API_MCP: ${EAX_HTTP_API_MCP:-false}
+      EAX_HSTS: ${EAX_HSTS:-}
       NGINX_ENVSUBST_FILTER: "^EAX_"
     volumes:
       - ./deploy/proxy/templates:/etc/nginx/templates:ro

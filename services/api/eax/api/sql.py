@@ -13,7 +13,7 @@ from .schemas import SqlQueryIn, SqlQueryOut
 
 blp = Blueprint(
     "sql", __name__, url_prefix="/api/v1/sql",
-    description="SQL window: run queries with a database login (laptops; system-admin only)",
+    description="SQL window: run queries with a database login (laptops; Super Admin and IT Admin only)",
 )
 
 
@@ -34,7 +34,7 @@ class SqlQuery(MethodView):
     @blp.doc(security=[{"bearerAuth": []}])
     @blp.arguments(SqlQueryIn)
     @blp.response(200, SqlQueryOut)
-    @require_auth("system-admin")
+    @require_auth("system.operate")
     def post(self, query):
         """Run SQL with a database login
 
