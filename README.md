@@ -1,6 +1,6 @@
 # EA Explorer
 
-A free, open-source enterprise architecture repository in the class of Orbus iServer and SAP LeanIX:
+A free, open-source enterprise architecture repository:
 a governed metamodel, an architecture repository, diagrams (draw.io), reports (Apache Superset),
 documents (Mayan EDMS), sign-in through Keycloak, and an MCP server so you can connect your own
 language model. Everything runs in Docker containers from one config file.

@@ -5,7 +5,7 @@ here.
 
 ## What this is
 
-EA Explorer: an open-source enterprise architecture repository (like Orbus iServer or LeanIX). Docker
+EA Explorer: an open-source enterprise architecture repository. Docker
 Compose stack: Flask API with job runner and MCP server, PostgreSQL, Keycloak, Superset, Mayan EDMS,
 draw.io, nginx, React screens. How it is built: [docs/architecture.md](docs/architecture.md).
 
@@ -17,6 +17,8 @@ draw.io, nginx, React screens. How it is built: [docs/architecture.md](docs/arch
 - **Always a clean rebuild** (`.\eax clean-run`); no in-place patches or hand fixes to a running system.
 - Everything that creates the database is code in this repository; nothing by hand.
 - Plain language in screens and docs; British spelling.
+- Never name another EA platform or vendor product in the code, screens, docs or workbooks (D114); requirements from
+  reviewing commercial products carry the source "Market review".
 - Everything goes through nginx (D107): publish no other port. Keep the start page cards (`services.js`) in step with the build plan (D109).
 - Mark models with `ModelMarks.jsx` (kind, library, read-only, locked; D102) wherever models are listed.
 - Record each decision in `docs/decisions.md` (next number after the last D), open items in
@@ -49,8 +51,8 @@ draw.io, nginx, React screens. How it is built: [docs/architecture.md](docs/arch
 | 1 Metamodel, read only | 0.1.0 | closed |
 | 2 Reference model, locked models, library, versions, graphs, timeline | 0.2.1 | closed 4 Nov 2026 |
 | 3 Metamodel editing, versions and history, failing checks, model locks | 0.3.0 | accepted 4 Nov 2026 |
-| 3.1 Roles and permissions: global roles from Keycloak, roles per model, row-level security, break-glass; the Root model at the top and a root metamodel built from scratch; library browser; model marks; https through nginx with eax trust; start page shows what is coming | 0.3.1 | built, waiting for the owner's test |
-| 4 Model hierarchy (root metamodels), models and deep copy | 0.4.0 | next |
+| 3.1 Roles and permissions: global roles from Keycloak, roles per model, row-level security, break-glass; the Root model at the top and a root metamodel built from scratch; library browser; model marks; https through nginx with eax trust; start page shows what is coming | 0.3.1 | accepted 4 Nov 2026 |
+| 4 Model hierarchy (root metamodels), models and deep copy, library models | 0.4.0 | next |
 
 The full plan (46 phases) is in the build plan workbook. Agreed but not yet built, with their
 decisions: commits and merge screens (D61, D66), Mayan phase (D62), lineage (D63), dedupe per model
