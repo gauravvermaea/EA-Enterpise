@@ -68,3 +68,42 @@ code { font-size: 12px; }
 .snippet { background: var(--card); border: 1px solid var(--line); border-radius: 8px; margin: 10px 0; }
 .snippet-head { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); }
 .snippet pre { margin: 0; padding: 10px 12px; overflow-x: auto; font-size: 12px; }
+
+/* Metamodel ER diagram */
+.er-bar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-bottom: 8px; font-size: 14px; }
+.er-bar label { display: flex; align-items: center; gap: 6px; }
+.er-bar select { max-width: 260px; }
+.er-spacer { flex: 1; }
+.er-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; font-size: 13px; }
+.er-chips.off .chip { opacity: 0.55; }
+.chip { padding: 3px 10px; border-radius: 14px; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; color: var(--quiet); }
+.chip.on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+.er-line { display: inline-block; width: 14px; height: 3px; border-radius: 2px; }
+.er-info { font-size: 13px; margin: 6px 0; }
+.er-frame { position: relative; height: calc(100vh - 300px); min-height: 460px; background: var(--card); border: 1px solid var(--line);
+  border-radius: 8px; overflow: hidden; cursor: grab; user-select: none; }
+.er-frame:active { cursor: grabbing; }
+.er-empty { position: absolute; top: 40%; width: 100%; text-align: center; }
+
+/* SQL window */
+.sql-login { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: end; margin: 10px 0; font-size: 14px; }
+.sql-login label { display: flex; flex-direction: column; gap: 2px; }
+.sql-login label:last-child { flex-direction: row; align-items: center; gap: 6px; }
+.sql-login input[type=text], .sql-login input[type=password] { font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; width: 170px; }
+.sql-text { width: 100%; min-height: 180px; font: 13px/1.45 ui-monospace, Consolas, monospace; padding: 10px; border: 1px solid var(--line); border-radius: 8px; resize: vertical; margin-bottom: 8px; }
+.sql-error { white-space: pre-wrap; }
+.sql-result { margin: 10px 0 18px; }
+.sql-result .scroll { max-height: 480px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--card); }
+.sql-result .grid-table thead th { position: sticky; top: 0; }
+.sql-result td { white-space: nowrap; max-width: 420px; overflow: hidden; text-overflow: ellipsis; }
+
+/* Sign-in screen: the only thing shown before signing in */
+.signin { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.signin-card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 32px 40px; text-align: center; max-width: 360px; width: 100%; }
+.signin-card h1 { margin: 0 0 6px; font-size: 24px; }
+.signin-card button { margin-top: 14px; width: 100%; padding: 10px; }
+.status.warn { color: #9a6700; }
+.sql-tables { margin: 6px 0 10px; }
+.sql-tables summary { cursor: pointer; font-size: 14px; color: var(--accent); }
+.sql-tables img { display: block; width: 100%; max-height: 520px; object-fit: contain; background: #fff;
+  border: 1px solid var(--line); border-radius: 8px; margin-top: 6px; }

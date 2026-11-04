@@ -5,6 +5,60 @@ function Status({ ok, children }) {
   return <span className={ok ? "status ok" : "status bad"}>{children}</span>;
 }
 
+const STATUS_CLASS = { up: "status ok", ok: "status ok", warning: "status warn", degraded: "status warn", down: "status bad", off: "quiet" };
+
+// Every service in the stack: GET /api/v1/heartbeat/services (signed in)
+function Services() {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const check = useCallback(async () => {
+    setBusy(true);
+    try {
+      setData(await apiFetch("/api/v1/heartbeat/services"));
+      setError(null);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+  useEffect(() => { check(); }, [check]);
+  return (
+    <>
+      <h2>Services</h2>
+      <p>
+        <code>GET /api/v1/heartbeat/services</code> checks every service from inside the stack.{" "}
+        <button onClick={check} disabled={busy}>{busy ? "Checking..." : "Check again"}</button>
+      </p>
+      {error && <p className="status bad">{error}</p>}
+      {data && (
+        <>
+          <p>
+            Overall: <span className={STATUS_CLASS[data.status]}>{data.status}</span> ·{" "}
+            {data.counts.up} up, {data.counts.warning} warning, {data.counts.down} down, {data.counts.off} off ·
+            checked in {data.duration_ms} ms at {new Date(data.time).toLocaleTimeString()}
+          </p>
+          <table className="grid-table">
+            <thead><tr><th>Service</th><th>Product</th><th>Status</th><th>Detail</th><th>ms</th></tr></thead>
+            <tbody>
+              {data.services.map((s) => (
+                <tr key={s.name} title={s.target}>
+                  <td>{s.name}</td>
+                  <td className="quiet">{s.kind}</td>
+                  <td><span className={STATUS_CLASS[s.status]}>{s.status}</span></td>
+                  <td>{s.detail}</td>
+                  <td className="quiet">{s.response_ms}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+    </>
+  );
+}
+
 export default function Heartbeat() {
   const [beat, setBeat] = useState(null);
   const [error, setError] = useState(null);
@@ -66,6 +120,7 @@ export default function Heartbeat() {
           </tbody>
         </table>
       )}
+      {keycloak.authenticated && <Services />}
       <h2>Background job</h2>
       {keycloak.authenticated ? (
         <>

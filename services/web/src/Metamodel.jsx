@@ -3,8 +3,12 @@
 //   #/metamodel/<model>                the model: entities and relationships, or its metamodel
 //   #/metamodel/<model>/entity/<id>    one entity, with its attributes and relationships
 //   #/metamodel/<model>/type/<id>      one entity type, with its attributes, rules and allowed relationships
-import { useEffect, useMemo, useState } from "react";
+//   #/metamodel/<model>/diagram[/<id>]  the metamodel as an ER diagram (MetamodelDiagram.jsx)
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { apiFetch, keycloak } from "./auth";
+
+// the diagram and its layout library load only when the ER diagram tab is opened
+const MetamodelDiagram = lazy(() => import("./MetamodelDiagram"));
 
 const go = (path) => { window.location.hash = path; };
 
@@ -223,7 +227,8 @@ function TypeDetail({ model, typeId, holdsContent }) {
       <h2><Swatch colour={t.colour} /> {t.name}</h2>
       <p className="quiet">
         {t.layer} layer · {t.aspect} · display IDs {t.id_prefix}-0001 · code <code>{t.code}</code> ·
-        SQL <code>eax.get_entity('{t.name}')</code>
+        SQL <code>eax.get_entity('{t.name}', '{t.table_name}')</code> ·{" "}
+        <a href={`#/metamodel/${model}/diagram/${typeId}`}>show in the ER diagram</a>
       </p>
       {holdsContent && list && (
         <p>{list.length ? <>Entities: {list.map((e, i) => <span key={e.id}>{i > 0 && ", "}<EntityLink model={model} id={e.id}>{e.name}</EntityLink></span>)}</>
@@ -299,7 +304,8 @@ function ModelPage({ model, view, itemId }) {
   if (error) return <section><p className="status bad">{error}</p><a href="#/metamodel">All models</a></section>;
   if (!m) return <section><p>Loading...</p></section>;
   const holdsContent = m.kind !== "template";
-  const tab = view === "type" || !holdsContent ? "metamodel" : (view || "content");
+  const tab = view === "type" || view === "diagram" || view === "metamodel" || !holdsContent ? "metamodel" : (view || "content");
+  const diagram = view === "diagram";
   return (
     <section>
       <p className="quiet"><a href="#/metamodel">Models</a> / {m.name}</p>
@@ -307,7 +313,8 @@ function ModelPage({ model, view, itemId }) {
       <p className="quiet">
         {m.kind_name}{m.is_locked ? " · read-only" : ""} · {m.metamodel_name} · {m.entity_type_count} entity types
         {holdsContent && ` · ${m.entity_count} entities · ${m.relationship_count} relationships`}
-        {m.parent_model_name && ` · created from ${m.parent_model_name}`}
+        {m.source_model_name && ` · created from ${m.source_model_name}`}
+        {m.parent_model_name && ` · merges into ${m.parent_model_name}`}
       </p>
       <div className="tabs">
         {holdsContent && (
@@ -315,11 +322,16 @@ function ModelPage({ model, view, itemId }) {
             Entities and relationships
           </button>
         )}
-        <button className={tab === "metamodel" ? "tab on" : "tab"} onClick={() => go(`/metamodel/${model}/metamodel`)}>
+        <button className={tab === "metamodel" && !diagram ? "tab on" : "tab"} onClick={() => go(`/metamodel/${model}/metamodel`)}>
           Metamodel
         </button>
+        <button className={diagram ? "tab on" : "tab"} onClick={() => go(`/metamodel/${model}/diagram`)}>
+          ER diagram
+        </button>
       </div>
-      {tab === "metamodel"
+      {diagram
+        ? <Suspense fallback={<p>Loading the diagram...</p>}><MetamodelDiagram model={model} focus={itemId || null} /></Suspense>
+        : tab === "metamodel"
         ? <MetamodelView model={model} typeId={view === "type" ? itemId : null} holdsContent={holdsContent} />
         : <Content model={model} entityId={view === "entity" ? itemId : view === "relationships" ? "relationships" : null} />}
     </section>

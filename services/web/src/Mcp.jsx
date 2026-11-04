@@ -7,6 +7,7 @@ const TOOLS = [
   ["get_metamodel", "A model's layers, entity types and relationship types"],
   ["describe_entity_type", "Attributes, rules and allowed relationships of one type"],
   ["allowed_relationships", "Which relationships the metamodel allows from one type to another"],
+  ["get_metamodel_diagram", "The metamodel (layers, or one type and its neighbours) as a Mermaid ER diagram"],
   ["list_entities", "Every entity of a model, or of one type"],
   ["get_entity", "One entity with its attribute values and relationships"],
   ["get_entity_table", "One type as a table, one column per attribute (eax.get_entity)"],
@@ -63,6 +64,13 @@ export default function Mcp() {
       <h2>Connect</h2>
       <Snippet title="Claude Code" text={`claude mcp add --transport http eaexplorer ${url} --header "Authorization: Bearer ${token}"`} />
       <Snippet title="Claude Desktop (claude_desktop_config.json, needs Node.js)" text={desktop} />
+      {laptop && (
+        <p className="quiet">
+          Claude Desktop: Settings &gt; Developer &gt; Edit Config, paste the block above, then quit Claude Desktop
+          completely and start it again. Do not use <em>Connectors &gt; Add custom connector</em>: it needs a public
+          https address, because Anthropic's servers make those calls and cannot reach localhost.
+        </p>
+      )}
       <Snippet title="Test with the MCP Inspector" text={`npx @modelcontextprotocol/inspector\n# Transport: Streamable HTTP, URL: ${url}\n# Authentication: header Authorization = Bearer ${token}`} />
 
       <h2>Tools in this build</h2>

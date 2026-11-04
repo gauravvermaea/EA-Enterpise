@@ -74,8 +74,8 @@ async def _run(fn, *args, begin: bool = False, **kwargs) -> Any:
 # ---------------------------------------------------------------- tools (build phase 1: read only)
 @mcp.tool()
 async def list_models() -> Any:
-    """List every model you may read: templates (metamodel only), reference models, project models
-    and work copies, with their entity, relationship and entity type counts."""
+    """List every model you may read: templates (metamodel only), reference models and project models,
+    with the model each merges into (parent) and was created from (source), and counts."""
     return await _run(repo.list_models)
 
 
@@ -99,6 +99,20 @@ async def allowed_relationships(model: str, source_type: str, target_type: str) 
     """Which relationship types the metamodel allows from one entity type to another, for example
     from Application Component to Capability."""
     return await _run(repo.allowed_relationships, model, source_type, target_type)
+
+
+@mcp.tool()
+async def get_metamodel_diagram(model: str, layers: list[str] | None = None, entity_type: str | None = None,
+                                relationship_types: list[str] | None = None, include_generic: bool = False,
+                                include_connected: bool = False, with_attributes: bool = True) -> Any:
+    """The metamodel as a Mermaid ER diagram (erDiagram text you can render or show the user).
+    Give `entity_type` to focus on one type and the types it may connect to, or `layers` (names) for
+    those layers only; with neither you get every layer, which is large. Relationship types default
+    to all but Association and Specialization (`include_generic` adds them). `include_connected`
+    adds the types in other layers that the chosen layers connect to."""
+    return await _run(repo.metamodel_mermaid, model, layers=layers, entity_type=entity_type,
+                      relationship_types=relationship_types, include_generic=include_generic,
+                      include_connected=include_connected, with_attributes=with_attributes)
 
 
 @mcp.tool()

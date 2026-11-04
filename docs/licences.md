@@ -16,4 +16,4 @@ The products it runs are used unmodified, as separate programs:
 
 Main libraries in our code: Flask (BSD-3), flask-smorest (MIT), SQLAlchemy (MIT), Alembic (MIT),
 psycopg (LGPL-3.0), Procrastinate (MIT), PyJWT (MIT), cryptography (Apache-2.0/BSD), gunicorn
-(MIT), React (MIT), keycloak-js (Apache-2.0), Vite (MIT).
+(MIT), React (MIT), keycloak-js (Apache-2.0), elkjs (EPL-2.0, diagram layout, used unchanged), Vite (MIT).

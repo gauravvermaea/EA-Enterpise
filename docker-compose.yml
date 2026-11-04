@@ -103,6 +103,7 @@ services:
     volumes:
       - ${EAX_IMPORT_DIR:-eax-imports}:/data/imports
       - ${EAX_EXPORT_DIR:-eax-exports}:/data/exports
+      - ${EAX_BACKUP_DIR:-eax-backups}:/data/backups:ro   # read only: the health check reads backup ages
     networks: [frontend, backend]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health').status==200 else 1)"]

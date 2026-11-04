@@ -88,7 +88,7 @@ UPGRADE = [
     """,
     # ---- Phase 0 sample data and the first report view (read by Superset)
     """
-    CREATE TABLE core.heartbeat_log (
+    CREATE TABLE core.heartbeat_logs (
         id           bigserial PRIMARY KEY,
         at           timestamptz NOT NULL DEFAULT now(),
         source       text NOT NULL,
@@ -98,13 +98,13 @@ UPGRADE = [
     )
     """,
     """
-    INSERT INTO core.heartbeat_log (source, note, requested_by)
+    INSERT INTO core.heartbeat_logs (source, note, requested_by)
     VALUES ('setup', 'First heartbeat, written by the first migration', 'system')
     """,
     """
     CREATE VIEW rpt.v_heartbeat AS
         SELECT id, at, date_trunc('day', at) AS day, source, note, requested_by, job_id
-        FROM core.heartbeat_log
+        FROM core.heartbeat_logs
     """,
     # ---- The read-only report login may read the rpt schema and nothing else
     """
@@ -122,7 +122,7 @@ UPGRADE = [
 
 DOWNGRADE = [
     "DROP VIEW IF EXISTS rpt.v_heartbeat",
-    "DROP TABLE IF EXISTS core.heartbeat_log",
+    "DROP TABLE IF EXISTS core.heartbeat_logs",
     "DROP TABLE IF EXISTS staging.change_items",
     "DROP TABLE IF EXISTS staging.change_sets",
     "DROP TABLE IF EXISTS audit.events",

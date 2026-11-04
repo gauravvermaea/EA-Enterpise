@@ -38,7 +38,7 @@ def test_every_sample_attribute_applies_to_its_type():
 
 def test_seed_sql_shape():
     sql = build.seed_sql(with_template=True, with_sample=True)
-    assert sql.count("INSERT INTO core.model") == 2
-    assert "INSERT INTO core.allowed_relationship" in sql
+    assert sql.count("INSERT INTO core.models") == 2
+    assert "INSERT INTO core.allowed_relationships" in sql
     assert "origin_guid" in sql
     assert "'sample-insurance'" not in sql  # keys are guids, never raw names

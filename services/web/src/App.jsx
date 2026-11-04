@@ -5,6 +5,7 @@ import StartPage from "./StartPage";
 import Heartbeat from "./Heartbeat";
 import Metamodel from "./Metamodel";
 import Mcp from "./Mcp";
+import Sql from "./Sql";
 
 function useHashRoute() {
   const [route, setRoute] = useState(window.location.hash || "#/");
@@ -21,6 +22,19 @@ export default function App() {
   const signedIn = keycloak.authenticated === true;
   const user = keycloak.tokenParsed;
 
+  // Nothing of the application shows until the user has signed in.
+  if (!signedIn) {
+    return (
+      <div className="signin">
+        <div className="signin-card">
+          <h1>EA Explorer</h1>
+          <p className="quiet">Sign in to continue.</p>
+          <button className="primary" onClick={() => keycloak.login()}>Sign in</button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="shell">
       <header className="topbar">
@@ -30,6 +44,7 @@ export default function App() {
           <a href="#/metamodel">Models</a>
           <a href="#/mcp">MCP</a>
           <a href="#/heartbeat">Heartbeat</a>
+          {roles().includes("system-admin") && <a href="#/sql">SQL</a>}
           <a href="/api/docs">API</a>
         </nav>
         <div className="user">
@@ -47,6 +62,7 @@ export default function App() {
         {route.startsWith("#/heartbeat") ? <Heartbeat />
           : route.startsWith("#/metamodel") ? <Metamodel route={route} />
           : route.startsWith("#/mcp") ? <Mcp />
+          : route.startsWith("#/sql") ? <Sql />
           : <StartPage />}
       </main>
       <footer>

@@ -20,7 +20,7 @@ def main() -> int:
     with_sample = os.environ.get("EAX_SEED_SAMPLE", "false").strip().lower() in ("1", "true", "yes")
     with psycopg.connect(get_settings().libpq_conninfo) as conn:
         present = {str(r[0]) for r in conn.execute(
-            "SELECT guid FROM core.model WHERE guid IN (%s, %s)", (TEMPLATE_ID, SAMPLE_ID)).fetchall()}
+            "SELECT guid FROM core.models WHERE guid IN (%s, %s)", (TEMPLATE_ID, SAMPLE_ID)).fetchall()}
         need_template = TEMPLATE_ID not in present
         need_sample = with_sample and SAMPLE_ID not in present
         if not need_template and not need_sample:
@@ -28,7 +28,7 @@ def main() -> int:
             return 0
         conn.execute(seed_sql(with_template=need_template, with_sample=need_sample))
         counts = conn.execute(
-            "SELECT (SELECT count(*) FROM core.model), (SELECT count(*) FROM core.entity)"
+            "SELECT (SELECT count(*) FROM core.models), (SELECT count(*) FROM core.entities)"
         ).fetchone()
     loaded = " and ".join(x for x, n in (("ArchiMate 4 template", need_template),
                                           ("sample model", need_sample)) if n)

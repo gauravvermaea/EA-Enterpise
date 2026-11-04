@@ -16,7 +16,7 @@ from ..auth import require_auth
 from ..db import get_engine
 from .schemas import (
     EntitiesOut, EntitiesQuery, EntityDetailOut, EntityListQuery, EntitySummaryOut, EntityTypeDetail,
-    Metamodel, ModelOut, RelationshipOut,
+    MermaidOut, MermaidQuery, Metamodel, MetamodelDiagram, ModelOut, RelationshipOut,
 )
 
 blp = Blueprint(
@@ -42,7 +42,7 @@ class ModelList(MethodView):
     @blp.response(200, ModelOut(many=True))
     @require_auth()
     def get(self):
-        """Every model you may read: templates, reference models, projects and work copies"""
+        """Every model you may read: templates, reference models and project models (with parent and source)"""
         return _call(repo.list_models)
 
 
@@ -64,6 +64,30 @@ class ModelMetamodel(MethodView):
     def get(self, model_id):
         """The model's metamodel: layers with their entity types, and the relationship types"""
         return _call(repo.get_metamodel, model_id)
+
+
+@blp.route("/<uuid:model_id>/metamodel/diagram")
+class ModelMetamodelDiagram(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, MetamodelDiagram)
+    @require_auth()
+    def get(self, model_id):
+        """Data for the metamodel ER diagram: entity types with their attributes, and the allowed
+        relationships combined per source and target type"""
+        return _call(repo.get_metamodel_diagram, model_id)
+
+
+@blp.route("/<uuid:model_id>/metamodel/mermaid")
+class ModelMetamodelMermaid(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.arguments(MermaidQuery, location="query")
+    @blp.response(200, MermaidOut)
+    @require_auth()
+    def get(self, query, model_id):
+        """The metamodel, or part of it, as a Mermaid ER diagram (paste into any Mermaid editor)"""
+        return _call(repo.metamodel_mermaid, model_id, layers=query["layer"], entity_type=query["type"],
+                     relationship_types=query["rel"], include_generic=query["generic"],
+                     include_connected=query["connected"], with_attributes=query["attributes"])
 
 
 @blp.route("/<uuid:model_id>/entity-types/<uuid:type_id>")

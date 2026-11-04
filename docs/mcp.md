@@ -35,6 +35,22 @@ Claude Desktop (`claude_desktop_config.json`; needs Node.js for `npx`):
 }
 ```
 
+On Windows the file is `%APPDATA%\Claude\claude_desktop_config.json` (Claude Desktop: *Settings >
+Developer > Edit Config*). Save it, quit Claude Desktop completely (also from the system tray) and
+start it again; *eaexplorer* then appears under the tools. The token goes in `env` on purpose: its
+`^` and `&` would be mangled if it were passed on a Windows command line.
+
+**Why not "Add custom connector"?** The *Connectors > Add custom connector* screen in Claude Desktop
+and claude.ai asks for an `https://` address because Anthropic's servers make those calls, not your
+computer. They cannot reach `localhost` at all, even over https. On a laptop use Claude Code or the
+config file above: both run on your computer and talk to `http://localhost:8001` directly.
+Custom connectors become possible on a server installation with a public https address and sign-in
+through Keycloak (requirement AI-011, build phase 26).
+
+If `claude mcp add` on Windows reports a broken header or token, the `&` was taken by the command
+shell: run the command in PowerShell (not cmd), or set `EAX_MCP_DEV_TOKEN` in `work\eaexplorer.env`
+to a value with letters and digits only and restart the api container.
+
 MCP Inspector (to try the tools by hand): `npx @modelcontextprotocol/inspector`, then Transport
 *Streamable HTTP*, URL `http://localhost:8001/mcp`, header `Authorization: Bearer P^55w0rd1234&`.
 
@@ -46,6 +62,7 @@ MCP Inspector (to try the tools by hand): `npx @modelcontextprotocol/inspector`,
 | `get_metamodel(model)` | Layers with their entity types, and the relationship types |
 | `describe_entity_type(model, entity_type)` | Attributes (type, required, pick-list values), validation rules, allowed relationships both ways |
 | `allowed_relationships(model, source_type, target_type)` | Relationship types allowed from one type to another |
+| `get_metamodel_diagram(model, layers?, entity_type?, relationship_types?, include_generic?, include_connected?, with_attributes?)` | The metamodel (one or more layers, or one type and its neighbours) as a Mermaid ER diagram |
 | `list_entities(model, entity_type?)` | Every entity of a model, or of one type |
 | `get_entity(model, entity)` | One entity (guid, display ID or name) with attribute values, relationships, parent and parts |
 | `get_entity_table(model, entity_type, name?)` | One type as a table, one column per attribute (`eax.get_entity`) |

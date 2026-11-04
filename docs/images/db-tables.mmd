@@ -1,0 +1,65 @@
+---
+title: "EA Explorer tables (every core table also has model_id -> core.models.id and status_code -> core.item_statuses.code)"
+config:
+  theme: neutral
+  themeVariables:
+    fontSize: 22px
+  er:
+    fontSize: 22
+---
+erDiagram
+    audit_events["audit.events"]
+    core_allowed_relationships["core.allowed_relationships"]
+    core_attribute_types["core.attribute_types"]
+    core_attribute_values["core.attribute_values"]
+    core_data_types["core.data_types"]
+    core_display_id_counters["core.display_id_counters"]
+    core_entities["core.entities"]
+    core_entity_types["core.entity_types"]
+    core_heartbeat_logs["core.heartbeat_logs"]
+    core_item_attributes["core.item_attributes"]
+    core_item_statuses["core.item_statuses"]
+    core_layers["core.layers"]
+    core_model_kinds["core.model_kinds"]
+    core_models["core.models"]
+    core_pick_list_values["core.pick_list_values"]
+    core_pick_lists["core.pick_lists"]
+    core_relationship_types["core.relationship_types"]
+    core_relationships["core.relationships"]
+    core_rule_types["core.rule_types"]
+    core_validation_rules["core.validation_rules"]
+    history_row_versions["history.row_versions"]
+    staging_change_items["staging.change_items"]
+    staging_change_sets["staging.change_sets"]
+    staging_change_sets ||--o{ staging_change_items : "change_set_id"
+    core_model_kinds ||--o{ core_models : "kind_code"
+    core_data_types ||--o{ core_attribute_types : "data_type_code"
+    core_rule_types ||--o{ core_validation_rules : "rule_type_code"
+    core_models ||--o{ core_models : "parent_model_id"
+    core_models ||--o{ core_models : "source_model_id"
+    core_models ||--o{ core_layers : "model_id"
+    core_models ||--o{ core_relationship_types : "model_id"
+    core_models ||--o{ core_pick_lists : "model_id"
+    core_models ||--o{ core_attribute_types : "model_id"
+    core_layers ||--o{ core_entity_types : "layer_id"
+    core_entity_types ||--o{ core_item_attributes : "entity_type_id"
+    core_entity_types ||--o{ core_validation_rules : "entity_type_id"
+    core_entity_types ||--o{ core_allowed_relationships : "source_type_id"
+    core_entity_types ||--o{ core_allowed_relationships : "target_type_id"
+    core_entity_types ||--o{ core_entities : "entity_type_id"
+    core_entity_types ||--o{ core_display_id_counters : "entity_type_id"
+    core_relationship_types ||--o{ core_item_attributes : "relationship_type_id"
+    core_relationship_types ||--o{ core_allowed_relationships : "relationship_type_id"
+    core_relationship_types ||--o{ core_relationships : "relationship_type_id"
+    core_pick_lists ||--o{ core_pick_list_values : "pick_list_id"
+    core_pick_lists ||--o{ core_attribute_types : "pick_list_id"
+    core_attribute_types ||--o{ core_item_attributes : "attribute_type_id"
+    core_attribute_types ||--o{ core_validation_rules : "attribute_type_id"
+    core_attribute_types ||--o{ core_attribute_values : "attribute_type_id"
+    core_entities ||--o{ core_entities : "parent_entity_id"
+    core_entities ||--o{ core_relationships : "source_entity_id"
+    core_entities ||--o{ core_relationships : "target_entity_id"
+    core_entities ||--o{ core_attribute_values : "entity_id"
+    core_entities ||--o{ core_attribute_values : "value_ref"
+    core_relationships ||--o{ core_attribute_values : "relationship_id"
+    core_entities ||..o{ history_row_versions : "row_id (table_name)"

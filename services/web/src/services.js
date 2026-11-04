@@ -38,6 +38,7 @@ export const groups = [
     items: [
       { name: "Heartbeat", text: "API, database and job queue status", href: "#/heartbeat", live: true },
       { name: "API documentation (Swagger)", text: "Every API call, runnable in the browser", href: "/api/docs", live: true },
+      { name: "SQL", text: "Run queries on the database with a database login and see the results", href: "#/sql", live: true, role: "system-admin" },
       { name: "MCP server", text: "Connect your own language model (Claude, ChatGPT, local models) to the repository", href: "#/mcp", live: true },
       { name: "My account (Keycloak)", text: "Password, sessions and sign-in settings", href: `${config.keycloakUrl}/realms/${config.realm}/account/`, live: true },
       { name: "Users and sign-in (Keycloak admin)", text: "Users, roles and identity providers", href: `${config.keycloakUrl}/admin/${config.realm}/console/`, live: true, role: "system-admin" },

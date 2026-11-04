@@ -9,8 +9,8 @@ language model. Everything runs in Docker containers from one config file.
 repository database is in place: the ArchiMate 4 starter metamodel, a sample model, the
 `eax.get_entity` functions, read-only model pages (entities, relationships, metamodel) and an
 **MCP server** for your own language model ([docs/mcp.md](docs/mcp.md)). See [docs/phase-1.md](docs/phase-1.md)
-and the database design in [docs/database.md](docs/database.md); the requirements and the 40-phase
-build plan are in [docs/requirements](docs/requirements).
+and the database design in [docs/database.md](docs/database.md); the requirements and the 41-phase
+build plan are in [docs/requirements](docs/requirements). Open items: [docs/todo.md](docs/todo.md).
 
 ## Quick start (laptop)
 

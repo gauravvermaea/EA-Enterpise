@@ -39,14 +39,14 @@ def downgrade() -> None:
     raw.execute(
         """
         DROP SCHEMA IF EXISTS eax CASCADE;
-        DROP TABLE IF EXISTS core.attribute_value, core.relationship, core.entity,
-            core.display_id_counter, core.allowed_relationship, core.validation_rule,
-            core.item_attribute, core.attribute_type, core.pick_list_value, core.pick_list,
-            core.relationship_type, core.entity_type, core.layer, core.model,
-            core.rule_type, core.data_type, core.model_kind, core.item_status CASCADE;
+        DROP TABLE IF EXISTS core.attribute_values, core.relationships, core.entities,
+            core.display_id_counters, core.allowed_relationships, core.validation_rules,
+            core.item_attributes, core.attribute_types, core.pick_list_values, core.pick_lists,
+            core.relationship_types, core.entity_types, core.layers, core.models,
+            core.rule_types, core.data_types, core.model_kinds, core.item_statuses CASCADE;
         DROP TABLE IF EXISTS history.row_versions CASCADE;
         DROP FUNCTION IF EXISTS core.current_actor(), core.stamp_row(), core.can_read_model(uuid),
-            core.check_entity(), core.check_relationship(), core.check_attribute_value(),
+            core.check_model(), core.check_entity(), core.check_relationship(), core.check_attribute_value(),
             history.capture(), history.refuse_change() CASCADE;
         """
     )

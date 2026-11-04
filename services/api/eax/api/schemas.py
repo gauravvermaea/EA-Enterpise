@@ -75,10 +75,12 @@ class ModelOut(Schema):
     id = fields.UUID()
     name = fields.String()
     description = fields.String()
-    kind = fields.String(metadata={"description": "template, reference, project or branch"})
+    kind = fields.String(metadata={"description": "template, reference or project"})
     kind_name = fields.String()
-    parent_model_id = fields.UUID(allow_none=True)
+    parent_model_id = fields.UUID(allow_none=True, metadata={"description": "The model this one merges back into"})
     parent_model_name = fields.String(allow_none=True)
+    source_model_id = fields.UUID(allow_none=True, metadata={"description": "The model it was created or copied from"})
+    source_model_name = fields.String(allow_none=True)
     metamodel_name = fields.String()
     metamodel_version = fields.Integer()
     is_locked = fields.Boolean(metadata={"description": "read-only (templates and reference models)"})
@@ -96,7 +98,7 @@ class EntityTypeSummary(Schema):
     description = fields.String()
     aspect = fields.String()
     id_prefix = fields.String()
-    table_name = fields.String(metadata={"description": "name used by eax.get_entity: tmp_<table_name>"})
+    table_name = fields.String(metadata={"description": "snake_case name of the type, accepted by eax.get_entity"})
     status = fields.String()
     attribute_count = fields.Integer()
     entity_count = fields.Integer()
@@ -273,3 +275,99 @@ class EntityDetailOut(Schema):
     attributes = fields.List(fields.Nested(EntityAttributeValueOut))
     relationships = fields.List(fields.Nested(EntityRelationshipOut))
     children = fields.List(fields.Nested(EntityRefOut))
+
+
+class DiagramAttributeOut(Schema):
+    name = fields.String()
+    column_name = fields.String()
+    data_type = fields.String()
+    data_type_name = fields.String()
+    unit = fields.String()
+    is_required = fields.Boolean()
+    pick_list = fields.String(allow_none=True)
+
+
+class DiagramTypeOut(Schema):
+    id = fields.UUID()
+    code = fields.String()
+    name = fields.String()
+    table_name = fields.String()
+    id_prefix = fields.String()
+    layer_id = fields.UUID()
+    layer = fields.String()
+    colour = fields.String()
+    entity_count = fields.Integer()
+    attributes = fields.List(fields.Nested(DiagramAttributeOut))
+
+
+class DiagramLinkOut(Schema):
+    source = fields.UUID()
+    target = fields.UUID()
+    relationship_types = fields.List(fields.String(), metadata={"description": "Codes of the allowed relationship types"})
+
+
+class MetamodelDiagram(Schema):
+    model = fields.Nested(ModelOut)
+    layers = fields.List(fields.Nested(LayerOut))
+    entity_types = fields.List(fields.Nested(DiagramTypeOut))
+    relationship_types = fields.List(fields.Nested(RelationshipTypeOut))
+    links = fields.List(fields.Nested(DiagramLinkOut))
+
+
+class MermaidQuery(Schema):
+    layer = fields.List(fields.String(), load_default=None,
+                        metadata={"description": "Layers to show (name or code); repeat for several. All when left out"})
+    type = fields.String(load_default=None, metadata={"description": "Focus on this entity type and the types it may connect to"})
+    rel = fields.List(fields.String(), load_default=None,
+                      metadata={"description": "Relationship types to show; repeat for several. Default: all but Association and Specialization"})
+    generic = fields.Boolean(load_default=False, metadata={"description": "Include Association and Specialization"})
+    connected = fields.Boolean(load_default=False, metadata={"description": "Also show types in other layers that the chosen layers connect to"})
+    attributes = fields.Boolean(load_default=True, metadata={"description": "List each type's attributes"})
+
+
+class MermaidOut(Schema):
+    model = fields.String()
+    entity_types = fields.Integer()
+    links = fields.Integer()
+    relationship_types = fields.List(fields.String())
+    mermaid = fields.String()
+
+
+class SqlQueryIn(Schema):
+    database = fields.String(load_default="eaexplorer", metadata={"description": "Database on this installation's server"})
+    username = fields.String(required=True, metadata={"description": "PostgreSQL user, for example eax_app or postgres"})
+    password = fields.String(required=True, load_only=True)
+    sql = fields.String(required=True, metadata={"description": "One or more SQL statements"})
+    allow_changes = fields.Boolean(load_default=False, metadata={"description": "Commit the run; otherwise it is rolled back at the end"})
+
+
+class SqlResultSet(Schema):
+    columns = fields.List(fields.String())
+    rows = fields.List(fields.List(fields.Raw()))
+    row_count = fields.Integer(allow_none=True)
+    truncated = fields.Boolean()
+    status = fields.String()
+
+
+class SqlQueryOut(Schema):
+    results = fields.List(fields.Nested(SqlResultSet))
+    notices = fields.List(fields.String())
+    committed = fields.Boolean()
+    duration_ms = fields.Integer()
+
+
+class ServiceHealth(Schema):
+    name = fields.String()
+    kind = fields.String(metadata={"description": "The product behind the service"})
+    status = fields.String(metadata={"description": "up, warning, down or off"})
+    detail = fields.String()
+    target = fields.String(metadata={"description": "What was checked, inside the Docker network"})
+    response_ms = fields.Integer()
+
+
+class ServicesHealth(Schema):
+    status = fields.String(metadata={"description": "ok, degraded, or down when the database is down"})
+    time = fields.DateTime()
+    duration_ms = fields.Integer()
+    counts = fields.Dict(keys=fields.String(), values=fields.Integer())
+    services = fields.List(fields.Nested(ServiceHealth))

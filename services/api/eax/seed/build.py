@@ -32,7 +32,7 @@ def gid(*parts: str) -> str:
 TEMPLATE_ID = gid("model", TEMPLATE_KEY)
 SAMPLE_ID = gid("model", SAMPLE_KEY)
 
-# Workbench data type names -> core.data_type codes
+# Workbench data type names -> core.data_types codes
 DATA_TYPES = {
     "Text": "text", "LongText": "long_text", "Integer": "integer", "Decimal": "decimal",
     "Currency": "currency", "Percent": "percent", "Date": "date", "Boolean": "boolean",
@@ -77,13 +77,23 @@ def lit(v) -> str:
 # Foreign-key columns and the table they point at. The seed names every row by its guid; the
 # bigint keys are looked up by guid when the rows are inserted.
 FOREIGN_KEYS = {
-    "model_id": "model", "parent_model_id": "model", "layer_id": "layer",
+    "model_id": "model", "parent_model_id": "model", "source_model_id": "model", "layer_id": "layer",
     "entity_type_id": "entity_type", "source_type_id": "entity_type", "target_type_id": "entity_type",
     "relationship_type_id": "relationship_type", "pick_list_id": "pick_list",
     "attribute_type_id": "attribute_type", "entity_id": "entity", "source_entity_id": "entity",
     "target_entity_id": "entity", "relationship_id": "relationship",
 }
 RENAMED = {"id": "guid", "origin_id": "origin_guid"}
+
+# The seed names things in the singular (also in its guid keys, which must never change); the
+# database tables are plural.
+TABLES = {
+    "model": "models", "layer": "layers", "entity_type": "entity_types",
+    "relationship_type": "relationship_types", "pick_list": "pick_lists", "pick_list_value": "pick_list_values",
+    "attribute_type": "attribute_types", "item_attribute": "item_attributes",
+    "validation_rule": "validation_rules", "allowed_relationship": "allowed_relationships",
+    "entity": "entities", "attribute_value": "attribute_values", "relationship": "relationships",
+}
 
 
 def insert(table: str, cols: list[str], rows: list[list]) -> str:
@@ -98,7 +108,7 @@ def insert(table: str, cols: list[str], rows: list[list]) -> str:
         if all_null:
             select.append("NULL")
         elif col in FOREIGN_KEYS:
-            joins.append(f"LEFT JOIN core.{FOREIGN_KEYS[col]} f{i} ON f{i}.guid = v.c{i}::uuid")
+            joins.append(f"LEFT JOIN core.{TABLES[FOREIGN_KEYS[col]]} f{i} ON f{i}.guid = v.c{i}::uuid")
             select.append(f"f{i}.id")
         elif col in RENAMED:
             select.append(f"v.c{i}::uuid")
@@ -107,7 +117,7 @@ def insert(table: str, cols: list[str], rows: list[list]) -> str:
     values = ",\n".join("    (" + ", ".join(lit(v) for v in r) + ")" for r in rows)
     names = ", ".join(RENAMED.get(c, c) for c in cols)
     aliases = ", ".join(f"c{i}" for i in range(len(cols)))
-    return (f"INSERT INTO core.{table} ({names})\nSELECT {', '.join(select)}\nFROM (VALUES\n{values}\n"
+    return (f"INSERT INTO core.{TABLES[table]} ({names})\nSELECT {', '.join(select)}\nFROM (VALUES\n{values}\n"
             f") AS v ({aliases})\n" + "\n".join(joins) + ";\n")
 
 
@@ -270,7 +280,8 @@ def seed_sql(with_template: bool = True, with_sample: bool = True) -> str:
     if with_sample:
         parts += [
             "SELECT set_config('eax.history_label', 'Sample model', true);\n",
-            insert("model", ["id", "origin_id", "name", "description", "kind_code", "parent_model_id",
+            # created from the template (its source); a top-level model, so no parent to merge into
+            insert("model", ["id", "origin_id", "name", "description", "kind_code", "source_model_id",
                              "metamodel_name"], [[
                 SAMPLE_ID, TEMPLATE_ID, "Sample insurance model",
                 "Sample content for trying EA Explorer: insurance applications, capabilities, data and "

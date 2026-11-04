@@ -1,52 +1,54 @@
 %%{init: {'theme':'neutral', 'themeVariables': {'fontSize':'15px'}}}%%
 erDiagram
-    MODEL_KIND ||--o{ MODEL : "kind"
-    MODEL |o--o{ MODEL : "parent (copied from / branch of)"
-    MODEL ||--o{ LAYER : "owns"
-    MODEL ||--o{ ENTITY_TYPE : "owns"
-    MODEL ||--o{ RELATIONSHIP_TYPE : "owns"
-    MODEL ||--o{ ATTRIBUTE_TYPE : "owns"
-    MODEL ||--o{ PICK_LIST : "owns"
-    MODEL ||--o{ ENTITY : "contains"
-    MODEL ||--o{ RELATIONSHIP : "contains"
-    LAYER ||--o{ ENTITY_TYPE : "groups"
-    PICK_LIST ||--o{ PICK_LIST_VALUE : "values"
-    PICK_LIST |o--o{ ATTRIBUTE_TYPE : "values from"
-    DATA_TYPE ||--o{ ATTRIBUTE_TYPE : "typed as"
-    ATTRIBUTE_TYPE ||--o{ ITEM_ATTRIBUTE : "applies via"
-    ENTITY_TYPE |o--o{ ITEM_ATTRIBUTE : "has"
-    RELATIONSHIP_TYPE |o--o{ ITEM_ATTRIBUTE : "has"
-    ATTRIBUTE_TYPE |o--o{ VALIDATION_RULE : "checked by"
-    RULE_TYPE ||--o{ VALIDATION_RULE : "rule"
-    RELATIONSHIP_TYPE ||--o{ ALLOWED_RELATIONSHIP : "allowed as"
-    ENTITY_TYPE ||--o{ ALLOWED_RELATIONSHIP : "source / target"
-    ENTITY_TYPE ||--o{ ENTITY : "typed by"
-    ENTITY |o--o{ ENTITY : "parent"
-    RELATIONSHIP_TYPE ||--o{ RELATIONSHIP : "typed by"
-    ENTITY ||--o{ RELATIONSHIP : "source / target"
-    ENTITY |o--o{ ATTRIBUTE_VALUE : "has"
-    RELATIONSHIP |o--o{ ATTRIBUTE_VALUE : "has"
-    ATTRIBUTE_TYPE ||--o{ ATTRIBUTE_VALUE : "typed by"
-    ITEM_STATUS ||--o{ ENTITY : "status (every table)"
+    MODEL_KINDS ||--o{ MODELS : "kind"
+    MODELS |o--o{ MODELS : "parent (merges into, any depth)"
+    MODELS |o--o{ MODELS : "source (created or copied from)"
+    MODELS ||--o{ LAYERS : "owns"
+    MODELS ||--o{ ENTITY_TYPES : "owns"
+    MODELS ||--o{ RELATIONSHIP_TYPES : "owns"
+    MODELS ||--o{ ATTRIBUTE_TYPES : "owns"
+    MODELS ||--o{ PICK_LISTS : "owns"
+    MODELS ||--o{ ENTITIES : "contains"
+    MODELS ||--o{ RELATIONSHIPS : "contains"
+    LAYERS ||--o{ ENTITY_TYPES : "groups"
+    PICK_LISTS ||--o{ PICK_LIST_VALUES : "values"
+    PICK_LISTS |o--o{ ATTRIBUTE_TYPES : "values from"
+    DATA_TYPES ||--o{ ATTRIBUTE_TYPES : "typed as"
+    ATTRIBUTE_TYPES ||--o{ ITEM_ATTRIBUTES : "applies via"
+    ENTITY_TYPES |o--o{ ITEM_ATTRIBUTES : "has"
+    RELATIONSHIP_TYPES |o--o{ ITEM_ATTRIBUTES : "has"
+    ATTRIBUTE_TYPES |o--o{ VALIDATION_RULES : "checked by"
+    RULE_TYPES ||--o{ VALIDATION_RULES : "rule"
+    RELATIONSHIP_TYPES ||--o{ ALLOWED_RELATIONSHIPS : "allowed as"
+    ENTITY_TYPES ||--o{ ALLOWED_RELATIONSHIPS : "source / target"
+    ENTITY_TYPES ||--o{ ENTITIES : "typed by"
+    ENTITIES |o--o{ ENTITIES : "parent"
+    RELATIONSHIP_TYPES ||--o{ RELATIONSHIPS : "typed by"
+    ENTITIES ||--o{ RELATIONSHIPS : "source / target"
+    ENTITIES |o--o{ ATTRIBUTE_VALUES : "has"
+    RELATIONSHIPS |o--o{ ATTRIBUTE_VALUES : "has"
+    ATTRIBUTE_TYPES ||--o{ ATTRIBUTE_VALUES : "typed by"
+    ITEM_STATUSES ||--o{ ENTITIES : "status (every table)"
 
-    MODEL {
+    MODELS {
         bigint id PK
         uuid guid UK
         text name
-        text kind_code FK "template reference project branch"
-        bigint parent_model_id FK
+        text kind_code FK "template reference project"
+        bigint parent_model_id FK "merges into"
+        bigint source_model_id FK "created from"
         text metamodel_name "ArchiMate 4"
         int metamodel_version
         bool is_locked "read-only"
     }
-    LAYER {
+    LAYERS {
         bigint id PK
         bigint model_id FK
         text code
         text name "Business, Application..."
         text colour
     }
-    ENTITY_TYPE {
+    ENTITY_TYPES {
         bigint id PK
         bigint model_id FK
         bigint layer_id FK
@@ -55,7 +57,7 @@ erDiagram
         text id_prefix "APP"
         text table_name "application_component"
     }
-    RELATIONSHIP_TYPE {
+    RELATIONSHIP_TYPES {
         bigint id PK
         bigint model_id FK
         text code "Serving"
@@ -63,7 +65,7 @@ erDiagram
         text category
         bool is_directed
     }
-    ATTRIBUTE_TYPE {
+    ATTRIBUTE_TYPES {
         bigint id PK
         bigint model_id FK
         text code "GoLiveDate"
@@ -72,7 +74,7 @@ erDiagram
         text unit
         text column_name "go_live_date"
     }
-    ITEM_ATTRIBUTE {
+    ITEM_ATTRIBUTES {
         bigint id PK
         bigint attribute_type_id FK
         bigint entity_type_id FK "or"
@@ -80,17 +82,17 @@ erDiagram
         bool is_required
         text section
     }
-    PICK_LIST {
+    PICK_LISTS {
         bigint id PK
         bigint model_id FK
         text code
     }
-    PICK_LIST_VALUE {
+    PICK_LIST_VALUES {
         bigint id PK
         bigint pick_list_id FK
         text value
     }
-    VALIDATION_RULE {
+    VALIDATION_RULES {
         bigint id PK
         bigint attribute_type_id FK "or field_name"
         bigint entity_type_id FK "empty = all types"
@@ -99,13 +101,13 @@ erDiagram
         text param2
         text severity
     }
-    ALLOWED_RELATIONSHIP {
+    ALLOWED_RELATIONSHIPS {
         bigint id PK
         bigint relationship_type_id FK
         bigint source_type_id FK
         bigint target_type_id FK
     }
-    ENTITY {
+    ENTITIES {
         bigint id PK
         uuid guid UK
         bigint model_id FK
@@ -115,14 +117,14 @@ erDiagram
         text description
         bigint parent_entity_id FK
     }
-    RELATIONSHIP {
+    RELATIONSHIPS {
         bigint id PK
         bigint model_id FK
         bigint relationship_type_id FK
         bigint source_entity_id FK
         bigint target_entity_id FK
     }
-    ATTRIBUTE_VALUE {
+    ATTRIBUTE_VALUES {
         bigint id PK
         bigint attribute_type_id FK
         bigint entity_id FK "or"
@@ -133,20 +135,20 @@ erDiagram
         bool value_bool
         bigint value_ref FK "link to entity"
     }
-    ITEM_STATUS {
+    ITEM_STATUSES {
         text code PK "created under_review published retired"
     }
-    MODEL_KIND {
+    MODEL_KINDS {
         text code PK
         bool holds_content
         bool read_only
     }
-    DATA_TYPE {
+    DATA_TYPES {
         text code PK
         text storage "text number date boolean ref"
         text sql_type
     }
-    RULE_TYPE {
+    RULE_TYPES {
         text code PK
     }
     HISTORY_ROW_VERSIONS {

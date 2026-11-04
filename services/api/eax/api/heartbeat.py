@@ -10,11 +10,11 @@ from flask.views import MethodView
 from flask_smorest import Blueprint
 from sqlalchemy import text
 
-from .. import __version__, audit
+from .. import __version__, audit, health
 from ..auth import require_auth
 from ..config import get_settings
 from ..db import get_engine
-from .schemas import Heartbeat, HeartbeatRecordIn, HeartbeatRecordOut
+from .schemas import Heartbeat, HeartbeatRecordIn, HeartbeatRecordOut, ServicesHealth
 
 blp = Blueprint(
     "heartbeat", __name__, url_prefix="/api/v1/heartbeat",
@@ -75,13 +75,13 @@ class HeartbeatView(MethodView):
     def post(self, data):
         """Record a heartbeat now (signed in)
 
-        Writes a row to core.heartbeat_log, which the sample Superset dashboard shows.
+        Writes a row to core.heartbeat_logs, which the sample Superset dashboard shows.
         """
         user = g.user
         with get_engine().begin() as conn:
             row = conn.execute(
                 text(
-                    "INSERT INTO core.heartbeat_log (source, note, requested_by) "
+                    "INSERT INTO core.heartbeat_logs (source, note, requested_by) "
                     "VALUES ('api', :note, :by) RETURNING id, at, source, note, requested_by"
                 ),
                 {"note": data["note"], "by": user.username},
@@ -92,3 +92,19 @@ class HeartbeatView(MethodView):
                 details={"note": data["note"]}, request_id=g.request_id,
             )
         return dict(row)
+
+
+@blp.route("/services")
+class ServicesView(MethodView):
+    @blp.doc(security=[{"bearerAuth": []}])
+    @blp.response(200, ServicesHealth)
+    @require_auth()
+    def get(self):
+        """Health of every service (signed in)
+
+        Checks, at the same time and from inside the stack: the API, the database, the job runner,
+        Keycloak, the web screens, the proxy, Superset, Mayan EDMS and its queue (Valkey), draw.io,
+        the MCP server and the age of the newest backup. Each service is up, warning, down or off;
+        the overall status is ok, degraded, or down when the database is down. Always answers 200.
+        """
+        return health.check_all()

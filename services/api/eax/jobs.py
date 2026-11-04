@@ -36,7 +36,7 @@ def record_heartbeat(context, note: str, requested_by: str) -> None:
     with get_engine().begin() as conn:
         conn.execute(
             text(
-                "INSERT INTO core.heartbeat_log (source, note, requested_by, job_id) "
+                "INSERT INTO core.heartbeat_logs (source, note, requested_by, job_id) "
                 "VALUES ('job', :note, :by, :job_id)"
             ),
             {"note": note, "by": requested_by, "job_id": job_id},

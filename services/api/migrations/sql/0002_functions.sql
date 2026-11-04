@@ -5,15 +5,20 @@
 -- These functions turn it back into one ordinary table per entity type, built on demand from
 -- the current metamodel, plus a table of each entity's relationships:
 --
---   SELECT eax.get_entity('Application Component');
---       -> {tmp_application_component, tmp_application_component_rel}
---   SELECT * FROM tmp_application_component WHERE lifecycle = 'Production';
---   SELECT * FROM tmp_application_component_rel WHERE relationship_type = 'Realization';
+--   SELECT eax.get_entity('Application Component', 'apps');
+--       -> {apps, apps_rel}
+--   SELECT * FROM apps WHERE lifecycle = 'Production';
+--   SELECT * FROM apps_rel WHERE relationship_type = 'Realization';
 --
---   SELECT eax.get_entity_by_name('Application Component', 'Claims Platform');
+--   SELECT eax.get_entity_by_name('Application Component', 'Claims Platform', 'claims_app');
 --
--- The tables are temporary: private to the caller's database session and dropped when it
--- ends. A second call for the same type replaces them; pass p_table to keep several sets.
+-- The caller always names the tables (p_table; the relationship table adds "_rel"), so two callers
+-- or two calls never collide: our code uses a fresh guid-based name for every call (e_<32 hex>).
+-- A name already in use in the session is refused, never replaced.
+-- The tables are temporary: private to the caller's database session and dropped by PostgreSQL
+-- when that connection closes (they never outlive the connection). Code that keeps connections in
+-- a pool drops them itself with eax.drop_entity(name); the API pool also runs DISCARD TEMP when a
+-- connection is returned.
 -- Only models the caller may read are included (core.can_read_model). p_model is the model's
 -- guid (the id the API and screens use).
 -- =====================================================================================
@@ -27,17 +32,31 @@ CREATE FUNCTION eax._reserved_columns() RETURNS text[] LANGUAGE sql IMMUTABLE AS
                  'modified_at', 'modified_by', 'row_version']
 $$;
 
+-- A table name given by the caller: lower-case letters, digits and underscores, starting with a
+-- letter or underscore, short enough for the "_rel" table (PostgreSQL names are at most 63 bytes).
+CREATE FUNCTION eax._check_table_name(p_table text) RETURNS text LANGUAGE plpgsql IMMUTABLE AS $$
+BEGIN
+    IF p_table IS NULL OR trim(p_table) = '' THEN
+        RAISE EXCEPTION 'Give a name for the temporary table, for example get_entity(''Application Component'', ''apps'')'
+            USING HINT = 'Code should use a fresh name for every call, for example ''e_'' || replace(gen_random_uuid()::text, ''-'', '''').';
+    END IF;
+    IF p_table !~ '^[a-z_][a-z0-9_]{0,58}$' THEN
+        RAISE EXCEPTION 'Table name "%" must be lower-case letters, digits and underscores (at most 59), starting with a letter or underscore', p_table;
+    END IF;
+    RETURN p_table;
+END;
+$$;
+
 CREATE FUNCTION eax._load_entity(
     p_type               text,
+    p_table              text,    -- name of the entity table; the relationship table is <name>_rel
     p_model              uuid,    -- the model's guid, or NULL for every readable model
     p_name               text,
-    p_with_relationships boolean,
-    p_table              text
+    p_with_relationships boolean
 ) RETURNS text[] LANGUAGE plpgsql AS $$
 DECLARE
     v_types     bigint[];
-    v_base      text;
-    v_table     text;
+    v_table     text := eax._check_table_name(p_table);
     v_rel_table text;
     v_cols      text := '';
     v_col       text;
@@ -48,10 +67,10 @@ BEGIN
     END IF;
 
     -- 1. The entity type, by code, name or table name, in every readable model (or one model)
-    SELECT array_agg(et.id), min(et.table_name)
-      INTO v_types, v_base
-      FROM core.entity_type et
-      JOIN core.model m ON m.id = et.model_id
+    SELECT array_agg(et.id)
+      INTO v_types
+      FROM core.entity_types et
+      JOIN core.models m ON m.id = et.model_id
      WHERE NOT et.is_deleted AND NOT m.is_deleted
        AND (p_model IS NULL OR m.guid = p_model)
        AND core.can_read_model(et.model_id)
@@ -62,11 +81,12 @@ BEGIN
             USING HINT = 'Use the type''s name (Application Component), code (ApplicationComponent) or table name (application_component).';
     END IF;
 
-    v_table := 'tmp_' || coalesce(nullif(lower(p_table), ''), v_base);
-    IF v_table !~ '^tmp_[a-z][a-z0-9_]{0,55}$' THEN
-        RAISE EXCEPTION 'Table name "%" must be lower-case letters, digits and underscores', p_table;
-    END IF;
     v_rel_table := v_table || '_rel';
+    IF to_regclass('pg_temp.' || v_table) IS NOT NULL
+       OR (p_with_relationships AND to_regclass('pg_temp.' || v_rel_table) IS NOT NULL) THEN
+        RAISE EXCEPTION 'A temporary table "%" already exists in this session', v_table
+            USING HINT = 'Use another name, or drop the old one first: SELECT eax.drop_entity(''' || v_table || ''').';
+    END IF;
 
     -- 2. One column per attribute that applies to the type, typed by the attribute's data type
     FOR r IN
@@ -75,9 +95,9 @@ BEGIN
                min(dt.sql_type) AS sql_type,
                min(ia.sort_order) AS sort_order,
                array_agg(DISTINCT at.id) AS attr_ids
-          FROM core.item_attribute ia
-          JOIN core.attribute_type at ON at.id = ia.attribute_type_id AND NOT at.is_deleted
-          JOIN core.data_type dt ON dt.code = at.data_type_code
+          FROM core.item_attributes ia
+          JOIN core.attribute_types at ON at.id = ia.attribute_type_id AND NOT at.is_deleted
+          JOIN core.data_types dt ON dt.code = at.data_type_code
          WHERE ia.entity_type_id = ANY (v_types) AND NOT ia.is_deleted
          GROUP BY at.column_name
          ORDER BY min(ia.sort_order), at.column_name
@@ -100,13 +120,6 @@ BEGIN
     END LOOP;
 
     -- 3. The entity table
-    -- replace the tables of an earlier call in this session (quietly: no notice when absent)
-    IF to_regclass('pg_temp.' || v_table) IS NOT NULL THEN
-        EXECUTE format('DROP TABLE pg_temp.%I', v_table);
-    END IF;
-    IF to_regclass('pg_temp.' || v_rel_table) IS NOT NULL THEN
-        EXECUTE format('DROP TABLE pg_temp.%I', v_rel_table);
-    END IF;
     EXECUTE format($sql$
         CREATE TEMP TABLE %I ON COMMIT PRESERVE ROWS AS
         SELECT e.id, e.guid, e.model_id, m.guid AS model_guid, m.name AS model_name, et.name AS entity_type,
@@ -114,12 +127,12 @@ BEGIN
                e.parent_entity_id, pe.name AS parent_name,
                e.status_code AS status %s,
                e.created_at, e.created_by, e.modified_at, e.modified_by, e.row_version
-          FROM core.entity e
-          JOIN core.model m        ON m.id = e.model_id
-          JOIN core.entity_type et ON et.id = e.entity_type_id
-          LEFT JOIN core.entity pe ON pe.id = e.parent_entity_id
-          LEFT JOIN core.attribute_value av ON av.entity_id = e.id AND NOT av.is_deleted
-          LEFT JOIN core.entity re ON re.id = av.value_ref
+          FROM core.entities e
+          JOIN core.models m        ON m.id = e.model_id
+          JOIN core.entity_types et ON et.id = e.entity_type_id
+          LEFT JOIN core.entities pe ON pe.id = e.parent_entity_id
+          LEFT JOIN core.attribute_values av ON av.entity_id = e.id AND NOT av.is_deleted
+          LEFT JOIN core.entities re ON re.id = av.value_ref
          WHERE e.entity_type_id = ANY (%L::bigint[])
            AND NOT e.is_deleted
            AND core.can_read_model(e.model_id)
@@ -144,19 +157,19 @@ BEGIN
                (SELECT coalesce(jsonb_object_agg(at.code, coalesce(
                            to_jsonb(av.value_text), to_jsonb(av.value_number), to_jsonb(av.value_date),
                            to_jsonb(av.value_bool), to_jsonb(av.value_ref))), '{}'::jsonb)
-                  FROM core.attribute_value av
-                  JOIN core.attribute_type at ON at.id = av.attribute_type_id
+                  FROM core.attribute_values av
+                  JOIN core.attribute_types at ON at.id = av.attribute_type_id
                  WHERE av.relationship_id = r.id AND NOT av.is_deleted) AS attributes
           FROM pg_temp.%I x
-          JOIN core.relationship r
+          JOIN core.relationships r
             ON (r.source_entity_id = x.id OR r.target_entity_id = x.id) AND NOT r.is_deleted
-          JOIN core.relationship_type rt ON rt.id = r.relationship_type_id
+          JOIN core.relationship_types rt ON rt.id = r.relationship_type_id
           CROSS JOIN LATERAL (
                 SELECT 'outgoing'::text AS direction, r.target_entity_id AS other_id WHERE r.source_entity_id = x.id
                 UNION ALL
                 SELECT 'incoming', r.source_entity_id WHERE r.target_entity_id = x.id) d
-          JOIN core.entity o        ON o.id = d.other_id AND NOT o.is_deleted
-          JOIN core.entity_type oet ON oet.id = o.entity_type_id
+          JOIN core.entities o        ON o.id = d.other_id AND NOT o.is_deleted
+          JOIN core.entity_types oet ON oet.id = o.entity_type_id
          ORDER BY x.name, d.direction DESC, rt.name, o.name
         $sql$, v_rel_table, v_table);
 
@@ -164,28 +177,44 @@ BEGIN
 END;
 $$;
 
--- Every entity of a type (optionally in one model), with their relationships.
+-- Every entity of a type (optionally in one model), with their relationships, into tables you name.
 CREATE FUNCTION eax.get_entity(
     p_type               text,
+    p_table              text,
     p_model              uuid    DEFAULT NULL,
-    p_with_relationships boolean DEFAULT true,
-    p_table              text    DEFAULT NULL
+    p_with_relationships boolean DEFAULT true
 ) RETURNS text[] LANGUAGE sql AS $$
-    SELECT eax._load_entity(p_type, p_model, NULL, p_with_relationships, p_table)
+    SELECT eax._load_entity(p_type, p_table, p_model, NULL, p_with_relationships)
 $$;
 
 -- One named entity of a type (the name may occur in several models: one row each).
 CREATE FUNCTION eax.get_entity_by_name(
     p_type               text,
     p_name               text,
+    p_table              text,
     p_model              uuid    DEFAULT NULL,
-    p_with_relationships boolean DEFAULT true,
-    p_table              text    DEFAULT NULL
+    p_with_relationships boolean DEFAULT true
 ) RETURNS text[] LANGUAGE sql AS $$
-    SELECT eax._load_entity(p_type, p_model, p_name, p_with_relationships, p_table)
+    SELECT eax._load_entity(p_type, p_table, p_model, p_name, p_with_relationships)
 $$;
 
-COMMENT ON FUNCTION eax.get_entity(text, uuid, boolean, text) IS
-    'Builds temporary tables tmp_<type> (one row per entity, one column per attribute) and tmp_<type>_rel (its relationships). Returns their names.';
-COMMENT ON FUNCTION eax.get_entity_by_name(text, text, uuid, boolean, text) IS
+-- Drops the tables of an earlier get_entity call in this session (both, if they exist).
+CREATE FUNCTION eax.drop_entity(p_table text) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE
+    v_table text := eax._check_table_name(p_table);
+BEGIN
+    IF to_regclass('pg_temp.' || v_table || '_rel') IS NOT NULL THEN
+        EXECUTE format('DROP TABLE pg_temp.%I', v_table || '_rel');
+    END IF;
+    IF to_regclass('pg_temp.' || v_table) IS NOT NULL THEN
+        EXECUTE format('DROP TABLE pg_temp.%I', v_table);
+    END IF;
+END;
+$$;
+
+COMMENT ON FUNCTION eax.get_entity(text, text, uuid, boolean) IS
+    'Builds temporary tables <p_table> (one row per entity, one column per attribute) and <p_table>_rel (its relationships), dropped when the connection closes. Returns their names.';
+COMMENT ON FUNCTION eax.get_entity_by_name(text, text, text, uuid, boolean) IS
     'Like get_entity, for one named entity (case-insensitive).';
+COMMENT ON FUNCTION eax.drop_entity(text) IS
+    'Drops the temporary tables of a get_entity call: <p_table> and <p_table>_rel.';
