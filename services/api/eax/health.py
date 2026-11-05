@@ -126,18 +126,32 @@ def check_keycloak() -> dict:
                  describe=lambda s, b: f"realm '{realm}' answering")
 
 
+def _off(name: str, kind: str, key: str) -> dict | None:
+    """A service switched off in the config file (D191) is 'off', not 'down'."""
+    from . import services
+    if services.enabled(key):
+        return None
+    return _result(name, kind, "off", f"switched off ({services.SERVICES[key][0]}=off)", time.perf_counter())
+
+
 def check_reports() -> dict:
+    if (off := _off("Reports", "Apache Superset", "reports")):
+        return off
     return _http("Reports", "Apache Superset", "reports", 8088, "/health",
                  ok=lambda s, b: s == 200, describe=lambda s, b: b.decode(errors="replace").strip()[:40] or "OK")
 
 
 def check_dms() -> dict:
     # Mayan answers its login page (or a redirect to it) when it is up
+    if (off := _off("Documents", "Mayan EDMS", "documents")):
+        return off
     return _http("Documents", "Mayan EDMS", "dms", 8000, "/", ok=lambda s, b: s < 500)
 
 
 def check_dms_broker() -> dict:
     """Mayan's task queue and locks (Valkey): AUTH and PING over the Redis protocol."""
+    if (off := _off("Document queue", "Valkey", "documents")):
+        return off
     started = time.perf_counter()
     target = "valkey://dms-broker:6379"
     password = _env("EAX_DMS_BROKER_PASSWORD")
@@ -160,6 +174,8 @@ def check_dms_broker() -> dict:
 
 
 def check_drawio() -> dict:
+    if (off := _off("Diagrams", "draw.io", "drawio")):
+        return off
     return _http("Diagrams", "draw.io", "drawio", 8080, "/")
 
 
@@ -173,9 +189,8 @@ def check_proxy() -> dict:
 
 
 def check_mcp() -> dict:
-    if _env("EAX_MCP_ENABLED", "false").lower() != "true":
-        started = time.perf_counter()
-        return _result("MCP server", "MCP (ours)", "off", "EAX_MCP_ENABLED is false", started)
+    if (off := _off("MCP server", "MCP (ours)", "mcp")):
+        return off
     # without a token it must refuse with 401: that proves it is up and guarded
     return _http("MCP server", "MCP (ours)", "127.0.0.1", 8001, "/mcp", method="POST",
                  ok=lambda s, b: s == 401, describe=lambda s, b: "answering, sign-in required")
@@ -183,6 +198,8 @@ def check_mcp() -> dict:
 
 def check_backup() -> dict:
     """Age of the newest backup (the backups folder is mounted read-only into the api container)."""
+    if (off := _off("Backup", "Backup (ours)", "backups")):
+        return off
     started = time.perf_counter()
     max_hours = float(_env("EAX_BACKUP_MAX_AGE_HOURS", "36") or 36)
     if not BACKUP_DIR.is_dir():

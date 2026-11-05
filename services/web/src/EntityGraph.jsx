@@ -18,6 +18,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "./auth";
 import { downloadCsv, downloadDrawio, downloadPng, downloadSvg } from "./exporting";
 import { elk, relColour, straightSection, textWidth } from "./MetamodelDiagram";
+import { fmtDateTime } from "./fmt";
 
 const go = (path) => { window.location.hash = path; };
 const NAME_FONT = "600 12px system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif";
@@ -487,7 +488,7 @@ export default function EntityGraph({ model, focus: fixedFocus = null, lockFocus
         {kind === "asof" && moments && (
           <label>As it was after
             <select value={asOf || ""} onChange={(e) => setAsOf(Number(e.target.value))}>
-              {moments.map((m, i) => <option key={m.id} value={m.id}>{new Date(m.at).toLocaleString()} · {m.by} ({m.n} change{m.n > 1 ? "s" : ""}){i === 0 ? " · latest" : ""}</option>)}
+              {moments.map((m, i) => <option key={m.id} value={m.id}>{fmtDateTime(m.at)} · {m.by} ({m.n} change{m.n > 1 ? "s" : ""}){i === 0 ? " · latest" : ""}</option>)}
             </select>
           </label>
         )}
@@ -559,7 +560,7 @@ export default function EntityGraph({ model, focus: fixedFocus = null, lockFocus
           ? <> · {data.paths.length}{data.truncated ? "+" : ""} shortest path{data.paths.length > 1 ? "s" : ""} of {data.steps} step{data.steps > 1 ? "s" : ""} to <strong>{data.target.name}</strong></>
           : <> · <strong>no path</strong> to {data.target?.name} within {depth} steps: allow more steps or more line types</>)}
         {kind === "path" && !pathTo && " · choose the entity to find paths to"}
-        {kind === "asof" && data?.as_of && <> · as it was on {new Date(data.as_of.at).toLocaleString()}:{" "}
+        {kind === "asof" && data?.as_of && <> · as it was on {fmtDateTime(data.as_of.at)}:{" "}
           {edges.filter((e) => e.status === "removed").length} removed since (red), {edges.filter((e) => e.status === "added").length} added since (green)</>}
         {kind === "asof" && moments && !moments.length && " · no recorded history"}
         {focusNode && !["layers", "path", "asof"].includes(kind) && <> · {["impact", "split", "tree"].includes(kind) ? "start" : "middle"}: <a href={`#/metamodel/${model}/entity/${focusNode.id}`}>{focusNode.name}</a> ({focusNode.entity_type})</>}

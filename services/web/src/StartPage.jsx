@@ -1,11 +1,20 @@
 import { groups } from "./services";
-import { FavouritesAndRecent } from "./GridPages";
 import { config } from "./config";
 import { can, needsRole, roleName, signedIn } from "./auth";
+import { serviceOn } from "./fmt";
 
 function Tile({ item }) {
   const allowed = !item.perm || can(item.perm);
   if (item.devOnly && config.deployment !== "laptop") return null;
+  if (item.live && item.service && !serviceOn(item.service)) {
+    return (
+      <div className="tile off" aria-disabled="true" title="Switched off: Administration > System settings > Services">
+        <h3>{item.name}</h3>
+        <p>{item.text}</p>
+        <span className="badge">switched off</span>
+      </div>
+    );
+  }
   if (item.live && !allowed) {
     return (
       <div className="tile off" aria-disabled="true" title={needsRole(item.roles || [])}>
@@ -46,7 +55,6 @@ export default function StartPage() {
           {!signedIn() && " Sign in once and every product opens without another login."}
         </p>
       </section>
-      {signedIn() && <section className="start-fav"><FavouritesAndRecent /></section>}
       {groups.map((g) => (
         <section key={g.title}>
           <h2>{g.title}</h2>

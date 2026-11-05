@@ -1,6 +1,6 @@
 """Viewpoints, business maps and report audiences (build phase 8.2, D161).
 
-* Viewpoints as data (D147): the 25 ArchiMate 4 example viewpoints (VP-01 to VP-25, built in, loaded by the
+* Viewpoints as data (D147): the 25 ArchiMate 4 example viewpoints (VP-01 to VP-26, built in, loaded by the
   seed from eax/report_defs.py) and an organisation's own (Library Admins). A model is shown through a
   viewpoint as a diagram, a catalog, a matrix, a heat map coloured by any attribute, or its relationships.
 * Business maps: the value stream map (stages and the capabilities that enable each, coloured by an

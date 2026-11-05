@@ -21,6 +21,7 @@ from pathlib import Path
 
 import yaml
 
+from ..report_about import about
 from ..report_defs import REPORTS, VIEWPOINTS
 from .superset_sample import DB_UUID
 from .superset_sample import bundle_files as sample_files
@@ -153,6 +154,12 @@ THRESHOLD_FILTERS = {"sr16_capability_heat": [("Medium from", "medium_from"), ("
                      "dr_fan_heat": [("Watch from (dependants)", "medium_from"), ("Hot spot from (dependants)", "high_from")]}
 
 
+# gap analyses (phase 8.3, D172)
+VIEWS.update({
+    "gap_analyses": [('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('analysis_guid', 'UUID'), ('gap_analysis', 'TEXT'), ('description', 'TEXT'), ('template', 'TEXT'), ('baseline', 'TEXT'), ('target', 'TEXT'), ('baseline_model', 'TEXT'), ('baseline_tag', 'TEXT'), ('target_model', 'TEXT'), ('target_tag', 'TEXT'), ('compared_at', 'TIMESTAMP WITH TIME ZONE'), ('compared_by', 'TEXT'), ('kept', 'BIGINT'), ('changed', 'BIGINT'), ('new', 'BIGINT'), ('eliminated', 'BIGINT'), ('undecided', 'BIGINT'), ('link', 'TEXT')],
+    "gap_items": [('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('gap_analysis', 'TEXT'), ('template', 'TEXT'), ('baseline', 'TEXT'), ('target', 'TEXT'), ('compared_at', 'TIMESTAMP WITH TIME ZONE'), ('entity_type', 'TEXT'), ('entity_type_name', 'TEXT'), ('layer', 'TEXT'), ('name', 'TEXT'), ('status', 'TEXT'), ('togaf_cell', 'TEXT'), ('baseline_name', 'TEXT'), ('target_name', 'TEXT'), ('fields_changed', 'INTEGER'), ('changed_fields', 'TEXT'), ('note', 'TEXT'), ('resolution', 'TEXT'), ('work_packages', 'TEXT'), ('work_package_count', 'INTEGER'), ('has_gap_entity', 'BOOLEAN'), ('link', 'TEXT')],
+    "gap_matrix": [('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('gap_analysis', 'TEXT'), ('entity_type_name', 'TEXT'), ('layer', 'TEXT'), ('baseline_element', 'TEXT'), ('target_element', 'TEXT'), ('togaf_cell', 'TEXT'), ('status', 'TEXT'), ('resolution', 'TEXT'), ('link', 'TEXT')],
+})
 LINKED = {v for v, cols in VIEWS.items() if any(c == "link" for c, _ in cols)}
 DTTM = {"TIMESTAMP WITH TIME ZONE", "DATE"}
 
@@ -505,16 +512,19 @@ def dashboard(report: dict, charts: list[dict]) -> dict:
         "HEADER_ID": {"id": "HEADER_ID", "type": "HEADER", "meta": {"text": title}},
         "GRID_ID": {"type": "GRID", "id": "GRID_ID", "children": [], "parents": ["ROOT_ID"]},
     }
-    note = (f"**{title}** ({report['group']}): {report['about']}  \nChoose one or more models in the Model filter on the left: "
-            "it lists the models you have in EA Explorer, and inside them you see all their data. *Open* goes to the entity.")
+    a = about(report)   # the "About this report" section at the top (D186)
+    note = (f"### About this report\n\n**What it shows** ({report['group']}): {report['about']}\n\n"
+            f"**How to use it:** {a['use']}\n\n**How to read it:** {a['read']}\n\n"
+            "**Models:** choose one or more in the Model filter on the left; it lists the models you have in EA Explorer, and "
+            "inside them you see all their data. *Open* goes to the entity.")
     if report.get("family") == "Viewpoint":
         vp = next(v for v in VIEWPOINTS if v["code"] == report["viewpoint"])
-        note += (f"  \n**Concerns:** {vp['concerns']}. **Stakeholders:** {vp['stakeholders']}. **Purpose:** {vp['purpose']}.  \n"
+        note += (f"\n\n**Concerns:** {vp['concerns']}. **Stakeholders:** {vp['stakeholders']}. **Purpose:** {vp['purpose']}.  \n"
                  f"**Elements:** {', '.join(vp['element_types'])}.")
     position["ROW-0"] = {"type": "ROW", "id": "ROW-0", "children": ["MARKDOWN-0"], "parents": ["ROOT_ID", "GRID_ID"],
                          "meta": {"background": "BACKGROUND_TRANSPARENT"}}
     position["MARKDOWN-0"] = {"type": "MARKDOWN", "id": "MARKDOWN-0", "children": [],
-                              "parents": ["ROOT_ID", "GRID_ID", "ROW-0"], "meta": {"width": 12, "height": 14, "code": note}}
+                              "parents": ["ROOT_ID", "GRID_ID", "ROW-0"], "meta": {"width": 12, "height": 40, "code": note}}
     position["GRID_ID"]["children"].append("ROW-0")
     row, used = None, 12
     for i, c in enumerate(charts, start=1):
@@ -796,8 +806,44 @@ def _audience_charts(report: dict) -> list[dict]:
     return out
 
 
+def _gap_charts(report: dict) -> list[dict]:
+    """GR-01 to GR-05: gap analyses (phase 8.3, D172)."""
+    code, title, about = report["code"], report["title"], report["about"]
+    gaps = [_filter("status", "kept", "!=")]
+    if code == "GR-01":
+        return [table_chart("GR-01/list", title, "gap_analyses", ["model_name", "gap_analysis", "template", "baseline", "target",
+                                                                  "compared_at", "compared_by", "kept", "changed", "new", "eliminated",
+                                                                  "undecided"], order="compared_at", desc=True, about=about),
+                bar_chart("GR-01/bar", "Gaps by analysis", "gap_items", "gap_analysis", group=["status"], filters=gaps)]
+    if code == "GR-02":
+        return [pivot_chart("GR-02/pivot", "Gaps by layer, type and status", "gap_items", ["gap_analysis", "layer", "entity_type_name"],
+                            ["status"], about=about),
+                bar_chart("GR-02/bar", "Gaps by entity type", "gap_items", "entity_type_name", group=["status"], filters=gaps, width=6),
+                treemap_chart("GR-02/tree", "Where the gaps are", "gap_items", ["layer", "entity_type_name", "status"], width=6)]
+    if code == "GR-03":
+        return [pivot_chart("GR-03/matrix", "TOGAF gap matrix: baseline down, target across", "gap_matrix",
+                            ["gap_analysis", "entity_type_name", "baseline_element"], ["target_element"], about=about),
+                table_chart("GR-03/cells", "The matrix cells", "gap_matrix", ["model_name", "gap_analysis", "layer", "entity_type_name",
+                                                                             "baseline_element", "target_element", "togaf_cell",
+                                                                             "resolution"], order="entity_type_name")]
+    if code == "GR-04":
+        return [pivot_chart("GR-04/resolution", "Gaps by resolution", "gap_items", ["gap_analysis", "status"], ["resolution"],
+                            filters=gaps, about=about),
+                table_chart("GR-04/list", "Gaps, their resolutions and work packages", "gap_items",
+                            ["model_name", "gap_analysis", "layer", "entity_type_name", "name", "status", "togaf_cell", "resolution",
+                             "work_packages", "note", "changed_fields", "has_gap_entity"], order="gap_analysis", filters=gaps)]
+    if code == "GR-05":
+        flt = [_filter("entity_type_code", "Gap")]
+        return [table_chart("GR-05/list", title, "entity_std", ["model_name", "display_id", "name", "description", "status", "link"],
+                            order="name", filters=flt, about=about),
+                bar_chart("GR-05/bar", "Gap entities by model", "entity_std", "model_name", filters=flt)]
+    raise ValueError(f"no charts for {code}")
+
+
 def charts_for(report: dict) -> list[dict]:
     family = report.get("family", "Standard")
+    if family == "Gap analysis":
+        return _gap_charts(report)
     if family == "Viewpoint":
         return _viewpoint_charts(report)
     if family in ("TOGAF catalogue", "TOGAF matrix"):
@@ -830,6 +876,12 @@ def dashboard_filters(report: dict, charts: list[dict]) -> list[dict]:
         out += [colour, _native(slug, "Type", "filter_select", "vp_elements", "entity_type", n),
                 _native(slug, "Lifecycle", "filter_select", "vp_elements", "lifecycle", n),
                 _native(slug, "Owner", "filter_select", "vp_elements", "owner", n)]
+        return out
+    if family == "Gap analysis" and first != "entity_std":
+        for label, column in (("Gap analysis", "gap_analysis"), ("Status", "status"), ("Layer", "layer"),
+                              ("Entity type", "entity_type_name"), ("Resolution", "resolution")):
+            if column in {c for c, _ in VIEWS[first]}:
+                out.append(_native(slug, label, "filter_select", first, column, n))
         return out
     if report["code"] == "DR-01":
         out += [_native(slug, "Chosen entity", "filter_select", "dr_entity_choices", "entity_label", n,

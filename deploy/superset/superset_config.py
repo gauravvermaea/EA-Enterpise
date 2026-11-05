@@ -19,7 +19,7 @@ def env(name, default=""):
 HOST = env("EAX_HOSTNAME", "localhost")
 PORT = env("EAX_HTTPS_PORT", "443")
 PUBLIC = f"https://{HOST}" if PORT == "443" else f"https://{HOST}:{PORT}"
-REALM = "eaexplorer"
+REALM = env("EAX_KEYCLOAK_REALM", "eaexplorer")   # chosen at the first install
 KC_PUBLIC = f"{PUBLIC}/auth/realms/{REALM}/protocol/openid-connect"
 KC_INTERNAL = f"http://keycloak:8080/auth/realms/{REALM}/protocol/openid-connect"
 

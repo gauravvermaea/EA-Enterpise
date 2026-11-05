@@ -37,6 +37,11 @@ Tick an item (`[x]`) when it is done; remove it at the next tidy-up.
 - [x] **Test phase 7** (accepted 4 Nov 2026, D157; end-to-end test in 36.1): `.\eax clean-restart`, the demo and checks in [phase-7.md](phase-7.md).
 - [x] **Test phase 8.2** (accepted 5 Nov 2026, D164; each report checked in 36.1): `.\eax clean-restart`, the demo and checks in [phase-8.2.md](phase-8.2.md). The Superset charts new in 8.2 (network, sankey, treemap, bubble) could not be tried here: check they draw.
 - [x] **Test phase 8** (accepted 5 Nov 2026, D171; end-to-end test in 36.1) (0.8.3): `.\eax clean-restart`, the demo and checks in [phase-8.md](phase-8.md). New test users `user_committer` and `user_history_viewer` (same password as the others).
+- [ ] **Test phase 8.3** (0.8.4): `.\eax clean-restart`, the demo and checks in [phase-8.3.md](phase-8.3.md).
+- [ ] **Test phase 9** (0.9.0), with 8.3: `.\eax clean-restart`, the demo and checks in [phase-9.md](phase-9.md).
+- [ ] **Test phase 10** (0.10.0), with 8.3 and 9: the demo and checks in [phase-10.md](phase-10.md).
+- [ ] **Test phase 10.1** (0.10.1): the demo and checks in [phase-10.1.md](phase-10.1.md); open the .xlsm in Excel.
+- [ ] **Design discussion for draw.io (web), phases 28 and 29** (D174): before building, agree how draw.io connects to a model, the stencil of entity and relationship types, harvest and saves. The desktop app is not supported.
 - [ ] **Phase 28-29 rule (D167)**: draw.io diagram saves go through `POST /models/<model>/changes/batch`, so they are committed like every other change.
 - [ ] **Phase 10: clean up the start page (owner, 5 Nov 2026, D163). Discuss with the owner first, then build.** It has grown into a list of build features
   (Grid, Data entry...) that mean little to a user. Rework it with the home dashboard: start from what a person wants
@@ -267,6 +272,12 @@ Noted 4 Nov 2026 (D99). To discuss and settle when we build the final deployment
   Model Admin of a draft's source model cannot see the requested draft to approve it.
 
 ## Backlog (to work out later)
+
+- **Similarity (fuzzy) matching in Compare and gap analyses** (owner, 5 Nov 2026: not now, keep in the plan; D178). An extra
+  matching step after the exact ones, among still unmatched elements of the same entity type, on tidied names (case,
+  punctuation, filler words such as "system" or "platform"), with a threshold on the filter screen. To decide when it is
+  taken up: suggested and confirmed by a person, or automatic and marked with its score. Goes with the screen for
+  hand-made matches (phase 19).
 
 - [ ] **Enterprise readiness: what needs improving** (owner, 4 Nov 2026, D158). From the review of whether EA
   Explorer is enterprise-scale and how it compares with free and paid tools. **Now in the plan (D159):** phase

@@ -91,6 +91,7 @@ services:
       EAX_HTTPS_PORT: ${EAX_HTTPS_PORT:-443}
       EAX_VERSION: ${EAX_VERSION:-dev}
       EAX_DEPLOYMENT: ${EAX_DEPLOYMENT:-laptop}
+      EAX_KEYCLOAK_REALM: ${EAX_KEYCLOAK_REALM:-eaexplorer}
     networks: [frontend]
 
   api:
@@ -101,6 +102,8 @@ services:
     env_file: work/eaexplorer.env
     environment:
       EAX_ROLE: api            # entrypoint runs migrations, then the web API and the job runner
+      EAX_OPS_URL: http://ops:8090                       # the operations helper (phase 10, D183)
+      EAX_OPS_TOKEN: ${EAX_OPS_TOKEN:-eax-ops-laptop}
     depends_on:
       db:
         condition: service_healthy
@@ -108,6 +111,7 @@ services:
       - ${EAX_IMPORT_DIR:-eax-imports}:/data/imports
       - ${EAX_EXPORT_DIR:-eax-exports}:/data/exports
       - ${EAX_BACKUP_DIR:-eax-backups}:/data/backups:ro   # read only: the health check reads backup ages
+      - ./work:/eax-work:ro      # services.env: which optional services are on (D191)
     networks: [frontend, backend]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health').status==200 else 1)"]
@@ -131,6 +135,23 @@ services:
     networks: [backend]
 
   # ---------------------------------------------------------------- data (out of the box)
+  # Operations helper (phase 10, D183): restarts the system when a Super Admin asks in the administration console.
+  # It reaches the Docker engine (its socket), so it is only on the internal network, publishes no port, and every
+  # request needs EAX_OPS_TOKEN; it restarts only this installation's containers. It also switches the optional
+  # services on and off from the console (D191): it writes the config file in the work folder (a dated copy first, in
+  # work/config-history) and starts or stops their containers.
+  ops:
+    build:
+      context: ./services/ops
+    image: eaexplorer/ops:${EAX_VERSION:-dev}
+    <<: [*restart, *logging]
+    environment:
+      EAX_OPS_TOKEN: ${EAX_OPS_TOKEN:-eax-ops-laptop}   # a server sets its own (the setup refuses this one there)
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./work:/eax-work
+    networks: [backend]
+
   db:
     image: ${EAX_IMAGE_POSTGRES:-postgres:17-alpine}
     <<: [*restart, *logging]
@@ -272,7 +293,7 @@ services:
       # To fall back to Mayan's own login, set EAX_MAYAN_AUTH_BACKEND in work/eaexplorer.env to
       # mayan.apps.authentication.authentication_backends.AuthenticationBackendModelUsernamePassword
       MAYAN_AUTHENTICATION_BACKEND: ${EAX_MAYAN_AUTH_BACKEND:-mayan.apps.authentication_oidc.authentication_backends.AuthenticationBackendOIDC}
-      MAYAN_AUTHENTICATION_BACKEND_ARGUMENTS: '{"oidc_discovery_url":"http://keycloak:8080/auth/realms/eaexplorer/.well-known/openid-configuration","oidc_rp_client_id":"mayan","oidc_rp_client_secret":"${EAX_MAYAN_OIDC_SECRET}","oidc_rp_sign_algo":"RS256"}'
+      MAYAN_AUTHENTICATION_BACKEND_ARGUMENTS: '{"oidc_discovery_url":"http://keycloak:8080/auth/realms/${EAX_KEYCLOAK_REALM:-eaexplorer}/.well-known/openid-configuration","oidc_rp_client_id":"mayan","oidc_rp_client_secret":"${EAX_MAYAN_OIDC_SECRET}","oidc_rp_sign_algo":"RS256"}'
       # Behind the proxy: trust its https and host headers so redirects use https://docs.<host>
       MAYAN_SECURE_PROXY_SSL_HEADER: '["HTTP_X_FORWARDED_PROTO","https"]'
       MAYAN_USE_X_FORWARDED_HOST: "true"

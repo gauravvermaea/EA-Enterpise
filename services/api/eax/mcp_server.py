@@ -30,6 +30,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from . import __version__, audit, model_ops, permissions
 from . import repository as repo
 from .auth import decode_token, user_from_claims
+from .config import get_settings
 from .db import get_engine
 from .logging_setup import configure_logging
 from .metamodel_edit import EditError
@@ -272,7 +273,7 @@ async def search_entities(text: str, model: str | None = None, entity_type: str 
 # ---------------------------------------------------------------- viewpoints and maps (build phase 8.2, D161)
 @mcp.tool()
 async def list_viewpoints(model: str | None = None) -> Any:
-    """The viewpoints (VP-01 to VP-25 from ArchiMate 4, and the organisation's own): concerns, stakeholders,
+    """The viewpoints (VP-01 to VP-26 from ArchiMate 4, and the organisation's own): concerns, stakeholders,
     element and relationship types; with a model, how many of its entities each viewpoint shows."""
     from . import viewpoints
     return await _run(viewpoints.list_viewpoints, model)
@@ -299,6 +300,51 @@ async def roadmap(model: str) -> Any:
     """A model's work packages, deliverables and plateaus with their start and end dates and what each delivers."""
     from . import viewpoints
     return await _run(viewpoints.roadmap, model)
+
+
+# ---------------------------------------------------------------- tags, comparison, gap analyses (phase 8.3, D172)
+@mcp.tool()
+async def list_model_tags(model: str) -> Any:
+    """A model's tags (named, frozen snapshots of its metamodel and content): name, when, by whom, commit, locked."""
+    from . import tags
+    return await _run(tags.list_tags, model)
+
+
+@mcp.tool()
+async def compare_models(left: str, right: str, left_tag: str = "", right_tag: str = "") -> Any:
+    """Compares two models, or tags of them (give the tag's id to compare a tag instead of the model as it is now):
+    per entity type how many elements are kept, changed, new and eliminated, the first 200 differences with the
+    fields that changed, relationship totals and metamodel differences. Default fields: name, description, parent
+    and every attribute."""
+    from . import compare
+
+    def run(conn):
+        lft = compare.load_side(conn, {"kind": "tag", "id": left_tag} if left_tag else {"kind": "model", "id": left})
+        rgt = compare.load_side(conn, {"kind": "tag", "id": right_tag} if right_tag else {"kind": "model", "id": right})
+        res = compare.compare(lft, rgt)
+        return {**{k: res[k] for k in ("left", "right", "totals", "relationship_totals", "summary")},
+                "differences": [i for i in res["items"] if i["status"] != "kept"][:200], "metamodel": res["metamodel"][:100]}
+    return await _run(run)
+
+
+@mcp.tool()
+async def list_gap_analyses(model: str = "") -> Any:
+    """The TOGAF gap analyses you may see (each stored in a model; optionally only those stored in one model): baseline
+    and target (any models or their tags), template, when compared, how many gaps are open."""
+    from . import gaps
+    return await _run(gaps.list_analyses, model or None)
+
+
+@mcp.tool()
+async def gap_analysis(analysis: str) -> Any:
+    """One gap analysis: the model it is stored in, its baseline and target (models or tags, commits, metamodel versions),
+    when compared, and every gap (kept, changed, new, eliminated) with the fields that changed, its note, resolution and
+    work packages."""
+    from . import gaps
+
+    def run(conn):
+        return gaps.get(conn, gaps.model_of(conn, analysis), analysis)
+    return await _run(run)
 
 
 # ---------------------------------------------------------------- sign-in
@@ -439,7 +485,7 @@ class BearerAuth:
                                         "(a Keycloak access token, or EAX_MCP_DEV_TOKEN on a laptop)."}).encode()
             await send({"type": "http.response.start", "status": 401,
                         "headers": [(b"content-type", b"application/json"),
-                                    (b"www-authenticate", b'Bearer realm="eaexplorer"')]})
+                                    (b"www-authenticate", f'Bearer realm="{get_settings().realm}"'.encode())]})
             await send({"type": "http.response.body", "body": body})
             return
         token, who = _actor.set(user.username), permissions.current.set(user)

@@ -14,14 +14,15 @@ BEGIN
         RAISE EXCEPTION 'schema version 0.8.2 (0012_viewpoints) is missing';
     END IF;
 
-    -- the 25 built-in viewpoints, each with element types the ArchiMate 4 template has
-    ASSERT (SELECT count(*) FROM core.viewpoints WHERE is_builtin) = 25, '25 built-in viewpoints';
+    -- the 26 built-in viewpoints (VP-26 Gap, D185), each with element types the ArchiMate 4 template has (Gap is added to a
+    -- model with its first Gap entities, phase 8.3)
+    ASSERT (SELECT count(*) FROM core.viewpoints WHERE is_builtin) = 26, '26 built-in viewpoints';
     ASSERT (SELECT array_agg(code ORDER BY code) FROM core.viewpoints WHERE is_builtin)
-         = (SELECT array_agg(format('VP-%s', lpad(i::text, 2, '0')) ORDER BY i) FROM generate_series(1, 25) i), 'VP-01 to VP-25';
+         = (SELECT array_agg(format('VP-%s', lpad(i::text, 2, '0')) ORDER BY i) FROM generate_series(1, 26) i), 'VP-01 to VP-26';
     PERFORM set_config('eax.rls_bypass', 'on', true);
     SELECT string_agg(DISTINCT t, ', ') INTO v_bad
       FROM core.viewpoints v, unnest(v.element_types) t
-     WHERE v.is_builtin AND NOT EXISTS (
+     WHERE v.is_builtin AND t <> 'Gap' AND NOT EXISTS (
            SELECT 1 FROM core.entity_types et JOIN core.models m ON m.id = et.model_id
             WHERE m.name = 'ArchiMate 4' AND et.code = t);
     ASSERT v_bad IS NULL, 'element types the template does not have: ' || coalesce(v_bad, '');

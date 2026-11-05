@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch, signedIn } from "./auth";
+import { fmtDateTime, fmtTime } from "./fmt";
 
 function Status({ ok, children }) {
   return <span className={ok ? "status ok" : "status bad"}>{children}</span>;
@@ -37,7 +38,7 @@ function Services() {
           <p>
             Overall: <span className={STATUS_CLASS[data.status]}>{data.status}</span> ·{" "}
             {data.counts.up} up, {data.counts.warning} warning, {data.counts.down} down, {data.counts.off} off ·
-            checked in {data.duration_ms} ms at {new Date(data.time).toLocaleTimeString()}
+            checked in {data.duration_ms} ms at {fmtTime(data.time)}
           </p>
           <table className="grid-table">
             <thead><tr><th>Service</th><th>Product</th><th>Status</th><th>Detail</th><th>ms</th></tr></thead>
@@ -122,7 +123,7 @@ export default function Heartbeat() {
               {beat.database.schema_version && `, migration ${beat.database.schema_version}`}
               {beat.database.error && ` (${beat.database.error})`}</td></tr>
             <tr><th>Job queue</th><td>{beat.jobs.waiting ?? "-"} waiting, {beat.jobs.failed ?? "-"} failed</td></tr>
-            <tr><th>Checked</th><td>{new Date(beat.time).toLocaleString()}</td></tr>
+            <tr><th>Checked</th><td>{fmtDateTime(beat.time)}</td></tr>
           </tbody>
         </table>
       )}

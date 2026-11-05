@@ -14,7 +14,7 @@ export const groups = [
       { name: "Library models and packages", text: "Library models, publish, withdraw and promote; download any model as zip or Excel and upload it through a placement wizard", href: "#/library", live: true },
       { name: "Library model packs", text: "Guidance, workbooks and any other files carried with a library model and its package, kept in Mayan", phase: "13" },
       { name: "Data entry", text: "Forms from the metamodel, a data entry page by entity type, relationships as you go, tags, retire, delete and roll back", href: "#/metamodel", live: true },
-      { name: "Grids, search and saved views", text: "Spreadsheet grids for entities, relationships and the metamodel, paste from Excel; search every model; saved views, favourites and recent items", href: "#/search", live: true },
+      { name: "Grids, search and saved views", text: "Spreadsheet grids for entities, relationships and the metamodel, paste from Excel; search every model; saved views", href: "#/search", live: true },
       { name: "Commits and publishing", text: "Stage changes, review and commit them, publish change sets", phase: "8" },
       { name: "Notifications and workflows", text: "Metamodel changes pushed down to child models (forced or accepted), change documents, notifications kept until resolved with a description", phase: "8.1" },
       { name: "History and change log", text: "Field-level history, restore a record, the model's change log", phase: "9" },
@@ -54,11 +54,11 @@ export const groups = [
   {
     title: "Diagrams, views and reports",
     items: [
-      { name: "Diagrams (draw.io)", text: "The draw.io editor, self-hosted", href: "/drawio/", live: true, integration: "28" },
-      { name: "Reports (Superset)", text: "Dashboards: the model overview, the thirty standard reports and pick-list heatmaps, for the models you have", href: `${config.reportsUrl}/login/keycloak?next=/superset/dashboard/eax-model-overview/`, live: true },
-      { name: "Documents (Mayan EDMS)", text: "Documents linked to entities", href: `${config.docsUrl}/`, live: true },
+      { name: "Diagrams (draw.io)", service: "drawio", text: "The draw.io editor, self-hosted", href: "/drawio/", live: true, integration: "28" },
+      { name: "Reports (Superset)", service: "reports", text: "Dashboards: the model overview, the thirty standard reports and pick-list heatmaps, for the models you have", href: `${config.reportsUrl}/login/keycloak?next=/superset/dashboard/eax-model-overview/`, live: true },
+      { name: "Documents (Mayan EDMS)", service: "documents", text: "Documents linked to entities", href: `${config.docsUrl}/`, live: true },
       { name: "Report views and catalogue", text: "A view per entity type with a column per attribute, kept in step with every metamodel; each model's Reports tab lists them", href: "#/metamodel", live: true },
-      { name: "Standard reports", text: "All thirty: inventories, matrices, heatmaps, portfolio, risk and impact, data quality and governance, on one or several of your models", href: `${config.reportsUrl}/login/keycloak?next=/dashboard/list/`, live: true },
+      { name: "Standard reports", service: "reports", text: "All thirty: inventories, matrices, heatmaps, portfolio, risk and impact, data quality and governance, on one or several of your models", href: `${config.reportsUrl}/login/keycloak?next=/dashboard/list/`, live: true },
       { name: "Document management", text: "Mayan cabinets per model and version, linked to entities and library packs", phase: "13" },
       { name: "draw.io with the repository", text: "Draw with the model's own entities; diagrams feed the repository (also the desktop app)", phase: "28" },
       { name: "Standard views", text: "Pick a model (or several) and a view; get a draw.io file", phase: "30" },
@@ -85,7 +85,7 @@ export const groups = [
   {
     title: "Language models",
     items: [
-      { name: "MCP server", text: "Connect your own language model (Claude, ChatGPT, local models) to the repository", href: "#/mcp", live: true },
+      { name: "MCP server", service: "mcp", text: "Connect your own language model (Claude, ChatGPT, local models) to the repository", href: "#/mcp", live: true },
       { name: "MCP proposals", text: "Language models propose changes into staging, never make them", phase: "27" },
       { name: "AI assistant in the tool", text: "Ask the model questions; suggestions for relationships, descriptions, classifications, duplicates and fixes; draft artefacts", phase: "later" },
     ],

@@ -107,8 +107,8 @@ AUDIENCES: list[tuple[str, str, str]] = [
     ("data_steward", "Data steward", "Operations and control"),
 ]
 
-# ---------------------------------------------------------------- viewpoints (VP-01 to VP-25)
-# The 25 example viewpoints of the ArchiMate 4 Specification (Appendix C), as data: the element types and
+# ---------------------------------------------------------------- viewpoints (VP-01 to VP-26)
+# The 25 example viewpoints of the ArchiMate 4 Specification (Appendix C), and our Gap viewpoint (VP-26), as data: the element types and
 # relationship types each shows, in our own words. A model is shown through a viewpoint as a diagram, a
 # catalog, a matrix or a heat map coloured by an attribute (Section 13.4). Organisations add their own
 # (Library Admins); built-in ones cannot be changed.
@@ -260,8 +260,17 @@ VIEWPOINTS: list[dict] = [
         ["WorkPackage", "Deliverable", "Plateau", "Event", "BusinessActor", "Role", "Requirement", "Goal", "Outcome",
          "ApplicationComponent", "Node", "SystemSoftware", "Capability", "Service", "Process"], heat="ArchitectureState",
         audiences=["portfolio_manager", "change_manager", "enterprise_architect", "cio"]),
+    # our own (D185, phase 8.3): the TOGAF gaps added to a model as Gap entities, with the elements they are about and the
+    # work packages and plateaus that close them; coloured by gap status
+    _vp(26, "Gap", "Implementation and migration", "Deciding, informing",
+        "The gaps between baseline and target: what is new, changed or eliminated, how each is resolved and which work "
+        "closes it", "Enterprise and solution architects, programme managers, architecture board",
+        ["Gap", "WorkPackage", "Deliverable", "Plateau", "Capability", "ApplicationComponent", "DataObject", "Node",
+         "SystemSoftware", "Process", "Service", "BusinessActor", "Requirement"],
+        rels=["Association", "Realization", "Aggregation", "Composition", "Influence"], heat="GapStatus",
+        audiences=["enterprise_architect", "architecture_board", "portfolio_manager"]),
 ]
-assert len(VIEWPOINTS) == 25
+assert len(VIEWPOINTS) == 26
 
 
 def _f(code, family, group, title, view, about, audiences, **extra):
@@ -362,6 +371,26 @@ REPORTS += [
     _f("DR-04", _D, "Dependency", "Dependency counts and hot spots", "dr_fan",
        "How many entities each entity depends on and how many depend on it, banded by thresholds you choose.",
        ["cro", "cto", "solution_architect", "it_operations"]),
+]
+
+# gap analysis reports (phase 8.3, D172): the TOGAF gap analyses kept in the models
+_G = "Gap analysis"
+REPORTS += [
+    _f("GR-01", _G, "Gap analysis", "Gap analyses", "gap_analyses",
+       "Every gap analysis: its template, baseline and target (models or tags), when compared, and how many gaps are open.",
+       ["enterprise_architect", "architecture_board", "change_manager", "cio"]),
+    _f("GR-02", _G, "Gap analysis", "Gaps by layer and type", "gap_items",
+       "Kept, changed, new and eliminated elements by layer and entity type, for one or several gap analyses.",
+       ["enterprise_architect", "business_architect", "application_architect", "technology_architect"]),
+    _f("GR-03", _G, "Gap analysis", "TOGAF gap matrix", "gap_matrix",
+       "The TOGAF gap matrix: baseline elements down, target elements across; included, new and eliminated cells.",
+       ["enterprise_architect", "architecture_board", "solution_architect"]),
+    _f("GR-04", _G, "Gap analysis", "Gap resolutions and work packages", "gap_items",
+       "How each gap is closed (build, buy, retire, replace...) and the work packages that close it; the gaps still undecided.",
+       ["portfolio_manager", "change_manager", "enterprise_architect", "cio"]),
+    _f("GR-05", _G, "Gap analysis", "Gap entities in the models", "entity_std",
+       "The gaps added to the models as Gap entities, with the analysis, baseline and target they come from.",
+       ["enterprise_architect", "portfolio_manager"]),
 ]
 
 # standard report audiences (D153, the table agreed on 4 Nov 2026)

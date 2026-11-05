@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from string import Template
@@ -54,6 +55,10 @@ def check_config() -> list[str]:
     for key in REQUIRED:
         if not env(key):
             problems.append(f"{key} is empty")
+    realm = env("EAX_KEYCLOAK_REALM", "eaexplorer")
+    if not re.fullmatch(r"[a-z][a-z0-9-]{1,39}", realm) or realm == "master":
+        problems.append("EAX_KEYCLOAK_REALM must be 2 to 40 lower-case letters, digits or hyphens, start with a letter, "
+                        "and not be master")
     weak = [k for k, v in os.environ.items() if k.startswith("EAX_") and v.startswith("change-me")]
     if weak:
         message = "still set to the example value: " + ", ".join(sorted(weak))
@@ -61,6 +66,8 @@ def check_config() -> list[str]:
             warnings.append(message + " (allowed on a laptop only)")
         else:
             problems.append(message)
+    if env("EAX_DEPLOYMENT", "laptop") != "laptop" and env("EAX_OPS_TOKEN", "eax-ops-laptop") in ("eax-ops-laptop", ""):
+        problems.append("EAX_OPS_TOKEN is still the laptop value: set a long random value for the operations helper")
     dev = [k for k, v in os.environ.items() if k.startswith("EAX_") and v == DEV_PASSWORD]
     if dev and env("EAX_DEPLOYMENT", "laptop") != "laptop":
         problems.append("still set to the development password: " + ", ".join(sorted(dev)))
@@ -76,6 +83,7 @@ def derived_values() -> dict[str, str]:
     host, port = env("EAX_HOSTNAME", "localhost"), env("EAX_HTTPS_PORT", "443")
     values = {k: v for k, v in os.environ.items() if k.startswith("EAX_")}
     values.update(
+        EAX_KEYCLOAK_REALM=env("EAX_KEYCLOAK_REALM", "eaexplorer"),
         EAX_PUBLIC_URL=public_url(host, port),
         EAX_PUBLIC_URL_PORT=f"https://{host}:{port}",
         EAX_REPORTS_URL=public_url(host, port, "reports."),

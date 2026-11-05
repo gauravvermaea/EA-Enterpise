@@ -137,16 +137,88 @@ function Save-Diagnostics {
     Write-Log "Diagnostics saved in $script:LogPath" "Yellow"
 }
 
+# ------------------------------------------------------------------ optional services (D191)
+# name: setting, compose services in start order (mcp and change_log run inside the api container)
+$Services = [ordered]@{
+    "reports"    = @("EAX_SERVICE_REPORTS", @("reports-init", "reports"))
+    "documents"  = @("EAX_SERVICE_DOCUMENTS", @("dms-broker", "dms"))
+    "drawio"     = @("EAX_SERVICE_DRAWIO", @("drawio"))
+    "mcp"        = @("EAX_SERVICE_MCP", @("api"))
+    "change_log" = @("EAX_SERVICE_CHANGE_LOG", @("api"))
+    "backups"    = @("EAX_SERVICE_BACKUPS", @("backup"))
+}
+function Test-ServiceOn([string]$Name) {
+    $default = if ($Name -eq "mcp") { Get-Setting "EAX_MCP_ENABLED" "on" } else { "on" }
+    $v = (Get-Setting $Services[$Name][0] $default).ToLower()
+    return -not ($v -in @("off", "false", "0", "no", "disabled"))
+}
+# work\services.env: the switches only (no secrets), read by the api container
+function Write-ServicesFile {
+    $lines = @("# Written by EA Explorer from eaexplorer.env: the service switches only (D191). Do not edit; change eaexplorer.env.")
+    foreach ($n in $Services.Keys) { $lines += "$($Services[$n][0])=$(if (Test-ServiceOn $n) { 'on' } else { 'off' })" }
+    [System.IO.File]::WriteAllText((Join-Path $WorkDir "services.env"), (($lines -join "`n") + "`n"), $Utf8)
+}
+# compose services of the switched-off optional services (not the api, which stays on)
+function Get-OffContainers {
+    $off = @()
+    foreach ($n in $Services.Keys) { if (-not (Test-ServiceOn $n) -and $Services[$n][1][0] -ne "api") { $off += $Services[$n][1] } }
+    return $off
+}
+# up (all services): starts everything but the switched-off services; those are created, not started, so the
+# console can switch them on later
+function Invoke-Up([string[]]$Names, [switch]$NoThrow) {
+    Write-ServicesFile
+    if ($Names.Count -gt 0) { return (Invoke-Compose (@("up", "-d", "--build") + $Names) -NoThrow:$NoThrow) }
+    $off = @(Get-OffContainers)
+    if ($off.Count -eq 0) { return (Invoke-Compose @("up", "-d", "--build") -NoThrow:$NoThrow) }
+    $old = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    $all = @(& docker @(Get-ComposeArgs @("config", "--services")) 2>$null | Where-Object { $_ })
+    $ErrorActionPreference = $old
+    $on = @($all | Where-Object { $_ -notin $off })
+    Write-Log "Switched off (D191): $($off -join ', '): created, not started."
+    $code = Invoke-Compose (@("up", "-d", "--build") + $on) -NoThrow:$NoThrow
+    Invoke-Compose (@("create", "--build") + $off) -NoThrow | Out-Null
+    Invoke-Compose (@("stop") + $off) -NoThrow -Quiet | Out-Null
+    return $code
+}
+function Show-Services {
+    foreach ($n in $Services.Keys) {
+        $state = if (Test-ServiceOn $n) { "on " } else { "off" }
+        Write-Log ("{0,-11} {1}   {2} = {3}   containers: {4}" -f $n, $state, $Services[$n][0], (Get-Setting $Services[$n][0] "on"), ($Services[$n][1] -join ", "))
+    }
+    Invoke-Compose @("ps", "-a") | Out-Null
+}
+function Set-Service([string]$Name, [string]$Value) {
+    if (-not $Services.Contains($Name)) { throw "Unknown service '$Name'. One of: $($Services.Keys -join ', ')" }
+    if ($Value -notin @("on", "off")) { throw "Say on or off: .\eax service $Name on" }
+    $history = Join-Path $WorkDir "config-history"
+    New-Item -ItemType Directory -Force -Path $history | Out-Null
+    $copy = "eaexplorer.env.$((Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss')).$($env:USERNAME -replace '[^A-Za-z0-9_.-]', '-').$Name-$Value"
+    Copy-Item $EnvFile (Join-Path $history $copy)
+    $setting = $Services[$Name][0]
+    $lines = @(Get-Content $EnvFile | Where-Object { -not ($Name -eq "mcp" -and $_ -match "^\s*EAX_MCP_ENABLED\s*=") })
+    if ($lines | Where-Object { $_ -match "^\s*$setting\s*=" }) {
+        $lines = @($lines | ForEach-Object { if ($_ -match "^\s*$setting\s*=") { "$setting=$Value" } else { $_ } })
+    } else { $lines += @("", "$setting=$Value") }
+    [System.IO.File]::WriteAllText((Join-Path $PSScriptRoot $EnvFile), (($lines -join "`n") + "`n"), $Utf8)
+    Write-ServicesFile
+    Write-Log "$setting=$Value written (the config file before is kept as work\config-history\$copy)."
+    $names = $Services[$Name][1]
+    if ($names[0] -eq "api") { Invoke-Compose @("restart", "api") | Out-Null }
+    elseif ($Value -eq "on") { Invoke-Compose (@("up", "-d") + $names) | Out-Null }
+    else { Invoke-Compose (@("stop") + $names) | Out-Null }
+}
+
 # ------------------------------------------------------------------ output helpers
 function Show-Urls {
     $h = Get-Setting "EAX_HOSTNAME" "localhost"; $p = Get-Setting "EAX_HTTPS_PORT" "443"
     $s = if ($p -eq "443") { "" } else { ":$p" }
     Write-Log "Start page:  https://$h$s/"
     Write-Log "Swagger:     https://$h$s/api/docs"
-    Write-Log "Reports:     https://reports.$h$s/"
-    Write-Log "Documents:   https://docs.$h$s/"
+    if (Test-ServiceOn "reports") { Write-Log "Reports:     https://reports.$h$s/" }
+    if (Test-ServiceOn "documents") { Write-Log "Documents:   https://docs.$h$s/" }
     Write-Log "Keycloak:    https://$h$s/auth/admin/"
-    if ((Get-Setting "EAX_MCP_ENABLED" "false") -eq "true") { Write-Log "MCP server:  https://$h$s/mcp" }
+    if (Test-ServiceOn "mcp") { Write-Log "MCP server:  https://$h$s/mcp" }
     if ((Get-Setting "EAX_HTTP_API_MCP" "false") -eq "true") {
         $hp = Get-Setting "EAX_HTTP_PORT" "80"; $hs = if ($hp -eq "80") { "" } else { ":$hp" }
         Write-Log "Also on plain http (this computer only): http://localhost$hs/api/docs and http://localhost$hs/mcp"
@@ -328,6 +400,12 @@ Everyday use
   restore <folder> [--scratch]
                         Restores a backup folder: into the live databases, or with --scratch into
                         a separate scratch database to inspect first.
+  services              Lists the optional services (reports, documents, drawio, mcp, change_log,
+                        backups), whether each is on in the config file and its containers' state.
+  service <name> on|off Switches one optional service on or off: keeps a dated copy of the config file
+                        in work\config-history, writes the switch, then starts or stops its containers.
+                        Everything is on unless switched off (D191). Also in Administration > System
+                        settings > Services.
 
 Starting again
   cleanup [--all] [--yes] [--certificate]
@@ -432,7 +510,7 @@ if ((Test-Path "eaexplorer.env") -and -not (Test-Path $EnvFile)) {
 }
 $failed = $false
 try {
-    if ($Command -in @("check", "up", "debug", "status", "logs", "down", "backup", "restore")) { Assert-Docker }
+    if ($Command -in @("check", "up", "debug", "status", "logs", "down", "backup", "restore", "services", "service")) { Assert-Docker }
     switch ($Command) {
         "init" {
             $kind = if ($RestArgs.Count -gt 0) { $RestArgs[0] } else { "laptop" }
@@ -455,11 +533,11 @@ try {
             Write-Log "Compose configuration is valid."
         }
         "up"      {
-            Invoke-Compose (@("up", "-d", "--build") + $RestArgs) | Out-Null
+            Invoke-Up $RestArgs | Out-Null
             if ($RestArgs.Count -gt 0) { Show-PartUrls $RestArgs } else { Show-Urls; Show-Logins }
         }
         "debug" {
-            $code = Invoke-Compose (@("up", "-d", "--build") + $RestArgs) -NoThrow
+            $code = Invoke-Up $RestArgs -NoThrow
             if ($code -ne 0) { Write-Log "docker compose up failed (exit $code); recording what is running anyway." "Red" }
             Save-Diagnostics
             if ($RestArgs.Count -gt 0) { Show-PartUrls $RestArgs } else { Show-Urls; Show-Logins }
@@ -469,8 +547,13 @@ try {
         "status"  { Invoke-Compose @("ps", "-a") | Out-Null }
         "logs"    { Invoke-Compose (@("logs", "-f", "--tail=100") + $RestArgs) -NoThrow | Out-Null }
         "down"    { Invoke-Compose @("down") | Out-Null }
-        "backup"  { Invoke-Compose @("exec", "-T", "backup", "backup.sh") | Out-Null }
-        "restore" { Invoke-Compose (@("exec", "-T", "backup", "restore.sh") + $RestArgs) | Out-Null }
+        "backup"  { if (-not (Test-ServiceOn "backups")) { throw "Backups are switched off: .\eax service backups on" }; Invoke-Compose @("exec", "-T", "backup", "backup.sh") | Out-Null }
+        "restore" { if (-not (Test-ServiceOn "backups")) { throw "Backups are switched off: .\eax service backups on" }; Invoke-Compose (@("exec", "-T", "backup", "restore.sh") + $RestArgs) | Out-Null }
+        "services" { Show-Services }
+        "service" {
+            if ($RestArgs.Count -lt 2) { throw "Usage: .\eax service <name> on|off   (names: $($Services.Keys -join ', '))" }
+            Set-Service $RestArgs[0] $RestArgs[1].ToLower()
+        }
         "url"     { Show-Urls; Show-Logins }
         "logins"  { if (-not (Test-Path $EnvFile)) { throw "No $EnvFile yet: run .\eax init first." }; Show-Logins }
         "trust"   { if (-not (Test-Path $EnvFile)) { throw "No $EnvFile yet: run .\eax init first." }; Invoke-Trust $RestArgs }

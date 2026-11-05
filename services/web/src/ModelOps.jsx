@@ -12,6 +12,8 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { apiDownload, apiFetch, apiUpload, can, canOn, myInfo, needsRole } from "./auth";
 import { refreshAll, useApi } from "./ModelViews";
+import { fmtDateTime } from "./fmt";
+import { trackTask, useTask } from "./tasks";
 
 const go = (path) => { window.location.hash = path; };
 const post = (path, body, method = "POST") => apiFetch(path, { method, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -382,7 +384,7 @@ export function UploadWizard({ onClose }) {
               {info.manifest.built_on && <> · built on <b>{info.manifest.built_on.name} {info.manifest.built_on.version}</b></>}
               <br />{info.counts.entity_types} entity types · {info.counts.entities} entities · {info.counts.relationships} relationships
               {info.manifest.exported_from && <span className="quiet"> · from {info.manifest.exported_from}</span>}
-              {info.manifest.exported_at && <span className="quiet"> on {new Date(info.manifest.exported_at).toLocaleString()}</span>}
+              {info.manifest.exported_at && <span className="quiet"> on {fmtDateTime(info.manifest.exported_at)}</span>}
             </div>
             {findings.length > 0 && (
               <div className={info.errors ? "removals" : "impact"} style={{ margin: 0 }}>
@@ -694,6 +696,20 @@ export function ModelActions({ m }) {
       m.is_draft && !ownsDraft(m) ? draftWhy(m) : needsRole(CREATE_ROLES) + (m.kind === "project" ? ` (or Model Admin of ${m.name}, for a child of it)` : "")],
     ["Download...", () => setDialog("download"), true, "The model as one package, Excel or zip: without data, with the data, or deep with its full history (to upload here or elsewhere)"],
     ["Download the metamodel (JSON)", spec, true, "The metamodel as one document, to give an AI assistant or upload as a metamodel draft"],
+    ["-"],
+    ["Tag this model now...", () => setDialog("tag"), m.kind !== "template" && canOn(m.id, "model.content"),
+      "A frozen copy of the model under a name (for example Baseline 2026), to compare with later or make the latest again",
+      m.kind === "template" ? "A root metamodel has no content to tag; its versions are in its metamodel history"
+        : needsRole(["architect", "committer", "model-sub-admin", "model-admin"], m.name)],
+    ["Tags of this model", () => { window.location.hash = `/metamodel/${m.id}/tags`; }, m.kind !== "template",
+      "Every tag of this model: open one to see what it holds, compare, download or make it the latest",
+      "A root metamodel has no content to tag"],
+    ["Compare...", () => { window.location.hash = `/compare?model=${m.id}`; }, m.kind !== "template",
+      "Compare this model (as it is now or a tag) with itself, another tag, or any other model and its tags",
+      "A root metamodel has no content to compare"],
+    ["Gap analyses", () => { window.location.hash = `/compare/gaps?model=${m.id}`; }, m.kind !== "template",
+      "The gap analyses stored in this model, or with it as the source or target",
+      "A root metamodel has no content"],
     ["Move to another framework...", () => setDialog("move"), admin && m.kind === "project" && !m.is_locked,
       "Put this model on another root metamodel, for example a newer framework version",
       m.kind !== "project" ? "Only project models move to another framework; create a model from this one first"
@@ -756,7 +772,55 @@ export function ModelActions({ m }) {
       {dialog === "move" && <FrameworkMoveDialog m={m} onClose={close} />}
       {dialog === "delete" && <DeleteDialog m={m} onClose={close} />}
       {dialog === "promote" && <PromoteDialog m={m} onClose={close} />}
+      {dialog === "tag" && <TagNowDialog m={m} onClose={close} />}
     </span>
+  );
+}
+
+// Actions > Tag this model now (phase 8.3): the same as the Tags tab's box. Tagging reads the whole model, so it runs
+// in the background (D192): the dialog follows it; close it any time, the top bar says when the tag is made
+function TagNowDialog({ m, onClose }) {
+  const [name, setName] = useState("");
+  const [desc, setDesc] = useState("");
+  const [lock, setLock] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [taskId, setTaskId] = useState(null);
+  const task = useTask(taskId);
+  async function tag() {
+    setBusy(true); setError("");
+    try {
+      const out = await post(`/api/v1/models/${m.id}/tags`, { name, description: desc, lock });
+      if (out.task) { trackTask(out.task, `#/metamodel/${m.id}/tags`); setTaskId(out.task.id); return; }
+      refreshAll(); onClose(); window.location.hash = `/metamodel/${m.id}/tags/${out.id}`;   // tagged in the request
+    } catch (e) { setError(e.message); setBusy(false); }
+  }
+  if (taskId) {
+    const t = task || {};
+    return (
+      <Modal title={`Tag ${m.name}`} onClose={onClose}
+        actions={t.done && t.status === "done"
+          ? <><button onClick={onClose}>Close</button><button className="primary" onClick={() => { onClose(); window.location.hash = `/metamodel/${m.id}/tags/${t.result.id}`; }}>Open the tag</button></>
+          : <button onClick={onClose}>{t.done ? "Close" : "Close: keep working"}</button>}>
+        {!t.done && <p><span className="spinner" aria-hidden="true" /> Tagging {m.name} as <b>{name}</b> in the background
+          {t.status === "queued" ? " (waiting to start)" : ""}... On a large model this takes a while: close this and carry on;
+          the bar at the top says when the tag is made.</p>}
+        {t.done && <p className={`status ${t.status === "done" ? "ok" : "bad"}`}>{t.message}</p>}
+      </Modal>
+    );
+  }
+  return (
+    <Modal title={`Tag ${m.name}`} onClose={onClose}
+      actions={<><button onClick={onClose}>Cancel</button><button className="primary" disabled={busy || !name.trim()} onClick={tag}>🏷 Tag it now</button></>}>
+      <p className="quiet">A frozen copy of the model as committed now: its metamodel and every entity, value and relationship.
+        It is made in the background: you can carry on working.</p>
+      <div className="ed-form">
+        <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Baseline 2026" autoFocus /></Field>
+        <Field label="What it is (optional)"><input value={desc} onChange={(e) => setDesc(e.target.value)} /></Field>
+        <label><input type="checkbox" checked={lock} onChange={(e) => setLock(e.target.checked)} /> Lock it (never changed or deleted; a Model Admin unlocks)</label>
+        {error && <p className="status bad">{error}</p>}
+      </div>
+    </Modal>
   );
 }
 
@@ -867,7 +931,7 @@ export function Drafts() {
                     <td>{d.proposed_by} <span className="quiet">{d.proposed_via === "mcp" ? "via AI (MCP)" : d.proposed_via}</span></td>
                     <td title={DRAFT_HELP[d.status]}>{DRAFT_STATUS[d.status] || d.status} <span className="quiet">round {d.round}</span></td>
                     <td>{d.open_comments ? <span title="Open review comments">💬 {d.open_comments}</span> : <span className="quiet">-</span>}</td>
-                    <td className="quiet">{new Date(d.modified_at).toLocaleString()}</td>
+                    <td className="quiet">{fmtDateTime(d.modified_at)}</td>
                   </tr>
                 );
               })}
@@ -1053,8 +1117,8 @@ export function DraftPage({ id }) {
       </div>
       <p className="quiet">
         {d.kind === "root" ? <>A new root metamodel{d.base_model && <> starting from {d.base_model}</>}</> : <>Changes to <a href={`#/metamodel/${d.target_model_id}`}>{d.target_model}</a></>}
-        {" · "}by {d.proposed_by} {d.proposed_via === "mcp" ? "through an AI assistant (MCP)" : `(${d.proposed_via})`} · changed {new Date(d.modified_at).toLocaleString()}
-        {d.decided_by && <> · {DRAFT_STATUS[d.status].toLowerCase()} by {d.decided_by} on {new Date(d.decided_at).toLocaleString()}</>}
+        {" · "}by {d.proposed_by} {d.proposed_via === "mcp" ? "through an AI assistant (MCP)" : `(${d.proposed_via})`} · changed {fmtDateTime(d.modified_at)}
+        {d.decided_by && <> · {DRAFT_STATUS[d.status].toLowerCase()} by {d.decided_by} on {fmtDateTime(d.decided_at)}</>}
         {d.applied_model_id && <> · <a href={`#/metamodel/${d.applied_model_id}/metamodel`}>{d.applied_model}</a></>}
       </p>
       {d.note && <p className="lib-desc">{d.note}</p>}
@@ -1088,7 +1152,7 @@ export function DraftPage({ id }) {
               <span>
                 {c.section && <button className="linkish" onClick={() => setSection(c.section)}>{sectionName(c.section)} {c.code}</button>}
                 {c.section && ": "}{c.body}
-                <span className="quiet"> · {c.author}, round {c.round}, {new Date(c.created_at).toLocaleString()}</span>
+                <span className="quiet"> · {c.author}, round {c.round}, {fmtDateTime(c.created_at)}</span>
               </span>
             </li>
           ))}
@@ -1151,7 +1215,7 @@ export function DraftPage({ id }) {
         <summary><b>History</b> <span className="quiet">{(d.events || []).length} steps</span></summary>
         <ul className="impact-list">
           {(d.events || []).map((e, i) => (
-            <li key={i}>Round {e.round}: <b>{ACTION_TEXT[e.action] || e.action}</b> by {e.actor} on {new Date(e.at).toLocaleString()}
+            <li key={i}>Round {e.round}: <b>{ACTION_TEXT[e.action] || e.action}</b> by {e.actor} on {fmtDateTime(e.at)}
               {e.error_count > 0 && <span className="quiet"> ({e.error_count} errors then)</span>}{e.note && <> · <i>{e.note}</i></>}</li>
           ))}
         </ul>

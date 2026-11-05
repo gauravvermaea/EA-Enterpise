@@ -149,8 +149,8 @@ BEGIN
         RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
     END IF;
     RAISE EXCEPTION '%', CASE v.lock_level
-            WHEN 'metamodel' THEN format('The metamodel of model "%s" is locked by %s: it cannot be changed until a Model Admin unlocks it', v.name, v.locked_by)
-            WHEN 'content' THEN format('Model "%s" is locked by %s (metamodel and content): nothing can be changed until a Model Admin unlocks it', v.name, v.locked_by)
+            WHEN 'metamodel' THEN format('The metamodel of model "%s" is locked by %s: it cannot be changed until a Model Admin or a Super Admin unlocks it', v.name, v.locked_by)
+            WHEN 'content' THEN format('Model "%s" is locked by %s (metamodel and content): nothing can be changed until a Model Admin or a Super Admin unlocks it', v.name, v.locked_by)
             ELSE format('Model "%s" is under maintenance by %s: only they can change it until the lock is lifted', v.name, v.locked_by) END
         USING ERRCODE = 'object_in_use',
               DETAIL = 'Reason: ' || coalesce(nullif(v.lock_reason, ''), 'none given'),

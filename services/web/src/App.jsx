@@ -1,14 +1,16 @@
 import { useEffect, useState } from "react";
-import { apiFetch, can, currentUser, isBreakGlass, keycloak, keycloakReachable, myInfo, roleName, roles, signedIn as isSignedIn, signOut, needsRole } from "./auth";
+import { apiFetch, currentUser, isBreakGlass, keycloak, keycloakReachable, myInfo, roleName, roles, signedIn as isSignedIn, signOut } from "./auth";
 import BreakGlass from "./BreakGlass";
-import Users from "./Users";
 import { config } from "./config";
 import StartPage from "./StartPage";
-import Heartbeat from "./Heartbeat";
 import Metamodel from "./Metamodel";
 import Mcp from "./Mcp";
-import Sql from "./Sql";
 import Library from "./Library";
+import CompareScreen from "./Versions";
+import ChangeLog from "./ChangeLog";
+import { TaskBar } from "./TaskBar";
+import Admin from "./Admin";
+import { serviceOn, setAppSettings } from "./fmt";
 import ModelSwitcher from "./ModelSwitcher";
 import { SearchPage, TopSearch } from "./GridPages";
 
@@ -27,8 +29,11 @@ export default function App() {
   const signedIn = isSignedIn();
   const user = currentUser();
   const [version, setVersion] = useState(null);  // the product version, from the API (version.toml)
+  const [, setFormatsReady] = useState(0);        // re-render once the installation's formats are in
   useEffect(() => {
     if (signedIn) apiFetch("/api/v1/heartbeat").then((b) => setVersion(b.version)).catch(() => {});
+    // the installation's formats and time zone, for every screen (phase 10, D182)
+    if (signedIn) apiFetch("/api/v1/settings").then((s) => { setAppSettings(s); setFormatsReady((n) => n + 1); }).catch(() => {});
   }, [signedIn]);
 
   // Nothing of the application shows until the user has signed in.
@@ -56,12 +61,10 @@ export default function App() {
           <a href="#/">Start</a>
           <a href="#/metamodel">Models</a>
           <a href="#/library">Library</a>
-          <a href="#/mcp">MCP</a>
-          <a href="#/heartbeat">Heartbeat</a>
-          {can("system.operate") ? <a href="#/sql">SQL</a>
-            : <span className="nav-off" title={needsRole(["it-admin", "super-admin"])}>SQL</span>}
-          {can("users.read") ? <a href="#/users">Users</a>
-            : <span className="nav-off" title={needsRole(["user-admin", "super-admin"])}>Users</span>}
+          <a href="#/compare">Compare</a>
+          <a href="#/change-log">Change log</a>
+          {serviceOn("mcp") ? <a href="#/mcp">MCP</a> : <span className="nav-off" title="The MCP server is switched off (Administration > System settings > Services)">MCP</span>}
+          <a href="#/admin">Administration</a>
           <a href="/api/docs">API</a>
         </nav>
         <TopSearch />
@@ -86,14 +89,15 @@ export default function App() {
         <div className="lock-banner">You have no role yet: you see nothing until a model's Model Admin gives you a role
           on a model, or a Keycloak Admin gives you a global role.</div>
       )}
+      {signedIn && <TaskBar />}
       <main>
         {route.startsWith("#/search") ? <SearchPage key={route} route={route} />
-          : route.startsWith("#/heartbeat") ? <Heartbeat />
           : route.startsWith("#/metamodel") ? <Metamodel route={route} />
           : route.startsWith("#/mcp") ? <Mcp />
-          : route.startsWith("#/sql") ? <Sql />
           : route.startsWith("#/library") ? <Library route={route} />
-          : route.startsWith("#/users") ? <Users route={route} />
+          : route.startsWith("#/compare") ? <CompareScreen route={route} />
+          : route.startsWith("#/change-log") ? <ChangeLog />
+          : route.startsWith("#/admin") || route.startsWith("#/users") || route.startsWith("#/heartbeat") || route.startsWith("#/sql") ? <Admin route={route} />
           : <StartPage />}
       </main>
       <footer>

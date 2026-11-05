@@ -1,4 +1,5 @@
-"""Writes to the append-only audit log (audit.events)."""
+"""Writes to the append-only audit log (audit.events). The change log (phase 9) ships the actions people take from
+here to its own database in the background (eax/change_log.py)."""
 
 from __future__ import annotations
 

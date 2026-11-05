@@ -7,6 +7,7 @@
 //     in, for SQL and BI tools on the read-only report login
 import { Fragment, useMemo, useState } from "react";
 import { CsvButton, useApi } from "./ModelViews";
+import { serviceOn } from "./fmt";
 
 const FAMILIES = [
   ["Audience", "Dashboards by audience", "The headline charts of every report a CEO, CFO, CIO, architect... usually wants, on one page."],
@@ -15,9 +16,18 @@ const FAMILIES = [
   ["TOGAF catalogue", "TOGAF catalogues (TC)", "TOGAF 10 catalogues the standard reports did not have."],
   ["TOGAF matrix", "TOGAF matrices (TM)", "TOGAF 10 matrices the standard reports did not have."],
   ["Dependency", "Dependencies (DR)", "What depends on what: up and down from an entity, between two types, from technology to value stream."],
+  ["Gap analysis", "Gap analyses (GR)", "TOGAF gap analyses kept in the models: gaps by layer and type, the gap matrix, resolutions and work packages, Gap entities."],
 ];
 
 export default function ModelReports({ model, m }) {
+  if (!serviceOn("reports")) {
+    return <p className="status warn">Reports are switched off on this installation (D191). A Super Admin switches them on in
+      Administration &gt; System settings &gt; Services, or with <code>eax service reports on</code>.</p>;
+  }
+  return <ReportList model={model} m={m} />;
+}
+
+function ReportList({ model, m }) {
   const { data, error } = useApi(`/api/v1/models/${model}/reports`);
   const [filter, setFilter] = useState("");
   const [open, setOpen] = useState({});
@@ -64,7 +74,7 @@ export default function ModelReports({ model, m }) {
         const f = find.trim().toLowerCase();
         const list = data.reports.filter((r) => (r.family || "Standard") === family
           && (!audience || (r.audiences || []).includes(audience))
-          && (!f || `${r.code} ${r.title} ${r.about}`.toLowerCase().includes(f)));
+          && (!f || `${r.code} ${r.title} ${r.about} ${r.use || ""} ${r.read || ""}`.toLowerCase().includes(f)));
         if (!list.length) return null;
         return (
           <section key={family}>

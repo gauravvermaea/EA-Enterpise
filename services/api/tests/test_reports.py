@@ -10,7 +10,7 @@ from eax.report_defs import REPORTS
 from eax.setup import superset_reports as sr
 
 _SQL_DIR = Path(__file__).resolve().parent.parent / "migrations" / "sql"
-SQL = "".join((_SQL_DIR / f).read_text(encoding="utf-8") for f in ("0009_reports.sql", "0012_viewpoints.sql"))
+SQL = "".join((_SQL_DIR / f).read_text(encoding="utf-8") for f in ("0009_reports.sql", "0012_viewpoints.sql", "0014_tags.sql"))
 SUPERSET = Path(__file__).resolve().parents[3] / "deploy" / "superset"
 
 
@@ -107,13 +107,13 @@ def test_heatmaps_offer_thresholds_and_reports_offer_filters():
 
 
 def test_phase_8_2_reports():
-    """Viewpoints VP-01 to VP-25, the TOGAF catalogues and matrices, dependency reports and audience dashboards (D161)."""
+    """Viewpoints VP-01 to VP-26, the TOGAF catalogues and matrices, dependency reports and audience dashboards (D161)."""
     from eax.report_defs import AUDIENCES, VIEWPOINTS
     codes = {r["code"] for r in REPORTS}
     assert {f"VP-{i:02d}" for i in range(1, 26)} <= codes
     assert {"TC-01", "TC-08", "TM-07", "TM-09", "DR-01", "DR-04"} <= codes
     assert {f"AU-{a}" for a, _n, _g in AUDIENCES} <= codes
-    assert len(VIEWPOINTS) == 25 and all("Grouping" in v["element_types"] for v in VIEWPOINTS)
+    assert len(VIEWPOINTS) == 26 and all("Grouping" in v["element_types"] for v in VIEWPOINTS)
     for r in REPORTS:
         assert r["audiences"], r["code"]          # every report is for someone (D153)
         charts = sr.charts_for(r)
@@ -123,3 +123,13 @@ def test_phase_8_2_reports():
     colour = next(f for f in sr.dashboard_filters(vp19, sr.charts_for(vp19)) if f["name"] == "Colour by")
     assert colour["defaultDataMask"]["filterState"]["value"] == ["Maturity"]
     assert "filter_values('entity_label'" in sr.VIRTUAL["dr_dependencies"][0]
+
+
+def test_every_report_says_how_to_use_and_read_it():
+    from eax.report_about import about
+    from eax.setup import superset_reports as sr
+    for r in REPORTS:
+        g = about(r)
+        assert len(g["use"]) > 30 and len(g["read"]) > 30 and "{" not in g["use"] + g["read"], r["code"]
+        note = sr.dashboard(r, sr.charts_for(r))["position"]["MARKDOWN-0"]["meta"]["code"]
+        assert "How to use it:" in note and "How to read it:" in note, r["code"]

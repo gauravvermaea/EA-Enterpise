@@ -665,6 +665,48 @@ def get_entity_detail(conn, model: Any, entity: Any) -> dict:
     return e
 
 
+def check_draft(conn, model: Any, entity_type: Any, data: dict, entity: Any = None) -> dict:
+    """The rules an entity would fail with the values on the form, before it is saved (owner, 5 Nov 2026, D194): the
+    same checks as after a save (required flags, pick lists, the type's validation rules, duplicate names, relationships
+    it must have), on a draft. data: name, description, values {attribute code: value as typed}. Nothing is written."""
+    from . import rules as rule_check
+    m = get_model(conn, model)
+    et = _find_type(conn, m["_id"], entity_type)
+    tid = et["_id"]
+    attrs = _rows(conn, """
+        SELECT at.code, at.name, at.data_type_code AS data_type, ia.is_required,
+               coalesce((SELECT array_agg(v.value ORDER BY v.sort_order) FROM core.pick_list_values v
+                          WHERE v.pick_list_id = at.pick_list_id AND NOT v.is_deleted), ARRAY[]::text[]) AS pick_list_values
+          FROM core.item_attributes ia JOIN core.attribute_types at ON at.id = ia.attribute_type_id AND NOT at.is_deleted
+         WHERE ia.entity_type_id = :t AND NOT ia.is_deleted ORDER BY ia.sort_order, at.name""", t=tid)
+    base: dict[str, Any] = {}
+    rels: list[dict] = []
+    name_now = None
+    if entity:
+        e = _find_entity(conn, m, entity)
+        base = {a["code"].lower(): a["typed"] for a in _load_values(conn, "e.id = :e", e=e["_id"]).get(e["_id"], [])}
+        rels = _relationships_by_entity(conn, [e["_id"]]).get(e["_id"], [])
+        name_now = (e.get("name") or "").lower()
+        entity_base = {k: e.get(k) for k in ("name", "description", "display_id")}
+    else:
+        entity_base = {"name": "", "description": "", "display_id": None}
+    draft = {str(k).lower(): v for k, v in ((data or {}).get("values") or {}).items()}
+    for_rules = []
+    for a in attrs:
+        k = a["code"].lower()
+        v = draft[k] if k in draft else base.get(k)
+        if isinstance(v, str) and not v.strip():
+            v = None
+        for_rules.append({**a, "pick_list_values": list(a["pick_list_values"] or []), "value": v})
+    ent = {**entity_base, **{k: data[k] for k in ("name", "description") if k in (data or {})}, "relationships": rels}
+    name = (ent.get("name") or "").strip().lower()
+    others = _rows(conn, """SELECT count(*) AS n FROM core.entities WHERE model_id = :m AND entity_type_id = :t AND NOT is_deleted
+                             AND lower(name) = :n""", m=m["_id"], t=tid, n=name)[0] if name else {"n": 0}
+    duplicate = others["n"] > (1 if name and name == name_now else 0)
+    warnings = rule_check.evaluate(ent, for_rules, _rules_for_type(conn, m["_id"], tid), duplicate_name=duplicate)
+    return {"warnings": warnings, "summary": rule_check.summary(warnings)}
+
+
 def get_entity_rules(conn, model: Any, entity: Any) -> dict:
     """Every rule applied to one entity and whether it passed, failed or did not apply (D113): the
     metamodel's required flags and pick lists, the validation rules of its type (values, patterns,
@@ -709,7 +751,7 @@ def _history_rows(conn, m: dict, eid: int):
     """The history rows of an entity, its attribute values and its relationships (oldest first),
     with names for the ids they hold and a function giving an attribute row's value for display."""
     rows = _rows(conn, """
-        SELECT id, table_name, row_id, row_version, operation, data, label, changed_at, changed_by
+        SELECT id, tx, table_name, row_id, row_version, operation, data, label, changed_at, changed_by
           FROM history.row_versions
          WHERE model_id = :m AND (
                (table_name = 'entities' AND row_id = :e)
@@ -898,6 +940,14 @@ def get_entity_history(conn, model: Any, entity: Any, limit: int = 500) -> dict:
             out["deleted"] = "Yes" if out.pop("is_deleted") else None
         return out
 
+    # the commit each change came in with (same transaction, D195): its number and message
+    txs = list({r["tx"] for r in rows if r.get("tx") is not None})
+    commits = {c["tx"]: c for c in _rows(conn, """SELECT k.tx, k.number, k.message, k.committed_by,
+                                                            (SELECT array_agg(DISTINCT p.source) FROM core.pending_changes p
+                                                              WHERE p.commit_id = k.id AND p.source IS NOT NULL) AS sources
+                                                     FROM core.commits k
+                                                     WHERE k.model_id = :m AND k.tx = ANY (CAST(:t AS bigint[]))""",
+                                         m=m["_id"], t=txs)} if txs else {}
     events, previous = [], {}
     for r in rows:
         d, key = r["data"], (r["table_name"], r["row_id"])
@@ -905,6 +955,12 @@ def get_entity_history(conn, model: Any, entity: Any, limit: int = 500) -> dict:
         previous[key] = d
         ev = {"id": r["id"], "at": r["changed_at"], "by": r["changed_by"], "operation": r["operation"],
               "version": r["row_version"], "label": r["label"], "changes": []}
+        c = commits.get(r.get("tx"))
+        if c:
+            src = c.get("sources") or []
+            if isinstance(src, str):   # a driver that answers arrays as text
+                src = [x.strip('"') for x in src.strip("{}").split(",") if x]
+            ev["commit"] = {"number": c["number"], "message": c["message"], "by": c["committed_by"], "sources": src}
         if r["table_name"] == "entities":
             ev["kind"], ev["item"] = "entity", d.get("name")
             new, old = entity_fields(d), entity_fields(before) if before else {}

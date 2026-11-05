@@ -57,6 +57,12 @@ Everyday use
   restore <folder> [--scratch]
                         Restores a backup folder: into the live databases, or with --scratch into
                         a separate scratch database to inspect first.
+  services              Lists the optional services (reports, documents, drawio, mcp, change_log,
+                        backups), whether each is on in the config file and its containers' state.
+  service <name> on|off Switches one optional service on or off: keeps a dated copy of the config file
+                        in work/config-history, writes the switch, then starts or stops its containers.
+                        Everything is on unless switched off (D191). Also in Administration > System
+                        settings > Services.
 
 Starting again
   cleanup [--all] [--yes] [--certificate]
@@ -166,6 +172,87 @@ run_compose() {
   fi
 }
 
+# ------------------------------------------------------------------ optional services (D191)
+SERVICE_NAMES="reports documents drawio mcp change_log backups"
+service_setting() {
+  case "$1" in reports) echo EAX_SERVICE_REPORTS ;; documents) echo EAX_SERVICE_DOCUMENTS ;; drawio) echo EAX_SERVICE_DRAWIO ;;
+    mcp) echo EAX_SERVICE_MCP ;; change_log) echo EAX_SERVICE_CHANGE_LOG ;; backups) echo EAX_SERVICE_BACKUPS ;; *) return 1 ;; esac
+}
+# compose services in start order (mcp and change_log run inside the api container)
+service_containers() {
+  case "$1" in reports) echo "reports-init reports" ;; documents) echo "dms-broker dms" ;; drawio) echo drawio ;;
+    mcp|change_log) echo api ;; backups) echo backup ;; esac
+}
+service_on() {
+  local d=on v
+  [ "$1" = mcp ] && d=$(setting EAX_MCP_ENABLED on)
+  v=$(setting "$(service_setting "$1")" "$d" | tr '[:upper:]' '[:lower:]')
+  case "$v" in off|false|0|no|disabled) return 1 ;; *) return 0 ;; esac
+}
+# work/services.env: the switches only (no secrets), read by the api container
+write_services_file() {
+  local n
+  { echo "# Written by EA Explorer from eaexplorer.env: the service switches only (D191). Do not edit; change eaexplorer.env."
+    for n in $SERVICE_NAMES; do echo "$(service_setting "$n")=$(service_on "$n" && echo on || echo off)"; done
+  } > "$WORK_DIR/services.env"
+  chmod 644 "$WORK_DIR/services.env"
+}
+off_containers() {
+  local n out=""
+  for n in $SERVICE_NAMES; do
+    service_on "$n" && continue
+    [ "$(service_containers "$n")" = api ] && continue
+    out="$out $(service_containers "$n")"
+  done
+  echo "$out"
+}
+# up (all services): everything but the switched-off services; those are created, not started, so the console can
+# switch them on later
+up_services() {
+  local off on s
+  write_services_file
+  if [ "$#" -gt 0 ]; then compose up -d --build "$@"; return; fi
+  off=$(off_containers)
+  if [ -z "${off// }" ]; then compose up -d --build; return; fi
+  on=""
+  for s in $(compose config --services); do case " $off " in *" $s "*) ;; *) on="$on $s" ;; esac; done
+  echo "Switched off (D191):$off: created, not started."
+  # shellcheck disable=SC2086
+  compose up -d --build $on || return 1
+  # shellcheck disable=SC2086
+  compose create --build $off || true
+  # shellcheck disable=SC2086
+  compose stop $off >/dev/null 2>&1 || true
+}
+show_services() {
+  local n
+  for n in $SERVICE_NAMES; do
+    printf '%-11s %-4s %s=%s   containers: %s\n' "$n" "$(service_on "$n" && echo on || echo off)" "$(service_setting "$n")" \
+      "$(setting "$(service_setting "$n")" on)" "$(service_containers "$n")"
+  done
+  run_compose ps -a
+}
+set_service() {
+  local n="${1:-}" v="${2:-}" key copy
+  key=$(service_setting "$n") || { echo "ERROR: unknown service '$n'. One of: $SERVICE_NAMES"; exit 1; }
+  case "$v" in on|off) ;; *) echo "ERROR: say on or off: ./eax.sh service $n on"; exit 1 ;; esac
+  mkdir -p "$WORK_DIR/config-history"
+  copy="eaexplorer.env.$(date -u +%Y%m%d-%H%M%S).$(echo "${USER:-eax}" | tr -c 'A-Za-z0-9_.\n-' '-').$n-$v"
+  cp -p "$ENV_FILE" "$WORK_DIR/config-history/$copy"
+  if grep -qE "^[[:space:]]*$key[[:space:]]*=" "$ENV_FILE"; then
+    sed -i.bak -E "s|^[[:space:]]*$key[[:space:]]*=.*|$key=$v|" "$ENV_FILE" && rm -f "$ENV_FILE.bak"
+  else
+    printf '\n%s=%s\n' "$key" "$v" >> "$ENV_FILE"
+  fi
+  [ "$n" = mcp ] && { sed -i.bak -E '/^[[:space:]]*EAX_MCP_ENABLED[[:space:]]*=/d' "$ENV_FILE" && rm -f "$ENV_FILE.bak"; }
+  write_services_file
+  echo "$key=$v written (the config file before is kept as $WORK_DIR/config-history/$copy)."
+  # shellcheck disable=SC2046
+  if [ "$(service_containers "$n")" = api ]; then run_compose restart api
+  elif [ "$v" = on ]; then run_compose up -d $(service_containers "$n")
+  else run_compose stop $(service_containers "$n"); fi
+}
+
 # ------------------------------------------------------------------ output helpers
 show_urls() {
   local H P S
@@ -173,10 +260,10 @@ show_urls() {
   S=$([ "$P" = "443" ] && echo "" || echo ":$P")
   echo "Start page:  https://$H$S/"
   echo "Swagger:     https://$H$S/api/docs"
-  echo "Reports:     https://reports.$H$S/"
-  echo "Documents:   https://docs.$H$S/"
+  if service_on reports; then echo "Reports:     https://reports.$H$S/"; fi
+  if service_on documents; then echo "Documents:   https://docs.$H$S/"; fi
   echo "Keycloak:    https://$H$S/auth/admin/"
-  [ "$(setting EAX_MCP_ENABLED false)" = "true" ] && echo "MCP server:  https://$H$S/mcp"
+  if service_on mcp; then echo "MCP server:  https://$H$S/mcp"; fi
   if [ "$(setting EAX_HTTP_API_MCP false)" = "true" ]; then
     local HP; HP=$(setting EAX_HTTP_PORT 80); [ "$HP" = "80" ] && HP="" || HP=":$HP"
     echo "Also on plain http (this computer only): http://localhost$HP/api/docs and http://localhost$HP/mcp"
@@ -341,7 +428,7 @@ if [ -f eaexplorer.env ] && [ ! -f "$ENV_FILE" ]; then
   echo "Delete the old file and run ./eax.sh init laptop (or copy your changes into $ENV_FILE)."
 fi
 
-case "$CMD" in check|up|debug|status|logs|down|backup|restore) assert_docker ;; esac
+case "$CMD" in check|up|debug|status|logs|down|backup|restore|services|service) assert_docker ;; esac
 
 case "$CMD" in
   init)
@@ -365,12 +452,15 @@ case "$CMD" in
     ;;
   up)
     shift
-    run_compose up -d --build "$@"
+    if ! up_services "$@"; then
+      echo "docker compose failed. Collecting diagnostics..."; diagnostics
+      echo "ERROR: docker compose failed. Full log with diagnostics: $LOG"; exit 1
+    fi
     if [ "$#" -gt 0 ]; then show_part_urls "$@"; else show_urls; show_logins; fi
     ;;
   debug)
     shift
-    if ! compose up -d --build "$@"; then echo "docker compose up failed; recording what is running anyway."; fi
+    if ! up_services "$@"; then echo "docker compose up failed; recording what is running anyway."; fi
     diagnostics
     if [ "$#" -gt 0 ]; then show_part_urls "$@"; else show_urls; show_logins; fi
     watch_containers "$@"
@@ -379,8 +469,12 @@ case "$CMD" in
   status)  run_compose ps -a ;;
   logs)    shift; compose logs -f --tail=100 "$@" || true ;;
   down)    run_compose down ;;
-  backup)  run_compose exec -T backup backup.sh ;;
-  restore) shift; run_compose exec -T backup restore.sh "$@" ;;
+  backup)  service_on backups || { echo "ERROR: backups are switched off: ./eax.sh service backups on"; exit 1; }
+           run_compose exec -T backup backup.sh ;;
+  restore) service_on backups || { echo "ERROR: backups are switched off: ./eax.sh service backups on"; exit 1; }
+           shift; run_compose exec -T backup restore.sh "$@" ;;
+  services) show_services ;;
+  service) set_service "${2:-}" "${3:-}" ;;
   url)     show_urls; show_logins ;;
   logins)  [ -f "$ENV_FILE" ] || { echo "ERROR: no $ENV_FILE yet: run ./eax.sh init first."; exit 1; }; show_logins ;;
   trust)   [ -f "$ENV_FILE" ] || { echo "ERROR: no $ENV_FILE yet: run ./eax.sh init first."; exit 1; }; trust "${2:-}" ;;

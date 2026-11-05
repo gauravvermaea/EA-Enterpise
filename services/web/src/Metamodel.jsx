@@ -14,8 +14,9 @@
 //   #/metamodel/<model>/metamodel/grids/<kind>   metamodel grids: entity types, attributes, mappings... (phase 7)
 //   #/metamodel/<model>/reports          tab Reports: standard reports and the report catalogue (ModelReports.jsx)
 //   #/metamodel/<model>/changes[/requests|/history[/<commit>]]   tab Changes: uncommitted changes, commit requests, commits, merges (Changes.jsx, phase 8)
+//   #/metamodel/<model>/tags             tab Tags: frozen snapshots of the model (Versions.jsx, phase 8.3)
 //   #/metamodel/<model>/merge            tab Merge: merge an uploaded model into this one, conflicts decided (Merge.jsx, phase 8)
-//   #/metamodel/<model>/viewpoints[/<code>[/<view>]]   tab Viewpoints: the model through VP-01 to VP-25 and your own (Viewpoints.jsx, phase 8.2)
+//   #/metamodel/<model>/viewpoints[/<code>[/<view>]]   tab Viewpoints: the model through VP-01 to VP-26 and your own (Viewpoints.jsx, phase 8.2)
 import { lazy, Suspense, useState } from "react";
 import { can, keycloak, signedIn, canOn, myRolesOn, roleName } from "./auth";
 import { CopyButton, LockBadge } from "./Library";
@@ -30,12 +31,15 @@ import {
 } from "./MetamodelEditor";
 import ModelPeople from "./ModelPeople";
 import ModelReports from "./ModelReports";
+import SheetsTab from "./Sheets";
 import ViewpointsTab from "./Viewpoints";
 import ChangesTab, { LiveCommits, usePendingCount } from "./Changes";
 import MergeTab from "./Merge";
+import { TagPage, TagsTab } from "./Versions";
 import { DataEntryTab } from "./DataEntry";
-import { FavStar, GridTab, MetamodelGrids } from "./GridPages";
+import { GridTab, MetamodelGrids } from "./GridPages";
 import { CopyBanner, DraftPage, Drafts, ModelActions, NewModelButton, UploadButton } from "./ModelOps";
+import { fmtDate } from "./fmt";
 
 // the diagram and its layout library load only when the ER diagram tab is opened
 const MetamodelDiagram = lazy(() => import("./MetamodelDiagram"));
@@ -95,7 +99,7 @@ function ModelList({ view }) {
       {models && !tree && (
         <div className="scroll">
           <table className="grid-table models-table">
-            <thead><tr><th>Model</th><th>Kind</th><th>Comes from</th><th>Owner</th><th>Status</th><th>Types</th><th>Entities</th><th>Relationships</th><th>Changed</th></tr></thead>
+            <thead><tr><th>Model</th><th>Kind</th><th>Comes from</th><th>Owner</th><th>Status</th><th className="num">Types</th><th className="num">Entities</th><th className="num">Relationships</th><th>Changed</th></tr></thead>
             <tbody>
               {models.map((m) => (
                 <tr key={m.id}>
@@ -103,7 +107,6 @@ function ModelList({ view }) {
                     <KindMark m={m} /> <a href={`#/metamodel/${m.id}`}><strong>{m.name}</strong></a>
                     {m.version_label && <span className="quiet"> {m.version_label}</span>}
                     <StatusMarks m={m} />
-        <FavStar kind="model" id={m.id} label={m.name} />
                     <br /><span className="quiet">{m.industry && `${m.industry} · `}{m.metamodel_name}</span>
                   </td>
                   <td>{m.kind_name}</td>
@@ -117,7 +120,7 @@ function ModelList({ view }) {
                   <td className="num">{m.entity_type_count}</td>
                   <td className="num">{m.kind === "template" ? "-" : m.entity_count}</td>
                   <td className="num">{m.kind === "template" ? "-" : m.relationship_count}</td>
-                  <td className="quiet">{new Date(m.modified_at).toLocaleDateString()}</td>
+                  <td className="quiet">{fmtDate(m.modified_at)}</td>
                 </tr>
               ))}
               {!models.length && <tr><td colSpan="9" className="quiet">{search || kind ? "No models match."
@@ -142,7 +145,7 @@ function WaitingDrafts() {
       <ul>
         {data.map((d) => (
           <li key={d.id}><a href={`#/metamodel/${d.id}`}>{d.name}</a> <span className="quiet">· asked by {d.requested_by || d.created_by}
-            {d.requested_at ? ` on ${new Date(d.requested_at).toLocaleDateString()}` : ""}{d.note ? `: “${d.note}”` : ""}</span></li>
+            {d.requested_at ? ` on ${fmtDate(d.requested_at)}` : ""}{d.note ? `: “${d.note}”` : ""}</span></li>
         ))}
       </ul>
       <span className="quiet small">Open one and use Actions: Approve and publish, Send back, or Reject.</span>
@@ -363,6 +366,37 @@ function Lineage({ m }) {
   );
 }
 
+// tab Hierarchy: where this model comes from (every model up to the root it was created from or merges into) and
+// the models made from it, drawn as the model tree with this model outlined in red
+function ModelLineageTab({ model, m }) {
+  const { data: models, error } = useApi("/api/v1/models?archived=true");
+  if (error) return <p className="status bad">{error}</p>;
+  if (!models) return <p>Loading...</p>;
+  const byId = Object.fromEntries(models.map((x) => [x.id, x]));
+  const up = (x) => x.parent_model_id || x.source_model_id || null;
+  const keep = new Set([model]);
+  for (let x = byId[model]; x && up(x) && byId[up(x)] && !keep.has(up(x)); x = byId[up(x)]) keep.add(up(x));
+  const chain = [...keep].map((id) => byId[id]).filter(Boolean).reverse();
+  models.forEach((x) => { if (descendsFrom(x, model, byId, up)) keep.add(x.id); });
+  const shown = models.filter((x) => keep.has(x.id));
+  const below = shown.length - chain.length;
+  return (
+    <div>
+      <p className="quiet">
+        Where {m.name} comes from: {chain.map((x, i) => <span key={x.id}>{i > 0 && " → "}{x.id === model ? <b>{x.name}</b> : <a href={`#/metamodel/${x.id}`}>{x.name}</a>}</span>)}
+        {below > 0 ? `, and the ${below} model${below > 1 ? "s" : ""} made from it below.` : "."} A solid line merges into the model above;
+        a dashed one was created from it. Click a box to open that model.
+      </p>
+      <Suspense fallback={<p>Loading the tree...</p>}><ModelTree models={shown} focus={model} /></Suspense>
+    </div>
+  );
+}
+
+function descendsFrom(x, root, byId, up) {
+  for (let y = x, n = 0; y && n < 50; y = byId[up(y)], n += 1) if (up(y) === root) return true;
+  return false;
+}
+
 function ModelPage({ model, view, itemId, sub }) {
   const { data: m, error } = useApi(`/api/v1/models/${model}`);
   const [showProps, setShowProps] = useState(false);
@@ -370,14 +404,15 @@ function ModelPage({ model, view, itemId, sub }) {
   if (error) return <section><p className="status bad">{error}</p><a href="#/metamodel">All models</a></section>;
   if (!m) return <section><p>Loading...</p></section>;
   const holdsContent = m.kind !== "template";
-  const v = view === "relationships" ? "rels" : view;   // older links
+  const v = view === "relationships" ? "rels" : view === "sheets" ? "import" : view;   // older links
   const tab = !v ? (holdsContent ? "types" : "metamodel")
     : v === "type" ? "metamodel" : v === "entity" ? "types" : v;
   const tabs = [
     ...(holdsContent ? [["types", "Entity types", m.entity_type_count], ["entry", "Data entry", null], ["grid", "Grid", null], ["rels", "Relationship types", null],
       ["graph", "Graph", null], ["viewpoints", "Viewpoints", null], ["checks", "Failing checks", null]] : []),
     ...(m.kind === "project" ? [["changes", pending ? `Changes (${pending})` : "Changes", null], ["merge", "Merge", null]] : []),
-    ["metamodel", "Metamodel", null], ["diagram", "ER diagram", null], ["reports", "Reports", null],
+    ...(holdsContent ? [["tags", "Tags", null], ["import", "Import and export", null]] : []),
+    ["metamodel", "Metamodel", null], ["diagram", "ER diagram", null], ["reports", "Reports", null], ["hierarchy", "Hierarchy", null],
     ...(changeableModel(m) ? [["people", "People", null]] : []),
   ];
   return (
@@ -408,8 +443,8 @@ function ModelPage({ model, view, itemId, sub }) {
             Owner {m.owner || "-"} · {m.lifecycle}{m.industry && ` · ${m.industry}`}
             {m.source_model_id && <> · created from <a href={`#/metamodel/${m.source_model_id}`}>{m.source_model_name}</a></>}
             {m.parent_model_id && <> · merges into <a href={`#/metamodel/${m.parent_model_id}`}>{m.parent_model_name}</a></>} ·
-            created {new Date(m.created_at).toLocaleDateString()} by {m.created_by} ·
-            changed {new Date(m.modified_at).toLocaleDateString()} by {m.modified_by}
+            created {fmtDate(m.created_at)} by {m.created_by} ·
+            changed {fmtDate(m.modified_at)} by {m.modified_by}
           </p>
         </div>
       )}
@@ -430,8 +465,11 @@ function ModelPage({ model, view, itemId, sub }) {
         : tab === "checks" ? <FailingChecks model={model} m={m} />
         : tab === "people" ? <ModelPeople model={model} m={m} />
         : tab === "merge" ? <MergeTab model={model} m={m} />
+        : tab === "hierarchy" ? <ModelLineageTab model={model} m={m} />
+        : tab === "tags" ? (itemId ? <TagPage key={itemId} model={model} m={m} tagId={itemId} entityId={sub} /> : <TagsTab model={model} m={m} />)
         : tab === "changes" ? <ChangesTab model={model} m={m} sub={itemId} itemId={sub} />
         : tab === "reports" ? <ModelReports model={model} m={m} />
+        : tab === "import" ? <SheetsTab model={model} m={m} sub={itemId} itemId={sub} />
         : tab === "grid" ? <GridTab key={itemId || "none"} model={model} m={m} typeFromUrl={itemId || ""} />
         : tab === "entry" ? <DataEntryTab key={itemId || "none"} model={model} m={m} typeFromUrl={itemId || ""} />
         : tab === "diagram" ? <Suspense fallback={<p>Loading the diagram...</p>}><MetamodelDiagram model={model} focus={itemId || null} /></Suspense>
@@ -453,7 +491,7 @@ export default function Metamodel({ route }) {
     );
   }
   // #/metamodel/<model>/<view>/<id>/<sub>
-  const [, , model, view, itemId, sub] = (route || "").replace(/^#/, "").split("/");
+  const [, , model, view, itemId, sub] = (route || "").replace(/^#/, "").split("?")[0].split("/");
   if (model === "hierarchy") return <ModelList view="hierarchy" />;
   if (model === "drafts") return view ? <DraftPage id={view} /> : <ModelList view="drafts" />;
   return model ? <ModelPage model={model} view={view} itemId={itemId} sub={sub} /> : <ModelList />;

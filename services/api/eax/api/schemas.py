@@ -513,6 +513,7 @@ class HistoryEventOut(Schema):
     item = fields.String(allow_none=True)
     changes = fields.List(fields.Nested(HistoryChangeOut))
     action = fields.String(allow_none=True, metadata={"description": "created, when this event created the entity"})
+    commit = fields.Dict(allow_none=True, metadata={"description": "The commit it came in with: number, message, by (D195)"})
 
 
 class RuleResultOut(Schema):

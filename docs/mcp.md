@@ -97,6 +97,10 @@ cannot tell who is asking. The laptop development token signs in as a Super Admi
 | `view_through_viewpoint(model, viewpoint)` | A model through one viewpoint: its elements with every value, and the relationships the viewpoint shows (phase 8.2) |
 | `value_stream_map(model)` | Value streams, their stages in order and the capabilities enabling each, with their values (phase 8.2) |
 | `roadmap(model)` | Work packages, deliverables and plateaus with dates and what each delivers (phase 8.2) |
+| `list_model_tags(model)` | A model's tags (frozen snapshots): name, when, by whom, commit, locked (phase 8.3) |
+| `compare_models(left, right, left_tag, right_tag)` | Two models, or tags of them: per type kept, changed, new, eliminated, the differences with their fields, relationships, metamodel (phase 8.3) |
+| `list_gap_analyses(model?)` | The TOGAF gap analyses you may see, or those stored in one model (phase 8.3, D177) |
+| `gap_analysis(analysis)` | One gap analysis: the model it is stored in, baseline and target, when compared, every gap with its changes, resolution and work packages (phase 8.3) |
 
 ### Metamodel drafts (phase 4, D115, D120, D130)
 

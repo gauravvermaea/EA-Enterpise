@@ -154,9 +154,11 @@ export async function apiUpload(path, form) {
   return body;
 }
 
-// Download a file the API makes (for example a model package) and hand it to the browser to save (phase 4)
-export async function apiDownload(path, fallbackName = "download") {
-  const response = await fetch(path, { headers: await authHeaders() });
+// Download a file the API makes (for example a model package) and hand it to the browser to save (phase 4);
+// with a body, the request is a POST (for example a comparison's Excel workbook, phase 8.3)
+export async function apiDownload(path, fallbackName = "download", body = undefined) {
+  const response = await fetch(path, body === undefined ? { headers: await authHeaders() }
+    : { method: "POST", body: JSON.stringify(body), headers: await authHeaders({ "Content-Type": "application/json" }) });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     throw new Error(body.message || `${response.status} ${response.statusText}`);

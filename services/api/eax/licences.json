@@ -1,0 +1,143 @@
+{
+ "own": "EA Explorer's own code (web, api, backup, setup, operations helper, scripts) is licensed under AGPL-3.0.",
+ "items": [
+  {
+   "product": "nginx",
+   "image": "nginx, nginxinc/nginx-unprivileged",
+   "licence": "BSD-2-Clause",
+   "kind": "Product (run unchanged, as a separate program)"
+  },
+  {
+   "product": "PostgreSQL",
+   "image": "postgres",
+   "licence": "PostgreSQL Licence",
+   "kind": "Product (run unchanged, as a separate program)"
+  },
+  {
+   "product": "Valkey",
+   "image": "valkey/valkey",
+   "licence": "BSD-3-Clause",
+   "kind": "Product (run unchanged, as a separate program)"
+  },
+  {
+   "product": "Keycloak",
+   "image": "quay.io/keycloak/keycloak",
+   "licence": "Apache-2.0",
+   "kind": "Product (run unchanged, as a separate program)"
+  },
+  {
+   "product": "Apache Superset",
+   "image": "apache/superset (plus psycopg2, Authlib, redis drivers)",
+   "licence": "Apache-2.0",
+   "kind": "Product (run unchanged, as a separate program)"
+  },
+  {
+   "product": "Mayan EDMS",
+   "image": "mayanedms/mayanedms",
+   "licence": "GPL-2.0",
+   "kind": "Product (run unchanged, as a separate program)"
+  },
+  {
+   "product": "draw.io",
+   "image": "jgraph/drawio",
+   "licence": "Apache-2.0",
+   "kind": "Product (run unchanged, as a separate program)"
+  },
+  {
+   "product": "Apache Hop (from phase 34.1, D128)",
+   "image": "apache/hop, apache/hop-web",
+   "licence": "Apache-2.0",
+   "kind": "Product (run unchanged, as a separate program)"
+  },
+  {
+   "product": "Flask",
+   "image": "",
+   "licence": "BSD-3",
+   "kind": "Library in our code"
+  },
+  {
+   "product": "flask-smorest",
+   "image": "",
+   "licence": "MIT",
+   "kind": "Library in our code"
+  },
+  {
+   "product": "SQLAlchemy",
+   "image": "",
+   "licence": "MIT",
+   "kind": "Library in our code"
+  },
+  {
+   "product": "Alembic",
+   "image": "",
+   "licence": "MIT",
+   "kind": "Library in our code"
+  },
+  {
+   "product": "psycopg",
+   "image": "",
+   "licence": "LGPL-3.0",
+   "kind": "Library in our code"
+  },
+  {
+   "product": "Procrastinate",
+   "image": "",
+   "licence": "MIT",
+   "kind": "Library in our code"
+  },
+  {
+   "product": "PyJWT",
+   "image": "",
+   "licence": "MIT",
+   "kind": "Library in our code"
+  },
+  {
+   "product": "openpyxl",
+   "image": "",
+   "licence": "MIT",
+   "kind": "Library in our code"
+  },
+  {
+   "product": "cryptography",
+   "image": "",
+   "licence": "Apache-2.0/BSD",
+   "kind": "Library in our code"
+  },
+  {
+   "product": "gunicorn",
+   "image": "",
+   "licence": "MIT",
+   "kind": "Library in our code"
+  },
+  {
+   "product": "React",
+   "image": "",
+   "licence": "MIT",
+   "kind": "Library in our code"
+  },
+  {
+   "product": "keycloak-js",
+   "image": "",
+   "licence": "Apache-2.0",
+   "kind": "Library in our code"
+  },
+  {
+   "product": "elkjs",
+   "image": "",
+   "licence": "EPL-2.0",
+   "kind": "Library in our code"
+  },
+  {
+   "product": "Vite",
+   "image": "",
+   "licence": "MIT",
+   "kind": "Library in our code"
+  },
+  {
+   "product": "Docker CLI",
+   "image": "",
+   "licence": "Apache-2.0, the operations helper",
+   "kind": "Library in our code"
+  }
+ ]
+}

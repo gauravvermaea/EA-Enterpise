@@ -56,6 +56,33 @@ The backup container runs `backup.sh` on `EAX_BACKUP_SCHEDULE` (cron format) and
 To test a backup without touching live data: `.\eax restore 20261103T020000Z --scratch`
 restores into `*_restore_test` databases.
 
+## Services on and off (D191)
+
+Every optional service is on unless the config file says off: `EAX_SERVICE_REPORTS`, `EAX_SERVICE_DOCUMENTS`,
+`EAX_SERVICE_DRAWIO`, `EAX_SERVICE_MCP`, `EAX_SERVICE_CHANGE_LOG`, `EAX_SERVICE_BACKUPS`. `eax services` lists them and
+their containers; `eax service <name> on|off` switches one: it keeps a dated copy of the config file in
+`work/config-history`, writes the switch and starts or stops the containers. A Super Admin does the same in
+Administration > System settings > Services, and restores an earlier copy of the config file there. The switches (no
+secrets) are also written to `work/services.env`, which the API reads. `eax up` creates switched-off containers without
+starting them.
+
+## The operations helper
+
+The `ops` container (phase 10) lets a Super Admin restart the system from Administration > System settings. It
+reaches the Docker engine through `/var/run/docker.sock`, is only on the internal network, publishes no port, and
+answers only with the shared secret `EAX_OPS_TOKEN` (set a long random value on a server; the setup refuses the laptop
+one there). It only restarts this installation's containers. If it is not running, the console says so; `.\eax restart`
+still works.
+
+## The change log's database
+
+The change log (phase 9) has its own connection string, `EAX_CHANGELOG_DB_URL`
+(`postgresql://user:password@host:port/database`, the password URL-encoded) and schema, `EAX_CHANGELOG_DB_SCHEMA`
+(default `changelog`). Empty means the repository's database. On a server, point it at another database or server so
+the log never competes with the repository; the login must be able to create the schema and its two tables (or have
+them made for it). The api container's log shows `EA Explorer change log WARNING` lines when it cannot reach it; the
+repository keeps working and the log catches up once it can.
+
 ## Moving to a server
 
 Run `./eax.sh init server` on the server, set the host name, and certificate folder in

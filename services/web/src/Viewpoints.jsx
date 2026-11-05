@@ -1,5 +1,5 @@
 // Model page, tab Viewpoints (build phase 8.2, D161):
-//   #/metamodel/<model>/viewpoints                      every viewpoint (VP-01 to VP-25 and the organisation's own),
+//   #/metamodel/<model>/viewpoints                      every viewpoint (VP-01 to VP-26 and the organisation's own),
 //                                                        grouped by category, with how many of the model's entities each shows
 //   #/metamodel/<model>/viewpoints/<code>[/<view>]       the model through one viewpoint, as
 //        diagram   the elements in bands by layer with the viewpoint's relationships (EntityGraph)
@@ -89,7 +89,7 @@ function ViewpointList({ model, m }) {
       <p className="quiet">
         A viewpoint shows <strong>{m.name}</strong> for one set of concerns: the element and relationship types that matter to
         them, as a diagram, a catalog, a heat map, a matrix or a list of relationships. VP-01 to VP-25 are the example
-        viewpoints of the ArchiMate 4 Specification; each is also a dashboard in the reporting tool (Reports tab).
+        viewpoints of the ArchiMate 4 Specification, VP-26 shows the gaps of gap analyses; each is also a dashboard in the reporting tool (Reports tab).
       </p>
       <div className="toolbar">
         <input type="search" placeholder="Filter viewpoints, concerns or stakeholders" value={filter} onChange={(e) => setFilter(e.target.value)} />

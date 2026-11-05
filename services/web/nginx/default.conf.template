@@ -6,7 +6,7 @@ server {
     location = /config.js {
         default_type application/javascript;
         add_header Cache-Control "no-store";
-        return 200 'window.EAX_CONFIG = {"hostname":"${EAX_HOSTNAME}","httpsPort":"${EAX_HTTPS_PORT}","version":"${EAX_VERSION}","deployment":"${EAX_DEPLOYMENT}","realm":"eaexplorer","clientId":"eax-web"};';
+        return 200 'window.EAX_CONFIG = {"hostname":"${EAX_HOSTNAME}","httpsPort":"${EAX_HTTPS_PORT}","version":"${EAX_VERSION}","deployment":"${EAX_DEPLOYMENT}","realm":"${EAX_KEYCLOAK_REALM}","clientId":"eax-web"};';
     }
 
     location /assets/ {

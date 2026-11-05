@@ -48,8 +48,10 @@ def create_app(testing: bool = False) -> Flask:
     )
 
     from .api.access import blp as access_blp
+    from .api.admin import blp as admin_blp
     from .api.audit import blp as audit_blp
     from .api.break_glass import blp as break_glass_blp
+    from .api.change_log import blp as change_log_blp
     from .api.commits import blp as commits_blp
     from .api.content import blp as content_blp
     from .api.grids import blp as grids_blp
@@ -59,16 +61,38 @@ def create_app(testing: bool = False) -> Flask:
     from .api.metamodel import blp as metamodel_blp
     from .api.metamodel_edit import blp as metamodel_edit_blp
     from .api.models import blp as models_blp
+    from .api.sheets import blp as sheets_blp
     from .api.sql import blp as sql_blp
+    from .api.tasks import blp as tasks_blp
+    from .api.versions import blp as versions_blp
     from .api.viewpoints import blp as viewpoints_blp
 
     for blp in (heartbeat_blp, me_blp, access_blp, break_glass_blp, jobs_blp, audit_blp, metamodel_blp,
-                metamodel_edit_blp, models_blp, content_blp, grids_blp, viewpoints_blp, commits_blp, sql_blp):
+                metamodel_edit_blp, models_blp, content_blp, grids_blp, viewpoints_blp, commits_blp,
+                versions_blp, change_log_blp, admin_blp, sql_blp, tasks_blp, sheets_blp):
         api.register_blueprint(blp)
 
     @app.before_request
     def _request_id() -> None:
         g.request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex
+
+    @app.before_request
+    def _log_level():
+        """The log level set in the administration console (D191), applied at once."""
+        from . import settings as app_settings
+        app_settings.apply_log_level()
+
+    @app.before_request
+    def _upload_limit():
+        """The largest upload set in the administration console (phase 10, D183), applied at once."""
+        size = request.content_length or 0
+        if size > 1024 * 1024 and request.method in ("POST", "PUT", "PATCH"):
+            from . import settings as app_settings
+            limit = int(app_settings.values().get("upload_max_mb") or 50)
+            if size > limit * 1024 * 1024:
+                return {"message": f"The upload is {size / 1048576:.1f} MB; the largest allowed is {limit} MB "
+                                   "(Administration > System settings)."}, 413
+        return None
 
     @app.after_request
     def _add_request_id(response):

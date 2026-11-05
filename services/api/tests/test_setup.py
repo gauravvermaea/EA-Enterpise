@@ -64,6 +64,13 @@ def test_realm_renders_to_valid_json(tmp_path, monkeypatch):
     out = setup.render_realm(setup.derived_values())
     realm = json.loads(out.read_text())
     assert realm["realm"] == "eaexplorer"
+    monkeypatch.setenv("EAX_KEYCLOAK_REALM", "acme-ea")   # chosen at the first install
+    assert json.loads(setup.render_realm(setup.derived_values()).read_text())["realm"] == "acme-ea"
+    assert not [p for p in setup.check_config() if "EAX_KEYCLOAK_REALM" in p]
+    for bad in ("master", "Acme", "1ea", "a"):
+        monkeypatch.setenv("EAX_KEYCLOAK_REALM", bad)
+        assert [p for p in setup.check_config() if "EAX_KEYCLOAK_REALM" in p], bad
+    monkeypatch.setenv("EAX_KEYCLOAK_REALM", "eaexplorer")
     web = next(c for c in realm["clients"] if c["clientId"] == "eax-web")
     assert "https://localhost/*" in web["redirectUris"]
     assert realm["users"][0]["credentials"][0]["value"] == 'pa"ss\\word'

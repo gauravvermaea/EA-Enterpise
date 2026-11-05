@@ -7,9 +7,10 @@
 // The server decides (and the database enforces) what may be changed; the screens only offer it.
 import { RowActions } from "./DataEntry";
 import { useEffect, useMemo, useState } from "react";
-import { apiFetch, can, currentUser, canOn, needsRole } from "./auth";
+import { apiFetch, can, currentUser, canOn, myRolesOn, needsRole } from "./auth";
 import { downloadCsv } from "./exporting";
 import { refreshAll, Swatch, useApi } from "./ModelViews";
+import { fmtDateTime } from "./fmt";
 
 const DATA_TYPES = [
   ["text", "Text"], ["long_text", "Long text"], ["integer", "Whole number"], ["decimal", "Decimal number"],
@@ -553,7 +554,7 @@ export function MetamodelHistory({ model, m }) {
             <li key={v.version} className={isOpen ? "open" : ""}>
               <button className="linkish mm-version-head" onClick={() => setOpen((o) => ({ ...o, [v.version]: !isOpen }))}>
                 <span className="vtag">v{v.version}</span> <strong>{v.note || (v.version === 1 ? "Initial metamodel" : "")}</strong>{" "}
-                <span className="quiet">{new Date(v.changed_at).toLocaleString()} · {v.changed_by}</span>
+                <span className="quiet">{fmtDateTime(v.changed_at)} · {v.changed_by}</span>
               </button>
               {v.version > 1 && <button className="linkish small-link" onClick={() => { setFrom(v.version - 1); setTo(v.version); }}>compare with v{v.version - 1}</button>}
               {v.version < data.current_version && <button className="linkish small-link" onClick={() => { setFrom(v.version); setTo(null); }}>what changed since</button>}
@@ -654,7 +655,7 @@ export function LockControl({ model, m }) {
   if (!canOn(model, "model.lock")) {
     return m.lock_level && m.lock_level !== "none"
       ? <span className={`model-lock ${m.lock_level}`}>🔒 {LOCKS[m.lock_level][0]} · {m.locked_by}
-        <button className="linkish" disabled title={`Unlocking: ${needsRole("model-admin", m.name)}`}>Unlock</button></span>
+        <button className="linkish" disabled title={`Unlocking: ${needsRole("model-admin", m.name)} (or Super Admin)`}>Unlock</button></span>
       : <button className="later" disabled title={`Locking: ${needsRole("model-admin", m.name)}`}>Lock...</button>;
   }
   async function call(method, body) {
@@ -666,9 +667,15 @@ export function LockControl({ model, m }) {
   }
   if (m.lock_level && m.lock_level !== "none") {
     return (
-      <span className={`model-lock ${m.lock_level}`} title={`${LOCKS[m.lock_level][1]}. Locked by ${m.locked_by} on ${new Date(m.locked_at).toLocaleString()}${m.lock_reason ? `: ${m.lock_reason}` : ""}`}>
+      <span className={`model-lock ${m.lock_level}`} title={`${LOCKS[m.lock_level][1]}. Locked by ${m.locked_by} on ${fmtDateTime(m.locked_at)}${m.lock_reason ? `: ${m.lock_reason}` : ""}`}>
         🔒 {LOCKS[m.lock_level][0]} · {m.locked_by}
-        <button className="linkish" onClick={() => call("DELETE")}>Unlock</button>
+        {m.locked_by && m.locked_by.toLowerCase() !== String(currentUser().preferred_username || "").toLowerCase() && !myRolesOn(model).includes("model-admin")
+          ? <button className="linkish" title={`Lift ${m.locked_by}'s lock as Super Admin (recorded in the audit trail and the change log)`}
+            onClick={() => {
+              // eslint-disable-next-line no-alert
+              if (window.confirm(`Lift the lock ${m.locked_by} set on ${m.name}${m.lock_reason ? ` (${m.lock_reason})` : ""}? They are not asked.`)) call("DELETE");
+            }}>Unlock (Super Admin)</button>
+          : <button className="linkish" onClick={() => call("DELETE")}>Unlock</button>}
         {error && <span className="status bad"> {error}</span>}
       </span>
     );
@@ -697,7 +704,7 @@ export function LockBanner({ m }) {
   const [name, help] = LOCKS[m.lock_level];
   return (
     <div className={`lock-banner ${m.lock_level}`}>
-      <strong>🔒 {name}</strong> by {m.locked_by} since {new Date(m.locked_at).toLocaleString()}: {help.toLowerCase()}.
+      <strong>🔒 {name}</strong> by {m.locked_by} since {fmtDateTime(m.locked_at)}: {help.toLowerCase()}.
       {m.lock_reason && <> Reason: <em>{m.lock_reason}</em>.</>}
     </div>
   );

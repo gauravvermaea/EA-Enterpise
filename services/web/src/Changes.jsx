@@ -8,11 +8,12 @@ import { useEffect, useState } from "react";
 import { apiFetch, currentUser } from "./auth";
 import { refreshAll, useApi } from "./ModelViews";
 import { Modal } from "./ModelOps";
+import { fmtDateTime } from "./fmt";
 
 const go = (path) => { window.location.hash = path; };
 const post = (path, body) => apiFetch(path, { method: "POST", body: JSON.stringify(body || {}) });
 const me = () => (currentUser()?.preferred_username || "").toLowerCase();
-const when = (t) => (t ? new Date(t).toLocaleString() : "");
+const when = (t) => (t ? fmtDateTime(t) : "");
 const show = (v) => (v === null || v === undefined || v === "" ? <span className="quiet">(empty)</span>
   : Array.isArray(v) ? v.join(", ") : typeof v === "object" ? JSON.stringify(v) : String(v));
 
@@ -91,6 +92,7 @@ function ChangeRows({ model, changes, chosen, setChosen, showConflicts }) {
             <td><input type="checkbox" checked={chosen.has(c.id)} onChange={() => flip(c.id)} aria-label={c.label} /></td>
             <td>
               <strong>{c.label}</strong> <EntityLink model={model} id={c.entity} deleted={c.op === "entity.delete"} />
+              {c.source && <span className="source-chip" title="Where this change came from">{c.source}</span>}
               {showConflicts && c.conflict && <div className="status bad small">⚠ {c.conflict.message}</div>}
               <RuleWarnings list={c.warnings} />
             </td>
@@ -318,7 +320,8 @@ function ConflictDialog({ model, conflicts, onResolve, onClose }) {
       <p className="quiet">Mine: the change as it was made. Theirs: keep what was committed since. Skip: leave the change out.</p>
       {conflicts.map((c) => (
         <div key={c.change} className="change-set">
-          <h3>{c.label} <span className="quiet">({c.author})</span> <EntityLink model={model} id={c.entity} /></h3>
+          <h3>{c.label} <span className="quiet">({c.author})</span> <EntityLink model={model} id={c.entity} />
+            {c.source && <span className="source-chip">{c.source}</span>}</h3>
           <p className="small">{c.message}</p>
           {c.kind === "fields" ? (
             <table className="grid-table">
@@ -527,7 +530,7 @@ export function EntityChanges({ model, entity, ec, compact }) {
         {!compact && (
           <ul className="small">
             {ec.mine.map((c) => (
-              <li key={c.id}>{c.label}{c.rows.length > 0 && <span className="quiet"> · {c.rows.map((r) => r.field).join(", ")}</span>}</li>
+              <li key={c.id}>{c.label}{c.source && <span className="source-chip">{c.source}</span>}{c.rows.length > 0 && <span className="quiet"> · {c.rows.map((r) => r.field).join(", ")}</span>}</li>
             ))}
           </ul>
         )}

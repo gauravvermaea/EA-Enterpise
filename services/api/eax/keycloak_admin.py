@@ -88,3 +88,19 @@ def console_url(user_id: str | None = None) -> str:
     s = get_settings()
     base = f"{s.public_base_url}/auth/admin/{s.realm}/console/#/{s.realm}"
     return f"{base}/users/{user_id}/role-mapping" if user_id else f"{base}/roles"
+
+
+def set_sessions(idle_seconds: int, max_seconds: int) -> None:
+    """Phase 10 (D183): the session time-outs set in the administration console, written to the realm. Needs the
+    service account's manage-realm role (deploy/keycloak/realm-eaexplorer.json.tmpl); only these two fields change."""
+    s = get_settings()
+    body = json.dumps({"ssoSessionIdleTimeout": int(idle_seconds), "ssoSessionMaxLifespan": int(max_seconds)}).encode()
+    req = urllib.request.Request(f"{_base()}/admin/realms/{s.realm}", data=body, method="PUT",
+                                 headers={"Authorization": f"Bearer {_service_token()}", "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT):
+            return
+    except urllib.error.HTTPError as exc:
+        raise KeycloakError(f"Keycloak refused the session time-outs: {exc.code} {exc.reason}") from exc
+    except (urllib.error.URLError, TimeoutError) as exc:
+        raise KeycloakError(f"Keycloak is not reachable: {exc}") from exc

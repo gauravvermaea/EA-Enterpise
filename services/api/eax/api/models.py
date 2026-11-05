@@ -56,6 +56,14 @@ class Free(Schema):
         return _plain(obj)
 
 
+class FreeIn(Schema):
+    """A request body whose shape varies ({key: value} settings, a list of types...): every field passed through as
+    sent. (Free is for answers: as a body it has no fields and refuses everything with 422.)"""
+
+    class Meta:
+        unknown = INCLUDE
+
+
 class CreateIn(Schema):
     kind = fields.String(load_default="project", metadata={"description": "root, project or library (Library Admins)"})
     name = fields.String(required=True)

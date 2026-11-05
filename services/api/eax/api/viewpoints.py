@@ -1,6 +1,6 @@
 """Viewpoints, business maps and report audiences (build phase 8.2, D161).
 
-GET  /viewpoints                                  every viewpoint (built in VP-01 to VP-25, and the organisation's own)
+GET  /viewpoints                                  every viewpoint (built in VP-01 to VP-26, and the organisation's own)
 POST /viewpoints                                  add your own (Library Admins)
 PUT/DELETE /viewpoints/<code>                     change or delete your own (built-in ones are fixed)
 GET  /models/<m>/viewpoints                       every viewpoint with how many of the model's entities it shows
@@ -27,7 +27,7 @@ from ..metamodel_edit import EditError, _db_message
 from .models import Free
 
 blp = Blueprint("viewpoints", __name__, url_prefix="/api/v1",
-                description="Viewpoints (VP-01 to VP-25 and your own), business maps and report audiences (phase 8.2)")
+                description="Viewpoints (VP-01 to VP-26 and your own), business maps and report audiences (phase 8.2)")
 SECURITY = [{"bearerAuth": []}]
 
 

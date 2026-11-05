@@ -92,7 +92,8 @@ def model_reports(conn, model: Any) -> dict[str, Any]:
     out = catalogue(conn, m["_id"])
     out["model"] = {"id": str(m["id"]), "name": m["name"]}
     out["reports_url"] = base
-    out["reports"] = [{**r, "url": f"{base}/login/keycloak?next=/superset/dashboard/{r['slug']}/"} for r in REPORTS]
+    from .report_about import about
+    out["reports"] = [{**r, **about(r), "url": f"{base}/login/keycloak?next=/superset/dashboard/{r['slug']}/"} for r in REPORTS]
     from .report_defs import AUDIENCES
     out["audiences"] = [{"code": c, "name": n, "group": grp} for c, n, grp in AUDIENCES]
     return out

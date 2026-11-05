@@ -27,7 +27,6 @@ export function ViewPicker({ model, kind, target, config, onApply }) {
         {(views || []).map((v) => <option key={v.id} value={v.id}>{v.name}{v.shared ? " (shared)" : ""}{v.mine ? "" : ` by ${v.owner}`}</option>)}
       </select>
       <button onClick={() => setSaving(true)} title="Save the columns, filter and sort as a view">Save view</button>
-      {current && <FavStar kind="view" id={current.id} label={current.name} />}
       {saving && <SaveViewDialog model={model} kind={kind} target={target} config={config} existing={current?.mine ? current : null}
         onClose={() => setSaving(false)} onSaved={(id) => { setChosen(id); setSaving(false); }} />}
     </span>
@@ -57,48 +56,6 @@ function SaveViewDialog({ model, kind, target, config, existing, onClose, onSave
         {msg && <p className="status bad">{msg}</p>}
       </div>
     </Modal>
-  );
-}
-
-// ---------------------------------------------------------------- favourites and recent items
-export function FavStar({ kind, id, label }) {
-  const { data: favs } = useApi("/api/v1/favourites");
-  const on = !!(favs || []).find((f) => f.kind === kind && String(f.id) === String(id));
-  return (
-    <button className={`linkish fav${on ? " on" : ""}`} title={on ? "Remove from favourites" : "Add to favourites (Search page and start page)"}
-      onClick={async () => { await apiFetch("/api/v1/favourites", { method: "POST", body: JSON.stringify({ kind, id, favourite: !on, label }) }); refreshAll(); }}>
-      {on ? "★" : "☆"}</button>
-  );
-}
-
-const RECENT_KEY = "eax-recent";
-export function rememberRecent(item) {
-  try {
-    const list = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]").filter((x) => x.href !== item.href);
-    localStorage.setItem(RECENT_KEY, JSON.stringify([{ ...item, at: Date.now() }, ...list].slice(0, 20)));
-  } catch { /* storage blocked: no recent list */ }
-}
-function recentItems() {
-  try { return JSON.parse(localStorage.getItem(RECENT_KEY) || "[]"); } catch { return []; }
-}
-
-export function FavouritesAndRecent() {
-  const { data: favs } = useApi("/api/v1/favourites");
-  const recent = recentItems();
-  const hrefOf = (f) => (f.kind === "entity" ? `#/metamodel/${f.model_id}/entity/${f.id}` : f.kind === "model" ? `#/metamodel/${f.id}` : `#/metamodel/${f.model_id}`);
-  return (
-    <div className="fav-recent">
-      <div>
-        <h3>★ Favourites</h3>
-        {!(favs || []).length && <p className="quiet">Press ☆ on an entity, a model or a saved view to keep it here.</p>}
-        <ul>{(favs || []).map((f) => <li key={`${f.kind}-${f.id}`}><a href={hrefOf(f)}>{f.name}</a> <span className="quiet">{f.kind}{f.entity_type ? ` · ${f.entity_type}` : ""}{f.model && f.kind !== "model" ? ` · ${f.model}` : ""}</span></li>)}</ul>
-      </div>
-      <div>
-        <h3>Recently opened</h3>
-        {!recent.length && <p className="quiet">Entities you open appear here (on this browser).</p>}
-        <ul>{recent.map((r) => <li key={r.href}><a href={r.href}>{r.name}</a> <span className="quiet">{r.what}</span></li>)}</ul>
-      </div>
-    </div>
   );
 }
 
@@ -140,7 +97,7 @@ export function SearchPage({ route }) {
         <>
           <p className="quiet">{data.total}{data.more ? "+" : ""} result{data.total === 1 ? "" : "s"}{data.query ? ` for "${data.query}"` : ""}.</p>
           <table className="grid-table">
-            <thead><tr><th>Entity</th><th>Type</th><th>Model</th><th>Found in</th><th>Tags</th><th /></tr></thead>
+            <thead><tr><th>Entity</th><th>Type</th><th>Model</th><th>Found in</th><th>Tags</th></tr></thead>
             <tbody>
               {data.results.map((r) => (
                 <tr key={r.id}>
@@ -149,15 +106,13 @@ export function SearchPage({ route }) {
                   <td><a href={`#/metamodel/${r.model_id}`}>{r.model}</a></td>
                   <td className="quiet">{r.field}{r.snippet ? `: ${r.snippet}` : ""}</td>
                   <td>{(r.tags || []).map((t) => <span key={t} className="tag">{t}</span>)}</td>
-                  <td><FavStar kind="entity" id={r.id} label={r.name} /></td>
                 </tr>
               ))}
-              {!data.results.length && <tr><td colSpan="6" className="quiet">Nothing found.</td></tr>}
+              {!data.results.length && <tr><td colSpan="5" className="quiet">Nothing found.</td></tr>}
             </tbody>
           </table>
         </>
       )}
-      {!run && <FavouritesAndRecent />}
     </section>
   );
 }

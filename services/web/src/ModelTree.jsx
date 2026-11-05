@@ -50,7 +50,7 @@ function layout(models, across) {
   return { nodes, edges, pos, width, height };
 }
 
-export default function ModelTree({ models }) {
+export default function ModelTree({ models, focus }) {
   const [across, setAcross] = useState(false);
   const [mine, setMine] = useState("");
   const svgRef = useRef(null);
@@ -105,7 +105,7 @@ export default function ModelTree({ models }) {
             ))}
             {t.nodes.map(({ m, x, y }) => {
               const s = STYLE[m.kind] || STYLE.project;
-              const hit = q && (m.name.toLowerCase().includes(q) || (m.industry || "").toLowerCase().includes(q));
+              const hit = (q && (m.name.toLowerCase().includes(q) || (m.industry || "").toLowerCase().includes(q))) || m.id === focus;
               return (
                 <g key={m.id} transform={`translate(${x},${y})`} className="tree-box"
                   onClick={() => { if (!wasDrag()) window.location.hash = `/metamodel/${m.id}`; }}>

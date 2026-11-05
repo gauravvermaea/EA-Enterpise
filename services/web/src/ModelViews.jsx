@@ -13,10 +13,10 @@ import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "./auth";
 import { downloadCsv } from "./exporting";
 import { EditButton, entityTypeSpec, mappingSpec, relationshipTypeSpec } from "./MetamodelEditor";
-import { FavStar, rememberRecent } from "./GridPages";
 import { PendingMark } from "./ModelMarks";
 import { EntityChanges, useEntityChanges, WasValue } from "./Changes";
 import { AddRelationshipButton, EntityActions, NewEntityButton, NewRelationshipButton, RemoveRelationshipButton, RollBackButton, RowActions } from "./DataEntry";
+import { fmtDate, fmtDateTime } from "./fmt";
 
 const EntityGraph = lazy(() => import("./EntityGraph"));
 const HierarchyMap = lazy(() => import("./HierarchyMap"));
@@ -313,7 +313,7 @@ export function TypeEntitiesTable({ model, m, typeId }) {
                 <td className="num">{r.relationship_count}</td>
                 <td className="quiet nowrap" title={`Created in metamodel v${r.created_mm_version}, last changed in v${r.modified_mm_version}`}>
                   v{r.created_mm_version}{r.modified_mm_version !== r.created_mm_version ? ` / v${r.modified_mm_version}` : ""}</td>
-                <td className="quiet nowrap" title={`by ${r.modified_by}`}>{new Date(r.modified_at).toLocaleDateString()}</td>
+                <td className="quiet nowrap" title={`by ${r.modified_by}`}>{fmtDate(r.modified_at)}</td>
               </tr>,
               open[r.id] && <RelationsUnder key={`${r.id}-rel`} model={model} entityId={r.id} colSpan={colSpan} />,
             ])}
@@ -495,10 +495,9 @@ function DetailsTab({ model, m, e }) {
       <div className="toolbar">
         <CsvButton name={`${e.display_id} ${e.name} - details`} rows={() => [["Section", "Field", "Value", "Type", "Required", "Check"],
           ["Basic", "Name", e.name, "Text", "yes", fieldWarnings("name").map((w) => w.message).join("; ")],
-          ["Basic", "Display ID", e.display_id, "Generated", "", ""],
-          ["Basic", "Description", e.description, "Text", "", ""],
-          ["Basic", "Parent", e.parent_name, "Entity", "", ""],
-          ["Basic", "Status", e.status, "Workflow", "", ""],
+          ...[["Display ID", e.display_id, "Generated", "display_id"], ["Description", e.description, "Text", "description"],
+            ["Parent", e.parent_name, "Entity", "parent"], ["Status", e.status, "Workflow", "status"], ["Tags", (e.tags || []).join(", "), "Tags", "tags"]]
+            .map(([label, v, t, code]) => ["Basic", label, v, t, "", fieldWarnings(code).map((w) => w.message).join("; ")]),
           ...e.attributes.map((a) => [a.section, a.name, a.value, a.data_type_name, a.is_required ? "yes" : "", a.warnings.map((w) => w.message).join("; ")])]} />
         <span className="er-spacer" />
         <EntityActions model={model} m={m} e={e} />
@@ -508,11 +507,11 @@ function DetailsTab({ model, m, e }) {
         <tbody>
           <tr className="section-row"><td colSpan="4">Basic</td></tr>
           <tr className={hl("name")}><th>Name <span className="req">*</span></th><td>{e.name} <WasValue f={f("name")} /></td><td className="quiet">Text</td><td><Status list={fieldWarnings("name")} /></td></tr>
-          <tr><th>Display ID</th><td>{e.display_id}</td><td className="quiet">Generated</td><td /></tr>
+          <tr><th>Display ID</th><td>{e.display_id}</td><td className="quiet">Generated</td><td><Status list={fieldWarnings("display_id")} /></td></tr>
           <tr className={hl("description")}><th>Description</th><td className="pre">{e.description} <WasValue f={f("description")} /></td><td className="quiet">Text</td><td><Status list={fieldWarnings("description")} /></td></tr>
-          <tr className={hl("parent")}><th>Parent</th><td>{e.parent_id ? <a href={`#/metamodel/${model}/entity/${e.parent_id}`}>{e.parent_name}</a> : <span className="quiet">-</span>}</td><td className="quiet">Entity</td><td /></tr>
-          <tr className={hl("status")}><th>Status</th><td>{e.status} <WasValue f={f("status")} /></td><td className="quiet">Workflow</td><td /></tr>
-          <tr className={hl("tags")}><th>Tags</th><td>{(e.tags || []).length ? e.tags.map((t) => <span key={t} className="tag">{t}</span>) : <span className="quiet">-</span>}</td><td className="quiet">Tags</td><td /></tr>
+          <tr className={hl("parent")}><th>Parent</th><td>{e.parent_id ? <a href={`#/metamodel/${model}/entity/${e.parent_id}`}>{e.parent_name}</a> : <span className="quiet">-</span>}</td><td className="quiet">Entity</td><td><Status list={fieldWarnings("parent")} /></td></tr>
+          <tr className={hl("status")}><th>Status</th><td>{e.status} <WasValue f={f("status")} /></td><td className="quiet">Workflow</td><td><Status list={fieldWarnings("status")} /></td></tr>
+          <tr className={hl("tags")}><th>Tags</th><td>{(e.tags || []).length ? e.tags.map((t) => <span key={t} className="tag">{t}</span>) : <span className="quiet">-</span>}</td><td className="quiet">Tags</td><td><Status list={fieldWarnings("tags")} /></td></tr>
           {sections.map((s) => [
             <tr key={`s-${s.name}`} className="section-row"><td colSpan="4">{s.name}</td></tr>,
             ...s.items.map((a) => {
@@ -525,7 +524,7 @@ function DetailsTab({ model, m, e }) {
                     : <>{a.value}{a.unit && ` ${a.unit}`}</>} <WasValue f={f(`value:${a.code}`)} /></td>
                   <td className="quiet" title={a.pick_list_values.length ? `One of: ${a.pick_list_values.join(", ")}` : undefined}>
                     {a.data_type_name}</td>
-                  <td><Status list={a.warnings} />{a.override && <span className="override-mark" title={`Saved although it fails the rule, by ${a.override.by} on ${new Date(a.override.at).toLocaleString()}`}> saved anyway</span>}</td>
+                  <td><Status list={a.warnings} />{a.override && <span className="override-mark" title={`Saved although it fails the rule, by ${a.override.by} on ${fmtDateTime(a.override.at)}`}> saved anyway</span>}</td>
                 </tr>
               );
             }),
@@ -538,7 +537,7 @@ function DetailsTab({ model, m, e }) {
           <p>{e.children.map((c, i) => <span key={c.id}>{i > 0 && ", "}<a href={`#/metamodel/${model}/entity/${c.id}`}>{c.name}</a></span>)}</p>
         </>
       )}
-      <p className="quiet">Created {new Date(e.created_at).toLocaleString()} by {e.created_by} in metamodel v{e.created_mm_version} · changed {new Date(e.modified_at).toLocaleString()} by {e.modified_by} in metamodel v{e.modified_mm_version} · version {e.row_version}</p>
+      <p className="quiet">Created {fmtDateTime(e.created_at)} by {e.created_by} in metamodel v{e.created_mm_version} · changed {fmtDateTime(e.modified_at)} by {e.modified_by} in metamodel v{e.modified_mm_version} · version {e.row_version}</p>
     </div>
   );
 }
@@ -652,7 +651,7 @@ function AsOfPanel({ model, m, entityId, point, list, index, setPoint }) {
     <div>
       <div className="asof-head">
         <div>
-          <strong>As it was on {new Date(a.as_of.at).toLocaleString()}</strong>
+          <strong>As it was on {fmtDateTime(a.as_of.at)}</strong>
           <span className="quiet"> · after a change by {a.as_of.by} · change {a.as_of.position} of {a.as_of.of}</span>
           <div className="asof-did">This change {did.length ? did.join(", ") : "changed nothing shown here"}
             {here > 0 && <span className="quiet"> (highlighted in yellow{created ? "" : ", shown as old → new"})</span>}</div>
@@ -729,6 +728,9 @@ function HistoryTab({ model, m, e }) {
   const { data, error } = useApi(`/api/v1/models/${model}/entities/${entityId}/history`);
   const [kind, setKind] = useState("");
   const [point, setPoint] = useState(null);
+  const ec = useEntityChanges(model, m, entityId);   // my uncommitted changes, marked under "Current values"
+  const f = (code) => ec.fields[String(code).toLowerCase()];
+  const hl = (code) => (f(code) ? "pending-field" : "");
   if (!data) return <Loading error={error} />;
   const events = data.events.filter((ev) => !kind || ev.kind === kind);
   const list = moments(events);
@@ -737,9 +739,10 @@ function HistoryTab({ model, m, e }) {
     <div>
       <div className="toolbar">
         {KINDS.map(([k, l]) => <button key={k} className={`chip${kind === k ? " on" : ""}`} onClick={() => setKind(k)}>{l}</button>)}
-        <CsvButton name={`${e.display_id} ${e.name} - history`} rows={() => [["When", "Who", "What", "Item", "Version", "Field", "Old", "New"],
+        <CsvButton name={`${e.display_id} ${e.name} - history`} rows={() => [["When", "Who", "What", "Item", "Version", "Field", "Old", "New", "Commit", "Commit message"],
           ...events.flatMap((ev) => (ev.changes.length ? ev.changes : [{ field: "", old: "", new: "" }]).map((c) =>
-            [ev.at, ev.by, `${ev.kind} ${verbOf(ev.operation)}`, ev.item, ev.version, c.field, c.old, c.new]))]} />
+            [ev.at, ev.by, `${ev.kind} ${verbOf(ev.operation)}`, ev.item, ev.version, c.field, c.old, c.new,
+              ev.commit ? ev.commit.number : "", ev.commit ? ev.commit.message : ""]))]} />
         <span className="er-spacer" />
         <span className="quiet">{data.total} recorded changes at {list.length} moments</span>
       </div>
@@ -751,8 +754,13 @@ function HistoryTab({ model, m, e }) {
           {list.map((g) => (
             <li key={g.key} className={`moment${point === g.id ? " on" : ""}`}>
               <button className="linkish" onClick={() => setPoint(g.id)} title="Show the entity as it was just after this">
-                <span className="when">{new Date(g.at).toLocaleString()}</span> <span className="who">{g.by}</span>
+                <span className="when">{fmtDateTime(g.at)}</span> <span className="who">{g.by}</span>
               </button>
+              {(() => {
+                const c = g.events.find((ev) => ev.commit)?.commit;   // the commit it came in with, and its message (D195)
+                return c ? <div className="commit-note small">Commit #{c.number}{c.by && c.by !== g.by ? ` by ${c.by}` : ""}{c.message ? `: ${c.message}` : ""}
+                  {(c.sources || []).map((x) => <span key={x} className="source-chip">{x}</span>)}</div> : null;
+              })()}
               <ul>
                 {g.events.slice(0, 4).map((ev) => (
                   <li key={ev.id}>
@@ -920,7 +928,6 @@ function RulesTab({ model, e }) {
 
 export function EntityPage({ model, m, entityId, sub }) {
   const { data: e, error } = useApi(`/api/v1/models/${model}/entities/${entityId}`);
-  useEffect(() => { if (e) rememberRecent({ href: `#/metamodel/${model}/entity/${e.id}`, name: e.name, what: `${e.entity_type} · ${m?.name || ""}` }); }, [e?.id]);
   if (!e) return <Loading error={error} />;
   const tab = sub || "details";
   const errors = e.warnings.filter((w) => w.severity === "error").length;
@@ -935,7 +942,7 @@ export function EntityPage({ model, m, entityId, sub }) {
       <div className="entity-card">
         <div className="entity-card-head">
           <div className="entity-head">
-            <h2><Swatch colour={e.colour} /> {e.name} <FavStar kind="entity" id={e.id} label={e.name} /> <PendingMark kind={e.pending} model={model} /></h2>
+            <h2><Swatch colour={e.colour} /> {e.name} <PendingMark kind={e.pending} model={model} /></h2>
             <span className="quiet">{e.display_id} · {e.entity_type} · {e.layer} layer · {e.status} · metamodel v{e.created_mm_version}{e.modified_mm_version !== e.created_mm_version ? `, changed in v${e.modified_mm_version}` : ""}</span>
             <Checks errors={errors} warnings={e.warnings.length - errors} messages={e.warnings.map((w) => w.message)} />
           </div>

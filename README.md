@@ -5,7 +5,7 @@ a governed metamodel, an architecture repository, diagrams (draw.io), reports (A
 documents (Mayan EDMS), sign-in through Keycloak, and an MCP server so you can connect your own
 language model. Everything runs in Docker containers from one config file.
 
-**Status: phase 8 (version 0.8.3) built, waiting for the owner's test; phase 8.2 accepted.** The platform runs end to end; the
+**Status: phase 10.1 (version 0.10.1) built, waiting for the owner's test together with phases 8.3, 9 and 10; phase 8 accepted.** The platform runs end to end; the
 repository database holds the ArchiMate 4 template, a locked insurance reference model and a sample
 model; model pages show entities, relationships, graphs and history; a project model's metamodel can be
 changed from the screens, every change publishing a new metamodel version; a failing-checks screen;
@@ -32,11 +32,14 @@ Each phase has its own notes: what it delivers, a demo, checks, how to upgrade a
 | 6 | Data entry in forms | 0.6.0 | accepted and closed | [phase-6.md](docs/phase-6.md) |
 | 7 | Grids, search and saved views | 0.7.0 | accepted and closed | [phase-7.md](docs/phase-7.md) |
 | 8.2 | Reports and views: viewpoints VP-01 to VP-25, TOGAF catalogues and matrices, dependency reports, audience dashboards, value stream map, roadmap (pulled ahead of 8) | 0.8.2 | accepted and closed; each report checked in phase 36.1 | [phase-8.2.md](docs/phase-8.2.md) |
-| 8 | Commits of content (private until committed), Committer and History Viewer roles, conflicts at commit, roll back, draft model rejection, merging a model into a model, live updates | 0.8.3 | built, waiting for the owner's test | [phase-8.md](docs/phase-8.md) |
+| 8 | Commits of content (private until committed), Committer and History Viewer roles, conflicts at commit, roll back, draft model rejection, merging a model into a model, live updates | 0.8.3 | accepted and closed | [phase-8.md](docs/phase-8.md) |
+| 8.3 | Model tags (frozen snapshots, a page per tag, make a tag the latest), Compare and Gap analyses as top-menu screens (any models and their tags; gaps stored in a chosen model), a filter screen, shared profiles and side-by-side details, TOGAF gap analyses with Gap entities (tagged by result), two gap results compared, gap reports GR-01 to GR-05 | 0.8.4 | accepted and closed | [phase-8.3.md](docs/phase-8.3.md) |
+| 9 | The change log: one row per action, in its own database (EAX_CHANGELOG_DB_URL), everyone their own changes, Model Admins their models, Super Admins all; export and delete for Super Admins | 0.9.0 | accepted and closed | [phase-9.md](docs/phase-9.md) |
+| 10 | Administration console (application and system settings applied at once, start-up settings shown, restart through the operations helper, health, licences), installation-wide formats, model Hierarchy tab, VP-26 Gap, report guides | 0.10.0 | accepted and closed | [phase-10.md](docs/phase-10.md) |
+| 10.1 | Import and export sheets: choose types, Excel (.xlsx, .xlsm) or CSV set built on the fly with data, drop-downs and provisional IDs; upload with a preview into your uncommitted changes; column mappings, undo a load | 0.10.1 | accepted and closed | [phase-10.1.md](docs/phase-10.1.md) |
 
-Next, in order (D147, D161): **8.3** model tags, comparison and gap
-analysis · **8.4** backup and restore · **9** history and change log · **10** home dashboard · **10.1** import and export sheets.
-The full plan (50 phases) is in [docs/requirements/EA_Explorer_Build_Plan.xlsx](docs/requirements/EA_Explorer_Build_Plan.xlsx).
+Next, in order (D147, D161, D179, D181): **8.1** actions, alerts and workflows · **12** validation · **13** documents · **15 to 16.2** TOGAF projects · **16.3** guided wizards. Backup and restore (8.4) comes in operations and launch, after phases 35 and 35.1; phase 8.5 and the start page clean-up towards the end.
+The full plan (52 phases) is in [docs/requirements/EA_Explorer_Build_Plan.xlsx](docs/requirements/EA_Explorer_Build_Plan.xlsx).
 
 ## Quick start (laptop)
 

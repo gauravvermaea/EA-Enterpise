@@ -13,6 +13,7 @@ function Modal({ children, ...props }) {
 import { refreshAll, Swatch, useApi } from "./ModelViews";
 import { PendingBanner, PendingMark } from "./ModelMarks";
 import { EntityChanges, useEntityChanges, WasValue } from "./Changes";
+import { fmtDateTime } from "./fmt";
 
 const CONTENT_ROLES = ["architect", "model-sub-admin", "model-admin"];
 const me = () => currentUser().preferred_username || "";
@@ -119,6 +120,13 @@ function initialValues(e, form) {
   return out;
 }
 
+// a field's rules as you type (D194): what fails, or a quiet tick once checked
+function LiveCheck({ list }) {
+  if (!list) return null;
+  if (!list.length) return <span className="live-ok small" title="Every rule on this field passes">✓</span>;
+  return <>{list.map((w, i) => <span key={i} className={`sev ${w.severity} small`}>{w.message}</span>)}</>;
+}
+
 export function EntityFormDialog({ model, m, typeId, e, onClose, onSaved }) {
   const { data: form, error } = useApi(`/api/v1/models/${model}/forms/${typeId || e?.entity_type_id}`);
   const [name, setName] = useState(e?.name || "");
@@ -132,6 +140,25 @@ export function EntityFormDialog({ model, m, typeId, e, onClose, onSaved }) {
   const ec = useEntityChanges(model, m, e?.id);   // my uncommitted changes to it, highlighted (phase 8)
   const f = (code) => ec.fields[String(code).toLowerCase()];
   useEffect(() => { if (form && values === null) setValues(initialValues(e, form)); }, [form]);
+  // the rules checked as you type (D194): the same checks as after a save, on the values in the form, nothing saved
+  const [live, setLive] = useState(null);
+  useEffect(() => {
+    if (!form || values === null) return undefined;
+    const t = setTimeout(async () => {
+      const vals = {};
+      for (const a of form.attributes) {
+        const v = values[a.code];
+        if (v !== undefined) vals[a.code] = v && typeof v === "object" ? v.name : v;
+      }
+      try {
+        const out = await apiFetch(`/api/v1/models/${model}/content/entities/check`, { method: "POST",
+          body: JSON.stringify({ entity_type: form.entity_type.id, entity: e?.id, name, description, values: vals }) });
+        setLive(out);
+      } catch { setLive(null); }   // the check is a help: without it the form still saves and warns after
+    }, 400);
+    return () => clearTimeout(t);
+  }, [form, values, name, description]);
+  const liveFor = (code) => (live ? live.warnings.filter((w) => w.code.toLowerCase() === String(code).toLowerCase()) : null);
   if (!form || values === null) return <Modal title="Loading..." onClose={onClose}><p className="quiet">{error || "Loading the form..."}</p></Modal>;
   const sections = [];
   for (const a of form.attributes) {
@@ -191,18 +218,25 @@ export function EntityFormDialog({ model, m, typeId, e, onClose, onSaved }) {
       </>}>
       {msg && <p className={msg.startsWith("Saved") ? "status ok" : "status bad"}>{msg}</p>}
       {e && <EntityChanges model={model} entity={e} ec={ec} compact />}
+      {live && (live.summary.errors + live.summary.warnings > 0
+        ? <p className="status warn small live-check">⚠ With these values it fails {live.summary.errors + live.summary.warnings} rule{live.summary.errors + live.summary.warnings === 1 ? "" : "s"}
+          {" "}(checked as you type): {live.warnings.map((w) => `${w.field}: ${w.message}`).join("; ")}. You can still save; it is flagged until fixed (D48).</p>
+        : <p className="status ok small live-check">✓ With these values every rule passes (checked as you type).</p>)}
       <div className="form-grid">
         <label className={`ed-field${f("name") ? " pending-field" : ""}`}><span>Name <span className="req">*</span> <WasValue f={f("name")} /></span>
-          <input autoFocus value={name} onChange={(ev) => setName(ev.target.value)} /></label>
+          <input autoFocus value={name} onChange={(ev) => setName(ev.target.value)} />
+          <LiveCheck list={liveFor("name")} /></label>
         <label className="ed-field"><span>Display ID</span>
           <input value={e?.display_id || ""} disabled placeholder={`${form.entity_type.id_prefix}-next number`} title="Given when saved" /></label>
         <label className={`ed-field wide${f("description") ? " pending-field" : ""}`}><span>Description <WasValue f={f("description")} /></span>
-          <textarea rows={2} value={description} onChange={(ev) => setDescription(ev.target.value)} /></label>
+          <textarea rows={2} value={description} onChange={(ev) => setDescription(ev.target.value)} />
+          <LiveCheck list={liveFor("description")} /></label>
         <div className="ed-field"><span title="The entity this one is part of (for hierarchies such as capability levels)">Part of (parent) <span className="tip">ⓘ</span></span>
           <EntityPicker model={model} value={parent?.id} label={parent?.name} types={[form.entity_type.id]}
-            onChange={(i, n) => setParent(i ? { id: i, name: n } : null)} /></div>
+            onChange={(i, n) => setParent(i ? { id: i, name: n } : null)} /><LiveCheck list={liveFor("parent")} /></div>
         <label className="ed-field"><span title="Words to group and find entities by, separated by commas">Tags <span className="tip">ⓘ</span></span>
-          <input value={tags} onChange={(ev) => setTags(ev.target.value)} placeholder="for example cloud, critical" /></label>
+          <input value={tags} onChange={(ev) => setTags(ev.target.value)} placeholder="for example cloud, critical" />
+          <LiveCheck list={liveFor("tags")} /></label>
       </div>
       {sections.map((s) => (
         <fieldset key={s.name} className="form-section">
@@ -210,14 +244,17 @@ export function EntityFormDialog({ model, m, typeId, e, onClose, onSaved }) {
           <div className="form-grid">
             {s.items.map((a) => {
               const cur = e?.attributes?.find((x) => x.code === a.code);
-              const warn = cur?.warnings?.length ? cur.warnings.map((w) => w.message).join("; ") : "";
+              const now = liveFor(a.code);   // as you type; until the first check, the warnings saved with it
+              const warn = now ? now.map((w) => w.message).join("; ") : cur?.warnings?.length ? cur.warnings.map((w) => w.message).join("; ") : "";
+              const sev = now?.some((w) => w.severity === "error") ? "error" : "warning";
               return (
                 <div key={a.code} className={`ed-field${a.data_type === "long_text" ? " wide" : ""}${f(`value:${a.code}`) ? " pending-field" : ""}`}>
                   <label htmlFor={`f-${a.code}`} title={[a.description, a.data_type_name, a.pick_list_values.length ? `One of: ${a.pick_list_values.join(", ")}` : ""].filter(Boolean).join(" · ")}>
                     {a.name}{a.is_required && <span className="req" title="Required">*</span>}{a.unit && <span className="quiet"> ({a.unit})</span>} <span className="tip">ⓘ</span> <WasValue f={f(`value:${a.code}`)} />
                   </label>
                   <ValueInput model={model} a={a} id={`f-${a.code}`} value={values[a.code]} onChange={(v) => setValues((x) => ({ ...x, [a.code]: v }))} />
-                  {warn && <span className="sev warning small" title={cur?.override ? `Saved anyway by ${cur.override.by} on ${new Date(cur.override.at).toLocaleString()}` : undefined}>{warn}</span>}
+                  {now && !now.length && <span className="live-ok small" title="Every rule on this field passes">✓</span>}
+                  {warn && <span className={`sev ${sev} small`} title={cur?.override ? `Saved anyway by ${cur.override.by} on ${fmtDateTime(cur.override.at)}` : undefined}>{warn}</span>}
                 </div>
               );
             })}
@@ -416,7 +453,7 @@ export function RollBackButton({ model, m, e, eventId, at }) {
               refreshAll(); setConfirm(false);
             } catch (err) { setMsg(err.message); }
           }}>Roll back</button>}>
-          <p>Its name, description, parent, status, tags, values and relationships go back to how they were on {new Date(at).toLocaleString()}.
+          <p>Its name, description, parent, status, tags, values and relationships go back to how they were on {fmtDateTime(at)}.
             This is saved as a new version: the history keeps everything in between, so you can roll forward again.</p>
           {msg && <p className="status bad">{msg}</p>}
         </Modal>

@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch, canOn, MODEL_ROLES, roleName, needsRole } from "./auth";
 import { refreshAll, useApi } from "./ModelViews";
+import { fmtDate } from "./fmt";
 
 const DOES = {
   "model-admin": "owns the model: metamodel, locks, people, content and its commits, derived models",
@@ -67,7 +68,7 @@ export default function ModelPeople({ model, m }) {
                     onChange={(e) => (e.target.checked ? give(p.username, r) : take(p.username, r))} />
                 </td>
               ))}
-              <td className="quiet small">{new Date(p.since).toLocaleDateString()} by {p.by}</td>
+              <td className="quiet small">{fmtDate(p.since)} by {p.by}</td>
               <td><button className="small" disabled={!manage} title={manage ? `Take every role on ${m.name} from ${p.username}` : `Taking roles: ${needsRole("model-admin", m.name)}`}
                 onClick={() => take(p.username)}>Remove all</button></td>
             </tr>

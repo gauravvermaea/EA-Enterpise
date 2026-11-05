@@ -42,6 +42,7 @@ GLOBAL_PERMISSIONS: dict[str, set[str]] = {
     "models.create": {MODEL_CREATOR},      # create a model and become its Model Admin (phase 4)
     "models.delete": set(),                # delete a model: Super Admin only (D121)
     "library.curate": {LIBRARY_ADMIN},     # create, publish, promote, upload and withdraw library models (D118)
+    "settings.manage": set(),              # change settings and restart the system: Super Admin only (phase 10, D183)
 }
 # Model permissions: the person's roles on that model
 MODEL_PERMISSIONS: dict[str, set[str]] = {

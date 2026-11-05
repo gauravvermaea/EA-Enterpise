@@ -601,7 +601,7 @@ def _change_out(conn, m: dict, ch: dict, with_conflicts: bool = False) -> dict:
     out = {"id": str(ch["guid"]), "op": ch["op"], "label": ch["label"], "target": _s(ch.get("target")),
            "entities": sorted(set(ents)), "entity": ents[0] if ents else None, "change_set": None,
            "target_kind": ch.get("target_kind"), "status": ch["status"], "created_at": ch["created_at"], "note": ch.get("note") or "",
-           "author": ch.get("author"), "rows": rows, "warnings": _json(ch.get("warnings")) or []}
+           "source": ch.get("source") or "", "author": ch.get("author"), "rows": rows, "warnings": _json(ch.get("warnings")) or []}
     if with_conflicts:
         c = _conflict(conn, m, ch, None)
         out["conflict"] = c

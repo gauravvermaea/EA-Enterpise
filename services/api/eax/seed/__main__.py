@@ -8,7 +8,8 @@ whatever is already present is left alone, so it is safe on every start.
   * Laptop only (with the sample): test models for roles (a fictitious insurer, Fynbos Mutual, from the
     insurance reference model, with Fynbos Life and Fynbos Commercial derived from it, and an
     independent Karoo Re), the demo estate Protea Insurance (phase 8.2), the test users' model
-    assignments (phase 3.1), and a few saved versions of two sample entities for the History tab (D110)
+    assignments (phase 3.1), and a few saved versions of two sample entities for the History tab (D110). The demo
+    estate's tags and gap analyses (phase 8.3, D176) are made after the API starts: eax/seed/versions_demo.py
   * The built-in viewpoints and report audiences (always, phase 8.2)
 Templates and reference models are locked, so this runs as the installer's login (eax_migrator,
 EAX_DB_MIGRATOR_PASSWORD), the only login the database lets change them.
@@ -68,6 +69,7 @@ def main() -> int:
                 print("EA Explorer: loaded the laptop test models (Fynbos Mutual group, Fynbos Life, Fynbos Commercial, Karoo Re)")
                 history_demo(conn)
             assign_test_users(conn)
+            # the demo estate's tags and gap analyses are made after the API starts (entrypoint.sh, D176)
         # the built-in viewpoints and report audiences follow eax/report_defs.py (phase 8.2, D161)
         conn.execute(catalog_sql())
         print("EA Explorer: viewpoints and report audiences brought up to date")

@@ -38,6 +38,11 @@ class Settings:
     db_migrator_user: str = field(default_factory=lambda: _env("EAX_DB_MIGRATOR_USER", "eax_migrator"))
     db_migrator_password: str = field(default_factory=lambda: _env("EAX_DB_MIGRATOR_PASSWORD"))
 
+    # phase 9 (D180): the change log has a connection string of its own, so it can live on another server; empty
+    # means the repository's database (development: its own schema there)
+    changelog_db_url: str = field(default_factory=lambda: _env("EAX_CHANGELOG_DB_URL"))
+    changelog_db_schema: str = field(default_factory=lambda: _env("EAX_CHANGELOG_DB_SCHEMA", "changelog"))
+
     keycloak_internal_url: str = field(
         default_factory=lambda: _env("EAX_KEYCLOAK_INTERNAL_URL", "http://keycloak:8080/auth")
     )
@@ -60,6 +65,18 @@ class Settings:
             f"postgresql+psycopg://{quote(self.db_user, safe='')}:{quote(self.db_password, safe='')}"
             f"@{self.db_host}:{self.db_port}/{self.db_name}"
         )
+
+    @property
+    def changelog_sqlalchemy_url(self) -> str:
+        """The change log's database: EAX_CHANGELOG_DB_URL (postgresql://user:password@host:port/database), or the
+        repository's database when it is empty."""
+        url = self.changelog_db_url
+        if not url:
+            return self.sqlalchemy_url
+        for prefix in ("postgresql+psycopg://", "postgresql://", "postgres://"):
+            if url.startswith(prefix):
+                return "postgresql+psycopg://" + url[len(prefix):]
+        return url
 
     @property
     def libpq_conninfo(self) -> str:

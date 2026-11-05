@@ -49,3 +49,12 @@ def get_engine() -> Engine:
             pass
 
     return engine
+
+
+@lru_cache(maxsize=1)
+def get_changelog_engine() -> Engine:
+    """The change log's own database (phase 9, D180): EAX_CHANGELOG_DB_URL, or the repository's database when it is
+    empty. No user identity is set on it: who sees which rows is decided in eax/change_log.py."""
+    settings = get_settings()
+    return create_engine(settings.changelog_sqlalchemy_url, pool_pre_ping=True, pool_size=2, max_overflow=3,
+                         connect_args={"connect_timeout": 5, "application_name": "eaexplorer-changelog"})

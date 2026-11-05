@@ -1,4 +1,4 @@
-"""Brings the built-in viewpoints (VP-01 to VP-25) and the report audiences in line with eax/report_defs.py
+"""Brings the built-in viewpoints (VP-01 to VP-26) and the report audiences in line with eax/report_defs.py
 (build phase 8.2, D161). Run by the seed on every start as the installer's login; idempotent. An
 organisation's own viewpoints (not built in) are left alone.
 """

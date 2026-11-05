@@ -57,26 +57,8 @@ draw.io, nginx, React screens. How it is built: [docs/architecture.md](docs/arch
 | 6 Data entry in forms: forms from the metamodel, Data entry tab (D79), edit, retire, restore, delete, relationships inside and outside the metamodel (D49), tags, rule overrides (D48), roll back | 0.6.0 | accepted and closed 4 Nov 2026 (D146); end-to-end test in 36.1 |
 | 7 Grids for entities, relationships and the metamodel (paste from Excel), search, saved views, favourites and recent items | 0.7.0 | accepted and closed 4 Nov 2026 (D157); end-to-end test in 36.1 |
 | 8.2 Reports and views, pulled ahead of 8 (D161): viewpoints as data (VP-01 to VP-25 and your own), Viewpoints tab (diagram, catalog, heat map, matrix, relationships), value stream map and roadmap, TOGAF catalogues TC and matrices TM, dependency reports DR, audience dashboards AU (D153), richer Superset charts, the demo estate Protea Insurance | 0.8.2 | accepted and closed 5 Nov 2026 (D164); each report checked in 36.1 |
-| 8 Commits (D165, D166, D167): content private to its author until committed, change sets replayed at commit (eax/commits.py), Committer and History Viewer roles, Changes tab, conflicts at commit, roll back as a new commit, entity page highlights and commits its changes, draft reject and reopen, merge upload (eax/merge.py), batch endpoint for diagram saves, live update banner. Every content write must go through eax.commits for project models | 0.8.3 | built 5 Nov 2026, waiting for the owner's test |
-
-The full plan (50 phases) is in the build plan workbook. Agreed but not yet built, with their
-decisions: commits and merge screens (D61, D66), Mayan phase (D62), lineage (D63), dedupe per model
-(D68), change log report (D69), view templates (D70), report designer (D71), complete backup and restore
-from the web (D74), dynamic import, export and survey sheets (D77, format still open), collection
-sets with staging (D78), data entry page (D79), the model hierarchy: the Root model, root metamodels with framework and version, derived models (D81, phase 4), moving a model to a new framework version (D82), actions, alerts and workflows with metamodel push-down and change documents (D83-D86, phase 8.1), integration and a drag-and-drop ETL tool still to be chosen (D91, phase 34.1). Roles settled: only Model Admins change the metamodel (D89); they also edit and commit content (D90). Metamodels drafted by the person's own language model through MCP and applied after a Model Admin's review (D115, phase 4). Library models: create as a library model with a pack, promote to the library, download and upload as one package (D101, phase 4). Architecture projects loosely coupled to models, with their ADM phase, organisation-wide and project registers (principles, decision and governance logs) and artefacts produced from library templates, reviewed and stored (D103-D105, phases 15 to 16.2, design session first; open questions in docs/todo.md). AD sign-in, scale-out, another identity platform, auth and paths in the config file and a key vault for passwords are productionising stories for the final deployment scripts (D99, phase 36; docs/todo.md).
-
-## Testing without Docker (what earlier agents did)
-
-There may be no Docker in an agent's sandbox. What worked:
-
-- A throwaway PostgreSQL 16 (`pg_ctl`), run the SQL in `migrations/sql` in order plus the seed, then
-  `tests/sql/phase*_checks.sql`.
-- `pytest -q` in `services/api` (the tests that need Flask itself need the real packages).
-- For the screens: bundle `services/web/src` with esbuild, serve with a small Python server that maps
-  `/api/v1/...` routes to `eax.repository` / `eax.metamodel_edit` functions, and take Playwright
-  screenshots. Check every screen you change.
-
-## Handing back
-
-List the files changed, say what the owner should run (`.\eax clean-run`, the checks in the phase
-note) and what to look at. Keep messages short.
+| 8 Commits (D165 to D170): content private to its author until committed, change sets replayed at commit (eax/commits.py), Committer and History Viewer roles, Changes tab, conflicts at commit, roll back as a new commit, entity page highlights and commits its changes, draft reject and reopen, merge upload (eax/merge.py), batch endpoint for diagram saves, live update banner. Every content write must go through eax.commits for project models | 0.8.3 | accepted and closed 5 Nov 2026 (D171); end-to-end test in 36.1 |
+| 8.3 Tags, comparison and gap analysis (D172, D173): frozen snapshots in core.model_tags (eax/tags.py: snapshot, restore as a complete override with an automatic tag first), comparison (eax/compare.py: sides, filter screen, matching, Excel), TOGAF gap analyses (eax/gaps.py: templates, gaps, Gap entities, Excel and Word), Tags tab and page per tag, Compare and Gap analyses as top-menu screens with gaps stored in a chosen model (D177, Versions.jsx), demo data made after start (eax/seed/versions_demo.py), reports GR-01 to GR-05 | 0.8.4 | built 5 Nov 2026, waiting for the owner's test |
+| 9 Change log (D180): one row per action in its own database (EAX_CHANGELOG_DB_URL, schema changelog), shipped in the background from history.row_versions and audit.events once their transaction finished (eax/change_log.py, `python -m eax.change_log` in entrypoint.sh); never write to it from a request; API actions to log are listed in change_log.ACTIONS; screen ChangeLog.jsx | 0.9.0 | built 5 Nov 2026, waiting for the owner's test |
+| 10 Administration console (D183): core.settings (eax/settings.py: runtime settings applied at once, start-up settings shown masked), Admin.jsx, fmt.js (every date and number through the installation's settings, D182: never toLocaleString), operations helper services/ops (Docker engine, EAX_OPS_TOKEN, restart only), "About this report" section on every report (eax/report_about.py, D186), VP-26 Gap (D185) | 0.10.0 | built 5 Nov 2026, waiting for the owner's test |
+| 10.1 Import and export sheets (D197): eax/sheets.py (build on the fly, read back), eax/sheets_vba.py (.xlsm: VBA project to [MS-OVBA]/[MS-CFB]), eax/loads.py (preview, add as the owner's uncommitted changes, undo, column mappings; feeds and collection sets: phase 34, D198), eax/api/sheets.py, Sheets.jsx; background tasks eax/tasks.py (D192) | 0.10.1 | built 5 Nov 2026, waiting for the owner's test |

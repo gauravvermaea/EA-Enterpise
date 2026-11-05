@@ -75,3 +75,10 @@ def copy_model(context, source: str, target: str, actor: str, roles: list[str], 
             raise
     finally:
         permissions.current.reset(token)
+
+
+@app.task(name="eax.run_task", queue="default")
+def run_task(task_id: str, actor: str, roles: list[str]) -> None:
+    """Long work in the background (D192): tagging a model, ... (eax/tasks.py)."""
+    from . import tasks
+    tasks.run(task_id, actor, roles)

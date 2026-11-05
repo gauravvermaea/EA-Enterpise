@@ -24,7 +24,7 @@ from .. import repository as repo
 from ..auth import require_auth
 from ..db import get_engine
 from ..metamodel_edit import EditError, _db_message
-from .models import Free
+from .models import Free, FreeIn
 
 blp = Blueprint("content", __name__, url_prefix="/api/v1/models",
                 description="Data entry: create and change entities, their values and relationships (phase 6)")
@@ -138,6 +138,20 @@ class Entities(MethodView):
         entity with saved_warnings (rules it fails; it is saved anyway, D48)"""
         return _change(model_id, "entity.create", {"data": data}, lambda c: ct.create_entity(c, model_id, data, g.user.username),
                        "entity.create", {"name": data.get("name"), "type": data.get("entity_type")}, answer="entity")
+
+
+@blp.route("/<uuid:model_id>/content/entities/check")
+class EntityCheck(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth()
+    def post(self, data, model_id):
+        """The rules an entity would fail with these values, before saving (D194): {entity_type, entity (to change one),
+        name, description, values {code: value}}. Nothing is saved; the same checks as after a save"""
+        if not data.get("entity_type"):
+            abort(400, message="Give the entity_type.")
+        return _overlay(model_id, lambda c: repo.check_draft(c, model_id, data["entity_type"], data, data.get("entity")))
 
 
 @blp.route("/<uuid:model_id>/content/entities/<string:entity_id>")
