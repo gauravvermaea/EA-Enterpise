@@ -56,8 +56,10 @@ draw.io, nginx, React screens. How it is built: [docs/architecture.md](docs/arch
 | 5 Reports: report views (generic and typed per entity type), model access for reports (several models at a time), Superset dashboards for the model overview, all thirty standard reports SR-01 to SR-30 (from phase 11) and pick-list heatmaps, the Reports tab with the report catalogue | 0.5.0 | accepted and closed 4 Nov 2026 (D143); each report checked in 36.1 |
 | 6 Data entry in forms: forms from the metamodel, Data entry tab (D79), edit, retire, restore, delete, relationships inside and outside the metamodel (D49), tags, rule overrides (D48), roll back | 0.6.0 | accepted and closed 4 Nov 2026 (D146); end-to-end test in 36.1 |
 | 7 Grids for entities, relationships and the metamodel (paste from Excel), search, saved views, favourites and recent items | 0.7.0 | accepted and closed 4 Nov 2026 (D157); end-to-end test in 36.1 |
+| 8.2 Reports and views, pulled ahead of 8 (D161): viewpoints as data (VP-01 to VP-25 and your own), Viewpoints tab (diagram, catalog, heat map, matrix, relationships), value stream map and roadmap, TOGAF catalogues TC and matrices TM, dependency reports DR, audience dashboards AU (D153), richer Superset charts, the demo estate Protea Insurance | 0.8.2 | accepted and closed 5 Nov 2026 (D164); each report checked in 36.1 |
+| 8 Commits (D165, D166, D167): content private to its author until committed, change sets replayed at commit (eax/commits.py), Committer and History Viewer roles, Changes tab, conflicts at commit, roll back as a new commit, entity page highlights and commits its changes, draft reject and reopen, merge upload (eax/merge.py), batch endpoint for diagram saves, live update banner. Every content write must go through eax.commits for project models | 0.8.3 | built 5 Nov 2026, waiting for the owner's test |
 
-The full plan (47 phases) is in the build plan workbook. Agreed but not yet built, with their
+The full plan (50 phases) is in the build plan workbook. Agreed but not yet built, with their
 decisions: commits and merge screens (D61, D66), Mayan phase (D62), lineage (D63), dedupe per model
 (D68), change log report (D69), view templates (D70), report designer (D71), complete backup and restore
 from the web (D74), dynamic import, export and survey sheets (D77, format still open), collection

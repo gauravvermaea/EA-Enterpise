@@ -91,8 +91,9 @@ export function roles() {
 
 const ROLE_NAMES = { "super-admin": "Super Admin", "it-admin": "IT Admin", "user-admin": "User Admin", "keycloak-admin": "Keycloak Admin",
   "model-creator": "Model Creator", "library-admin": "Library Admin", user: "User",
-  "model-admin": "Model Admin", architect: "Architect", "model-sub-admin": "Model Sub Admin", "report-viewer": "Report Viewer" };
-export const MODEL_ROLES = ["model-admin", "model-sub-admin", "architect", "report-viewer"];
+  "model-admin": "Model Admin", architect: "Architect", "model-sub-admin": "Model Sub Admin", "report-viewer": "Report Viewer",
+  committer: "Committer", "history-viewer": "History Viewer" };
+export const MODEL_ROLES = ["model-admin", "model-sub-admin", "committer", "architect", "history-viewer", "report-viewer"];
 export const roleName = (r) => ROLE_NAMES[r] || r;
 
 // Why a greyed-out control cannot be used: the role it needs and who gives it, so people can ask for it.
@@ -144,7 +145,12 @@ async function authHeaders(extra = {}) {
 export async function apiUpload(path, form) {
   const response = await fetch(path, { method: "POST", body: form, headers: await authHeaders() });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.message || `${response.status} ${response.statusText}`);
+  if (!response.ok) {
+    const err = new Error(body.message || `${response.status} ${response.statusText}`);
+    err.status = response.status;
+    err.body = body;   // for example the conflicts of a commit (phase 8)
+    throw err;
+  }
   return body;
 }
 
@@ -183,6 +189,11 @@ export async function apiFetch(path, options = {}) {
     throw new Error("The break-glass session has ended.");
   }
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.message || `${response.status} ${response.statusText}`);
+  if (!response.ok) {
+    const err = new Error(body.message || `${response.status} ${response.statusText}`);
+    err.status = response.status;
+    err.body = body;   // for example the conflicts of a commit (phase 8): body.errors.conflicts
+    throw err;
+  }
   return body;
 }

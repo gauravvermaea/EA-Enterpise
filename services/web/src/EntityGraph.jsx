@@ -200,7 +200,9 @@ function asOfGraph(a, colour) {
   return { model: "", nodes, edges, truncated: false, as_of: a.as_of };
 }
 
-export default function EntityGraph({ model, focus: fixedFocus = null, lockFocus = false, kind = "network", focusColour = null }) {
+// presetTypeCodes (a viewpoint, phase 8.2): start with these entity types chosen; onlyRels: show only these relationship types
+export default function EntityGraph({ model, focus: fixedFocus = null, lockFocus = false, kind = "network", focusColour = null,
+  presetTypeCodes = null, onlyRels = null }) {
   const [pathTo, setPathTo] = useState(null);           // paths: the second entity
   const [moments, setMoments] = useState(null);         // as of: the moments of the entity's history
   const [asOf, setAsOf] = useState(null);               // as of: the chosen history event
@@ -238,6 +240,11 @@ export default function EntityGraph({ model, focus: fixedFocus = null, lockFocus
       const list = mm.layers.flatMap((l) => l.entity_types.map((t) => ({ ...t, colour: l.colour, layer: l.name })))
         .filter((t) => t.entity_count > 0);
       setMeta(list);
+      if (presetTypeCodes) {
+        const chosen = list.filter((t) => presetTypeCodes.includes(t.code)).map((t) => t.id);
+        setTypes(chosen.length ? chosen : list.slice(0, 1).map((t) => t.id));
+        return;
+      }
       let total = 0;
       const chosen = [];
       for (const t of [...list].sort((a, b) => a.entity_count - b.entity_count)) {
@@ -246,7 +253,7 @@ export default function EntityGraph({ model, focus: fixedFocus = null, lockFocus
       setTypes(chosen.length ? chosen : list.slice(0, 1).map((t) => t.id));
     }).catch((e) => live && setError(e.message));
     return () => { live = false; };
-  }, [model, lockFocus]);
+  }, [model, lockFocus, presetTypeCodes]);
 
   useEffect(() => { setDepth(FIRST_DEPTH[kind] || 1); setLoners(kind === "layers"); setHidden([]); }, [kind]);
 
@@ -311,11 +318,12 @@ export default function EntityGraph({ model, focus: fixedFocus = null, lockFocus
 
   const shown = useMemo(() => {
     if (!data) return null;
-    const edges = data.edges.filter((e) => !hidden.includes(e.relationship_type_code));
+    const edges = data.edges.filter((e) => !hidden.includes(e.relationship_type_code)
+      && (!onlyRels || !onlyRels.length || onlyRels.includes(e.relationship_type_code)));
     const linked = new Set(edges.flatMap((e) => [e.source, e.target]));
     const nodes = loners || ALL_NODES.includes(kind) ? data.nodes : data.nodes.filter((n) => linked.has(n.id) || n.id === focus);
     return { nodes, edges, alone: data.nodes.length - nodes.length };
-  }, [data, hidden, loners, focus, kind]);
+  }, [data, hidden, loners, focus, kind, onlyRels]);
 
   useEffect(() => {
     if (!shown) return;

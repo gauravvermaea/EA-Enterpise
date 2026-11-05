@@ -2,7 +2,10 @@
 and the data entry page by entity type (D79).
 
 Writes go through eax.content in one transaction as the signed-in person; the database decides who may
-change what (Architects, Model Sub Admins and Model Admins on the model). Every write is audited.
+change what (Architects, Committers, Model Sub Admins and Model Admins on the model). Every write is audited.
+Since phase 8 (D165) a write to a working model is kept as an uncommitted change (eax.commits): the answer
+is what the save would give, marked pending; only its author sees it until it is committed. Reads show the
+author their own uncommitted changes on top of the committed content.
 Validation rules warn, never block (D48); relationships outside the metamodel need allow_outside (D49).
 """
 
@@ -15,6 +18,7 @@ from marshmallow import INCLUDE, Schema, fields
 from sqlalchemy.exc import DBAPIError
 
 from .. import audit
+from .. import commits as cm
 from .. import content as ct
 from .. import repository as repo
 from ..auth import require_auth
@@ -61,6 +65,21 @@ def _read(fn):
         abort(getattr(exc, "status", 404), message=str(exc))
 
 
+def _overlay(model_id, fn):
+    """A read as the signed-in person sees it: committed content with their own uncommitted changes."""
+    return _read(lambda c: cm.overlay(c, model_id, g.user.username, fn))
+
+
+def _change(model_id, op: str, args: dict, direct, action: str, details=None, answer: str = "result"):
+    """A content change: kept as an uncommitted change in a working model (D165), saved straight away in
+    a library model being built (no commits there)."""
+    def run(c):
+        if cm.uses_commits(repo.get_model(c, model_id)):
+            return cm.record(c, model_id, g.user.username, op, args, answer)
+        return direct(c)
+    return _write(run, action, model_id, details)
+
+
 def _write(fn, action: str, model_id, details=None, status: int = 200):
     try:
         with get_engine().begin() as conn:
@@ -94,7 +113,7 @@ class Entry(MethodView):
     @require_auth()
     def get(self, model_id, entity_type):
         """The data entry page for one type (D79): its columns and every entity with values, tags and warnings"""
-        return _read(lambda c: ct.entry_table(c, model_id, entity_type))
+        return _overlay(model_id, lambda c: ct.entry_table(c, model_id, entity_type))
 
 
 @blp.route("/<uuid:model_id>/entity-picker")
@@ -104,8 +123,8 @@ class Picker(MethodView):
     @require_auth()
     def get(self, model_id):
         """Existing entities to relate to or pick as a parent: ?q=text&type=<entity type>&type=..."""
-        return _read(lambda c: ct.find_entities(c, model_id, request.args.get("q", ""), request.args.getlist("type"),
-                                                 int(request.args.get("limit", 50))))
+        return _overlay(model_id, lambda c: ct.find_entities(c, model_id, request.args.get("q", ""), request.args.getlist("type"),
+                                                              int(request.args.get("limit", 50))))
 
 
 @blp.route("/<uuid:model_id>/content/entities")
@@ -117,8 +136,8 @@ class Entities(MethodView):
     def post(self, data, model_id):
         """Create an entity: entity_type, name, description, parent, tags, values. The answer is the saved
         entity with saved_warnings (rules it fails; it is saved anyway, D48)"""
-        return _write(lambda c: ct.create_entity(c, model_id, data, g.user.username), "entity.create", model_id,
-                      {"name": data.get("name"), "type": data.get("entity_type")})
+        return _change(model_id, "entity.create", {"data": data}, lambda c: ct.create_entity(c, model_id, data, g.user.username),
+                       "entity.create", {"name": data.get("name"), "type": data.get("entity_type")}, answer="entity")
 
 
 @blp.route("/<uuid:model_id>/content/entities/<string:entity_id>")
@@ -129,16 +148,18 @@ class Entity(MethodView):
     @require_auth("model.content")
     def patch(self, data, model_id, entity_id):
         """Change an entity's fields, tags and values (only those given)"""
-        return _write(lambda c: ct.update_entity(c, model_id, entity_id, data, g.user.username), "entity.update", model_id,
-                      {"entity": entity_id, "fields": sorted(k for k in data if k != "values"),
-                       "values": sorted((data.get("values") or {}).keys())})
+        return _change(model_id, "entity.update", {"entity": entity_id, "data": data},
+                       lambda c: ct.update_entity(c, model_id, entity_id, data, g.user.username), "entity.update",
+                       {"entity": entity_id, "fields": sorted(k for k in data if k != "values"),
+                        "values": sorted((data.get("values") or {}).keys())}, answer="entity")
 
     @blp.doc(security=SECURITY)
     @blp.response(200, Free)
     @require_auth("model.content")
     def delete(self, model_id, entity_id):
         """Delete an entity with its values and relationships (kept in its history)"""
-        return _write(lambda c: ct.delete_entity(c, model_id, entity_id), "entity.delete", model_id, {"entity": entity_id})
+        return _change(model_id, "entity.delete", {"entity": entity_id}, lambda c: ct.delete_entity(c, model_id, entity_id),
+                       "entity.delete", {"entity": entity_id})
 
 
 @blp.route("/<uuid:model_id>/content/entities/<string:entity_id>/<any(retire,restore):action>")
@@ -148,8 +169,10 @@ class Status(MethodView):
     @require_auth("model.content")
     def post(self, model_id, entity_id, action):
         """Retire an entity (kept, marked retired) or restore it"""
-        return _write(lambda c: ct.set_status(c, model_id, entity_id, "retired" if action == "retire" else "published"),
-                      f"entity.{action}", model_id, {"entity": entity_id})
+        status = "retired" if action == "retire" else "published"
+        return _change(model_id, "entity.status", {"entity": entity_id, "status": status},
+                       lambda c: ct.set_status(c, model_id, entity_id, status), f"entity.{action}", {"entity": entity_id},
+                       answer="entity")
 
 
 @blp.route("/<uuid:model_id>/content/entities/<string:entity_id>/roll-back")
@@ -160,8 +183,9 @@ class RollBack(MethodView):
     @require_auth("model.content")
     def post(self, data, model_id, entity_id):
         """Set an entity back to a point in its history (a new version; the history keeps everything)"""
-        return _write(lambda c: ct.roll_back(c, model_id, entity_id, data["event"], g.user.username), "entity.roll_back",
-                      model_id, {"entity": entity_id, "event": data["event"]})
+        return _change(model_id, "entity.rollback", {"entity": entity_id, "event": data["event"]},
+                       lambda c: ct.roll_back(c, model_id, entity_id, data["event"], g.user.username), "entity.roll_back",
+                       {"entity": entity_id, "event": data["event"]}, answer="entity")
 
 
 @blp.route("/<uuid:model_id>/content/entities/<string:entity_id>/relationship-options")
@@ -171,7 +195,7 @@ class Options(MethodView):
     @require_auth()
     def get(self, model_id, entity_id):
         """What this entity may be related to (allowed by the metamodel), and every relationship and entity type"""
-        return _read(lambda c: ct.relationship_options(c, model_id, entity_id))
+        return _overlay(model_id, lambda c: ct.relationship_options(c, model_id, entity_id))
 
 
 @blp.route("/<uuid:model_id>/content/relationships")
@@ -182,8 +206,8 @@ class Relationships(MethodView):
     @require_auth("model.content")
     def post(self, data, model_id):
         """Relate two existing entities. Outside the metamodel: 409 unless allow_outside (D49)"""
-        return _write(lambda c: ct.add_relationship(c, model_id, data, g.user.username), "relationship.create", model_id,
-                      {k: data.get(k) for k in ("source", "target", "relationship_type", "allow_outside")})
+        return _change(model_id, "relationship.create", {"data": data}, lambda c: ct.add_relationship(c, model_id, data, g.user.username),
+                       "relationship.create", {k: data.get(k) for k in ("source", "target", "relationship_type", "allow_outside")})
 
 
 @blp.route("/<uuid:model_id>/content/relationships/<string:relationship_id>")
@@ -193,5 +217,6 @@ class Relationship(MethodView):
     @require_auth("model.content")
     def delete(self, model_id, relationship_id):
         """Remove a relationship (kept in history)"""
-        return _write(lambda c: ct.delete_relationship(c, model_id, relationship_id), "relationship.delete", model_id,
-                      {"relationship": relationship_id})
+        return _change(model_id, "relationship.delete", {"relationship": relationship_id},
+                       lambda c: ct.delete_relationship(c, model_id, relationship_id), "relationship.delete",
+                       {"relationship": relationship_id})

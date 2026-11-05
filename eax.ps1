@@ -226,10 +226,12 @@ function Show-Logins {
         @("user_user_admin", "eax-user-admin", "Users page, role mapping; reads no model"),
         @("user_library_admin", "eax-library-admin", "curates the model library: create, publish, promote, upload, withdraw"),
         @("user_model_creator", "eax-model-creator", "creates models; Model Admin: Karoo Re, Lean EA metamodel, Karoo Digital"),
-        @("user_model_admin", "eax-user", "Model Admin: Fynbos group, Fynbos Life; Architect: Sample"),
-        @("user_architect", "eax-user", "Architect: Sample, Fynbos Life; Model Sub Admin + Report Viewer: Fynbos Commercial"),
+        @("user_model_admin", "eax-user", "Model Admin: Fynbos group, Fynbos Life, Protea demo; Architect: Sample"),
+        @("user_architect", "eax-user", "Architect: Sample, Fynbos Life, Protea demo; Model Sub Admin + Report Viewer: Fynbos Commercial"),
         @("user_model_sub_admin", "eax-user", "Model Sub Admin: Sample, Fynbos Life, Fynbos Commercial, Karoo Re"),
-        @("user_report_viewer", "eax-user", "Report Viewer: Fynbos group, Sample"),
+        @("user_committer", "eax-user", "Committer: Protea demo, Sample (commits what others ask to commit)"),
+        @("user_history_viewer", "eax-user", "History Viewer and Report Viewer: Protea demo (sees everyone's commits)"),
+        @("user_report_viewer", "eax-user", "Report Viewer: Fynbos group, Sample, Protea demo"),
         @("user_global_architect", "eax-user", "Architect on every model")
     )
     foreach ($t in $tests) { $rows += ,@("Test user ($($t[1]))", $t[0], $testPw, $t[2]) }

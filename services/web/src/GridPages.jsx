@@ -201,7 +201,7 @@ function EntityGrid({ model, m, typeId }) {
   ] : []), [data]);
   const rows = useMemo(() => (data ? data.rows.map((r) => ({
     id: r.id, row_version: r.row_version, display_id: r.display_id, name: r.name, description: r.description,
-    parent_name: r.parent_name || "", tags: (r.tags || []).join(", "), status: r.status, relationship_count: r.relationship_count,
+    parent_name: r.parent_name || "", tags: (r.tags || []).join(", "), status: r.pending ? `✎ ${r.pending}, uncommitted` : r.status, relationship_count: r.relationship_count,
     checks: r.messages?.join("; ") || "",
     ...Object.fromEntries(data.attributes.map((a) => [`v:${a.code}`, r.values[a.code] ?? ""])),
   })) : []), [data]);

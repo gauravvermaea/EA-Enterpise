@@ -7,9 +7,11 @@ import { apiFetch, canOn, MODEL_ROLES, roleName, needsRole } from "./auth";
 import { refreshAll, useApi } from "./ModelViews";
 
 const DOES = {
-  "model-admin": "owns the model: metamodel, locks, people, content, derived models (and commits, later)",
-  "model-sub-admin": "the Model Admin's deputy for content: changes content; reviews and commits others' changes (commits phase)",
-  architect: "works on the content: entities, relationships, values",
+  "model-admin": "owns the model: metamodel, locks, people, content and its commits, derived models",
+  "model-sub-admin": "the Model Admin's deputy for content: changes content and commits it (theirs and others')",
+  committer: "commits content changes: their own, and those others ask to commit; rejects, sends back, rolls back",
+  architect: "works on the content: entities, relationships, values; changes stay private until committed",
+  "history-viewer": "sees everyone's commits on this model (others see only their own)",
   "report-viewer": "reads screens, pictures, reports and exports; changes nothing",
 };
 

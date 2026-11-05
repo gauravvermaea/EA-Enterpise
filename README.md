@@ -5,7 +5,7 @@ a governed metamodel, an architecture repository, diagrams (draw.io), reports (A
 documents (Mayan EDMS), sign-in through Keycloak, and an MCP server so you can connect your own
 language model. Everything runs in Docker containers from one config file.
 
-**Status: build phase 7 (version 0.7.0): grids, search and saved views, waiting for test.** The platform runs end to end; the
+**Status: phase 8 (version 0.8.3) built, waiting for the owner's test; phase 8.2 accepted.** The platform runs end to end; the
 repository database holds the ArchiMate 4 template, a locked insurance reference model and a sample
 model; model pages show entities, relationships, graphs and history; a project model's metamodel can be
 changed from the screens, every change publishing a new metamodel version; a failing-checks screen;
@@ -30,12 +30,13 @@ Each phase has its own notes: what it delivers, a demo, checks, how to upgrade a
 | 4 | Creating and copying models, library models and packages | 0.4.0 | accepted and closed | [phase-4.md](docs/phase-4.md) |
 | 5 | Report views and the thirty standard reports | 0.5.0 | accepted and closed; each report checked in phase 36.1 | [phase-5.md](docs/phase-5.md) |
 | 6 | Data entry in forms | 0.6.0 | accepted and closed | [phase-6.md](docs/phase-6.md) |
-| 7 | Grids, search and saved views | 0.7.0 | built, waiting for test | [phase-7.md](docs/phase-7.md) |
+| 7 | Grids, search and saved views | 0.7.0 | accepted and closed | [phase-7.md](docs/phase-7.md) |
+| 8.2 | Reports and views: viewpoints VP-01 to VP-25, TOGAF catalogues and matrices, dependency reports, audience dashboards, value stream map, roadmap (pulled ahead of 8) | 0.8.2 | accepted and closed; each report checked in phase 36.1 | [phase-8.2.md](docs/phase-8.2.md) |
+| 8 | Commits of content (private until committed), Committer and History Viewer roles, conflicts at commit, roll back, draft model rejection, merging a model into a model, live updates | 0.8.3 | built, waiting for the owner's test | [phase-8.md](docs/phase-8.md) |
 
-Next, in order (D147): **8** commits, drafts, approvals and publishing · **8.2** reports and
-views (ArchiMate 4 viewpoints, TOGAF catalogs and matrices, business architecture maps) · **8.3** model tags, comparison and gap
+Next, in order (D147, D161): **8.3** model tags, comparison and gap
 analysis · **8.4** backup and restore · **9** history and change log · **10** home dashboard · **10.1** import and export sheets.
-The full plan (47 phases) is in [docs/requirements/EA_Explorer_Build_Plan.xlsx](docs/requirements/EA_Explorer_Build_Plan.xlsx).
+The full plan (50 phases) is in [docs/requirements/EA_Explorer_Build_Plan.xlsx](docs/requirements/EA_Explorer_Build_Plan.xlsx).
 
 ## Quick start (laptop)
 

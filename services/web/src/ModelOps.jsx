@@ -715,6 +715,14 @@ export function ModelActions({ m }) {
       m.is_draft && m.approval_state === "requested" && (library ? curator : admin),
       "Send the draft back to its makers with a note on what to change",
       m.approval_state !== "requested" ? "Only a draft waiting for approval is sent back" : library ? libWhy : adminWhy],
+    ["Reject...", () => setDialog("reject-publish"),
+      m.is_draft && m.approval_state === "requested" && (library ? curator : admin),
+      "Reject the draft with the reason: it is not published and is archived (its Model Admin can open it again)",
+      m.approval_state !== "requested" ? "Only a draft waiting for approval is rejected" : library ? libWhy : adminWhy],
+    ["Open the rejected draft again...", () => setDialog("reopen"),
+      m.is_draft && m.approval_state === "rejected" && admin,
+      "Work on the draft again and request publishing once more",
+      m.approval_state !== "rejected" ? "Only a rejected draft is opened again" : adminWhy],
     [m.library_state === "withdrawn" ? "Restore to the library" : "Withdraw from the library",
       () => act(m.library_state === "withdrawn" ? "restore" : "withdraw", m.library_state === "withdrawn" ? "Restoring" : "Withdrawing"),
       curator && library && !isTop(m) && ["published", "withdrawn"].includes(m.library_state),
@@ -744,7 +752,7 @@ export function ModelActions({ m }) {
       {error && <span className="status bad"> {error}</span>}
       {dialog === "new" && <NewModelDialog from={m} onClose={close} />}
       {dialog === "download" && <DownloadDialog m={m} onClose={close} />}
-      {["request-publish", "publish", "send-back-publish"].includes(dialog) && <PublishStepDialog m={m} step={dialog} onClose={close} />}
+      {["request-publish", "publish", "send-back-publish", "reject-publish", "reopen"].includes(dialog) && <PublishStepDialog m={m} step={dialog} onClose={close} />}
       {dialog === "move" && <FrameworkMoveDialog m={m} onClose={close} />}
       {dialog === "delete" && <DeleteDialog m={m} onClose={close} />}
       {dialog === "promote" && <PromoteDialog m={m} onClose={close} />}
@@ -756,6 +764,8 @@ const PUBLISH_STEPS = {
   "request-publish": ["Request publishing", "A note for the approver (optional)", "primary", false],
   publish: ["Approve and publish", "A note (optional)", "primary", false],
   "send-back-publish": ["Send back", "What to change", "danger", true],
+  "reject-publish": ["Reject", "Why it is rejected", "danger", true],
+  reopen: ["Open again", "A note (optional)", "primary", false],
 };
 
 function PublishStepDialog({ m, step, onClose }) {
@@ -800,6 +810,7 @@ export function CopyBanner({ m }) {
   if (m.is_draft) {
     const st = { requested: "Publishing requested: waiting for approval (Actions > Approve and publish, or Send back).",
       returned: "Sent back: change it and request publishing again (Actions > Request publishing).",
+      rejected: "Rejected: not published and archived. Its Model Admin can open it again (Actions > Open the rejected draft again).",
       editing: "Nobody else can create a model from it until it is published: Actions > Request publishing, then it is approved." }[m.approval_state] || "";
     return <div className="lock-banner draft-banner">📝 Draft model. {st}</div>;
   }

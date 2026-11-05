@@ -64,3 +64,24 @@ export function MarksLegend() {
     </div>
   );
 }
+
+// An uncommitted change of mine (phase 8, D165): only I see it until it is committed (the Changes tab)
+const PENDING = { created: "new", changed: "changed", deleted: "deleted" };
+export function PendingMark({ kind, model }) {
+  if (!kind) return null;
+  return (
+    <a className="pending-mark" href={model ? `#/metamodel/${model}/changes` : undefined}
+      title="Your uncommitted change: only you see it until it is committed (Changes tab)">✎ {PENDING[kind] || kind}, uncommitted</a>
+  );
+}
+
+// Above a page holding my uncommitted changes
+export function PendingBanner({ count, model }) {
+  if (!count) return null;
+  return (
+    <div className="lock-banner pending-banner">
+      You have {count} uncommitted change{count === 1 ? "" : "s"} in this model: you see them here, nobody else does until they are
+      committed. <a href={`#/metamodel/${model}/changes`}>Changes tab</a>: commit, ask for a commit, or discard.
+    </div>
+  );
+}

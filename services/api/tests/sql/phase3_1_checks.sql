@@ -46,7 +46,7 @@ DECLARE
 BEGIN
     ASSERT string_to_array(core.schema_version(), '.')::int[] >= ARRAY[0, 3, 1], 'database version 0.3.1 or later';
     ASSERT (SELECT count(*) FROM core.app_roles WHERE scope = 'global') >= 6, 'six global roles (seven from 0.4.0: Library Admin)';
-    ASSERT (SELECT count(*) FROM core.app_roles WHERE scope = 'model') = 4, 'four model roles';
+    ASSERT (SELECT count(*) FROM core.app_roles WHERE scope = 'model') >= 4, 'four model roles (six from 0.8.3: Committer, History Viewer)';
     ASSERT (SELECT app_role FROM core.role_mappings WHERE keycloak_role = 'eax-user') = 'user', 'default mapping';
     ASSERT (SELECT count(*) FROM core.model_ancestors WHERE model_id = pg_temp.m('Sample insurance model')) >= 1,
         'the sample model has its template as an ancestor';
@@ -86,7 +86,7 @@ UPDATE core.entities SET description = 'changed by its Architect'
  WHERE model_id = pg_temp.m('Sample insurance model') AND name = 'Claims Platform';
 SELECT pg_temp.expect_error($q$
     UPDATE core.entities SET description = 'x' WHERE model_id = pg_temp.m('Insurance reference model')
-$q$, 'needs the Architect, Model Sub Admin or Model Admin role on this model');
+$q$, 'needs the Architect, Committer, Model Sub Admin or Model Admin role on this model');
 SELECT pg_temp.expect_error($q$
     UPDATE core.entity_types SET description = 'x' WHERE model_id = pg_temp.m('Sample insurance model') AND code = 'ApplicationComponent'
 $q$, 'needs the Model Admin role on this model');

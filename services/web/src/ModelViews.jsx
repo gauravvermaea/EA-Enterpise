@@ -14,11 +14,15 @@ import { apiFetch } from "./auth";
 import { downloadCsv } from "./exporting";
 import { EditButton, entityTypeSpec, mappingSpec, relationshipTypeSpec } from "./MetamodelEditor";
 import { FavStar, rememberRecent } from "./GridPages";
+import { PendingMark } from "./ModelMarks";
+import { EntityChanges, useEntityChanges, WasValue } from "./Changes";
 import { AddRelationshipButton, EntityActions, NewEntityButton, NewRelationshipButton, RemoveRelationshipButton, RollBackButton, RowActions } from "./DataEntry";
 
 const EntityGraph = lazy(() => import("./EntityGraph"));
 const HierarchyMap = lazy(() => import("./HierarchyMap"));
 const RelationMatrix = lazy(() => import("./RelationMatrix"));
+const ValueStreamMap = lazy(() => import("./Maps").then((x) => ({ default: x.ValueStreamMap })));
+const Roadmap = lazy(() => import("./Maps").then((x) => ({ default: x.Roadmap })));
 const go = (path) => { window.location.hash = path; };
 const PAGE = 100;
 
@@ -428,6 +432,8 @@ const GRAPH_KINDS = [
   ["impact", "Impact chain", "From one entity, follow the lines one way: what it leads to (impact) or what leads to it (dependencies)"],
   ["hierarchy", "Hierarchy map", "Parents holding their parts as nested boxes (the capability map), coloured by an attribute as a heat map"],
   ["matrix", "Matrix", "One entity type against another, with the relationships between them in the cells"],
+  ["valuestreams", "Value stream map", "Each value stream's stages with the capabilities that enable them, coloured by an attribute; or as a value stream x capability heat map"],
+  ["roadmap", "Roadmap", "Plateaus, work packages and deliverables on a timeline from their start and end dates"],
 ];
 
 export function GraphTab({ model, kind }) {
@@ -443,6 +449,8 @@ export function GraphTab({ model, kind }) {
       <p className="quiet seg-help">{GRAPH_KINDS.find(([x]) => x === k)[2]}.</p>
       <Suspense fallback={<p>Loading the picture...</p>}>
         {k === "hierarchy" ? <HierarchyMap model={model} />
+          : k === "valuestreams" ? <ValueStreamMap model={model} />
+          : k === "roadmap" ? <Roadmap model={model} />
           : k === "matrix" ? <RelationMatrix model={model} />
           : <EntityGraph key={k} model={model} kind={k} />}
       </Suspense>
@@ -466,6 +474,9 @@ function WarningList({ warnings }) {
 }
 
 function DetailsTab({ model, m, e }) {
+  const ec = useEntityChanges(model, m, e.id);
+  const f = (code) => ec.fields[String(code).toLowerCase()];
+  const hl = (code) => (f(code) ? "pending-field" : "");
   const sections = [];
   for (const a of e.attributes) {
     let s = sections.find((x) => x.name === (a.section || "Attributes"));
@@ -480,6 +491,7 @@ function DetailsTab({ model, m, e }) {
   return (
     <div>
       <WarningList warnings={e.warnings} />
+      <EntityChanges model={model} entity={e} ec={ec} />
       <div className="toolbar">
         <CsvButton name={`${e.display_id} ${e.name} - details`} rows={() => [["Section", "Field", "Value", "Type", "Required", "Check"],
           ["Basic", "Name", e.name, "Text", "yes", fieldWarnings("name").map((w) => w.message).join("; ")],
@@ -495,22 +507,22 @@ function DetailsTab({ model, m, e }) {
         <thead><tr><th>Field</th><th>Value</th><th>Type</th><th>Check</th></tr></thead>
         <tbody>
           <tr className="section-row"><td colSpan="4">Basic</td></tr>
-          <tr><th>Name <span className="req">*</span></th><td>{e.name}</td><td className="quiet">Text</td><td><Status list={fieldWarnings("name")} /></td></tr>
+          <tr className={hl("name")}><th>Name <span className="req">*</span></th><td>{e.name} <WasValue f={f("name")} /></td><td className="quiet">Text</td><td><Status list={fieldWarnings("name")} /></td></tr>
           <tr><th>Display ID</th><td>{e.display_id}</td><td className="quiet">Generated</td><td /></tr>
-          <tr><th>Description</th><td className="pre">{e.description}</td><td className="quiet">Text</td><td><Status list={fieldWarnings("description")} /></td></tr>
-          <tr><th>Parent</th><td>{e.parent_id ? <a href={`#/metamodel/${model}/entity/${e.parent_id}`}>{e.parent_name}</a> : <span className="quiet">-</span>}</td><td className="quiet">Entity</td><td /></tr>
-          <tr><th>Status</th><td>{e.status}</td><td className="quiet">Workflow</td><td /></tr>
-          <tr><th>Tags</th><td>{(e.tags || []).length ? e.tags.map((t) => <span key={t} className="tag">{t}</span>) : <span className="quiet">-</span>}</td><td className="quiet">Tags</td><td /></tr>
+          <tr className={hl("description")}><th>Description</th><td className="pre">{e.description} <WasValue f={f("description")} /></td><td className="quiet">Text</td><td><Status list={fieldWarnings("description")} /></td></tr>
+          <tr className={hl("parent")}><th>Parent</th><td>{e.parent_id ? <a href={`#/metamodel/${model}/entity/${e.parent_id}`}>{e.parent_name}</a> : <span className="quiet">-</span>}</td><td className="quiet">Entity</td><td /></tr>
+          <tr className={hl("status")}><th>Status</th><td>{e.status} <WasValue f={f("status")} /></td><td className="quiet">Workflow</td><td /></tr>
+          <tr className={hl("tags")}><th>Tags</th><td>{(e.tags || []).length ? e.tags.map((t) => <span key={t} className="tag">{t}</span>) : <span className="quiet">-</span>}</td><td className="quiet">Tags</td><td /></tr>
           {sections.map((s) => [
             <tr key={`s-${s.name}`} className="section-row"><td colSpan="4">{s.name}</td></tr>,
             ...s.items.map((a) => {
               const empty = a.value === null || a.value === "";
               return (
-                <tr key={a.code} className={a.warnings.length ? "has-warning" : ""}>
+                <tr key={a.code} className={[a.warnings.length ? "has-warning" : "", hl(`value:${a.code}`)].join(" ").trim()}>
                   <th>{a.name}{a.is_required && <span className="req" title="Required">*</span>}</th>
                   <td>{empty ? <span className="quiet">not set</span>
                     : a.ref_id ? <a href={`#/metamodel/${model}/entity/${a.ref_id}`}>{a.value}</a>
-                    : <>{a.value}{a.unit && ` ${a.unit}`}</>}</td>
+                    : <>{a.value}{a.unit && ` ${a.unit}`}</>} <WasValue f={f(`value:${a.code}`)} /></td>
                   <td className="quiet" title={a.pick_list_values.length ? `One of: ${a.pick_list_values.join(", ")}` : undefined}>
                     {a.data_type_name}</td>
                   <td><Status list={a.warnings} />{a.override && <span className="override-mark" title={`Saved although it fails the rule, by ${a.override.by} on ${new Date(a.override.at).toLocaleString()}`}> saved anyway</span>}</td>
@@ -770,9 +782,9 @@ function HistoryTab({ model, m, e }) {
               <table className="grid-table attr-table">
                 <tbody>
                   <tr><th>Name</th><td>{e.name}</td></tr>
-                  <tr><th>Description</th><td className="pre">{e.description}</td></tr>
+                  <tr className={hl("description")}><th>Description</th><td className="pre">{e.description} <WasValue f={f("description")} /></td></tr>
                   <tr><th>Parent</th><td>{e.parent_name || <span className="quiet">-</span>}</td></tr>
-                  <tr><th>Status</th><td>{e.status}</td></tr>
+                  <tr className={hl("status")}><th>Status</th><td>{e.status} <WasValue f={f("status")} /></td></tr>
                   {e.attributes.map((a) => <tr key={a.code}><th>{a.name}</th><td>{a.value ?? <span className="quiet">not set</span>}</td></tr>)}
                 </tbody>
               </table>
@@ -923,7 +935,7 @@ export function EntityPage({ model, m, entityId, sub }) {
       <div className="entity-card">
         <div className="entity-card-head">
           <div className="entity-head">
-            <h2><Swatch colour={e.colour} /> {e.name} <FavStar kind="entity" id={e.id} label={e.name} /></h2>
+            <h2><Swatch colour={e.colour} /> {e.name} <FavStar kind="entity" id={e.id} label={e.name} /> <PendingMark kind={e.pending} model={model} /></h2>
             <span className="quiet">{e.display_id} · {e.entity_type} · {e.layer} layer · {e.status} · metamodel v{e.created_mm_version}{e.modified_mm_version !== e.created_mm_version ? `, changed in v${e.modified_mm_version}` : ""}</span>
             <Checks errors={errors} warnings={e.warnings.length - errors} messages={e.warnings.map((w) => w.message)} />
           </div>

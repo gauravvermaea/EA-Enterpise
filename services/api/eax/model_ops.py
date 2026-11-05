@@ -794,7 +794,9 @@ def publishing(conn, model: Any, user=None) -> dict:
             "may_request": open_ and (_is_model_admin(conn, user, m)
                                       or (m["kind"] in ("template", "reference") and may_approve(conn, user, m))),
             "may_approve": m["is_draft"] and st == "requested" and may_approve(conn, user, m),
-            "may_withdraw_request": m["is_draft"] and st == "requested" and _is_model_admin(conn, user, m)}
+            "may_withdraw_request": m["is_draft"] and st == "requested" and _is_model_admin(conn, user, m),
+            "may_reject": m["is_draft"] and st == "requested" and may_approve(conn, user, m),
+            "may_reopen": m["is_draft"] and st == "rejected" and _is_model_admin(conn, user, m)}
 
 
 def request_publish(conn, model: Any, actor: str, user=None, note: str = "") -> dict:
@@ -874,6 +876,52 @@ def publish(conn, model: Any, actor: str, user=None, note: str = "") -> dict:
         raise EditError(_db_message(exc), 403) from exc
     _publish_event(conn, m["_id"], "approved", note, actor)
     return repo.get_model(conn, model)
+
+
+def reject_publish(conn, model: Any, actor: str, user=None, note: str = "") -> dict:
+    """An approver rejects a requested draft (D165): it is not published; it stays a draft, archived and hidden,
+    until its Model Admin opens it again or a Super Admin deletes it."""
+    _actor(conn, actor)
+    m = repo.get_model(conn, model)
+    if m["approval_state"] != "requested":
+        raise EditError(f"{m['name']} is not waiting for approval.", 409)
+    if not may_approve(conn, user, m):
+        raise EditError(f"Rejecting {m['name']} needs the role that approves it ({_approver_text(m)}).", 403)
+    if not (note or "").strip():
+        raise EditError("Say why it is rejected.")
+    try:
+        _exec(conn, "UPDATE core.models SET approval_state = 'rejected', lifecycle = 'archived' WHERE id = :i", i=m["_id"])
+    except DBAPIError as exc:
+        raise EditError(_db_message(exc), 403) from exc
+    _publish_event(conn, m["_id"], "rejected", note, actor)
+    return repo.get_model(conn, model)
+
+
+def reopen_draft(conn, model: Any, actor: str, user=None, note: str = "") -> dict:
+    """The draft's Model Admin opens a rejected draft again to change it and ask once more."""
+    _actor(conn, actor)
+    m = repo.get_model(conn, model)
+    if m["approval_state"] != "rejected":
+        raise EditError(f"{m['name']} was not rejected.", 409)
+    if not _is_model_admin(conn, user, m):
+        raise EditError(f"Opening {m['name']} again needs the Model Admin role on it.", 403)
+    _exec(conn, "UPDATE core.models SET approval_state = 'editing', lifecycle = 'active' WHERE id = :i", i=m["_id"])
+    _publish_event(conn, m["_id"], "reopened", note, actor)
+    return repo.get_model(conn, model)
+
+
+def waiting_for_me(conn, user) -> list[dict]:
+    """Draft models waiting for this person's approval (D134, D165): those requested that they may approve."""
+    rows = _rows(conn, """SELECT m.guid AS id, m.name, m.kind_code AS kind, m.created_by, m.created_at,
+                                 (SELECT e.at FROM core.model_publish_events e WHERE e.model_id = m.id AND e.action = 'requested'
+                                   ORDER BY e.id DESC LIMIT 1) AS requested_at,
+                                 (SELECT e.actor FROM core.model_publish_events e WHERE e.model_id = m.id AND e.action = 'requested'
+                                   ORDER BY e.id DESC LIMIT 1) AS requested_by,
+                                 (SELECT e.note FROM core.model_publish_events e WHERE e.model_id = m.id AND e.action = 'requested'
+                                   ORDER BY e.id DESC LIMIT 1) AS note
+                            FROM core.models m WHERE m.is_draft AND m.approval_state = 'requested' AND NOT m.is_deleted
+                           ORDER BY 7 NULLS LAST, m.name""")
+    return [r for r in rows if may_approve(conn, user, repo.get_model(conn, str(r["id"])))]
 
 
 def withdraw(conn, model: Any, actor: str, restore: bool = False) -> dict:
@@ -1055,6 +1103,12 @@ def export_package(conn, model: Any, fmt: str = "zip", actor: str | None = None,
     manifest["counts"]["history_rows"] = len(hist.get("rows") or [])
     base = re.sub(r"[^A-Za-z0-9._-]+", "-", f"{m['name']} {m['version_label']}".strip()).strip("-") or "model"
     base += {"metamodel": "-metamodel", "content": "", "history": "-deep"}[content_level]
+    return write_package(manifest, spec, content, hist, fmt, base)
+
+
+def write_package(manifest: dict, spec: dict, content: dict, hist: dict | None, fmt: str, base: str) -> tuple[bytes, str, str]:
+    """Writes a package (zip or Excel) from its parts; returns (bytes, file name, content type)."""
+    hist = hist or {}
     if fmt == "xlsx":
         return _to_xlsx(manifest, spec, content, hist), f"{base}.xlsx", \
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

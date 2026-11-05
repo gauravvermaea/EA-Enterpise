@@ -37,15 +37,10 @@ if [ -f /rendered/superset/sample_dashboard.zip ]; then
   superset import-dashboards -p /rendered/superset/sample_dashboard.zip -u admin \
     || echo "EA Explorer WARNING: sample dashboard import failed; Superset still works (see docs/phase-0.md)"
 fi
-# Phase 5: the standard reports, one zip per dashboard so one failure does not stop the others
-if [ -d /rendered/superset/reports ]; then
-  for z in /rendered/superset/reports/*.zip; do
-    [ -f "$z" ] || continue
-    echo "EA Explorer: importing report $(basename "$z" .zip)"
-    superset import-dashboards -p "$z" -u admin \
-      || echo "EA Explorer WARNING: report $(basename "$z") failed to import; the other reports still work"
-  done
-fi
+# The report dashboards (phases 5 and 8.2): all imported in one Superset process, one zip per dashboard so
+# one failure does not stop the others; unchanged dashboards are skipped on later starts
+echo "EA Explorer: importing the report dashboards (the first start takes a few minutes)"
+python /app/eax/eax_import_reports.py
 
 echo "EA Explorer: report datasets, the reader role and model access"
 python /app/eax/eax_reports_init.py

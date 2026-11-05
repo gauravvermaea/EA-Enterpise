@@ -11,6 +11,8 @@ function Modal({ children, ...props }) {
   return <BaseModal {...props}><div className="ed-form">{children}</div></BaseModal>;
 }
 import { refreshAll, Swatch, useApi } from "./ModelViews";
+import { PendingBanner, PendingMark } from "./ModelMarks";
+import { EntityChanges, useEntityChanges, WasValue } from "./Changes";
 
 const CONTENT_ROLES = ["architect", "model-sub-admin", "model-admin"];
 const me = () => currentUser().preferred_username || "";
@@ -127,6 +129,8 @@ export function EntityFormDialog({ model, m, typeId, e, onClose, onSaved }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [saved, setSaved] = useState(null);
+  const ec = useEntityChanges(model, m, e?.id);   // my uncommitted changes to it, highlighted (phase 8)
+  const f = (code) => ec.fields[String(code).toLowerCase()];
   useEffect(() => { if (form && values === null) setValues(initialValues(e, form)); }, [form]);
   if (!form || values === null) return <Modal title="Loading..." onClose={onClose}><p className="quiet">{error || "Loading the form..."}</p></Modal>;
   const sections = [];
@@ -186,12 +190,13 @@ export function EntityFormDialog({ model, m, typeId, e, onClose, onSaved }) {
         <button className="ed-btn" disabled={busy || !name.trim()} onClick={() => save(false)}>{busy ? "Saving..." : "Save"}</button>
       </>}>
       {msg && <p className={msg.startsWith("Saved") ? "status ok" : "status bad"}>{msg}</p>}
+      {e && <EntityChanges model={model} entity={e} ec={ec} compact />}
       <div className="form-grid">
-        <label className="ed-field"><span>Name <span className="req">*</span></span>
+        <label className={`ed-field${f("name") ? " pending-field" : ""}`}><span>Name <span className="req">*</span> <WasValue f={f("name")} /></span>
           <input autoFocus value={name} onChange={(ev) => setName(ev.target.value)} /></label>
         <label className="ed-field"><span>Display ID</span>
           <input value={e?.display_id || ""} disabled placeholder={`${form.entity_type.id_prefix}-next number`} title="Given when saved" /></label>
-        <label className="ed-field wide"><span>Description</span>
+        <label className={`ed-field wide${f("description") ? " pending-field" : ""}`}><span>Description <WasValue f={f("description")} /></span>
           <textarea rows={2} value={description} onChange={(ev) => setDescription(ev.target.value)} /></label>
         <div className="ed-field"><span title="The entity this one is part of (for hierarchies such as capability levels)">Part of (parent) <span className="tip">ⓘ</span></span>
           <EntityPicker model={model} value={parent?.id} label={parent?.name} types={[form.entity_type.id]}
@@ -207,9 +212,9 @@ export function EntityFormDialog({ model, m, typeId, e, onClose, onSaved }) {
               const cur = e?.attributes?.find((x) => x.code === a.code);
               const warn = cur?.warnings?.length ? cur.warnings.map((w) => w.message).join("; ") : "";
               return (
-                <div key={a.code} className={`ed-field${a.data_type === "long_text" ? " wide" : ""}`}>
+                <div key={a.code} className={`ed-field${a.data_type === "long_text" ? " wide" : ""}${f(`value:${a.code}`) ? " pending-field" : ""}`}>
                   <label htmlFor={`f-${a.code}`} title={[a.description, a.data_type_name, a.pick_list_values.length ? `One of: ${a.pick_list_values.join(", ")}` : ""].filter(Boolean).join(" · ")}>
-                    {a.name}{a.is_required && <span className="req" title="Required">*</span>}{a.unit && <span className="quiet"> ({a.unit})</span>} <span className="tip">ⓘ</span>
+                    {a.name}{a.is_required && <span className="req" title="Required">*</span>}{a.unit && <span className="quiet"> ({a.unit})</span>} <span className="tip">ⓘ</span> <WasValue f={f(`value:${a.code}`)} />
                   </label>
                   <ValueInput model={model} a={a} id={`f-${a.code}`} value={values[a.code]} onChange={(v) => setValues((x) => ({ ...x, [a.code]: v }))} />
                   {warn && <span className="sev warning small" title={cur?.override ? `Saved anyway by ${cur.override.by} on ${new Date(cur.override.at).toLocaleString()}` : undefined}>{warn}</span>}
@@ -478,7 +483,7 @@ function EntryRow({ model, m, form, row, cols, access, onRelate }) {
   return (
     <tr className={warn ? "has-warning" : ""}>
       <td><a href={`#/metamodel/${model}/entity/${row.id}`}>{row.display_id}</a></td>
-      <td>{row.name}{row.status === "retired" && <span className="quiet"> (retired)</span>}</td>
+      <td>{row.name}{row.status === "retired" && <span className="quiet"> (retired)</span>} <PendingMark kind={row.pending} model={model} /></td>
       <td className="quiet clip">{row.description}</td>
       {cols.map((a) => {
         const ov = row.overrides?.[a.code];
@@ -538,9 +543,10 @@ export function DataEntryTab({ model, m, typeFromUrl }) {
         )}
       </div>
       {!type && <p className="quiet">Choose an entity type: its fields appear as columns. Add rows, type values and save each row; once a row is
-        saved, + rel relates it to existing entities (a new entity is saved first, D79). Every save is visible to everyone at once.</p>}
+        saved, + rel relates it to existing entities (a new entity is saved first, D79). In a project model a save is your uncommitted change until it is committed (Changes tab); elsewhere everyone sees it at once.</p>}
       {type && !data && <p className="quiet">{error || "Loading..."}</p>}
       {!access.ok && data && <p className="quiet">{access.why}</p>}
+      {data && <PendingBanner count={data.pending_changes} model={model} />}
       {data && (
         <div className="table-scroll">
           <table className="grid-table entry-table">

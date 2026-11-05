@@ -18,6 +18,7 @@ import uuid
 from datetime import date
 
 from . import archimate4 as A
+from . import demo_estate as DEMO
 from . import insurance as INS
 
 NAMESPACE = uuid.UUID("6f4c2a52-2b0e-4b5e-9d63-6b0c0e7a1000")
@@ -439,6 +440,51 @@ def test_models_sql() -> str:
         sample_content_sql(KAROO_KEY),
         rules_demo_sql(),
         lean_sql(),
+        demo_estate_sql(),
+    ])
+
+
+def demo_estate_sql() -> str:
+    """Laptop demo model "Protea Insurance (demo estate)" (phase 8.2, D161): a whole fictitious estate on
+    ArchiMate 4, created from the template, so every viewpoint and report has data (eax.seed.demo_estate)."""
+    k = DEMO.DEMO_KEY
+    m = gid("model", k)
+    dtype = {code: DATA_TYPES[dt] for code, _n, dt, *_ in A.ATTRS}
+    ents, vals, parents, rels = [], [], [], []
+    for type_code, name, desc, parent, attrs in DEMO.E:
+        e = gid(k, "entity", name)
+        ents.append([e, m, gid(k, "entity_type", type_code), name, desc])
+        if parent:
+            parents.append((e, gid(k, "entity", parent)))
+        for attr, value in attrs.items():
+            dt = dtype[attr]
+            if dt == "date":
+                value = date.fromisoformat(value)
+            row = {"value_text": None, "value_number": None, "value_date": None}
+            row[STORAGE[dt]] = value
+            vals.append([gid(k, "attribute_value", name, attr), m, gid(k, "attribute_type", attr), e,
+                         row["value_text"], row["value_number"], row["value_date"]])
+    for src, kind, tgt in DEMO.R:
+        rels.append([gid(k, "relationship", src, kind, tgt), m, gid(k, "relationship_type", kind),
+                     gid(k, "entity", src), gid(k, "entity", tgt)])
+    parent_sql = ("UPDATE core.entities c SET parent_entity_id = p.id\nFROM (VALUES\n"
+                  + ",\n".join(f"    ('{c}'::uuid, '{p}'::uuid)" for c, p in parents)
+                  + "\n) AS v (child, parent)\nJOIN core.entities p ON p.guid = v.parent\nWHERE c.guid = v.child;\n")
+    cols = ["id", "origin_id", "name", "description", "kind_code", "source_model_id", "parent_model_id",
+            "metamodel_name", "owner", "industry"]
+    return "".join([
+        "SELECT set_config('eax.history_label', 'Laptop demo estate (Protea Insurance)', true);\n",
+        insert("model", cols, [[m, TEMPLATE_ID, DEMO.DEMO_NAME,
+                                "Demo model: Protea Insurance, a fictitious South African insurer, with a whole estate on "
+                                "ArchiMate 4 (motivation, strategy, business, application, technology, implementation and "
+                                "migration) so every viewpoint and report has data. Every name is invented.",
+                                "project", TEMPLATE_ID, None, "ArchiMate 4", "Protea architecture team", "Insurance"]]),
+        metamodel_sql(k, TEMPLATE_KEY),
+        insert("entity", ["id", "model_id", "entity_type_id", "name", "description"], ents),
+        parent_sql,
+        insert("attribute_value", ["id", "model_id", "attribute_type_id", "entity_id", "value_text", "value_number",
+                                   "value_date"], vals),
+        insert("relationship", ["id", "model_id", "relationship_type_id", "source_entity_id", "target_entity_id"], rels),
     ])
 
 

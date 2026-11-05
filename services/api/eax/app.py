@@ -50,6 +50,7 @@ def create_app(testing: bool = False) -> Flask:
     from .api.access import blp as access_blp
     from .api.audit import blp as audit_blp
     from .api.break_glass import blp as break_glass_blp
+    from .api.commits import blp as commits_blp
     from .api.content import blp as content_blp
     from .api.grids import blp as grids_blp
     from .api.heartbeat import blp as heartbeat_blp
@@ -59,9 +60,10 @@ def create_app(testing: bool = False) -> Flask:
     from .api.metamodel_edit import blp as metamodel_edit_blp
     from .api.models import blp as models_blp
     from .api.sql import blp as sql_blp
+    from .api.viewpoints import blp as viewpoints_blp
 
     for blp in (heartbeat_blp, me_blp, access_blp, break_glass_blp, jobs_blp, audit_blp, metamodel_blp,
-                metamodel_edit_blp, models_blp, content_blp, grids_blp, sql_blp):
+                metamodel_edit_blp, models_blp, content_blp, grids_blp, viewpoints_blp, commits_blp, sql_blp):
         api.register_blueprint(blp)
 
     @app.before_request

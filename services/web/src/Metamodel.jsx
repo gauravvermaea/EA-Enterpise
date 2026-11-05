@@ -13,6 +13,9 @@
 //   #/metamodel/<model>/grid[/<type>|/relationships]   tab Grid: spreadsheet-style editing (GridPages.jsx, phase 7)
 //   #/metamodel/<model>/metamodel/grids/<kind>   metamodel grids: entity types, attributes, mappings... (phase 7)
 //   #/metamodel/<model>/reports          tab Reports: standard reports and the report catalogue (ModelReports.jsx)
+//   #/metamodel/<model>/changes[/requests|/history[/<commit>]]   tab Changes: uncommitted changes, commit requests, commits, merges (Changes.jsx, phase 8)
+//   #/metamodel/<model>/merge            tab Merge: merge an uploaded model into this one, conflicts decided (Merge.jsx, phase 8)
+//   #/metamodel/<model>/viewpoints[/<code>[/<view>]]   tab Viewpoints: the model through VP-01 to VP-25 and your own (Viewpoints.jsx, phase 8.2)
 import { lazy, Suspense, useState } from "react";
 import { can, keycloak, signedIn, canOn, myRolesOn, roleName } from "./auth";
 import { CopyButton, LockBadge } from "./Library";
@@ -27,6 +30,9 @@ import {
 } from "./MetamodelEditor";
 import ModelPeople from "./ModelPeople";
 import ModelReports from "./ModelReports";
+import ViewpointsTab from "./Viewpoints";
+import ChangesTab, { LiveCommits, usePendingCount } from "./Changes";
+import MergeTab from "./Merge";
 import { DataEntryTab } from "./DataEntry";
 import { FavStar, GridTab, MetamodelGrids } from "./GridPages";
 import { CopyBanner, DraftPage, Drafts, ModelActions, NewModelButton, UploadButton } from "./ModelOps";
@@ -82,6 +88,7 @@ function ModelList({ view }) {
             m.entity_type_count, m.entity_count, m.relationship_count, m.modified_at])]} />}
       </div>
       <MarksLegend />
+      <WaitingDrafts />
       {error && <p className="status bad">{error}</p>}
       {!models && !error && <p>Loading...</p>}
       {models && tree && <Suspense fallback={<p>Loading the tree...</p>}><ModelTree models={models} /></Suspense>}
@@ -122,6 +129,24 @@ function ModelList({ view }) {
       )}
       </>}
     </section>
+  );
+}
+
+// Draft models waiting for my approval (D134, D165): approve, send back or reject on the model's Actions menu
+function WaitingDrafts() {
+  const { data } = useApi("/api/v1/drafts/waiting");
+  if (!data?.length) return null;
+  return (
+    <div className="lock-banner draft-banner">
+      <strong>{data.length} draft model{data.length === 1 ? "" : "s"} waiting for your approval</strong>
+      <ul>
+        {data.map((d) => (
+          <li key={d.id}><a href={`#/metamodel/${d.id}`}>{d.name}</a> <span className="quiet">· asked by {d.requested_by || d.created_by}
+            {d.requested_at ? ` on ${new Date(d.requested_at).toLocaleDateString()}` : ""}{d.note ? `: “${d.note}”` : ""}</span></li>
+        ))}
+      </ul>
+      <span className="quiet small">Open one and use Actions: Approve and publish, Send back, or Reject.</span>
+    </div>
   );
 }
 
@@ -341,6 +366,7 @@ function Lineage({ m }) {
 function ModelPage({ model, view, itemId, sub }) {
   const { data: m, error } = useApi(`/api/v1/models/${model}`);
   const [showProps, setShowProps] = useState(false);
+  const pending = usePendingCount(model, m);
   if (error) return <section><p className="status bad">{error}</p><a href="#/metamodel">All models</a></section>;
   if (!m) return <section><p>Loading...</p></section>;
   const holdsContent = m.kind !== "template";
@@ -349,7 +375,8 @@ function ModelPage({ model, view, itemId, sub }) {
     : v === "type" ? "metamodel" : v === "entity" ? "types" : v;
   const tabs = [
     ...(holdsContent ? [["types", "Entity types", m.entity_type_count], ["entry", "Data entry", null], ["grid", "Grid", null], ["rels", "Relationship types", null],
-      ["graph", "Graph", null], ["checks", "Failing checks", null]] : []),
+      ["graph", "Graph", null], ["viewpoints", "Viewpoints", null], ["checks", "Failing checks", null]] : []),
+    ...(m.kind === "project" ? [["changes", pending ? `Changes (${pending})` : "Changes", null], ["merge", "Merge", null]] : []),
     ["metamodel", "Metamodel", null], ["diagram", "ER diagram", null], ["reports", "Reports", null],
     ...(changeableModel(m) ? [["people", "People", null]] : []),
   ];
@@ -388,6 +415,7 @@ function ModelPage({ model, view, itemId, sub }) {
       )}
       <LockBanner m={m} />
       <CopyBanner m={m} />
+      <LiveCommits model={model} m={m} />
       <div className="tabs" role="tablist">
         {tabs.map(([k, label]) => (
           <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "tab on" : "tab"} onClick={() => go(`/metamodel/${model}/${k}`)}>{label}</button>
@@ -398,8 +426,11 @@ function ModelPage({ model, view, itemId, sub }) {
         : tab === "types" ? (itemId ? <TypeEntitiesTable model={model} m={m} typeId={itemId} /> : <EntityTypesTab model={model} m={m} />)
         : tab === "rels" ? (itemId ? <RelationshipsOfType model={model} m={m} relTypeId={itemId} /> : <RelationshipTypesTab model={model} m={m} />)
         : tab === "graph" ? <GraphTab model={model} kind={itemId} />
+        : tab === "viewpoints" ? <ViewpointsTab model={model} m={m} code={itemId} sub={sub} />
         : tab === "checks" ? <FailingChecks model={model} m={m} />
         : tab === "people" ? <ModelPeople model={model} m={m} />
+        : tab === "merge" ? <MergeTab model={model} m={m} />
+        : tab === "changes" ? <ChangesTab model={model} m={m} sub={itemId} itemId={sub} />
         : tab === "reports" ? <ModelReports model={model} m={m} />
         : tab === "grid" ? <GridTab key={itemId || "none"} model={model} m={m} typeFromUrl={itemId || ""} />
         : tab === "entry" ? <DataEntryTab key={itemId || "none"} model={model} m={m} typeFromUrl={itemId || ""} />

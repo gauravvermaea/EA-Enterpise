@@ -7,8 +7,9 @@ whatever is already present is left alone, so it is safe on every start.
   * Sample insurance model (when EAX_SEED_SAMPLE is true: the laptop template sets it)
   * Laptop only (with the sample): test models for roles (a fictitious insurer, Fynbos Mutual, from the
     insurance reference model, with Fynbos Life and Fynbos Commercial derived from it, and an
-    independent Karoo Re), the test users' model assignments (phase 3.1), and a few saved versions of
-    two sample entities for the History tab (D110)
+    independent Karoo Re), the demo estate Protea Insurance (phase 8.2), the test users' model
+    assignments (phase 3.1), and a few saved versions of two sample entities for the History tab (D110)
+  * The built-in viewpoints and report audiences (always, phase 8.2)
 Templates and reference models are locked, so this runs as the installer's login (eax_migrator,
 EAX_DB_MIGRATOR_PASSWORD), the only login the database lets change them.
 """
@@ -33,6 +34,7 @@ from .build import (
     seed_sql,
     test_models_sql,
 )
+from .catalog import catalog_sql
 
 
 def main() -> int:
@@ -66,6 +68,9 @@ def main() -> int:
                 print("EA Explorer: loaded the laptop test models (Fynbos Mutual group, Fynbos Life, Fynbos Commercial, Karoo Re)")
                 history_demo(conn)
             assign_test_users(conn)
+        # the built-in viewpoints and report audiences follow eax/report_defs.py (phase 8.2, D161)
+        conn.execute(catalog_sql())
+        print("EA Explorer: viewpoints and report audiences brought up to date")
         # the typed report views (rpt.t_*) follow the metamodels just loaded (D139)
         n = conn.execute("SELECT rpt.refresh_typed_views()").fetchone()[0]
         print(f"EA Explorer: report views brought up to date ({n} changed)")

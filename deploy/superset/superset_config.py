@@ -101,6 +101,24 @@ class KeycloakSecurityManager(SupersetSecurityManager):
 
 CUSTOM_SECURITY_MANAGER = KeycloakSecurityManager
 
+
+def FLASK_APP_MUTATOR(app):  # noqa: N802 - the name Superset looks for
+    """After a clean restart the browser can still hold a session cookie for a person the new Superset does not
+    have; Flask-AppBuilder's user loader then fails with a 500 error on every page. Wrap the loader so such a
+    cookie counts as signed out, and the person simply signs in again through Keycloak."""
+    lm = getattr(app, "login_manager", None)
+    loader = getattr(lm, "_user_callback", None)
+    if loader is None:
+        return
+
+    def safe_loader(user_id):
+        try:
+            return loader(user_id)
+        except (AttributeError, TypeError, ValueError):
+            return None
+
+    lm._user_callback = safe_loader
+
 # ---- Features
 # ENABLE_TEMPLATE_PROCESSING: model access uses {{ current_username() }} (D138)
 FEATURE_FLAGS = {"DASHBOARD_RBAC": True, "EMBEDDED_SUPERSET": False, "ENABLE_TEMPLATE_PROCESSING": True}

@@ -15,6 +15,7 @@ from marshmallow import INCLUDE, Schema, fields
 from sqlalchemy.exc import DBAPIError
 
 from .. import audit, grids, workspace
+from .. import commits as cm
 from .. import content as ct
 from .. import metamodel_edit as ed
 from .. import repository as repo
@@ -92,7 +93,7 @@ class EntityGrid(MethodView):
     @require_auth()
     def get(self, model_id, entity_type):
         """The entities of one type as grid rows, with the type's columns (same as the data entry page)"""
-        return _read(lambda c: ct.entry_table(c, model_id, entity_type))
+        return _read(lambda c: cm.overlay(c, model_id, g.user.username, lambda cc: ct.entry_table(cc, model_id, entity_type)))
 
     @blp.doc(security=SECURITY)
     @blp.arguments(RowsIn)
@@ -100,8 +101,11 @@ class EntityGrid(MethodView):
     @require_auth("model.content")
     def post(self, body, model_id, entity_type):
         """Save the changed rows: new, changed and deleted entities. Each row on its own; every row's outcome"""
-        return _write(lambda c: ct.bulk_entities(c, model_id, entity_type, body["rows"], g.user.username), "grid.entities",
-                      model_id, {"entity_type": entity_type, "rows": len(body["rows"])})
+        def run(c):   # phase 8 (D165): kept as uncommitted changes in a working model
+            if cm.uses_commits(repo.get_model(c, model_id)):
+                return cm.record_entity_rows(c, model_id, entity_type, body["rows"], g.user.username)
+            return ct.bulk_entities(c, model_id, entity_type, body["rows"], g.user.username)
+        return _write(run, "grid.entities", model_id, {"entity_type": entity_type, "rows": len(body["rows"])})
 
 
 @blp.route("/models/<uuid:model_id>/grids/relationships")
@@ -111,7 +115,8 @@ class RelationshipGrid(MethodView):
     @require_auth()
     def get(self, model_id):
         """Every relationship of the model (?type= one relationship type) as grid rows"""
-        return _read(lambda c: ct.relationship_grid(c, model_id, request.args.get("type") or None))
+        return _read(lambda c: cm.overlay(c, model_id, g.user.username,
+                                          lambda cc: ct.relationship_grid(cc, model_id, request.args.get("type") or None)))
 
     @blp.doc(security=SECURITY)
     @blp.arguments(RowsIn)
@@ -119,8 +124,11 @@ class RelationshipGrid(MethodView):
     @require_auth("model.content")
     def post(self, body, model_id):
         """Save the changed rows: new (type, source, target by guid, display ID or name), changed and deleted"""
-        return _write(lambda c: ct.bulk_relationships(c, model_id, body["rows"], g.user.username), "grid.relationships",
-                      model_id, {"rows": len(body["rows"])})
+        def run(c):
+            if cm.uses_commits(repo.get_model(c, model_id)):
+                return cm.record_relationship_rows(c, model_id, body["rows"], g.user.username)
+            return ct.bulk_relationships(c, model_id, body["rows"], g.user.username)
+        return _write(run, "grid.relationships", model_id, {"rows": len(body["rows"])})
 
 
 # ---------------------------------------------------------------- metamodel grids

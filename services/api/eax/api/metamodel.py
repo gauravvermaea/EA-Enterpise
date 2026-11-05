@@ -14,6 +14,7 @@ from flask.views import MethodView
 from flask_smorest import Blueprint, abort
 from marshmallow import Schema, fields
 
+from .. import commits as cm
 from .. import repository as repo
 from ..auth import require_auth
 from ..db import get_engine
@@ -170,7 +171,8 @@ class EntityDetailView(MethodView):
         """One entity: every attribute of its type with its value and rule results, the warnings,
         its relationships (each marked allowed or not), parent, children, and the relationships its
         type may have"""
-        return _call(repo.get_entity_detail, model_id, entity_id)
+        # the author sees their own uncommitted changes on top of the committed content (phase 8, D165)
+        return _call(lambda c: cm.overlay(c, model_id, g.user.username, lambda cc: repo.get_entity_detail(cc, model_id, entity_id)))
 
 
 @blp.route("/<uuid:model_id>/entity-types/<uuid:type_id>/table")
@@ -181,7 +183,7 @@ class TypeTableView(MethodView):
     def get(self, model_id, type_id):
         """The entities of one type as a table: a column per attribute, and per row its values,
         relationship count and validation results (errors and warnings)"""
-        return _call(repo.type_table, model_id, type_id)
+        return _call(lambda c: cm.overlay(c, model_id, g.user.username, lambda cc: repo.type_table(cc, model_id, type_id)))
 
 
 @blp.route("/<uuid:model_id>/entities/<uuid:entity_id>/history")

@@ -93,6 +93,10 @@ cannot tell who is asking. The laptop development token signs in as a Super Admi
 | `compare_metamodel_versions(model, from_version, to_version?)` | What differs in the metamodel between two versions (`to_version` defaults to the current one) |
 | `list_failing_checks(model, entity_type?)` | Every entity failing a check (rules, mandatory values, relationships outside the metamodel), with counts by type, rule and severity |
 | `search_entities(text, model?, entity_type?, attribute?, tag?)` | Search every model you may read (or one) in names, display IDs, descriptions, tags and attribute values; optionally one type, one attribute or one tag; each result says where it matched (phase 7) |
+| `list_viewpoints(model?)` | The viewpoints (VP-01 to VP-25 and the organisation's own); with a model, how many of its entities each shows (phase 8.2) |
+| `view_through_viewpoint(model, viewpoint)` | A model through one viewpoint: its elements with every value, and the relationships the viewpoint shows (phase 8.2) |
+| `value_stream_map(model)` | Value streams, their stages in order and the capabilities enabling each, with their values (phase 8.2) |
+| `roadmap(model)` | Work packages, deliverables and plateaus with dates and what each delivers (phase 8.2) |
 
 ### Metamodel drafts (phase 4, D115, D120, D130)
 

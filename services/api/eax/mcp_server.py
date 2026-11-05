@@ -269,6 +269,38 @@ async def search_entities(text: str, model: str | None = None, entity_type: str 
     return await _run(workspace.search, text, model, entity_type, attribute, tag)
 
 
+# ---------------------------------------------------------------- viewpoints and maps (build phase 8.2, D161)
+@mcp.tool()
+async def list_viewpoints(model: str | None = None) -> Any:
+    """The viewpoints (VP-01 to VP-25 from ArchiMate 4, and the organisation's own): concerns, stakeholders,
+    element and relationship types; with a model, how many of its entities each viewpoint shows."""
+    from . import viewpoints
+    return await _run(viewpoints.list_viewpoints, model)
+
+
+@mcp.tool()
+async def view_through_viewpoint(model: str, viewpoint: str) -> Any:
+    """A model through one viewpoint (for example VP-11 Application Cooperation): its elements with every
+    attribute value, and the relationships between them that the viewpoint shows."""
+    from . import viewpoints
+    return await _run(viewpoints.model_viewpoint, model, viewpoint)
+
+
+@mcp.tool()
+async def value_stream_map(model: str) -> Any:
+    """A model's value streams, their stages in order and the capabilities that enable each stage, with the
+    capabilities' attribute values (maturity, criticality...)."""
+    from . import viewpoints
+    return await _run(viewpoints.value_stream_map, model)
+
+
+@mcp.tool()
+async def roadmap(model: str) -> Any:
+    """A model's work packages, deliverables and plateaus with their start and end dates and what each delivers."""
+    from . import viewpoints
+    return await _run(viewpoints.roadmap, model)
+
+
 # ---------------------------------------------------------------- sign-in
 # ---------------------------------------------------------------- metamodel drafts (build phase 4, D115, D120)
 # Your language model drafts a metamodel here; a person reviews and applies it in the screens (Models >

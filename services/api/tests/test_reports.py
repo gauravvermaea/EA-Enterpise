@@ -9,7 +9,8 @@ import yaml
 from eax.report_defs import REPORTS
 from eax.setup import superset_reports as sr
 
-SQL = (Path(__file__).resolve().parent.parent / "migrations" / "sql" / "0009_reports.sql").read_text(encoding="utf-8")
+_SQL_DIR = Path(__file__).resolve().parent.parent / "migrations" / "sql"
+SQL = "".join((_SQL_DIR / f).read_text(encoding="utf-8") for f in ("0009_reports.sql", "0012_viewpoints.sql"))
 SUPERSET = Path(__file__).resolve().parents[3] / "deploy" / "superset"
 
 
@@ -21,10 +22,16 @@ def test_reports_have_unique_codes_and_slugs():
 
 def test_every_report_view_is_made_by_the_migration():
     for r in REPORTS:
+        if r["family"] == "Audience":   # made of the other reports' charts
+            continue
         view = r["view"].split(".", 1)[1]
+        if view in sr.VIRTUAL:
+            continue
         assert re.search(rf"CREATE VIEW rpt\.{view}\b", SQL), view
     for view in sr.VIEWS:
-        if view in sr.HEAT:   # SQL datasets over a view, banded by the thresholds people choose
+        if view in sr.VIRTUAL:   # SQL datasets over a function
+            assert re.search(r"CREATE FUNCTION rpt\.f_dependencies\b", SQL), view
+        elif view in sr.HEAT:   # SQL datasets over a view, banded by the thresholds people choose
             assert re.search(rf"CREATE VIEW rpt\.{sr.HEAT[view][0]}\b", SQL), view
         else:
             assert re.search(rf"CREATE VIEW rpt\.{view}\b", SQL), view
@@ -45,9 +52,11 @@ def test_charts_use_columns_their_dataset_has(tmp_path):
             p = c["params"]
             used = p.get("all_columns", []) + p.get("groupbyRows", []) + p.get("groupbyColumns", []) \
                 + p.get("groupby", []) + ([p["x_axis"]] if "x_axis" in p else []) \
-                + [f["subject"] for f in p.get("adhoc_filters", [])]
+                + [f["subject"] for f in p.get("adhoc_filters", [])] \
+                + [p[k] for k in ("source", "target", "source_category", "target_category", "entity", "series") if p.get(k)]
             metrics = {m["metric_name"] for m in sr.dataset(view, "https://x")["metrics"]}
             assert set(p.get("metrics", [])) <= metrics, (report["code"], p.get("metrics"))
+            assert {p[k] for k in ("metric", "x", "y", "size") if k in p} <= metrics, (report["code"], c["slice_name"])
             assert set(used) <= names, (report["code"], set(used) - names)
             assert "model_name" in names, view   # every dashboard filters on the model
 
@@ -95,3 +104,22 @@ def test_heatmaps_offer_thresholds_and_reports_offer_filters():
     codes = {r["code"] for r in REPORTS if any(
         sr.dataset_for(c) in sr.HEAT for c in sr.charts_for(r))}
     assert {"SR-16", "SR-17", "SR-23", "HM"} <= codes
+
+
+def test_phase_8_2_reports():
+    """Viewpoints VP-01 to VP-25, the TOGAF catalogues and matrices, dependency reports and audience dashboards (D161)."""
+    from eax.report_defs import AUDIENCES, VIEWPOINTS
+    codes = {r["code"] for r in REPORTS}
+    assert {f"VP-{i:02d}" for i in range(1, 26)} <= codes
+    assert {"TC-01", "TC-08", "TM-07", "TM-09", "DR-01", "DR-04"} <= codes
+    assert {f"AU-{a}" for a, _n, _g in AUDIENCES} <= codes
+    assert len(VIEWPOINTS) == 25 and all("Grouping" in v["element_types"] for v in VIEWPOINTS)
+    for r in REPORTS:
+        assert r["audiences"], r["code"]          # every report is for someone (D153)
+        charts = sr.charts_for(r)
+        assert charts, r["code"]
+        assert sr.dashboard_filters(r, charts)[0]["name"] == "Model"
+    vp19 = next(r for r in REPORTS if r["code"] == "VP-19")
+    colour = next(f for f in sr.dashboard_filters(vp19, sr.charts_for(vp19)) if f["name"] == "Colour by")
+    assert colour["defaultDataMask"]["filterState"]["value"] == ["Maturity"]
+    assert "filter_values('entity_label'" in sr.VIRTUAL["dr_dependencies"][0]

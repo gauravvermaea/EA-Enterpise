@@ -290,7 +290,7 @@ export default function Grid({
         setMsg(`Saved ${outcome.saved}; ${failed.length} row${failed.length === 1 ? "" : "s"} not saved (marked ⚠, hover for why). Fix them and save again.`);
       } else {
         const warned = (outcome?.rows || []).filter((r) => r.warnings?.length).length;
-        setMsg(`Saved ${batch.length} row${batch.length === 1 ? "" : "s"}${warned ? `, ${warned} with rule warnings (kept, flagged)` : ""}.${saveNote ? ` ${saveNote}` : ""}`);
+        setMsg(`Saved ${batch.length} row${batch.length === 1 ? "" : "s"}${warned ? `, ${warned} with rule warnings (kept, flagged)` : ""}.${outcome?.note ? ` ${outcome.note}` : saveNote ? ` ${saveNote}` : ""}`);
       }
     } catch (err) {
       const m = /Row (\d+)/.exec(err.message);

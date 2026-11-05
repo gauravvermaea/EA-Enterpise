@@ -28,7 +28,8 @@ MODEL_CREATOR, LIBRARY_ADMIN, USER = "model-creator", "library-admin", "user"
 GLOBAL_ROLES = [SUPER_ADMIN, IT_ADMIN, USER_ADMIN, KEYCLOAK_ADMIN, MODEL_CREATOR, LIBRARY_ADMIN, USER]
 # model roles (per model, several allowed on one model)
 MODEL_ADMIN, MODEL_SUB_ADMIN, ARCHITECT, REPORT_VIEWER = "model-admin", "model-sub-admin", "architect", "report-viewer"
-MODEL_ROLES = [MODEL_ADMIN, MODEL_SUB_ADMIN, ARCHITECT, REPORT_VIEWER]   # highest first
+COMMITTER, HISTORY_VIEWER = "committer", "history-viewer"   # phase 8 (D165, D151)
+MODEL_ROLES = [MODEL_ADMIN, MODEL_SUB_ADMIN, COMMITTER, ARCHITECT, HISTORY_VIEWER, REPORT_VIEWER]   # highest first
 APP_ROLES = GLOBAL_ROLES + MODEL_ROLES
 
 # Global permissions: any one of these global roles (Super Admin always)
@@ -44,8 +45,10 @@ GLOBAL_PERMISSIONS: dict[str, set[str]] = {
 }
 # Model permissions: the person's roles on that model
 MODEL_PERMISSIONS: dict[str, set[str]] = {
-    "model.read": {MODEL_ADMIN, ARCHITECT, MODEL_SUB_ADMIN, REPORT_VIEWER},
-    "model.content": {MODEL_ADMIN, ARCHITECT, MODEL_SUB_ADMIN},   # D90: Model Admins too
+    "model.read": {MODEL_ADMIN, ARCHITECT, MODEL_SUB_ADMIN, REPORT_VIEWER, COMMITTER, HISTORY_VIEWER},
+    "model.content": {MODEL_ADMIN, ARCHITECT, MODEL_SUB_ADMIN, COMMITTER},   # D90: Model Admins too
+    "model.commit": {MODEL_ADMIN, MODEL_SUB_ADMIN, COMMITTER},     # D165: commit, reject, send back, roll back
+    "model.history": {MODEL_ADMIN, HISTORY_VIEWER},                # D151: everyone's commits, not only your own
     "model.metamodel": {MODEL_ADMIN},                              # D89
     "model.lock": {MODEL_ADMIN},
     "model.people": {MODEL_ADMIN},                                 # give people roles on the model
@@ -66,12 +69,16 @@ TEST_USERS = [
     ("user_model_creator", "eax-model-creator", {"Karoo Re (independent)": [MODEL_ADMIN], "Lean EA metamodel": [MODEL_ADMIN],
                                                  "Karoo Digital (lean)": [MODEL_ADMIN]}),
     ("user_model_admin", "eax-user", {"Fynbos Mutual (group)": [MODEL_ADMIN], "Fynbos Life": [MODEL_ADMIN],
-                                      "Sample insurance model": [ARCHITECT]}),
+                                      "Sample insurance model": [ARCHITECT], "Protea Insurance (demo estate)": [MODEL_ADMIN]}),
     ("user_architect", "eax-user", {"Sample insurance model": [ARCHITECT], "Fynbos Life": [ARCHITECT],
-                                    "Fynbos Commercial": [MODEL_SUB_ADMIN, REPORT_VIEWER]}),
+                                    "Fynbos Commercial": [MODEL_SUB_ADMIN, REPORT_VIEWER],
+                                    "Protea Insurance (demo estate)": [ARCHITECT]}),
     ("user_model_sub_admin", "eax-user", {"Sample insurance model": [MODEL_SUB_ADMIN], "Fynbos Life": [MODEL_SUB_ADMIN],
                                           "Fynbos Commercial": [MODEL_SUB_ADMIN], "Karoo Re (independent)": [MODEL_SUB_ADMIN]}),
-    ("user_report_viewer", "eax-user", {"Fynbos Mutual (group)": [REPORT_VIEWER], "Sample insurance model": [REPORT_VIEWER]}),
+    ("user_committer", "eax-user", {"Protea Insurance (demo estate)": [COMMITTER], "Sample insurance model": [COMMITTER]}),
+    ("user_history_viewer", "eax-user", {"Protea Insurance (demo estate)": [HISTORY_VIEWER, REPORT_VIEWER]}),
+    ("user_report_viewer", "eax-user", {"Fynbos Mutual (group)": [REPORT_VIEWER], "Sample insurance model": [REPORT_VIEWER],
+                                        "Protea Insurance (demo estate)": [REPORT_VIEWER]}),
     ("user_global_architect", "eax-user", {"*": [ARCHITECT]}),
 ]
 

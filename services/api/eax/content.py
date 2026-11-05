@@ -1,6 +1,7 @@
 """Data entry (build phase 6): create and change entities, their values and relationships.
 
-Every save is visible to everyone at once; there are no commits yet (D61). The database decides who may
+Since phase 8 (D165) the API records content changes as uncommitted changes (eax.commits): these
+functions run when a change is tried out (to check it, rolled back) and again when it is committed. The database decides who may
 change what (core.refuse_unpermitted: Architects, Model Sub Admins and Model Admins on the model; locked
 models and retired types refuse). Validation rules warn, never block (D48): a value saved although it
 fails a rule keeps the rules it fails (attribute_values.rule_override) and the answer lists the warnings.
@@ -238,8 +239,10 @@ def create_entity(conn, model: Any, data: dict, actor: str, light: bool = False)
         raise EditError("Give the entity a name.")
     parent = _entity_id(conn, m, data.get("parent"), "parent entity")
     plan = _plan_values(conn, m, et["_id"], data.get("values") or {})   # every value checked before anything is saved
-    row = _exec(conn, """INSERT INTO core.entities (model_id, entity_type_id, name, description, parent_entity_id, tags, display_id)
-                         VALUES (:m, :t, :n, :d, :p, CAST(:tags AS text[]), coalesce(:did, '')) RETURNING id""",
+    row = _exec(conn, """INSERT INTO core.entities (guid, model_id, entity_type_id, name, description, parent_entity_id, tags, display_id)
+                         VALUES (coalesce(CAST(:g AS uuid), gen_random_uuid()), :m, :t, :n, :d, :p, CAST(:tags AS text[]),
+                                 coalesce(:did, '')) RETURNING id""",
+                g=str(repo._as_guid(data["guid"])) if data.get("guid") else None,   # set when the change was recorded (phase 8)
                 m=m["_id"], t=et["_id"], n=name, d=(data.get("description") or "").strip(), p=parent,
                 tags=_tags(data.get("tags")), did=(data.get("display_id") or "").strip() or None)
     eid = row.scalar_one()
@@ -388,8 +391,9 @@ def add_relationship(conn, model: Any, data: dict, actor: str) -> dict:
     if _one(conn, """SELECT 1 AS x FROM core.relationships WHERE relationship_type_id = :r AND source_entity_id = :s
                       AND target_entity_id = :t AND NOT is_deleted""", r=rt["_id"], s=src, t=tgt):
         raise EditError("These two entities already have this relationship.", 409)
-    rid = _exec(conn, """INSERT INTO core.relationships (model_id, relationship_type_id, source_entity_id, target_entity_id, name)
-                         VALUES (:m, :r, :s, :t, :n) RETURNING guid""",
+    rid = _exec(conn, """INSERT INTO core.relationships (guid, model_id, relationship_type_id, source_entity_id, target_entity_id, name)
+                         VALUES (coalesce(CAST(:g AS uuid), gen_random_uuid()), :m, :r, :s, :t, :n) RETURNING guid""",
+                g=str(repo._as_guid(data["guid"])) if data.get("guid") else None,
                 m=m["_id"], r=rt["_id"], s=src, t=tgt, n=(data.get("name") or "").strip()).scalar_one()
     out = {"id": str(rid), "relationship_type": rt["name"], "outside_metamodel": outside is not None}
     if outside is not None:

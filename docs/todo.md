@@ -35,8 +35,43 @@ Tick an item (`[x]`) when it is done; remove it at the next tidy-up.
 ## Phase 7 (version 0.7.0)
 
 - [x] **Test phase 7** (accepted 4 Nov 2026, D157; end-to-end test in 36.1): `.\eax clean-restart`, the demo and checks in [phase-7.md](phase-7.md).
+- [x] **Test phase 8.2** (accepted 5 Nov 2026, D164; each report checked in 36.1): `.\eax clean-restart`, the demo and checks in [phase-8.2.md](phase-8.2.md). The Superset charts new in 8.2 (network, sankey, treemap, bubble) could not be tried here: check they draw.
+- [ ] **Test phase 8** (0.8.3): `.\eax clean-restart`, the demo and checks in [phase-8.md](phase-8.md). New test users `user_committer` and `user_history_viewer` (same password as the others).
+- [ ] **Phase 28-29 rule (D167)**: draw.io diagram saves go through `POST /models/<model>/changes/batch`, so they are committed like every other change.
+- [ ] **Phase 10: clean up the start page (owner, 5 Nov 2026, D163). Discuss with the owner first, then build.** It has grown into a list of build features
+  (Grid, Data entry...) that mean little to a user. Rework it with the home dashboard: start from what a person wants
+  to do (my models, my favourites and recent items, find something, my reports and dashboards for my audience,
+  things waiting for me), and move the "what is coming" cards to an About or roadmap page.
 - [ ] Phase 10: application settings on the admin screen: currency (USD), location and time zone, formats, financial year (D156).
 - [ ] Phase 8: person-based change log, My changes and the View change history permission (D151).
+- [ ] **Phase 8 design inputs (owner, 5 Nov 2026, D165)**, being settled question by question:
+  1. Content (data only, not the metamodel) entered in a model is private to the person who entered it until it is
+     committed; no one else sees it. A new role may commit. Only committed data is in the version history.
+  2. A changes page shows every uncommitted change: commit, reject or roll back, a whole change set or row by row.
+  3. Model Admins and Model Sub Admins can also commit.
+  4. From that page a person either commits (if they have the commit role) or raises a request for commit. Nothing
+     is committed automatically.
+  5. Draft models: every model creation (new, copy, child, upload) starts as a draft and is approved or rejected,
+     even when the person could approve it; people may approve or reject their own drafts.
+  6. Upload a model (Excel or zip) into an existing or draft model and merge it: entities, attributes and
+     relationships of the other model added or updated, with merge management and conflict resolution.
+  Answers (5 Nov 2026): Committer is a **model role** (People tab). Uncommitted changes are seen **only by the person
+  who made them, and by the model's committers once a request for commit is raised**. Two people changing the same
+  entity: the **conflict is shown at commit** (keep committed, take theirs, or merge field by field). **Roll back**
+  covers both: discard uncommitted changes (whole set or row) and undo a committed commit (whole or row) as a new
+  commit. A request for commit goes to **all the model's Committers, Model Admins and Sub Admins**, any of whom can
+  commit, reject or send it back with a note. **Draft models** are approved or rejected by the creator, Super Admins,
+  the Model Admins of the model a child merges into, and Library Admins for library models; while a draft, people
+  with roles can **work in it but it is hidden** from the model list, library and reports. **Merge upload**: entities
+  matched by **type and name**; every conflict listed and **decided one by one** (keep mine, take theirs, type a
+  value, or all mine or all theirs); types, attributes and relationship types the target lacks are **offered to a
+  Model Admin to add** (one new metamodel version) or left out; the merged content becomes **one uncommitted change
+  set** that goes through commit.
+- [ ] **Production upgrades keep the data (D162, at production deployment, phase 36)**: keep a database upgrade script for
+  every version, match the database's version to the release and run the scripts in order; take a backup before every
+  upgrade (and refuse to upgrade without one); in production the clean restart is switched off by a setting in the
+  .env file, and someone has to change that setting on purpose to allow a clean start there. Clean restarts stay the
+  rule in development.
 
 ## Phase 14, backup and restore (owner, 4 Nov 2026)
 
