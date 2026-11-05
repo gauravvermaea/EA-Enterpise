@@ -34,7 +34,8 @@ Tick an item (`[x]`) when it is done; remove it at the next tidy-up.
 
 ## Phase 7 (version 0.7.0)
 
-- [ ] **Test phase 7** (Gaurav, or in 36.1): `.\eax clean-restart`, the demo and checks in [phase-7.md](phase-7.md).
+- [x] **Test phase 7** (accepted 4 Nov 2026, D157; end-to-end test in 36.1): `.\eax clean-restart`, the demo and checks in [phase-7.md](phase-7.md).
+- [ ] Phase 10: application settings on the admin screen: currency (USD), location and time zone, formats, financial year (D156).
 - [ ] Phase 8: person-based change log, My changes and the View change history permission (D151).
 
 ## Phase 14, backup and restore (owner, 4 Nov 2026)
@@ -156,6 +157,21 @@ Tick an item (`[x]`) when it is done; remove it at the next tidy-up.
   matrix or view is generated into a workbook or document.
 - Review and approval: how it uses the actions, alerts and workflows of phase 8.1 and the commits of phase 8.
 - Roles on a project (do they flow to its models, or stay separate from model roles?).
+- **Project workflow wizard** (owner, 5 Nov 2026, D160): one guided path through a project, steps to confirm:
+  1. Create the project (purpose, scope, sponsor, people).
+  2. Choose a model or create one (from the core model or a copy, with lineage).
+  3. Set up documents and templates (setup pack, starter documents in Mayan, starter diagrams and reports).
+  4. Plan the ADM: which phases, in what order, **several running at the same time**, each with deliverables,
+     owners, dates and a gate.
+  5. Run the phases: work the deliverables, produce artefacts from templates, review and approve them.
+  6. Track governance: decisions, compliance reviews, dispensations, risks, issues, change requests and
+     requirements, with dashboards.
+  7. Gate reviews and phase sign-off.
+  8. Implementation governance (Phase G): Architecture Contracts and compliance reviews of delivery projects.
+  9. Change management (Phase H): change requests, and starting a new iteration or project.
+  10. Close the project: what happens to its content, the final deliverables, lessons learned.
+  To settle: whether the wizard is a step-by-step screen, a project cockpit with a checklist, or both; who may
+  skip steps; whether the steps come from the framework definition so an organisation can change them.
 
 ## Design session before phase 24.1 (model versions, comparison and gap analysis, D111)
 
@@ -216,6 +232,48 @@ Noted 4 Nov 2026 (D99). To discuss and settle when we build the final deployment
   Model Admin of a draft's source model cannot see the requested draft to approve it.
 
 ## Backlog (to work out later)
+
+- [ ] **Enterprise readiness: what needs improving** (owner, 4 Nov 2026, D158). From the review of whether EA
+  Explorer is enterprise-scale and how it compares with free and paid tools. **Now in the plan (D159):** phase
+  8.5 (F9, F10, F11, F12, F14) and phase 36.2 (F1 to F8, F13, F15 to F20).
+  - *Trust and security*
+    - F1 Penetration test and security review before any bank or insurer uses it (reconsider D56) (37).
+    - F2 Dependency and container image scanning on every build; patch policy for the open-source
+      products inside (36).
+    - F3 Encryption at rest for the database, documents and backups; secrets in a key vault (36).
+    - F4 Tamper-evident audit log (entries chained or signed, kept read-only, exported to a log store) (25).
+    - F5 Rate limits and abuse protection per user and per token on the API and MCP (25).
+  - *Scale and availability*
+    - F6 Scale test with a large model and many users (backlog D5), with response-time targets for grids,
+      search, reports, copies and imports, and fixes for what is slow (37).
+    - F7 High availability: database replica and failover, more than one API and web container, no single
+      point of failure (36).
+    - F8 Disaster recovery: stated recovery point and recovery time, a tested restore drill, backups kept
+      off the server (8.4 and 36).
+    - F9 Monitoring and alerting: metrics, logs and alerts to the operations team (35).
+  - *Upgrades and releases*
+    - F10 Upgrades that keep the data: every new version upgrades a running installation in place
+      (migrations only, no clean restart), tested from each released version (36).
+    - F11 Release process: continuous integration running every check and test, versioned releases,
+      release notes, a supported-versions policy (36.1 and 37).
+    - F12 Raise automated test coverage across API, database and screens, so changes do not break earlier
+      phases (36.1).
+  - *Quality of what users see*
+    - F13 Reports good enough for executives (owner: today's reports are not): every report checked and
+      redesigned (8.2 and 36.1).
+    - F14 Superset set-up and report import tested on a real installation end to end (8.2).
+    - F15 Usability: consistent screens, fewer clicks for common tasks, a usability test with real
+      architects, accessibility to WCAG 2.1 AA (37).
+    - F16 Diagramming depth: drawing with model elements as smooth as a desktop modelling tool (28 and 29).
+    - F17 Content: reference models and starter packs good enough to start with on day one (39).
+  - *Enterprise identity*
+    - F18 Active Directory and other identity providers, group-to-role mapping (25 and 36).
+  - *Product and continuity*
+    - F19 Decide who the product is for (suggested: consultancies and mid-to-large financial-services
+      organisations wanting a self-hosted, ArchiMate 4, AI-first repository) and choose backlog items that
+      sharpen that, rather than everything other tools have.
+    - F20 Continuity: more than one maintainer, contributor guide, architecture documentation for
+      developers, and a support model (who answers when it breaks).
 
 - [ ] **Market review of open-source EA tools** (owner, 4 Nov 2026, D154): features found that the plan and the
   backlog above do not yet have. Phases to be set; the phase in brackets is only a suggestion.

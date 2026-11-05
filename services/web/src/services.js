@@ -33,6 +33,8 @@ export const groups = [
       { name: "Document generation", text: "Word, PDF and PowerPoint deliverables from templates filled with live model data", phase: "later" },
       { name: "Cost and investment", text: "Cost per application rolled up to capabilities, value streams and organisations; run and change spend; business cases", phase: "later" },
       { name: "Risk, controls and compliance", text: "Regulatory obligations, controls mapped to the architecture, risk ratings, compliance gaps, technology radar and end-of-life alerts", phase: "later" },
+      { name: "Process modelling", text: "BPMN 2.0 processes linked to the model, with versions, approval and maturity assessments", phase: "later" },
+      { name: "Initiatives and delivery", text: "Gantt, status reports, work breakdown, task board, capex and opex budgets, risks and benefits tracking", phase: "later" },
     ],
   },
   {
@@ -46,6 +48,7 @@ export const groups = [
       { name: "Published portal", text: "Browse and search an approved model without a role in the tool", phase: "later" },
       { name: "Teams, email and phone", text: "Notifications to Microsoft Teams and email; read-only browsing and approvals on a phone or tablet", phase: "later" },
       { name: "Computed attributes", text: "Formulas, inherited values and roll-ups such as capability health from its applications", phase: "later" },
+      { name: "Entity approval and stakeholders", text: "Approval state per entity, stakeholders with your own roles, tag groups, form layouts and no-code automations", phase: "later" },
     ],
   },
   {
@@ -75,6 +78,8 @@ export const groups = [
       { name: "ArchiMate exchange", text: "Import and export ArchiMate exchange files", phase: "33" },
       { name: "Integrations and reference data", text: "Connect to the rest of the estate", phase: "34" },
       { name: "Integration and ETL", text: "Drag-and-drop ETL with Apache Hop and its standard connectors: other APIs, our API, file dumps, into staging", phase: "34.1" },
+      { name: "Architecture as code", text: "Models as YAML in Git, lint in pipelines, a command-line tool, scripts, import preview and an offline HTML export", phase: "later" },
+      { name: "More connectors", text: "ServiceNow CMDB sync, end-of-life data, AWS, Azure, Confluence, Jira and Slack", phase: "later" },
     ],
   },
   {
@@ -100,6 +105,8 @@ export const groups = [
       { name: "Users and roles", text: "People, the EA Explorer roles their Keycloak roles give, their models, and the Keycloak role mapping", href: "#/users", live: true, perm: "users.read", roles: ["user-admin", "super-admin"] },
       { name: "Home dashboard and administration", text: "Live counts and the administration screens", phase: "10" },
       { name: "Backup and restore", text: "Back up now, scheduled backups, restore from the web or from a backup file you choose", phase: "8.4" },
+      { name: "Enterprise readiness, part 1", text: "Upgrades that keep your data, release process and continuous integration, more automated tests, monitoring and alerts", phase: "8.5" },
+      { name: "Enterprise readiness, part 2", text: "Penetration test, encryption, scale test, high availability, disaster recovery, Active Directory, usability and accessibility", phase: "36.2" },
       { name: "Security hardening", text: "Enterprise identity and fine-grained rights", phase: "25" },
       { name: "Operations insight", text: "Health, usage, jobs and housekeeping", phase: "35" },
       { name: "Production deployment", text: "Scale-out, Active Directory sign-in, another identity platform, auth and paths in the config, a key vault for passwords", phase: "36" },

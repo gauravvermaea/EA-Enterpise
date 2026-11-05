@@ -55,7 +55,7 @@ draw.io, nginx, React screens. How it is built: [docs/architecture.md](docs/arch
 | 4 Creating and copying models (child or independent), root metamodels, library models (Library Admin), packages (zip and Excel) with an upload wizard, framework move, archive and delete, metamodel drafts by AI through MCP | 0.4.0 | accepted and closed 4 Nov 2026 (D136); end-to-end test in 36.1 (D129) |
 | 5 Reports: report views (generic and typed per entity type), model access for reports (several models at a time), Superset dashboards for the model overview, all thirty standard reports SR-01 to SR-30 (from phase 11) and pick-list heatmaps, the Reports tab with the report catalogue | 0.5.0 | accepted and closed 4 Nov 2026 (D143); each report checked in 36.1 |
 | 6 Data entry in forms: forms from the metamodel, Data entry tab (D79), edit, retire, restore, delete, relationships inside and outside the metamodel (D49), tags, rule overrides (D48), roll back | 0.6.0 | accepted and closed 4 Nov 2026 (D146); end-to-end test in 36.1 |
-| 7 Grids for entities, relationships and the metamodel (paste from Excel), search, saved views, favourites and recent items | 0.7.0 | built 4 Nov 2026, waiting for test (D150) |
+| 7 Grids for entities, relationships and the metamodel (paste from Excel), search, saved views, favourites and recent items | 0.7.0 | accepted and closed 4 Nov 2026 (D157); end-to-end test in 36.1 |
 
 The full plan (47 phases) is in the build plan workbook. Agreed but not yet built, with their
 decisions: commits and merge screens (D61, D66), Mayan phase (D62), lineage (D63), dedupe per model
