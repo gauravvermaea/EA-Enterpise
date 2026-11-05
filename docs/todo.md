@@ -36,7 +36,7 @@ Tick an item (`[x]`) when it is done; remove it at the next tidy-up.
 
 - [x] **Test phase 7** (accepted 4 Nov 2026, D157; end-to-end test in 36.1): `.\eax clean-restart`, the demo and checks in [phase-7.md](phase-7.md).
 - [x] **Test phase 8.2** (accepted 5 Nov 2026, D164; each report checked in 36.1): `.\eax clean-restart`, the demo and checks in [phase-8.2.md](phase-8.2.md). The Superset charts new in 8.2 (network, sankey, treemap, bubble) could not be tried here: check they draw.
-- [ ] **Test phase 8** (0.8.3): `.\eax clean-restart`, the demo and checks in [phase-8.md](phase-8.md). New test users `user_committer` and `user_history_viewer` (same password as the others).
+- [x] **Test phase 8** (accepted 5 Nov 2026, D171; end-to-end test in 36.1) (0.8.3): `.\eax clean-restart`, the demo and checks in [phase-8.md](phase-8.md). New test users `user_committer` and `user_history_viewer` (same password as the others).
 - [ ] **Phase 28-29 rule (D167)**: draw.io diagram saves go through `POST /models/<model>/changes/batch`, so they are committed like every other change.
 - [ ] **Phase 10: clean up the start page (owner, 5 Nov 2026, D163). Discuss with the owner first, then build.** It has grown into a list of build features
   (Grid, Data entry...) that mean little to a user. Rework it with the home dashboard: start from what a person wants

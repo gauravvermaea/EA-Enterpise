@@ -4,7 +4,7 @@ Goal: content changes stay private to their author until someone with the right 
 approved or rejected; another model can be merged into a model with every conflict decided. Version **0.8.3**,
 migration `0013_commits` (8.2 took 0.8.2 because it was built first, D161). Decisions D151, D165, D166, D167.
 
-## Status: built, waiting for the owner's test
+## Status: accepted and closed (5 Nov 2026, D171); end-to-end test in phase 36.1 (D129)
 
 ## What phase 8 delivers
 
