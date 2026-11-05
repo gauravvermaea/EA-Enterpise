@@ -2,13 +2,12 @@
 // and merge its entities, values and relationships into this one, deciding every conflict.
 //   #/metamodel/<model>/merge
 // Entities are matched by type and name. Nothing changes until the merge is applied; then it is the person's
-// uncommitted changes (Changes tab), committed like any other change.
+// committed at once as one commit (no commit step), rolled back from Changes > Commits like any other commit.
 import { useMemo, useRef, useState } from "react";
 import { apiDownload, apiFetch, apiUpload, canOn } from "./auth";
 import { refreshAll, useApi } from "./ModelViews";
 import { EntityLink } from "./Changes";
 
-const go = (path) => { window.location.hash = path; };
 const post = (path, body) => apiFetch(path, { method: "POST", body: JSON.stringify(body || {}) });
 const show = (v) => (v === null || v === undefined || v === "" ? <span className="quiet">(empty)</span> : String(v));
 const field = (f) => f.replace(/^value:/, "").replace(/^description$/, "Description").replace(/^parent$/, "Part of");
@@ -20,7 +19,6 @@ export default function MergeTab({ model, m }) {
   const [error, setError] = useState("");
   const [done, setDone] = useState(null);
   const [decisions, setDecisions] = useState({});   // conflict id -> "mine" | "theirs" | {value}
-  const [addMeta, setAddMeta] = useState(true);
   const [section, setSection] = useState("conflicts");
   const [filter, setFilter] = useState("");
   const [type, setType] = useState("");
@@ -28,8 +26,16 @@ export default function MergeTab({ model, m }) {
   const [withData, setWithData] = useState(true);   // merge the data too, or the metamodel only
   const [picked, setPicked] = useState(() => new Set());   // conflicts chosen for a bulk decision
   const [bulkValue, setBulkValue] = useState("");
+  const [from, setFrom] = useState("model");   // merge from another model here, or from a file
+  const [source, setSource] = useState("");
+  const { data: models } = useApi("/api/v1/models?archived=false");
+  const others = (models || []).filter((x) => x.id !== model);
   const fileRef = useRef(null);
-  const mayContent = canOn(model, "model.content");
+  // merge or not (D169): a Model Admin, into a project model that is not read-only or locked (the server checks again)
+  const lockText = m.lock_level && m.lock_level !== "none"
+    ? `${m.name} is locked (${m.lock_level})${m.locked_by ? ` by ${m.locked_by}` : ""}${m.lock_reason ? `: ${m.lock_reason}` : ""}. Unlock it to merge into it.` : "";
+  const mergeWhy = lockText || (!canOn(model, "model.lock") ? `Merging into ${m.name} needs the Model Admin role on it (a merge can add to its metamodel).` : null);
+
 
   const gaps = plan?.metamodel_gaps || {};
   const gapCount = useMemo(() => Object.values(gaps).reduce((n, v) => n + (Array.isArray(v) ? v.length : 0), 0), [gaps]);
@@ -38,13 +44,18 @@ export default function MergeTab({ model, m }) {
 
   async function upload() {
     const f = fileRef.current?.files?.[0];
-    if (!f) return;
+    if (from === "file" ? !f : !source) return;
     setBusy(true); setError(""); setDone(null); setDecisions({}); setPicked(new Set());
     try {
-      const form = new FormData();
-      form.append("file", f);
-      form.append("with_data", withData ? "true" : "false");
-      const p = await apiUpload(`/api/v1/models/${model}/merges`, form);
+      let p;
+      if (from === "model") {   // straight from the model: no file to download and upload
+        p = await post(`/api/v1/models/${model}/merges`, { source_model: source, with_data: withData });
+      } else {
+        const form = new FormData();
+        form.append("file", f);
+        form.append("with_data", withData ? "true" : "false");
+        p = await apiUpload(`/api/v1/models/${model}/merges`, form);
+      }
       setPlan(p); setSection(p.conflicts.length ? "conflicts" : "new");
     } catch (e) { setError(e.message); }
     setBusy(false);
@@ -52,7 +63,7 @@ export default function MergeTab({ model, m }) {
   async function apply() {
     setBusy(true); setError("");
     try {
-      setDone(await post(`/api/v1/models/${model}/merges/${plan.id}/apply`, { decisions, add_metamodel: addMeta && plan.may_add_metamodel }));
+      setDone(await post(`/api/v1/models/${model}/merges/${plan.id}/apply`, { decisions }));
       setPlan(null); refreshAll();
     } catch (e) { setError(e.message); }
     setBusy(false);
@@ -64,8 +75,11 @@ export default function MergeTab({ model, m }) {
   }
   const decide = (ids, how) => setDecisions((d) => ({ ...d, ...Object.fromEntries(ids.map((i) => [i, how])) }));
 
-  if (m.kind !== "project") {
-    return <p className="quiet">Merging is for project models. Create a model from {m.name} and merge into that.</p>;
+  if (m.kind !== "project" || m.is_locked) {
+    return <p className="quiet">Nothing is merged into {m.name}: models are merged into project models only. Create a model from it and merge into that.</p>;
+  }
+  if (mergeWhy) {
+    return <div className="lock-banner content">🔒 {mergeWhy}</div>;
   }
   const conflicts = (plan?.conflicts || []).filter(match).filter((c) => !onlyOpen || !decisions[c.id]);
   const undecided = (plan?.conflicts || []).filter((c) => !decisions[c.id]).length;
@@ -77,10 +91,10 @@ export default function MergeTab({ model, m }) {
     <div className="merge-page">
       <h2>Merge a model into {m.name}</h2>
       <p className="quiet">
-        Upload a model package: the Excel workbook or zip from <em>Actions &gt; Download</em> of another model, here or
-        elsewhere. Entities are matched by type and name: new ones are added, empty fields filled and missing relationships
+        Merge another model of this installation straight in, or upload a model package (the Excel workbook or zip from
+        <em> Actions &gt; Download</em>, from here or another installation). Entities are matched by type and name: new ones are added, empty fields filled and missing relationships
         added; where both have a different value you decide. Nothing changes until you merge, and then the merge is your
-        uncommitted changes (Changes tab): commit it, or ask for a commit.
+        committed at once as one commit (no separate commit step); it can be rolled back from <em>Changes &gt; Commits</em>.
       </p>
 
       {done && (
@@ -88,9 +102,9 @@ export default function MergeTab({ model, m }) {
           <div className="lock-banner pending-banner"><strong>Metamodel merged.</strong> {done.note}{" "}
             <a href={`#/metamodel/${model}/metamodel`}>Open the Metamodel tab</a></div>
         ) : <div className="lock-banner pending-banner">
-          <strong>{done.recorded} changes recorded as your uncommitted changes.</strong>{" "}
+          <strong>{done.committed} changes merged and committed{done.commit_number ? ` (commit ${done.commit_number})` : ""}.</strong>{" "}
           {done.metamodel_version && <>The metamodel was extended (version {done.metamodel_version}). </>}
-          <a href={`#/metamodel/${model}/changes`}>Open the Changes tab</a> to commit them or ask for a commit.
+          Everyone sees them now. {done.commit && <a href={`#/metamodel/${model}/changes/history/${done.commit}`}>Open the commit</a>} (to look at it, or roll it back).
           {done.failed_count > 0 && (
             <ul className="status bad small">{done.failed.slice(0, 30).map((f, i) => <li key={i}>{f.label || f.change}: {f.error}</li>)}</ul>
           )}
@@ -99,19 +113,29 @@ export default function MergeTab({ model, m }) {
 
       {!plan && (
         <div className="merge-step">
-          <h3>1. Choose what to merge and the model to merge in</h3>
+          <h3>1. Choose the model to merge in, and what to merge</h3>
           <div className="merge-what">
             <label><input type="radio" name="what" checked={withData} onChange={() => setWithData(true)} /> <b>With data</b>: the metamodel parts
-              the data needs, and the entities, values and relationships (they become your uncommitted changes)</label>
+              the data needs (a new metamodel version), and the entities, values and relationships (committed at once)</label>
             <label><input type="radio" name="what" checked={!withData} onChange={() => setWithData(false)} /> <b>Without data</b>: only the
-              metamodel, the entity types, attributes and relationship types {m.name} lacks (Model Admins; a new metamodel version at once)</label>
+              metamodel, the entity types, attributes and relationship types {m.name} lacks (a new metamodel version at once)</label>
+          </div>
+          <div className="merge-what">
+            <label><input type="radio" name="from" checked={from === "model"} onChange={() => setFrom("model")} /> <b>From a model here</b>:{" "}
+              <select value={source} onChange={(e) => { setSource(e.target.value); setFrom("model"); }}>
+                <option value="">Choose a model...</option>
+                {others.map((x) => <option key={x.id} value={x.id}>{x.name}{x.version_label ? ` ${x.version_label}` : ""} ({x.kind_name})</option>)}
+              </select></label>
+            <label><input type="radio" name="from" checked={from === "file"} onChange={() => setFrom("file")} /> <b>From a file</b> (a package
+              from another installation, or edited in Excel):{" "}
+              <input type="file" ref={fileRef} accept=".zip,.xlsx" onChange={() => setFrom("file")} /></label>
           </div>
           <div className="toolbar">
-            <input type="file" ref={fileRef} accept=".zip,.xlsx" disabled={!mayContent} />
-            <button className="primary" disabled={busy || !mayContent} onClick={upload}>{busy ? "Reading..." : "Read and compare"}</button>
-            {!mayContent && <span className="quiet">Merging needs a role that changes content on {m.name} (Architect, Committer, Model Sub Admin or Model Admin).</span>}
+            <button className="primary" disabled={busy || (from === "model" && !source)} onClick={upload}>
+              {busy ? "Reading..." : "Read and compare"}</button>
+            
           </div>
-          <TestFiles model={model} m={m} withData={withData} />
+          {from === "file" && <TestFiles model={model} m={m} withData={withData} />}
         </div>
       )}
 
@@ -137,11 +161,7 @@ export default function MergeTab({ model, m }) {
                     <li key={k}>{GAP_NAMES[k] || k}: {v.slice(0, 15).map((x) => x.name || x.code || `${x.entity_type}.${x.attribute}`).join(", ")}{v.length > 15 ? ` and ${v.length - 15} more` : ""}</li>
                   ))}
                 </ul>
-                {!plan.with_data ? (plan.may_add_metamodel ? <span>Merging adds them as one new metamodel version.</span>
-                  : <span className="status bad">Adding to the metamodel needs the Model Admin role on {m.name}.</span>)
-                  : plan.may_add_metamodel
-                  ? <label><input type="checkbox" checked={addMeta} onChange={(e) => setAddMeta(e.target.checked)} /> Add them to the metamodel as one new version (Model Admin); otherwise what uses them is left out</label>
-                  : <span>Without the Model Admin role what uses them is left out. Ask a Model Admin to merge, or to add them first.</span>}
+                <span>Merging adds them to the metamodel as one new version.</span>
               </div>
             )}
             {plan.with_data && <div className="toolbar">
@@ -179,7 +199,7 @@ export default function MergeTab({ model, m }) {
                   <thead><tr>
                     <th><input type="checkbox" aria-label="Tick all shown" checked={conflicts.length > 0 && conflicts.every((c) => picked.has(c.id))}
                       onChange={(e) => setPicked(e.target.checked ? new Set(conflicts.map((c) => c.id)) : new Set())} /></th>
-                    <th>Entity</th><th>Field</th><th>Mine ({m.name})</th><th>Theirs (upload)</th><th>Keep</th></tr></thead>
+                    <th>Entity</th><th>Field</th><th>Mine ({m.name})</th><th>Theirs ({plan.source_model?.name || "upload"})</th><th>Keep</th></tr></thead>
                   <tbody>
                     {conflicts.map((c) => {
                       const d = decisions[c.id];
@@ -260,10 +280,10 @@ export default function MergeTab({ model, m }) {
               <button onClick={cancel} disabled={busy}>Cancel</button>
               {plan.with_data ? (
                 <button className="primary" disabled={busy || undecided > 0} onClick={apply}
-                  title={undecided ? `Decide the ${undecided} conflicts first` : "Record the merge as your uncommitted changes"}>
-                  {busy ? "Merging..." : "Merge as my uncommitted changes"}</button>
+                  title={undecided ? `Decide the ${undecided} conflicts first` : "Merge and commit it at once"}>
+                  {busy ? "Merging..." : "Merge"}</button>
               ) : (
-                <button className="primary" disabled={busy || !gapCount || !plan.may_add_metamodel} onClick={apply}
+                <button className="primary" disabled={busy || !gapCount} onClick={apply}
                   title="Add the metamodel parts this model lacks, as one new metamodel version">
                   {busy ? "Merging..." : "Merge the metamodel"}</button>
               )}
@@ -273,7 +293,6 @@ export default function MergeTab({ model, m }) {
         </>
       )}
       {error && <p className="status bad">{error}</p>}
-      {done && !plan && done.recorded > 0 && <p><button className="linkish" onClick={() => go(`/metamodel/${model}/changes`)}>See my changes</button></p>}
     </div>
   );
 }
@@ -298,7 +317,7 @@ function TestFiles({ model, m, withData }) {
       <strong>Need a file to try it?</strong>
       <p className="quiet small">
         {withData ? "With data" : "Without data (as chosen above): the files hold the metamodel only, with the two new attributes"}. The <b>merge test file</b> is {m.name} itself with some descriptions and values changed (conflicts to decide), some empty
-        fields filled, four new entities with relationships, and two attributes the metamodel lacks (a Model Admin may add them).
+        fields filled, four new entities with relationships, and two attributes the metamodel lacks (the merge adds them).
         Download it, then choose it above and press <em>Read and compare</em>.
       </p>
       <div className="toolbar">

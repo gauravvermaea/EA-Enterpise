@@ -15,7 +15,7 @@ GET  /models/<m>/commits/<id>                 one commit and what each item chan
 POST /models/<m>/commits/<id>/roll-back       undo a commit, whole or items, as a new commit (committers)
 GET  /models/<m>/merge-test-file              a package made from this model to try merging with (zip or Excel)
 POST /models/<m>/merges                       upload a model to merge into this one: the plan
-POST /models/<m>/merges/<id>/apply            apply it with the decisions: my uncommitted changes
+POST /models/<m>/merges/<id>/apply            apply it with the decisions: committed at once, one commit
 POST /models/<m>/merges/<id>/cancel
 POST /models/<m>/reject-publish               reject a requested draft model (its approvers)
 POST /models/<m>/reopen                       open a rejected draft again (its Model Admin)
@@ -63,7 +63,7 @@ class RollBackIn(Schema):
 class MergeApplyIn(Schema):
     decisions = fields.Dict(load_default=None, metadata={"description": "conflict id: mine | theirs | {value: ...}"})
     all_conflicts = fields.String(load_default="", metadata={"description": "mine or theirs for every conflict not decided"})
-    add_metamodel = fields.Boolean(load_default=False, metadata={"description": "Add the missing types and attributes (Model Admins)"})
+    add_metamodel = fields.Boolean(load_default=True, metadata={"description": "Kept for older clients: a merge always adds the missing metamodel parts (D169)"})
 
 
 class BatchIn(Schema):
@@ -267,16 +267,23 @@ class Merges(MethodView):
     @blp.doc(security=SECURITY, requestBody={"content": {"multipart/form-data": {"schema": {
         "type": "object", "properties": {"file": {"type": "string", "format": "binary"}}}}}})
     @blp.response(200, Free)
-    @require_auth("model.content")
+    @require_auth("model.lock")
     def post(self, model_id):
-        """Upload a model package (.zip or .xlsx) to merge into this model: the plan (new entities, filled fields,
+        """Model Admins: upload a model package (.zip or .xlsx), or name another model here (JSON source_model), to merge into
+        this model: the plan (new entities, filled fields,
         conflicts to decide, new relationships, metamodel parts missing). Form field with_data=false (or a package
         without data): only the metamodel parts this model lacks. Nothing changes until it is applied"""
+        body = request.get_json(silent=True) or {}
         f = request.files.get("file")
+        source = body.get("source_model") or request.form.get("source_model")
+        wd = body.get("with_data", request.form.get("with_data", "true"))
+        with_data = str(wd).lower() not in ("false", "0", "no")
+        if source:   # straight from another model here: no file to download and upload
+            return _write(lambda c: mg.analyse_model(c, model_id, source, g.user, with_data), "merge.analyse", model_id,
+                          {"source_model": source, "with_data": with_data})
         if f is None:
-            abort(400, message="Send the model as the form field 'file'.")
+            abort(400, message="Send the model as the form field 'file', or give source_model (another model here).")
         data, name = f.read(), f.filename or ""
-        with_data = (request.form.get("with_data") or "true").lower() not in ("false", "0", "no")
         return _write(lambda c: mg.analyse(c, model_id, data, name, g.user, with_data), "merge.analyse", model_id,
                       {"file": name, "with_data": with_data})
 
@@ -304,9 +311,9 @@ class MergeApply(MethodView):
     @blp.doc(security=SECURITY)
     @blp.arguments(MergeApplyIn)
     @blp.response(200, Free)
-    @require_auth("model.content")
+    @require_auth("model.lock")
     def post(self, data, model_id, merge_id):
-        """Apply a merge with the decisions: it becomes my uncommitted changes (commit it, or ask for a commit)"""
+        """Apply a merge with the decisions: committed at once as one commit (no commit step; roll back from the commits)"""
         return _write(lambda c: mg.apply(c, model_id, merge_id, g.user, data.get("decisions"), data.get("all_conflicts", ""),
                                          data["add_metamodel"]), "merge.apply", model_id, {"merge": merge_id})
 

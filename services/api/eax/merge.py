@@ -4,9 +4,10 @@ A model package (the .zip or .xlsx EA Explorer makes, phase 4) is uploaded into 
 Its entities are matched to the model's by entity type and name (D165); for each match the fields and
 values that differ are listed: one the model leaves empty is filled, one the model holds differently is a
 conflict decided by the person (keep the model's, take the upload's, or type a value; or all one way).
-Entity types, attributes and relationship types the model lacks are listed; a Model Admin may add them
-(one new metamodel version), or that content is left out. Applying the merge records everything as one
-set of uncommitted changes of the person who merged (eax.commits), committed like any other change.
+Entity types, attributes and relationship types the model lacks are listed and added (one new metamodel
+version). A merge is all or nothing (D169): only a Model Admin merges, only into a project model that is not
+read-only or locked. Applying the merge commits the content at once as one commit (eax.commits): no separate commit step, and
+it can be rolled back from the Changes tab like any other commit.
 """
 
 from __future__ import annotations
@@ -117,14 +118,31 @@ def _target_state(conn, m: dict) -> tuple[dict, dict, dict]:
     return by_key, by_id, dtypes
 
 
+def blocked(conn, m: dict, user) -> str | None:
+    """Why this person cannot merge into the model, or None (D169: merge or not, nothing in between). A merge
+    takes everything the other model has, metamodel parts included, so it needs a project model that is not
+    read-only (not a library model, no lock of any kind) and its Model Admin (or a Super Admin)."""
+    if m.get("is_locked") or m["kind"] in ("template", "reference"):
+        return f"{m['name']} is read-only here: models are merged into project models only. Create a model from it and merge into that."
+    if not cm.uses_commits(m):
+        return "Merging is for project models."
+    level = m.get("lock_level") or "none"
+    if level != "none":
+        who = f" by {m['locked_by']}" if m.get("locked_by") else ""
+        reason = f": {m['lock_reason']}" if m.get("lock_reason") else ""
+        return f"{m['name']} is locked ({level}){who}{reason}. Unlock it to merge into it."
+    if perms.SUPER_ADMIN not in user.roles and perms.MODEL_ADMIN not in perms.model_roles(conn, user.username, m["id"]):
+        return f"Merging into {m['name']} needs the Model Admin role on it (a merge can add to its metamodel)."
+    return None
+
+
 def analyse(conn, model: Any, data: bytes, filename: str, user, with_data: bool = True) -> dict:
     """Reads an uploaded model and works out what merging it would do; keeps the plan for apply.
     with_data False (or a package without data): only the metamodel is merged, the parts this model lacks."""
     m = repo.get_model(conn, model)
-    if not cm.uses_commits(m):
-        raise EditError("Merging is for working models (a project model, a draft or published).", 409)
-    if m.get("is_locked"):
-        raise EditError(f"{m['name']} is locked (read-only).", 409)
+    why = blocked(conn, m, user)
+    if why:
+        raise EditError(why, 409)
     pkg = mo.read_package(data, filename)
     spec = pkg["spec"]
     total = sum(len(v) for v in pkg["entities"].values())
@@ -230,8 +248,7 @@ def analyse(conn, model: Any, data: bytes, filename: str, user, with_data: bool 
             "spec": spec}
     row = _one(conn, """INSERT INTO core.merge_sessions (model_id, author, filename, plan) VALUES (:m, :a, :f, CAST(:p AS jsonb))
                         RETURNING guid""", m=m["_id"], a=user.username.lower(), f=filename or "", p=json.dumps(plan, default=str))
-    may_add = perms.SUPER_ADMIN in user.roles or perms.MODEL_ADMIN in perms.model_roles(conn, user.username, m["id"])
-    return {**{k: v for k, v in plan.items() if k != "spec"}, "id": str(row["guid"]), "may_add_metamodel": may_add}
+    return {**{k: v for k, v in plan.items() if k != "spec"}, "id": str(row["guid"])}
 
 
 def _show_mine(conn, field: str, value: Any) -> Any:
@@ -300,12 +317,16 @@ def _add_metamodel(conn, m: dict, spec: dict, gaps: dict, user) -> int:
 
 def apply(conn, model: Any, session: Any, user, decisions: dict | None = None, all_conflicts: str = "",
           add_metamodel: bool = False) -> dict:
-    """Applies a merge: optionally adds the missing metamodel parts (Model Admins), then records the new
-    entities, the filled and decided fields and the new relationships as uncommitted changes of the person.
+    """Applies a merge: adds the missing metamodel parts, then commits (one commit, no separate step) the new
+    entities, the filled and decided fields and the new relationships.
     decisions: {conflict id: "mine" | "theirs" | {"value": text}}; all_conflicts "mine" or "theirs" for the rest."""
     m = repo.get_model(conn, model)
     s = _session(conn, m, session, user)
     plan = cm._json(s["plan"])
+    why = blocked(conn, m, user)   # checked again: the model may have been locked since the plan was made
+    if why:
+        raise EditError(why, 409)
+    add_metamodel = True   # a merge takes everything the other model has (D169)
     decisions = decisions or {}
     undecided = [c for c in plan["conflicts"] if c["id"] not in decisions and all_conflicts not in ("mine", "theirs")]
     if undecided:
@@ -405,12 +426,17 @@ def apply(conn, model: Any, session: Any, user, decisions: dict | None = None, a
     results = cm.record_many(conn, m["id"], user.username, items) if items else []
     failed = [{"change": op, "what": (a.get("data") or {}).get("name") or a.get("entity"), "error": r["error"]}
               for (op, a), r in zip(items, results, strict=True) if not r["ok"]]
-    result = {"recorded": sum(1 for r in results if r["ok"]), "failed": failed[:200], "failed_count": len(failed),
+    # a merge is decided on this screen, by a Model Admin: it is committed at once, as one commit (no commit step);
+    # the commit keeps each item before and after, so it can be rolled back from the Changes tab like any other
+    ids = [r["kept"]["change"] for r in results if r.get("ok") and r.get("kept")]
+    done = cm.commit(conn, m["id"], user, None, ids, None, f"Merge of {plan.get('source') or 'a model'}") if ids else None
+    result = {"recorded": len(ids), "committed": done["committed"] if done else 0, "commit": done["commit"] if done else None,
+              "commit_number": done["number"] if done else None, "failed": failed[:200], "failed_count": len(failed),
               "left_out": left_out, "metamodel_version": version}
     conn.execute(text("""UPDATE core.merge_sessions SET status = 'applied', applied_at = now(), result = CAST(:r AS jsonb)
                          WHERE id = :i"""), {"r": json.dumps(result, default=str), "i": s["id"]})
-    result["note"] = ("The merge is in your uncommitted changes (Changes tab): commit it, or ask for a commit; "
-                      "only you see it until then.")
+    result["note"] = (f"Merged and committed as commit {done['number']}: everyone sees it now. Roll it back from "
+                      "Changes > Commits if needed." if done else "Nothing in the merge changed the content.")
     return result
 
 
@@ -513,3 +539,21 @@ def sample_package(conn, model: Any, fmt: str = "zip", actor: str | None = None,
     manifest["merge_test"] = {"conflicts": changed, "fills": filled, "new_entities": len(picks)}
     base = re.sub(r"[^A-Za-z0-9._]+", "-", f"{m['name']} merge test{'' if with_data else ' metamodel'}").strip("-")
     return mo.write_package(manifest, spec, content, None, fmt, base)
+
+
+def analyse_model(conn, model: Any, source: Any, user, with_data: bool = True) -> dict:
+    """The plan of merging another model of this installation into this one, read straight from it (no file):
+    the same as uploading its package."""
+    m = repo.get_model(conn, model)
+    src = repo.get_model(conn, source)   # only a model the person may open
+    why = blocked(conn, m, user)   # before reading the other model
+    if why:
+        raise EditError(why, 409)
+    if str(src["id"]) == str(m["id"]):
+        raise EditError("Choose another model: a model is not merged into itself.", 409)
+    if src["kind"] == "template" and with_data:
+        with_data = False   # a root metamodel has no data: its metamodel only
+    data, name, _ = mo.export_package(conn, str(src["id"]), "zip", user.username, "content" if with_data else "metamodel")
+    plan = analyse(conn, model, data, f"{src['name']} (model)", user, with_data)
+    plan["source_model"] = {"id": str(src["id"]), "name": src["name"]}
+    return plan

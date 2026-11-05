@@ -9,7 +9,7 @@ migration `0013_commits` (8.2 took 0.8.2 because it was built first, D161). Deci
 ## What phase 8 delivers
 
 - **Uncommitted changes (project models).** Every content change (new entity, change, retire, restore, delete,
-  relationship added or removed) made on any screen (Data entry, the entity page and its edit form, the Grid, a merge,
+  relationship added or removed) made on any screen (Data entry, the entity page and its edit form, the Grid,
   and later the draw.io diagrams through `POST /models/<model>/changes/batch`, D167) is kept as **your uncommitted
   change**. You see the model with your changes on top, marked *✎ changed, uncommitted*; nobody else does. The core
   tables, the history, the reports, graphs and MCP hold committed content only. Root metamodels and library models
@@ -48,9 +48,14 @@ migration `0013_commits` (8.2 took 0.8.2 because it was built first, D161). Deci
   source entity), on the Changes tab, in a committer's requests, in the conflicts at commit and in a commit's items, so
   a reviewer can look at the entity before deciding.
 - **Merge tab**, a screen of its own on every project model (not on the commit screen): 1 choose **with data** (the
-  metamodel parts the data needs, and the entities, values and relationships, as uncommitted changes) or **without
+  metamodel parts the data needs, and the entities, values and relationships) or **without
   data** (only the entity types, attributes and relationship types the model lacks, added by a Model Admin as one new
-  metamodel version at once; the metamodel is not committed) and the package, 2 see
+  metamodel version at once; the metamodel is not committed) and where from: **a model here** (read straight from
+  it, no file to download and upload) or **a file** (a package from another installation, or edited in Excel),
+  Merge or not, nothing in between (D169): a merge takes everything the other model has, metamodel parts included,
+  so only a Model Admin merges, and only into a project model that is not read-only and has no lock of any kind.
+  Otherwise the tab says why and offers nothing; the server checks again when the merge is read and when it is applied.
+  2 see
   what merging would do, with a tab each for the conflicts (to decide), the new entities, the empty fields it fills
   and the new relationships, filtered by entity type or text; each matched entity links to its page; 3 merge.
   Upload a model package (Excel or zip from *Actions > Download*). To try it, the tab offers a **merge test file**
@@ -62,8 +67,9 @@ migration `0013_commits` (8.2 took 0.8.2 because it was built first, D161). Deci
   where both have a different value is listed to decide: mine, theirs or another value per row, or in bulk for the
   ticked rows, the rows the filter shows, or all of them (the same three choices, with one value typed for all);
   *Only those not decided* shows what is left. Types, attributes or
-  relationship types the model lacks are offered to a Model Admin to add as one metamodel version, or left out. The
-  result is your uncommitted changes: commit them or ask for a commit.
+  relationship types the model lacks are added as one metamodel version. The
+  merge is **committed at once as one commit** (D170: no commit step, as a merge is a thought-through Model Admin
+  activity); everyone sees it straight away, and it is rolled back from *Changes > Commits* like any other commit.
 - **API** (Swagger at `/api/docs`, tag *commits*): `/models/<m>/changes` (`?entity=` one entity),
   `changes/request|withdraw|commit|reject|send-back|discard|batch`, `/models/<m>/commits[/latest|/<id>]`,
   `/commits/<id>/roll-back`, `/models/<m>/merges[/<id>/apply|cancel]`, `/models/<m>/reject-publish`,
@@ -81,8 +87,9 @@ migration `0013_commits` (8.2 took 0.8.2 because it was built first, D161). Deci
    *committed changes, Reload* banner within 20 seconds.
 4. **Changes > Commits**: open the commit, **Roll back** one item.
 5. As `user_model_admin`: **Merge** tab, **Merge test file (Excel)**, then choose the downloaded file and **Read and
-   compare**: decide the conflicts (or *Take theirs for all*), tick *Add them to the metamodel*, merge; the merge is
-   your uncommitted changes. Try the zip, and *Sample insurance model* from *or another model*, as `user_architect` too.
+   compare**: decide the conflicts (or *Take theirs for all*), merge (the two new attributes are added to the
+   metamodel); the content is committed at once (commit N in *Changes > Commits*). Try the zip, and *From a model here: Sample insurance model*.
+   As `user_architect` the Merge tab says it needs the Model Admin role; with a lock set, that it is locked.
 6. As `user_model_admin`: create a model from Protea (**Actions > Create a model from this**), **Request publishing**;
    the Models list shows it waiting for your approval; **Reject** it with a reason, then **Open the rejected draft again**.
 7. As `user_history_viewer`: **Changes > Commits** shows everyone's commits; as `user_architect` only your own.

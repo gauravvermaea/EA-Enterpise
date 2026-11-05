@@ -82,6 +82,25 @@ def test_web_has_the_changes_tab():
     assert "/merge-test-file?format=xlsx" in merge and "/merge-test-file?format=zip" in merge   # files to try it with
     assert 'form.append("with_data"' in merge and "content=${content}" in merge   # with or without data
     assert "Use this value" in merge and "bulk-bar" in merge   # conflicts decided in bulk
+    assert "source_model: source" in merge   # straight from another model, no file
     assert "/merges" in merge and "/merges" not in src and "MergeTab" in (WEB / "Metamodel.jsx").read_text(encoding="utf-8")
     ops = (WEB / "ModelOps.jsx").read_text(encoding="utf-8")
     assert "reject-publish" in ops and "reopen" in ops
+
+
+def test_merge_or_not():
+    """D169: a Model Admin merges into a project model that is not read-only or locked; otherwise no merge at all."""
+    from types import SimpleNamespace
+
+    from eax import merge as mg
+    admin = SimpleNamespace(username="someone", roles=["super-admin"])
+    base = {"id": "x", "name": "M", "kind": "project", "is_locked": False, "lock_level": "none", "locked_by": None, "lock_reason": ""}
+    assert mg.blocked(None, base, admin) is None
+    assert mg.blocked(None, {**base, "is_locked": True, "kind": "reference"}, admin)
+    assert mg.blocked(None, {**base, "kind": "template"}, admin)
+    for level in ("metamodel", "content", "maintenance"):   # any lock: no merge
+        assert "locked" in mg.blocked(None, {**base, "lock_level": level, "locked_by": "someone"}, admin)
+    src = (ROOT.parent / "web" / "src" / "Merge.jsx").read_text(encoding="utf-8")
+    assert "may_add_metamodel" not in src and "addMeta" not in src   # no partial merges
+    merge_py = (ROOT / "eax" / "merge.py").read_text(encoding="utf-8")
+    assert "cm.commit(conn" in merge_py   # a merge is committed at once, no commit step (D170)
