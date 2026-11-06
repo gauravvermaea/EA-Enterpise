@@ -797,3 +797,12 @@ tr.picked td { background: #eef4fb; }
 .source-chip { display: inline-block; margin-left: 6px; padding: 0 7px; border-radius: 9px; background: #ddf4ff; color: #0969da;
   font-size: 11px; font-weight: 600; vertical-align: middle; }
 .config-compare.row-gap { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
+.svc-head { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.svc-head h3 { margin-right: 4px; }
+.svc-health { line-height: 1.45; min-width: 230px; }
+.svc-health .hc { display: inline-block; border-radius: 8px; padding: 0 6px; font-weight: 600; font-size: 11px; }
+.svc-health .hc.up { background: #e3f4e6; color: #1a7f37; }
+.svc-health .hc.warning { background: #fff4d6; color: #9a6700; }
+.svc-health .hc.down { background: #ffebe9; color: #cf222e; }
+.svc-health .hc.off { background: #eceff3; color: #57606a; }
+.warn-text { color: #9a6700; font-weight: 600; }

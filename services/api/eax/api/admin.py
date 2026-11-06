@@ -25,6 +25,16 @@ blp = Blueprint("admin", __name__, url_prefix="/api/v1", description="Administra
 SECURITY = [{"bearerAuth": []}]
 
 
+def _ops_raw(method: str, path: str, body: dict | None = None, timeout: int = 10) -> dict:
+    """The operations helper's answer, raising on any failure (no HTTP error for the caller)."""
+    url, token = os.environ.get("EAX_OPS_URL", "http://ops:8090"), os.environ.get("EAX_OPS_TOKEN", "")
+    data = json.dumps(body).encode() if body is not None else (b"" if method == "POST" else None)
+    req = urllib.request.Request(f"{url}{path}", method=method, data=data,
+                                 headers={"X-Ops-Token": token, "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.load(r)
+
+
 def _ops(method: str, path: str, body: dict | None = None, timeout: int = 10) -> dict:
     url, token = os.environ.get("EAX_OPS_URL", "http://ops:8090"), os.environ.get("EAX_OPS_TOKEN", "")
     data = json.dumps(body).encode() if body is not None else (b"" if method == "POST" else None)
@@ -142,6 +152,44 @@ class Services(MethodView):
                     s_["state"] = {c: states.get(c, "not created") for c in s_["containers"]}
             except Exception:  # noqa: BLE001 - the switches still show without the helper
                 out["helper"] = "The operations helper is not reachable: the switches show, their containers do not."
+        return out
+
+
+@blp.route("/admin/services/health")
+class ServicesHealth(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def get(self):
+        """Each service's health now (IT and Super Admins): its health check with the response time, and per container
+        CPU, memory, disk, Docker health, restarts and uptime from the operations helper. Checked afresh each call"""
+        import time
+        from concurrent.futures import ThreadPoolExecutor
+
+        from .. import health as hc
+        checks = {"api": hc.check_api, "db": hc.check_database, "keycloak": hc.check_keycloak, "web": hc.check_web,
+                  "proxy": hc.check_proxy, "reports": hc.check_reports, "documents": hc.check_dms,
+                  "documents_broker": hc.check_dms_broker, "drawio": hc.check_drawio, "mcp": hc.check_mcp,
+                  "backups": hc.check_backup, "api_jobs": hc.check_jobs}
+        with ThreadPoolExecutor(max_workers=len(checks) + 1) as pool:
+            futures = {k: pool.submit(f) for k, f in checks.items()}
+
+            def ops_stats():
+                started = time.perf_counter()
+                try:
+                    return _ops_raw("GET", "/stats?fresh=1", timeout=60), round((time.perf_counter() - started) * 1000), None
+                except Exception as exc:  # noqa: BLE001
+                    return None, round((time.perf_counter() - started) * 1000), str(exc)
+            st = pool.submit(ops_stats)
+            out = {"checks": {k: f.result() for k, f in futures.items()}}
+            stats, ms, err = st.result()
+        out["checks"]["ops"] = {"name": "Operations helper", "status": "down" if err else "up", "response_ms": ms,
+                                "detail": err or "answering"}
+        out["containers"] = (stats or {}).get("containers", [])
+        out["volumes_at"] = (stats or {}).get("volumes_at")
+        out["checked_at"] = time.time()
+        if err:
+            out["helper"] = f"The operations helper is not reachable: CPU, memory and disk cannot be shown ({err})."
         return out
 
 

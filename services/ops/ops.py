@@ -6,6 +6,8 @@ restarts the system from the administration console. It talks to the Docker engi
   GET  /status                  this installation's containers, their state and health
   POST /restart                 restart every container of this installation (the database first, this helper last)
   POST /restart/<service>       restart one service (api, web, proxy, keycloak, reports, dms...)
+  GET  /stats                   per container: CPU, memory, network and disk input/output, processes, Docker health,
+                                restarts, started at, disk (its own layer and its volumes); cached a few seconds
   GET  /services                the optional services, on or off in the config file (D191)
   POST /services                {service, on, by}: switch one on or off: the config file is copied first (a dated copy
                                 in work/config-history), the switch written, then its containers started or stopped
@@ -396,6 +398,78 @@ def save_text(text: str, by: str, why: str) -> dict:
                        + "every other setting applies at the next eax up (or eax clean-restart)."}
 
 
+_stats_cache: dict = {"at": 0.0, "data": None}
+_disk_cache: dict = {"at": 0.0, "data": {}}
+
+
+def _size(text: str) -> int:
+    """Docker's sizes ("12.5MiB", "1.2GB", "512kB", "0B") in bytes."""
+    m = re.match(r"\s*([\d.]+)\s*([kKMGT]?i?B)", text or "")
+    if not m:
+        return 0
+    unit = m.group(2).upper().replace("I", "")
+    mult = {"B": 1, "KB": 1e3, "MB": 1e6, "GB": 1e9, "TB": 1e12}[unit] * (1.024 ** "BKMGT".index(unit[0]) if "i" in m.group(2) else 1)
+    return int(float(m.group(1)) * mult)
+
+
+def _volume_sizes() -> dict:
+    """Volume sizes: slow on Docker, so refreshed in the background at most every five minutes; the last known
+    sizes are answered meanwhile (none the very first time)."""
+    if time.time() - _disk_cache["at"] >= 300 and not _disk_cache.get("busy"):
+        _disk_cache["busy"] = True
+
+        def run():
+            try:
+                out = json.loads(docker("system", "df", "-v", "--format", "{{json .}}", timeout=120) or "{}")
+                _disk_cache["data"] = {v.get("Name"): _size(v.get("Size", "")) for v in out.get("Volumes") or []}
+            except Exception:  # noqa: BLE001 - disk sizes are a nicety
+                pass
+            finally:
+                _disk_cache.update(at=time.time(), busy=False)
+        threading.Thread(target=run, daemon=True).start()
+    return _disk_cache["data"]
+
+
+def stats(fresh: bool = False) -> dict:
+    """What each container of this installation uses now (docker stats, inspect and ps -s)."""
+    if not fresh and _stats_cache["data"] and time.time() - _stats_cache["at"] < 5:
+        return _stats_cache["data"]
+    rows = {c["id"][:12]: {**c, "cpu_percent": None, "memory_bytes": None, "memory_limit_bytes": None,
+                           "memory_percent": None, "net_io": "", "block_io": "", "pids": None}
+            for c in containers()}
+    running = [i for i, c in rows.items() if c["state"] == "running"]
+    if running:
+        for line in docker("stats", "--no-stream", "--format", "{{json .}}", *running, timeout=60).splitlines():
+            st = json.loads(line)
+            r = rows.get(st.get("ID", "")[:12])
+            if not r:
+                continue
+            used, _, limit = (st.get("MemUsage") or "").partition("/")
+            r.update(cpu_percent=float((st.get("CPUPerc") or "0").rstrip("%") or 0),
+                     memory_bytes=_size(used), memory_limit_bytes=_size(limit),
+                     memory_percent=float((st.get("MemPerc") or "0").rstrip("%") or 0),
+                     net_io=st.get("NetIO", ""), block_io=st.get("BlockIO", ""), pids=int(st.get("PIDs") or 0))
+    fmt = ('{{.Id}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}|{{.State.StartedAt}}|{{.RestartCount}}|'
+           '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}},{{end}}{{end}}')
+    if rows:
+        for line in docker("inspect", "--format", fmt, *rows.keys(), timeout=60).splitlines():
+            cid, health, started, restarts, vols = (line.split("|") + [""] * 5)[:5]
+            r = rows.get(cid[:12])
+            if r:
+                r.update(health=health, started_at=started, restarts=int(restarts or 0), volumes=[v for v in vols.split(",") if v])
+        for line in docker("ps", "-a", "-s", "--filter", f"label=com.docker.compose.project={project()}",
+                           "--format", "{{.ID}}|{{.Size}}").splitlines():
+            cid, size = (line.split("|") + [""])[:2]
+            if cid[:12] in rows:
+                rows[cid[:12]]["layer_bytes"] = _size(size.split("(")[0])
+    vols = _volume_sizes()
+    for r in rows.values():
+        r["volume_bytes"] = sum(vols.get(v, 0) for v in r.get("volumes", []))
+    out = {"containers": list(rows.values()), "at": time.time(), "volumes_at": _disk_cache["at"]}
+    _stats_cache.update(at=time.time(), data=out)
+    return out
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code: int, body: dict) -> None:
         data = json.dumps(body, default=str).encode()
@@ -416,6 +490,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"status": "ok"})
         if not self._ok():
             return None
+        if self.path.split("?")[0] == "/stats":
+            try:
+                return self._send(200, stats(fresh="fresh" in self.path))
+            except Exception as exc:  # noqa: BLE001
+                return self._send(500, {"message": str(exc)})
         if self.path == "/services":
             try:
                 return self._send(200, {"switches": switches(), "containers": containers(), "switching": switching()})

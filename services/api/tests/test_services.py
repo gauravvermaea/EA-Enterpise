@@ -173,3 +173,27 @@ def test_each_service_switches_on_its_own(tmp_path, monkeypatch):
     assert ops.busy("reports") and not ops.busy("drawio") and ops.jobs["drawio"]["log"] == ["stopped drawio"]
     assert ops.switching()["busy"]
     gate.set()
+
+
+def test_container_stats_from_docker(tmp_path, monkeypatch):
+    ops = _ops(tmp_path, monkeypatch)
+    monkeypatch.setattr(ops, "containers", lambda: [
+        {"id": "aaa111bbb222ccc", "name": "eax-api-1", "service": "api", "state": "running", "status": "Up", "image": "x"},
+        {"id": "ddd444eee555fff", "name": "eax-drawio-1", "service": "drawio", "state": "exited", "status": "Exited", "image": "y"}])
+    monkeypatch.setattr(ops, "project", lambda: "eax")
+
+    def fake(*a, **k):
+        if a[0] == "stats":
+            return '{"ID":"aaa111bbb222","CPUPerc":"2.50%","MemUsage":"512MiB / 15.5GiB","MemPerc":"3.2%","NetIO":"1kB / 2kB","BlockIO":"0B / 0B","PIDs":"9"}\n'
+        if a[0] == "inspect":
+            return ("aaa111bbb222ccc|healthy|2026-11-05T20:00:00Z|1|eax_pg,\nddd444eee555fff|none|2026-11-05T19:00:00Z|0|\n")
+        if a[0] == "ps":
+            return "aaa111bbb222|12.5MB (virtual 300MB)\nddd444eee555|0B (virtual 1GB)\n"
+        return "{}"
+    monkeypatch.setattr(ops, "docker", fake)
+    ops._disk_cache.update(at=ops.time.time(), data={"eax_pg": 2_000_000_000})
+    out = {c["service"]: c for c in ops.stats(fresh=True)["containers"]}
+    api = out["api"]
+    assert api["cpu_percent"] == 2.5 and api["memory_bytes"] == 512 * 1024 * 1024 and api["pids"] == 9
+    assert api["health"] == "healthy" and api["restarts"] == 1 and api["volume_bytes"] == 2_000_000_000
+    assert api["layer_bytes"] == 12_500_000 and out["drawio"]["cpu_percent"] is None

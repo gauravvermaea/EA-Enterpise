@@ -211,8 +211,58 @@ export function SvcIcon({ state }) {
   );
 }
 
+// sizes and times for the health column
+const mb = (b) => (b == null ? "" : b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${Math.round(b / 1e6)} MB`);
+function since(iso) {
+  const t = Date.parse(iso || "");
+  if (!t || t < 1e12) return "";
+  const m = Math.round((Date.now() - t) / 60000);
+  return m < 60 ? `${m} min` : m < 2880 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} days`;
+}
+const CHECK_OF = { documents: ["documents", "documents_broker"], api: ["api", "api_jobs"], change_log: ["api_jobs"] };
+
+// health now (owner, 5 Nov 2026): the health check and its response time, and per container CPU, memory, disk, Docker
+// health, restarts and uptime; checked when the page opens and again with Check again
+function HealthCell({ s, h }) {
+  if (!h) return <span className="quiet small">checking...</span>;
+  const checks = (CHECK_OF[s.key] || [s.key]).map((k) => h.checks[k]).filter(Boolean);
+  const cs = (h.containers || []).filter((c) => s.containers.includes(c.service) && c.service !== "reports-init");
+  return (
+    <div className="svc-health small">
+      {checks.map((c) => (
+        <div key={c.name} title={`${c.name}: ${c.detail}${c.target ? ` (${c.target})` : ""}`}>
+          <span className={`hc ${c.status}`}>{c.status}</span>
+          {c.status !== "off" && <span className={c.response_ms > 1000 ? "warn-text" : ""}> {c.response_ms} ms</span>}
+          {checks.length > 1 && <span className="quiet"> {c.name}</span>}
+        </div>
+      ))}
+      {cs.map((c) => (
+        <div key={c.id} className="quiet">
+          {cs.length > 1 && <b>{c.service}: </b>}
+          {c.state !== "running" ? c.state : <>
+            {c.health && c.health !== "none" && <span className={c.health === "healthy" ? "ok-text" : "warn-text"}>{c.health} · </span>}
+            CPU {c.cpu_percent == null ? "?" : `${c.cpu_percent.toFixed(1)}%`} · mem <span className={c.memory_percent > 80 ? "warn-text" : ""}>{mb(c.memory_bytes)}</span>
+            {c.layer_bytes || c.volume_bytes ? <> · disk {mb((c.layer_bytes || 0) + (c.volume_bytes || 0))}</> : null}
+            {since(c.started_at) && <> · up {since(c.started_at)}</>}
+            {c.restarts > 0 && <span className="warn-text"> · {c.restarts} restarts</span>}
+          </>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Services() {
   const { data, error } = useApi("/api/v1/admin/services");
+  const [health, setHealth] = useState(null);
+  const [checking, setChecking] = useState(false);
+  const [hErr, setHErr] = useState("");
+  async function check() {
+    setChecking(true); setHErr("");
+    try { setHealth(await apiFetch("/api/v1/admin/services/health")); } catch (e) { setHErr(e.message); }
+    setChecking(false);
+  }
+  useEffect(() => { if (can("system.operate")) check(); }, []);   // eslint-disable-line react-hooks/exhaustive-deps
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
@@ -264,13 +314,18 @@ function Services() {
   const mine = (s, what) => busy === `${s.key}:${what}`;
   return (
     <div className="merge-step">
-      <h3>Services</h3>
+      <div className="svc-head"><h3>Services</h3>
+        {can("system.operate") && <button onClick={check} disabled={checking}>{checking ? "Checking..." : "↻ Check again"}</button>}
+        {health && <span className="quiet small">Checked {new Date(health.checked_at * 1000).toLocaleTimeString()}</span>}
+        {hErr && <span className="status bad small">{hErr}</span>}
+        {health?.helper && <span className="quiet small">{health.helper}</span>}
+      </div>
       <p className="quiet">Every part of EA Explorer. The core ones always run (restart only). The optional ones start and stop here:
         Stop switches the service off in the config file (a dated copy first) so it stays off; Start switches it back on. The same
         as <code>eax service &lt;name&gt; on|off</code>.</p>
       <div className="table-scroll svc-scroll">
         <table className="grid-table svc-table">
-          <thead><tr><th>Name</th><th>Description</th><th>Status</th><th>Startup type</th><th>Address</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Name</th><th>Description</th><th>Status</th><th>Health now</th><th>Startup type</th><th>Address</th><th>Actions</th></tr></thead>
           <tbody>
             {rows.map((s) => {
               const [icon, text] = status(s);
@@ -283,10 +338,11 @@ function Services() {
                 <tr key={s.key} className={s.core ? "svc-core" : ""}>
                   <th className="nowrap"><SvcIcon state={icon} /> {s.name} <div className="quiet small">{s.product}</div></th>
                   <td className="small">{s.core ? s.about : <>While off: {s.when_off}</>}
-                    {s.state && <div className="quiet small">{Object.entries(s.state).map(([c, st]) => `${c}: ${st}`).join(" · ")}</div>}</td>
+</td>
                   <td><span className={`svc-state ${icon}`}>{text}</span>
                     {!job(s)?.busy && job(s)?.error && <div className="status bad small">{job(s).error}</div>}
                     {!job(s)?.busy && !job(s)?.error && job(s)?.log?.length > 0 && <div className="quiet small">{job(s).log.join("; ")}</div>}</td>
+                  <td>{can("system.operate") ? <HealthCell s={s} h={health} /> : <span className="quiet small">IT and Super Admins</span>}</td>
                   <td className="small nowrap">{s.core ? "Always on" : s.on ? "On (starts with eax up)" : "Off"}
                     {!s.core && <div className="quiet small"><code>{s.setting}</code></div>}</td>
                   <td className="small">{!addr ? <span className="quiet">none</span>
