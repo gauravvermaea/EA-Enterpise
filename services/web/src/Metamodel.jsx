@@ -37,6 +37,7 @@ import ChangesTab, { LiveCommits, usePendingCount } from "./Changes";
 import MergeTab from "./Merge";
 import { TagPage, TagsTab } from "./Versions";
 import { DataEntryTab } from "./DataEntry";
+import { ChangeDocumentsTab, PushDownTab } from "./Notifications";
 import { GridTab, MetamodelGrids } from "./GridPages";
 import { CopyBanner, DraftPage, Drafts, ModelActions, NewModelButton, UploadButton } from "./ModelOps";
 import { fmtDate } from "./fmt";
@@ -412,7 +413,10 @@ function ModelPage({ model, view, itemId, sub }) {
       ["graph", "Graph", null], ["viewpoints", "Viewpoints", null], ["checks", "Failing checks", null]] : []),
     ...(m.kind === "project" ? [["changes", pending ? `Changes (${pending})` : "Changes", null], ["merge", "Merge", null]] : []),
     ...(holdsContent ? [["tags", "Tags", null], ["import", "Import and export", null]] : []),
-    ["metamodel", "Metamodel", null], ["diagram", "ER diagram", null], ["reports", "Reports", null], ["hierarchy", "Hierarchy", null],
+    ["metamodel", "Metamodel", null],
+    ...(m.kind === "project" || m.kind === "template" ? [["pushdown", "Push down", null]] : []),
+    ["documents", "Change documents", null],
+    ["diagram", "ER diagram", null], ["reports", "Reports", null], ["hierarchy", "Hierarchy", null],
     ...(changeableModel(m) ? [["people", "People", null]] : []),
   ];
   return (
@@ -466,6 +470,8 @@ function ModelPage({ model, view, itemId, sub }) {
         : tab === "people" ? <ModelPeople model={model} m={m} />
         : tab === "merge" ? <MergeTab model={model} m={m} />
         : tab === "hierarchy" ? <ModelLineageTab model={model} m={m} />
+        : tab === "pushdown" ? <PushDownTab model={model} m={m} />
+        : tab === "documents" ? <ChangeDocumentsTab model={model} m={m} />
         : tab === "tags" ? (itemId ? <TagPage key={itemId} model={model} m={m} tagId={itemId} entityId={sub} /> : <TagsTab model={model} m={m} />)
         : tab === "changes" ? <ChangesTab model={model} m={m} sub={itemId} itemId={sub} />
         : tab === "reports" ? <ModelReports model={model} m={m} />

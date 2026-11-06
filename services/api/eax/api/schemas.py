@@ -759,6 +759,7 @@ class SqlQueryIn(Schema):
     username = fields.String(required=True, metadata={"description": "PostgreSQL user, for example eax_app or postgres"})
     password = fields.String(required=True, load_only=True)
     sql = fields.String(required=True, metadata={"description": "One or more SQL statements"})
+    keep = fields.Boolean(load_default=False, metadata={"description": "Commit at the end (keep the changes); otherwise rolled back"})
 
 
 class SqlResultSet(Schema):
@@ -772,7 +773,7 @@ class SqlResultSet(Schema):
 class SqlQueryOut(Schema):
     results = fields.List(fields.Nested(SqlResultSet))
     notices = fields.List(fields.String())
-    committed = fields.Boolean(metadata={"description": "Always false: the SQL window is read-only"})
+    committed = fields.Boolean(metadata={"description": "True when the changes were kept (keep), false when rolled back"})
     duration_ms = fields.Integer()
 
 

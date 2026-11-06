@@ -63,8 +63,9 @@ def to_json_value(value: Any) -> Any:
     return text if len(text) <= MAX_CELL_CHARS else text[:MAX_CELL_CHARS] + "..."
 
 
-def run(database: str, username: str, password: str, sql: str) -> dict:
-    """Runs the text (one or more statements) and returns every result set."""
+def run(database: str, username: str, password: str, sql: str, keep: bool = False) -> dict:
+    """Runs the text (one or more statements) and returns every result set. keep: commit at the end (writing, owner
+    6 Nov 2026, replacing D52); otherwise everything is rolled back."""
     if not username or not password:
         raise SqlConsoleError("Give a database user name and password.")
     if not (sql or "").strip():
@@ -102,9 +103,22 @@ def run(database: str, username: str, password: str, sql: str) -> dict:
                 message += f" (the time limit is {TIMEOUT_SECONDS} seconds)"
             raise SqlConsoleError(message, 400, sqlstate=diag.sqlstate, detail=diag.message_detail,
                                   hint=diag.message_hint, position=diag.statement_position) from exc
-        conn.rollback()   # read-only: nothing a run does is kept
-    return {"results": results, "notices": notices, "committed": False,
+        if keep:
+            conn.commit()     # the person chose to keep the changes; the database login's own rights decided what ran
+        else:
+            conn.rollback()   # a trial run: nothing a run does is kept
+    return {"results": results, "notices": notices, "committed": bool(keep),
             "duration_ms": round((time.perf_counter() - started) * 1000)}
+
+
+def databases() -> list[str]:
+    """The databases on the installation's server that can be connected to (the drop-down of the SQL window)."""
+    from sqlalchemy import text as _t
+
+    from .db import get_engine
+    with get_engine().connect() as conn:
+        return [r[0] for r in conn.execute(_t("""SELECT datname FROM pg_database WHERE datallowconn AND NOT datistemplate
+                                                   ORDER BY datname = current_database() DESC, datname"""))]
 
 
 def _result_set(cur) -> dict:

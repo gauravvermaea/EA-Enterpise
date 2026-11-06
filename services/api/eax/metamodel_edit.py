@@ -708,6 +708,15 @@ def _db_message(exc: DBAPIError) -> str:
     return f"{msg} {hint}" if hint else msg
 
 
+def _record_change(conn, mid: int, version: int, seq: int, op: str, payload: dict, result: Any, note: str) -> None:
+    """What a metamodel version was made of, so it can be pushed to the models below (phase 8.1, D84)."""
+    import json
+    conn.execute(text("""INSERT INTO core.metamodel_version_changes (model_id, version, seq, op, payload, result, note)
+                         VALUES (:m, :v, :s, :o, CAST(:p AS jsonb), CAST(:r AS jsonb), :n)"""),
+                 {"m": mid, "v": version, "s": seq, "o": op, "p": json.dumps(payload or {}, default=str),
+                  "r": json.dumps(result if isinstance(result, dict) else {"value": result}, default=str), "n": note or ""})
+
+
 def apply(conn, model: Any, op: str, payload: dict, actor: str, dry_run: bool = False) -> dict:
     """Applies one metamodel change in the open transaction (engine.begin()); the caller rolls back
     when dry_run. Returns the new version, its note, what was made and the impact."""
@@ -726,6 +735,7 @@ def apply(conn, model: Any, op: str, payload: dict, actor: str, dry_run: bool = 
         result, note, touched = OPS[op](conn, m, payload)
         conn.execute(text("UPDATE core.metamodel_versions SET note = :n WHERE model_id = :m AND version = :v"),
                      {"n": note, "m": mid, "v": version})
+        _record_change(conn, mid, version, 1, op, payload, result, note)
     except DBAPIError as exc:
         raise EditError(_db_message(exc), 409) from exc
     after = _failing(conn, m, sorted(set(before_types) | set(touched or [])))
@@ -823,6 +833,7 @@ def apply_many(conn, model: Any, changes: list[dict], actor: str, dry_run: bool 
         except DBAPIError as exc:
             raise EditError(f"Row {i} ({ch['op']}): {_db_message(exc)}", 409) from exc
         results.append({"row": i, "op": ch["op"], "result": result, "note": note})
+        _record_change(conn, mid, version, i, ch["op"], payload, result, note)
         notes.append(note)
         touched |= set(t or [])
     note = notes[0] if len(notes) == 1 else f"{len(notes)} changes from a grid: " + "; ".join(notes[:5]) + ("..." if len(notes) > 5 else "")

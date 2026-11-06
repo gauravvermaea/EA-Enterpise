@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 from pathlib import Path
 
@@ -186,7 +187,12 @@ def test_container_stats_from_docker(tmp_path, monkeypatch):
         if a[0] == "stats":
             return '{"ID":"aaa111bbb222","CPUPerc":"2.50%","MemUsage":"512MiB / 15.5GiB","MemPerc":"3.2%","NetIO":"1kB / 2kB","BlockIO":"0B / 0B","PIDs":"9"}\n'
         if a[0] == "inspect":
-            return ("aaa111bbb222ccc|healthy|2026-11-05T20:00:00Z|1|eax_pg,\nddd444eee555fff|none|2026-11-05T19:00:00Z|0|\n")
+            return json.dumps([
+                {"Id": "aaa111bbb222ccc", "RestartCount": 1, "Config": {"Image": "eax-api:0.11"},
+                 "State": {"Health": {"Status": "healthy"}, "StartedAt": "2026-11-05T20:00:00Z", "ExitCode": 0, "OOMKilled": False},
+                 "Mounts": [{"Type": "volume", "Name": "eax_pg"}, {"Type": "bind", "Source": "/x"}]},
+                {"Id": "ddd444eee555fff", "RestartCount": 0, "Config": {"Image": "drawio"},   # no health check, no mounts
+                 "State": {"StartedAt": "2026-11-05T19:00:00Z", "ExitCode": 137, "OOMKilled": True}}])
         if a[0] == "ps":
             return "aaa111bbb222|12.5MB (virtual 300MB)\nddd444eee555|0B (virtual 1GB)\n"
         return "{}"
@@ -197,3 +203,187 @@ def test_container_stats_from_docker(tmp_path, monkeypatch):
     assert api["cpu_percent"] == 2.5 and api["memory_bytes"] == 512 * 1024 * 1024 and api["pids"] == 9
     assert api["health"] == "healthy" and api["restarts"] == 1 and api["volume_bytes"] == 2_000_000_000
     assert api["layer_bytes"] == 12_500_000 and out["drawio"]["cpu_percent"] is None
+    assert out["drawio"]["exit_code"] == 137 and out["drawio"]["oom_killed"] and api["image"] == "eax-api:0.11"
+    assert out["drawio"]["health"] == "none" and api["started_at"] == "2026-11-05T20:00:00Z"
+    assert ops.stats(fresh=True)["problems"] == []
+
+
+def test_container_console(tmp_path, monkeypatch):
+    """Administration > Containers (D211): commands run with docker exec only while EAX_CONTAINER_CONSOLE is on."""
+    ops = _ops(tmp_path, monkeypatch)
+    monkeypatch.setattr(ops, "containers", lambda: [
+        {"id": "aaa111bbb222ccc", "name": "eax-api-1", "service": "api", "state": "running", "status": "Up", "image": "x"},
+        {"id": "ddd444eee555fff", "name": "eax-drawio-1", "service": "drawio", "state": "exited", "status": "Exited", "image": "y"}])
+    cfg = tmp_path / "eaexplorer.env"
+    monkeypatch.setattr(ops, "CONFIG", str(cfg))
+    cfg.write_text("EAX_CONTAINER_CONSOLE=on\n")
+    ran = []
+
+    class R:
+        stdout, stderr, returncode = b"uid=1000(eax)\n", b"", 0
+    monkeypatch.setattr(ops.subprocess, "run", lambda args, **k: ran.append(args) or R())
+    out = ops.container_exec("api", "id")
+    args = ran[-1]
+    assert args[:2] == ["docker", "exec"] and "EAX_CMD=id" in args and "aaa111bbb222ccc" in args and args[-3:-1] == ["sh", "-c"]
+    assert out["exit_code"] == 0 and "uid=1000" in out["output"]
+    with pytest.raises(ValueError):
+        ops.container_exec("drawio", "ls")   # not running
+    with pytest.raises(FileNotFoundError):
+        ops.container_exec("nothing", "ls")
+    cfg.write_text("EAX_CONTAINER_CONSOLE=off\n")
+    with pytest.raises(PermissionError):
+        ops.container_exec("api", "id")
+    cfg.unlink()
+    assert ops.console_on() is False
+
+
+def test_templates_set_the_container_console():
+    laptop = (REPO / "deploy" / "templates" / "eaexplorer.laptop.env").read_text()
+    server = (REPO / "deploy" / "templates" / "eaexplorer.server.env").read_text()
+    assert "EAX_CONTAINER_CONSOLE=on" in laptop and "EAX_CONTAINER_CONSOLE=off" in server
+
+
+def test_container_console_is_it_and_super_admin_and_audited():
+    """D214: commands and terminals are for IT and Super Admins (system.operate), each in the audit trail."""
+    src = (ROOT / "eax" / "api" / "admin.py").read_text()
+    for route, action in (("/admin/containers/<service>/exec", '"container.exec"'),
+                          ("/admin/containers/<service>/terminal", '"container.terminal.open"')):
+        i = src.index(route)
+        block = src[i:i + 1600]
+        assert 'require_auth("system.operate")' in block and action in block
+    assert '"container.terminal.close"' in src
+    jobs = (ROOT / "eax" / "jobs.py").read_text()
+    assert "eax.record_terminal_ends" in jobs
+
+
+def test_proxy_passes_terminals_to_the_helper_only():
+    conf = (REPO / "deploy" / "proxy" / "templates" / "default.conf.template").read_text()
+    i = conf.index("location /ops-terminal/")
+    block = conf[i:i + 600]
+    assert "http://ops:8091" in block and "8090" not in block
+    compose = (REPO / "docker-compose.yml").read_text()
+    assert "terminal:" in compose
+
+
+def test_cd_carries_over_between_commands(tmp_path, monkeypatch):
+    """Run a command (owner, 6 Nov 2026): cd in one command is where the next one runs, like a terminal."""
+    ops = _ops(tmp_path, monkeypatch)
+    monkeypatch.setattr(ops, "containers", lambda: [
+        {"id": "aaa111bbb222ccc", "name": "eax-api-1", "service": "api", "state": "running", "status": "Up", "image": "x"}])
+    cfg = tmp_path / "eaexplorer.env"
+    cfg.write_text("EAX_CONTAINER_CONSOLE=on\n")
+    monkeypatch.setattr(ops, "CONFIG", str(cfg))
+    (tmp_path / "eax").mkdir()
+    (tmp_path / "eax" / "app.py").write_text("")
+    real = ops.subprocess.run
+
+    def local(args, **k):   # docker exec -e A=1 -e B=2 <id> sh -c <script>, run here instead
+        env = dict(os.environ)
+        i = 2
+        while args[i] == "-e":
+            key, _, val = args[i + 1].partition("=")
+            env[key] = val
+            i += 2
+        return real(args[i + 1:], env=env, cwd=str(tmp_path), **k)
+    monkeypatch.setattr(ops.subprocess, "run", local)
+    first = ops.container_exec("api", "cd eax", "")
+    assert first["cwd"] == str(tmp_path / "eax") and first["output"].strip() == ""
+    second = ops.container_exec("api", "ls; env | grep -c '^EAX_C[MW]' || true", first["cwd"])
+    assert "app.py" in second["output"] and second["cwd"] == first["cwd"]
+    assert second["output"].strip().splitlines()[-1] == "0"   # the console's own variables are not left behind
+    third = ops.container_exec("api", "cd .. && false", second["cwd"])
+    assert third["cwd"] == str(tmp_path) and third["exit_code"] == 1
+
+
+def _ws_client(port: int, ticket: str):
+    import base64 as b64
+    import socket as sk
+    s = sk.create_connection(("127.0.0.1", port), timeout=10)
+    key = b64.b64encode(os.urandom(16)).decode()
+    s.sendall((f"GET /terminal/{ticket} HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+               f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n").encode())
+    head = b""
+    while b"\r\n\r\n" not in head:
+        head += s.recv(1)
+    return s, head.decode()
+
+
+def _ws_send(s, text: str, opcode: int = 1) -> None:
+    import struct as st
+    data, mask = text.encode(), os.urandom(4)
+    n = len(data)
+    head = bytes([0x80 | opcode]) + (bytes([0x80 | n]) if n < 126 else bytes([0x80 | 126]) + st.pack(">H", n))
+    s.sendall(head + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(data)))
+
+
+def _ws_until(s, needle: bytes, limit: float = 10) -> bytes:
+    import time as tm
+    got, end = b"", tm.time() + limit
+    s.settimeout(0.5)
+    while needle not in got and tm.time() < end:
+        try:
+            chunk = s.recv(65536)
+        except OSError:
+            continue
+        if not chunk:
+            break
+        got += chunk
+    return got
+
+
+def test_interactive_terminal(tmp_path, monkeypatch):
+    """The interactive terminal (D214): a one-time ticket opens a WebSocket to a shell on a pseudo-terminal; what is
+    typed reaches the shell, its output comes back, cd and variables stay, exit ends it and the session is recorded."""
+    import threading as th
+    from http.server import ThreadingHTTPServer
+    ops = _ops(tmp_path, monkeypatch)
+    monkeypatch.setattr(ops, "containers", lambda: [
+        {"id": "aaa111bbb222ccc", "name": "eax-api-1", "service": "api", "state": "running", "status": "Up", "image": "x"}])
+    cfg = tmp_path / "eaexplorer.env"
+    cfg.write_text("EAX_CONTAINER_CONSOLE=on\nEAX_TERMINAL_IDLE_MINUTES=15\n")
+    monkeypatch.setattr(ops, "CONFIG", str(cfg))
+    real = ops.subprocess.Popen
+    seen = []
+
+    def local(args, **k):   # docker exec -it ... <id> sh -c <shell>: a plain sh here instead
+        seen.append(args)
+        return real(["sh", "-i"], cwd=str(tmp_path), env={"PS1": "$ ", "PATH": os.environ["PATH"], "TERM": "dumb"}, **k)
+    monkeypatch.setattr(ops.subprocess, "Popen", local)
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), ops.TerminalHandler)
+    srv.daemon_threads = True
+    th.Thread(target=srv.serve_forever, daemon=True).start()
+    port = srv.server_address[1]
+    t = ops.terminal_ticket("api", "user_it_admin", 100, 30)
+    assert t["idle_minutes"] == 15
+    s, head = _ws_client(port, t["ticket"])
+    assert " 101 " in head.splitlines()[0]
+    assert seen[0][:3] == ["docker", "exec", "-it"] and "aaa111bbb222ccc" in seen[0]
+    _ws_send(s, json.dumps({"t": "i", "d": "mkdir zz && cd zz && X=7\n"}))
+    _ws_send(s, json.dumps({"t": "i", "d": "echo here-$X-$(basename $(pwd))\n"}))
+    assert b"here-7-zz" in _ws_until(s, b"here-7-zz")
+    _ws_send(s, json.dumps({"t": "r", "cols": 90, "rows": 20}))
+    _ws_send(s, json.dumps({"t": "i", "d": "exit\n"}))
+    assert b'"t": "exit"' in _ws_until(s, b'"t": "exit"')
+    s.close()
+    import time as tm
+    for _ in range(50):
+        if ops.terminal_sessions() and ops.terminal_sessions()[0]["ended"]:
+            break
+        tm.sleep(0.1)
+    rec = ops.terminal_sessions()[0]
+    assert rec["user"] == "user_it_admin" and rec["service"] == "api" and rec["ended"] and rec["reason"].startswith("the shell ended")
+    assert ops.terminal_ack([rec["id"]]) == 1 and ops.terminal_sessions() == []
+    # a ticket works once
+    s2, head2 = _ws_client(port, t["ticket"])
+    assert " 403 " in head2.splitlines()[0]
+    s2.close()
+    srv.shutdown()
+
+
+def test_terminal_off_refuses_tickets(tmp_path, monkeypatch):
+    ops = _ops(tmp_path, monkeypatch)
+    cfg = tmp_path / "eaexplorer.env"
+    cfg.write_text("EAX_CONTAINER_CONSOLE=off\n")
+    monkeypatch.setattr(ops, "CONFIG", str(cfg))
+    with pytest.raises(PermissionError):
+        ops.terminal_ticket("api", "x")

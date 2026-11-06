@@ -1,6 +1,8 @@
 // SQL window: write a query, run it, see the results. Uses POST /api/v1/sql/query with a
-// PostgreSQL login. Read-only (D52): every run is rolled back at the end. The login stays in this page only.
-import { useState } from "react";
+// PostgreSQL login. A run is rolled back at the end unless "Keep the changes" is ticked (D211, replacing the read-only
+// rule of D52): then it is committed and the run is in the audit trail. The database is chosen from the server's
+// databases. The login stays in this page only.
+import { useEffect, useState } from "react";
 import { apiFetch, keycloak, signedIn } from "./auth";
 import { config } from "./config";
 
@@ -38,6 +40,15 @@ export default function Sql() {
   const [busy, setBusy] = useState(false);
   const [out, setOut] = useState(null);
   const [error, setError] = useState(null);
+  const [keep, setKeep] = useState(false);
+  const [dbs, setDbs] = useState([]);
+  useEffect(() => {
+    if (!signedIn()) return;
+    apiFetch("/api/v1/sql/databases").then((d) => {
+      setDbs(d.databases || []);
+      if (d.databases?.length && !d.databases.includes(login.database)) setLogin((l) => ({ ...l, database: d.databases[0] }));
+    }).catch(() => setDbs([]));
+  }, []);   // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!signedIn()) {
     return (
@@ -50,11 +61,14 @@ export default function Sql() {
   }
 
   async function run(text) {
+    // eslint-disable-next-line no-alert
+    if (keep && !window.confirm(`Keep the changes? The statements are committed to ${login.database} as ${login.username}; `
+      + "this cannot be undone here. The run is recorded in the audit trail.")) return;
     setBusy(true); setError(null); setOut(null);
     try {
       setOut(await apiFetch("/api/v1/sql/query", {
         method: "POST",
-        body: JSON.stringify({ ...login, sql: text }),
+        body: JSON.stringify({ ...login, sql: text, keep }),
       }));
     } catch (e) {
       setError(e.message);
@@ -81,11 +95,19 @@ export default function Sql() {
       <p className="quiet">
         Runs on this installation's PostgreSQL with a database login
         {config.deployment === "laptop" && <> (laptop: user <code>eax_app</code> or <code>postgres</code>, password <code>P^55w0rd1234&amp;</code>)</>}.
-        Read-only: every run is rolled back at the end, so nothing is ever saved. Changes go through the screens, the API or psql in the database container.
+        A run is rolled back at the end, so nothing is saved, unless you tick <b>Keep the changes</b>: then it is committed
+        (what the login is allowed to change) and recorded in the audit trail. Changes to models are better made in the
+        screens or the API, which keep their history.
         Temporary tables (<code>eax.get_entity('Capability', 'caps')</code>) last for one run.
       </p>
       <div className="sql-login">
-        {field("database", "Database")}
+        {dbs.length ? (
+          <label>Database
+            <select value={login.database} onChange={(e) => setLogin({ ...login, database: e.target.value })}>
+              {dbs.map((d) => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </label>
+        ) : field("database", "Database")}
         {field("username", "User")}
         {field("password", "Password", "password")}
       </div>
@@ -107,6 +129,9 @@ export default function Sql() {
         <button className="primary" disabled={busy} onClick={() => runFromBox(document.getElementById("sql-text"))}>
           {busy ? "Running..." : "Run"}
         </button>
+        <label className={`sql-keep${keep ? " on" : ""}`}>
+          <input type="checkbox" checked={keep} onChange={(e) => setKeep(e.target.checked)} /> Keep the changes (commit)
+        </label>
         <span className="quiet"> Ctrl+Enter. With text selected, only the selection runs.</span>
       </div>
 
@@ -114,7 +139,7 @@ export default function Sql() {
       {out && (
         <>
           <p className="quiet">
-            Done in {out.duration_ms} ms{" · rolled back, nothing saved"}
+            Done in {out.duration_ms} ms{out.committed ? <b className="warn-text"> · committed: the changes are kept</b> : " · rolled back, nothing saved"}
           </p>
           {out.notices.map((m, i) => <p key={i} className="quiet">{m}</p>)}
           {out.results.map((r, i) => <ResultTable key={i} r={r} n={i + 1} />)}

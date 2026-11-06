@@ -45,7 +45,8 @@ relationships) and content (entities and relationships). Template models hold a 
 Start with list_models, then get_metamodel or list_entities for a model. Models, entity types and
 entities can be given by guid or by name. check_entities shows what breaks the validation rules;
 get_entity_history shows who changed what. You see only the models your roles and model
-assignments allow. Read only in this build."""
+assignments allow. You may draft metamodels, read your notifications and requests, and send requests
+to other people (list_my_notifications, list_my_requests, send_request)."""
 
 mcp = MCPServer(name="EA Explorer", instructions=INSTRUCTIONS, version=__version__)
 
@@ -449,6 +450,60 @@ async def resubmit_metamodel_draft(draft: str, note: str = "") -> Any:
         out = model_ops.draft_resubmit(conn, who, draft, who.username, note)
         audit.record(conn, actor=who.username, action="draft.resubmitted", object_type="draft", object_id=str(out.get("id", "")),
                      source="mcp")
+        return out
+    return await _run(run, begin=True)
+
+
+# ---------------------------------------------------------------- notifications and requests (build phase 8.1, D209)
+# Read your notifications and requests, and raise a request on your behalf. Resolving notifications and moving
+# requests along stay in the screens.
+
+@mcp.tool()
+async def list_my_notifications(show: str = "open", category: str = "", model: str = "") -> Any:
+    """Your notifications. show: open (action ones not resolved and information ones not dismissed), actions,
+    resolved or all; category: commit, metamodel, request or model; model: a model's guid. Action ones (needs_action)
+    wait for someone to resolve them in the screens with a note."""
+    from . import notify
+    return await _run(lambda conn: notify.listing(conn, permissions.current.get().username, show=show, category=category,
+                                                  model=model))
+
+
+@mcp.tool()
+async def list_my_requests(box: str = "received", status: str = "active") -> Any:
+    """Requests sent to you (box received) or by you (box sent); status active (open and in progress), closed (done
+    and declined), all, or one of open, in_progress, done, declined. Requests are private to their two people."""
+    from . import tickets
+    return await _run(lambda conn: tickets.listing(conn, permissions.current.get().username, box, status))
+
+
+@mcp.tool()
+async def get_request(request: str) -> Any:
+    """One of your requests (its number, e.g. 1004, or id) with its comments and status trail."""
+    from . import tickets
+
+    def run(conn):
+        try:
+            return tickets.get(conn, permissions.current.get().username, request)
+        except tickets.RequestError as exc:
+            return {"error": str(exc)}
+    return await _run(run)
+
+
+@mcp.tool()
+async def send_request(to: str, subject: str, body: str = "") -> Any:
+    """Send a request to another person on your behalf, like a ticket: `to` is their username, a subject (under 200
+    characters) and a body; no attachments or links. They are notified and move it along (in progress, done or
+    declined) in the screens; you are told at each step. Say exactly what you ask for."""
+    from . import tickets
+
+    def run(conn):
+        who = permissions.current.get()
+        try:
+            out = tickets.send(conn, who.username, to, subject, body, via="mcp")
+        except tickets.RequestError as exc:
+            return {"error": str(exc)}
+        audit.record(conn, actor=who.username, action="request.send", object_type="request", object_id="",
+                     details={"number": out["number"], "to": out["receiver"]}, source="mcp")
         return out
     return await _run(run, begin=True)
 

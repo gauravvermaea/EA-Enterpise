@@ -39,3 +39,13 @@ def test_login_and_text_are_required():
             assert exc.status == 400
         else:
             raise AssertionError("expected an error")
+
+
+def test_keep_commits_and_databases_are_listed():
+    """D211: a run is rolled back unless keep is ticked; the window lists the server's databases."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    src = (root / "eax" / "sqlconsole.py").read_text()
+    assert "keep" in src and "datistemplate" in src
+    api = (root / "eax" / "api" / "sql.py").read_text()
+    assert '"/databases"' in api and "keep" in api

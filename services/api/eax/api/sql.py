@@ -9,6 +9,7 @@ from flask_smorest import Blueprint, abort
 from .. import audit, sqlconsole
 from ..auth import require_auth
 from ..db import get_engine
+from .models import Free
 from .schemas import SqlQueryIn, SqlQueryOut
 
 blp = Blueprint(
@@ -39,15 +40,29 @@ class SqlQuery(MethodView):
         """Run SQL with a database login
 
         One or more statements; every result set comes back (at most 1,000 rows each, 30-second
-        limit). Read-only: always rolled back at the end, nothing is kept. Temporary tables last for this run only.
+        limit). Rolled back at the end unless keep is true: then committed, and what the database login may do decides
+        what is written (owner, 6 Nov 2026, replacing D52). Every run is in the audit trail, with whether it was kept.
         """
         if not sqlconsole.enabled():
             abort(404, message="The SQL window is turned off on this installation (EAX_SQL_CONSOLE_ENABLED=false).")
         try:
             result = sqlconsole.run(query.get("database") or "", query["username"], query["password"],
-                                    query["sql"])
+                                    query["sql"], bool(query.get("keep")))
         except sqlconsole.SqlConsoleError as exc:
             _audit(query, "error", error=str(exc)[:500])
             abort(exc.status, message=str(exc), errors=exc.details)
-        _audit(query, "ok", results=len(result["results"]), duration_ms=result["duration_ms"])
+        _audit(query, "kept" if result["committed"] else "ok", results=len(result["results"]),
+               duration_ms=result["duration_ms"], kept=result["committed"])
         return result
+
+
+@blp.route("/databases")
+class SqlDatabases(MethodView):
+    @blp.doc(security=[{"bearerAuth": []}])
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def get(self):
+        """The databases on this installation's server (EA Explorer's own first)"""
+        if not sqlconsole.enabled():
+            abort(404, message="The SQL window is turned off on this installation (EAX_SQL_CONSOLE_ENABLED=false).")
+        return {"databases": sqlconsole.databases()}

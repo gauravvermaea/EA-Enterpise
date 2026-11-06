@@ -85,6 +85,28 @@ name is unique per `version_label`.
 - Removing an attribute or a relationship type sets `is_deleted` on its values or relationships (and
   their values): the history triggers keep each one (D75).
 
+## Notifications, requests, webhooks and push-down (phase 8.1)
+
+- `core.notifications` (kind, category commit/metamodel/request/model, `needs_action`, model, title, body, link, the
+  thing it is about in `ref_kind`/`ref_id`, `resolved_at`/`resolved_by`/`resolution`) and
+  `core.notification_recipients` (one row per person, with `read_at` and `dismissed_at`). Only notifications that need
+  action are resolved (a check constraint); resolving is once for everyone.
+- `core.requests` (numbered from 1001; subject, body, sender, receiver, status open/in_progress/done/declined, a
+  `close_note` required when done or declined) and `core.request_comments` (comments and status changes). Private to
+  the two: the API filters every read by sender or receiver.
+- `core.webhooks` (address, kinds, secret, enabled) and `core.webhook_deliveries` (the signed JSON sent, status
+  pending/sent/failed, attempts, next try, last answer). The job `eax.deliver_webhooks` runs every minute.
+- `core.metamodel_version_changes`: the changes (op, payload, result) each metamodel version was made of in the editor
+  and the grids. `core.metamodel_pushes` (from model, versions, forced or offered, fill defaults, note, came from) and
+  `core.metamodel_push_targets` (one per model below: offered, applied with the model's own version, rejected with a
+  note, failed with the error, skipped when read-only). `core.metamodel_versions_pushed` lists the versions already
+  pushed.
+- A forced package is made with the parent's authority: `core.why_not` lets the metamodel and the model row of the one
+  model named in the transaction setting `eax.push_down` change, which the API sets around that change only (and reads
+  the model past row-level security with `eax.rls_bypass`, which counts only for the API's own login).
+- `core.change_documents`: a page per accepted change (metamodel package, commit, merge) as JSON sections of rows.
+- None of these are in the report login's reach (`eax_report`).
+
 ## Model locks (phase 3)
 
 `core.models.lock_level` is `none`, `metamodel`, `content` (metamodel and content) or `maintenance`,

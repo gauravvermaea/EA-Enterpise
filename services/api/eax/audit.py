@@ -38,3 +38,19 @@ def record(
             "request_id": request_id,
         },
     )
+    # notifications (phase 8.1): the audited actions people must know about notify everyone on the model; a failure there
+    # never undoes the action itself (a savepoint keeps the two apart)
+    from . import notify
+    if action in notify.FROM_AUDIT:
+        import logging
+        try:
+            nested = getattr(conn, "begin_nested", None)
+            if nested is None:   # a plain driver connection (tests): no savepoint
+                notify.on_audit(conn, actor=actor, action=action, object_type=object_type, object_id=object_id,
+                                details=details)
+            else:
+                with nested():
+                    notify.on_audit(conn, actor=actor, action=action, object_type=object_type, object_id=object_id,
+                                    details=details)
+        except Exception:  # noqa: BLE001
+            logging.getLogger("eax.notify").exception("notification for %s failed", action)

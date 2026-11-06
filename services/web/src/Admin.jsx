@@ -11,18 +11,21 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { apiFetch, can, needsRole } from "./auth";
 import { refreshAll, useApi } from "./ModelViews";
 import { Modal } from "./ModelOps";
+import { WebhooksPanel } from "./Notifications";
 import { config } from "./config";
 import { appSettings, fmtDate, fmtDateTime, fmtMoney, fmtNumber, setAppSettings } from "./fmt";
 
 const Users = lazy(() => import("./Users"));
 const Heartbeat = lazy(() => import("./Heartbeat"));
 const Sql = lazy(() => import("./Sql"));
+const ContainerConsole = lazy(() => import("./ContainerConsole"));
 
 const TABS = [
   ["application", "Application settings", () => true, null],
   ["system", "System settings", () => can("system.operate") || can("settings.manage"), ["it-admin", "super-admin"]],
   ["users", "Users", () => can("users.read"), ["user-admin", "super-admin"]],
   ["health", "Health", () => true, null],
+  ["containers", "Containers", () => can("system.operate"), ["it-admin", "super-admin"]],
   ["sql", "SQL", () => can("system.operate"), ["it-admin", "super-admin"]],
   ["licences", "Licences", () => true, null],
 ];
@@ -51,8 +54,9 @@ export default function Admin({ route }) {
         <Suspense fallback={<p>Loading...</p>}>
           {!t[2]() ? <p className="status bad">{needsRole(t[3])}</p>
             : t[0] === "users" ? <Users route={inner} />
-              : t[0] === "health" ? <><Heartbeat />{can("system.operate") && <Containers />}</>
-                : t[0] === "sql" ? <Sql />
+              : t[0] === "health" ? <Heartbeat />
+                : t[0] === "containers" ? <ContainerConsole />
+                  : t[0] === "sql" ? <Sql />
                   : t[0] === "licences" ? <Licences />
                     : <Settings group={t[0]} />}
         </Suspense>
@@ -162,6 +166,7 @@ function Settings({ group }) {
       {group === "system" && <Services />}
       {group === "system" && data.startup && <Startup s={data.startup} />}
       {group === "system" && can("system.operate") && <ConfigCopies />}
+      {group === "system" && can("system.operate") && <WebhooksPanel />}
       {group === "system" && (
         <div className="merge-step">
           <h3>Restart the system</h3>
@@ -211,8 +216,7 @@ export function SvcIcon({ state }) {
   );
 }
 
-// sizes and times for the health column
-const mb = (b) => (b == null ? "" : b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${Math.round(b / 1e6)} MB`);
+// times for the health columns
 function since(iso) {
   const t = Date.parse(iso || "");
   if (!t || t < 1e12) return "";
@@ -221,35 +225,67 @@ function since(iso) {
 }
 const CHECK_OF = { documents: ["documents", "documents_broker"], api: ["api", "api_jobs"], change_log: ["api_jobs"] };
 
-// health now (owner, 5 Nov 2026): the health check and its response time, and per container CPU, memory, disk, Docker
-// health, restarts and uptime; checked when the page opens and again with Check again
-function HealthCell({ s, h }) {
-  if (!h) return <span className="quiet small">checking...</span>;
+// health now (owner, 6 Nov 2026): one green, amber or red verdict per service, with what matters for a container in
+// columns of their own: the health check's response time, the container's state and Docker health, how long it has
+// been up and how often it restarted. Red: a check is down, a container that should run is not, Docker says
+// unhealthy, or it was stopped for running out of memory. Amber: a check warns or answers slower than a second, it is
+// still starting, or it restarted. Grey: switched off. CPU, memory and disk are on Administration > Containers.
+export function rate(s, h) {
+  if (!h) return null;
   const checks = (CHECK_OF[s.key] || [s.key]).map((k) => h.checks[k]).filter(Boolean);
   const cs = (h.containers || []).filter((c) => s.containers.includes(c.service) && c.service !== "reports-init");
+  const red = []; const amber = [];
+  for (const c of checks) {
+    if (c.status === "down") red.push(`${c.name}: ${c.detail}`);
+    else if (c.status === "warning") amber.push(`${c.name}: ${c.detail}`);
+    else if (c.status !== "off" && c.response_ms > 1000) amber.push(`${c.name} answered in ${c.response_ms} ms`);
+  }
+  for (const c of cs) {
+    if (c.oom_killed) red.push(`${c.service} was stopped for running out of memory`);
+    if (c.state !== "running" && s.on !== false) red.push(`${c.service} is ${c.state}${c.exit_code ? ` (exit code ${c.exit_code})` : ""}`);
+    if (c.state === "running" && c.health === "unhealthy") red.push(`${c.service}: Docker says unhealthy`);
+    if (c.health === "starting") amber.push(`${c.service} is still starting`);
+    if (c.restarts > 0) amber.push(`${c.service} restarted ${c.restarts} time${c.restarts === 1 ? "" : "s"}`);
+  }
+  for (const p of h.problems || []) if (cs.some((c) => p.includes(c.service))) amber.push(p);
+  const off = s.on === false && !cs.some((c) => c.state === "running");
+  const level = off ? "off" : red.length ? "red" : amber.length ? "amber" : checks.length || cs.length ? "green" : "unknown";
+  return { level, reasons: [...red, ...amber], checks, cs };
+}
+const LEVEL = { green: "Healthy", amber: "Warning", red: "Problem", off: "Off", unknown: "Not known" };
+
+function HealthCells({ s, h }) {
+  const r = rate(s, h);
+  if (!r) return <><td className="quiet small">checking...</td><td /><td /><td /><td /></>;
+  const { level, reasons, checks, cs } = r;
   return (
-    <div className="svc-health small">
-      {checks.map((c) => (
+    <>
+      <td className="nowrap"><span className={`rag ${level}`} title={reasons.join("\n") || LEVEL[level]}>{LEVEL[level]}</span>
+        {reasons.length > 0 && <div className="small svc-reasons">{reasons.slice(0, 3).map((x) => <div key={x}>{x}</div>)}
+          {reasons.length > 3 && <div className="quiet">and {reasons.length - 3} more</div>}</div>}</td>
+      <td className="small nowrap">{checks.map((c) => (
         <div key={c.name} title={`${c.name}: ${c.detail}${c.target ? ` (${c.target})` : ""}`}>
-          <span className={`hc ${c.status}`}>{c.status}</span>
-          {c.status !== "off" && <span className={c.response_ms > 1000 ? "warn-text" : ""}> {c.response_ms} ms</span>}
+          {c.status === "off" ? <span className="quiet">off</span>
+            : <span className={c.status === "down" ? "bad-text" : c.response_ms > 1000 ? "warn-text" : ""}>{c.status === "down" ? "down" : `${c.response_ms} ms`}</span>}
           {checks.length > 1 && <span className="quiet"> {c.name}</span>}
-        </div>
-      ))}
-      {cs.map((c) => (
-        <div key={c.id} className="quiet">
-          {cs.length > 1 && <b>{c.service}: </b>}
-          {c.state !== "running" ? c.state : <>
-            {c.health && c.health !== "none" && <span className={c.health === "healthy" ? "ok-text" : "warn-text"}>{c.health} · </span>}
-            CPU {c.cpu_percent == null ? "?" : `${c.cpu_percent.toFixed(1)}%`} · mem <span className={c.memory_percent > 80 ? "warn-text" : ""}>{mb(c.memory_bytes)}</span>
-            {c.layer_bytes || c.volume_bytes ? <> · disk {mb((c.layer_bytes || 0) + (c.volume_bytes || 0))}</> : null}
-            {since(c.started_at) && <> · up {since(c.started_at)}</>}
-            {c.restarts > 0 && <span className="warn-text"> · {c.restarts} restarts</span>}
-          </>}
-        </div>
-      ))}
-    </div>
+        </div>))}</td>
+      <td className="small nowrap">{cs.map((c) => (
+        <div key={c.id} title={c.image}>{cs.length > 1 && <b>{c.service}: </b>}
+          <span className={c.state === "running" ? "" : "bad-text"}>{c.state}</span>
+          {c.state !== "running" && c.exit_code ? <span className="quiet"> (exit {c.exit_code})</span> : null}
+          {c.state === "running" && c.health && c.health !== "none" && <span className={c.health === "healthy" ? "ok-text" : c.health === "starting" ? "warn-text" : "bad-text"}> · {c.health}</span>}
+          {c.oom_killed && <span className="bad-text"> · out of memory</span>}
+        </div>))}</td>
+      <td className="small nowrap">{cs.map((c) => <div key={c.id}>{c.state === "running" ? since(c.started_at) || "?" : ""}</div>)}</td>
+      <td className="small">{cs.map((c) => <div key={c.id} className={c.restarts > 0 ? "warn-text" : ""}>{c.restarts ?? ""}</div>)}</td>
+    </>
   );
+}
+
+function RagSummary({ rows, h }) {
+  const n = { green: 0, amber: 0, red: 0 };
+  rows.forEach((s) => { const r = rate(s, h); if (r && n[r.level] !== undefined) n[r.level] += 1; });
+  return <span className="small">{["red", "amber", "green"].filter((k) => n[k]).map((k) => <span key={k} className={`rag ${k}`}>{n[k]} {LEVEL[k].toLowerCase()}</span>)}</span>;
 }
 
 function Services() {
@@ -318,14 +354,16 @@ function Services() {
         {can("system.operate") && <button onClick={check} disabled={checking}>{checking ? "Checking..." : "↻ Check again"}</button>}
         {health && <span className="quiet small">Checked {new Date(health.checked_at * 1000).toLocaleTimeString()}</span>}
         {hErr && <span className="status bad small">{hErr}</span>}
-        {health?.helper && <span className="quiet small">{health.helper}</span>}
+        {health && <RagSummary rows={[...(data?.core || []), ...(data?.services || [])]} h={health} />}
       </div>
+      {health?.helper && <p className="status bad small">{health.helper}</p>}
+      {health?.problems?.length > 0 && <p className="status warn small">The operations helper could not read everything: {health.problems.join("; ")}</p>}
       <p className="quiet">Every part of EA Explorer. The core ones always run (restart only). The optional ones start and stop here:
         Stop switches the service off in the config file (a dated copy first) so it stays off; Start switches it back on. The same
         as <code>eax service &lt;name&gt; on|off</code>.</p>
       <div className="table-scroll svc-scroll">
         <table className="grid-table svc-table">
-          <thead><tr><th>Name</th><th>Description</th><th>Status</th><th>Health now</th><th>Startup type</th><th>Address</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Name</th><th>Description</th><th>Status</th><th>Health now</th><th>Response</th><th>Container</th><th>Up for</th><th>Restarts</th><th>Startup type</th><th>Address</th><th>Actions</th></tr></thead>
           <tbody>
             {rows.map((s) => {
               const [icon, text] = status(s);
@@ -342,7 +380,7 @@ function Services() {
                   <td><span className={`svc-state ${icon}`}>{text}</span>
                     {!job(s)?.busy && job(s)?.error && <div className="status bad small">{job(s).error}</div>}
                     {!job(s)?.busy && !job(s)?.error && job(s)?.log?.length > 0 && <div className="quiet small">{job(s).log.join("; ")}</div>}</td>
-                  <td>{can("system.operate") ? <HealthCell s={s} h={health} /> : <span className="quiet small">IT and Super Admins</span>}</td>
+                  {can("system.operate") ? <HealthCells s={s} h={health} /> : <td colSpan="5" className="quiet small">IT and Super Admins</td>}
                   <td className="small nowrap">{s.core ? "Always on" : s.on ? "On (starts with eax up)" : "Off"}
                     {!s.core && <div className="quiet small"><code>{s.setting}</code></div>}</td>
                   <td className="small">{!addr ? <span className="quiet">none</span>
@@ -616,30 +654,6 @@ function RestartDialog({ onClose }) {
       {state === "back" && <p className="status ok">The system is back.</p>}
       {err && <p className="status bad">{err}</p>}
     </Modal>
-  );
-}
-
-// ---------------------------------------------------------------- health: the containers (operations helper)
-function Containers() {
-  const { data, error } = useApi("/api/v1/admin/containers");
-  return (
-    <div className="merge-step">
-      <h3>Containers</h3>
-      {error && <p className="quiet">{error}</p>}
-      {data && (
-        <table className="grid-table">
-          <thead><tr><th>Service</th><th>State</th><th>Status</th><th>Image</th></tr></thead>
-          <tbody>
-            {data.containers.map((c) => (
-              <tr key={c.id}><td>{c.service}{c.self && <span className="quiet small"> (operations helper)</span>}</td>
-                <td className={c.state === "running" ? "" : "status bad"}>{c.state}</td><td className="small">{c.status}</td>
-                <td className="small quiet">{c.image}</td></tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-      {data?.restart?.restarting && <p className="status">A restart is running: {data.restart.log.slice(-1)[0]}</p>}
-    </div>
   );
 }
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { apiFetch, currentUser, isBreakGlass, keycloak, keycloakReachable, myInfo, roleName, roles, signedIn as isSignedIn, signOut } from "./auth";
+import { apiFetch, can, currentUser, isBreakGlass, keycloak, keycloakReachable, myInfo, roleName, roles, signedIn as isSignedIn, signOut } from "./auth";
 import BreakGlass from "./BreakGlass";
 import { config } from "./config";
 import StartPage from "./StartPage";
@@ -9,8 +9,10 @@ import Library from "./Library";
 import CompareScreen from "./Versions";
 import ChangeLog from "./ChangeLog";
 import { TaskBar } from "./TaskBar";
+import NotificationsPage, { Bell, ChangeDocumentPage } from "./Notifications";
 import Admin from "./Admin";
 import { serviceOn, setAppSettings } from "./fmt";
+import { refreshAll } from "./ModelViews";
 import ModelSwitcher from "./ModelSwitcher";
 import { SearchPage, TopSearch } from "./GridPages";
 
@@ -34,6 +36,17 @@ export default function App() {
     if (signedIn) apiFetch("/api/v1/heartbeat").then((b) => setVersion(b.version)).catch(() => {});
     // the installation's formats and time zone, for every screen (phase 10, D182)
     if (signedIn) apiFetch("/api/v1/settings").then((s) => { setAppSettings(s); setFormatsReady((n) => n + 1); }).catch(() => {});
+    // the sign-in check (D215): IT and Super Admins, once per sign-in, in the background; a notification follows if
+    // anything needs attention, so the bell is read again shortly after
+    if (signedIn && can("system.operate")) {
+      let done = false;
+      try { done = window.sessionStorage.getItem("eax.signInCheck") === "1"; } catch { /* no storage: check anyway */ }
+      if (!done) {
+        try { window.sessionStorage.setItem("eax.signInCheck", "1"); } catch { /* no storage */ }
+        apiFetch("/api/v1/admin/sign-in-check", { method: "POST" })
+          .then(() => { setTimeout(refreshAll, 20000); setTimeout(refreshAll, 60000); }).catch(() => {});
+      }
+    }
   }, [signedIn]);
 
   // Nothing of the application shows until the user has signed in.
@@ -68,6 +81,7 @@ export default function App() {
           <a href="/api/docs">API</a>
         </nav>
         <TopSearch />
+        <Bell route={route} />
         <ModelSwitcher route={route} />
         <div className="user">
           {signedIn ? (
@@ -97,6 +111,8 @@ export default function App() {
           : route.startsWith("#/library") ? <Library route={route} />
           : route.startsWith("#/compare") ? <CompareScreen route={route} />
           : route.startsWith("#/change-log") ? <ChangeLog />
+          : route.startsWith("#/notifications") ? <NotificationsPage route={route} />
+          : route.startsWith("#/change-documents") ? <ChangeDocumentPage route={route} />
           : route.startsWith("#/admin") || route.startsWith("#/users") || route.startsWith("#/heartbeat") || route.startsWith("#/sql") ? <Admin route={route} />
           : <StartPage />}
       </main>

@@ -106,6 +106,18 @@ server {
         proxy_pass $upstream;
     }
 
+    # Interactive terminals in containers (D214): a WebSocket to the operations helper's terminal port, which answers
+    # nothing else and only with a one-time ticket the API gives IT and Super Admins. Reached over the "terminal"
+    # network that only this proxy and the helper share. Sessions end on their own after the idle time (in the helper).
+    location /ops-terminal/ {
+        set $upstream http://ops:8091;
+        rewrite ^/ops-terminal/(.*)$ /terminal/$1 break;
+        proxy_pass $upstream;
+        proxy_buffering off;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+    }
+
     location /drawio/ {
         set $upstream http://drawio:8080;
         rewrite ^/drawio/(.*)$ /$1 break;

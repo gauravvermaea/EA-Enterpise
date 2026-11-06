@@ -68,6 +68,7 @@ export async function breakGlassSignIn(password) {
 }
 
 export function signOut() {
+  try { sessionStorage.removeItem("eax.signInCheck"); } catch { /* nothing kept */ }   // the next sign-in checks again (D215)
   if (breakGlass) {
     breakGlass = null;
     try { localStorage.removeItem(BG_KEY); } catch { /* nothing kept */ }

@@ -82,3 +82,32 @@ def run_task(task_id: str, actor: str, roles: list[str]) -> None:
     """Long work in the background (D192): tagging a model, ... (eax/tasks.py)."""
     from . import tasks
     tasks.run(task_id, actor, roles)
+
+
+@app.task(name="eax.admin_sign_in_check", queue="default", pass_context=True)
+def admin_sign_in_check(context, username: str) -> None:
+    """D215: when an IT or Super Admin signs in, check the installation and notify them of anything that needs attention."""
+    from . import admin_check
+    nid = admin_check.run(username)
+    log.info("sign-in check for %s: %s", username, f"notification {nid}" if nid else "all well")
+
+
+@app.periodic(cron="* * * * *")
+@app.task(name="eax.record_terminal_ends", queue="default", queueing_lock="record_terminal_ends")
+def record_terminal_ends(timestamp: int) -> None:
+    """D214: interactive terminal sessions that ended go into the audit trail, every minute."""
+    from .api.admin import record_terminal_ends as record
+    n = record()
+    if n:
+        log.info("terminal sessions recorded: %s", n)
+
+
+@app.periodic(cron="* * * * *")
+@app.task(name="eax.deliver_webhooks", queue="default", queueing_lock="deliver_webhooks")
+def deliver_webhooks(timestamp: int) -> None:
+    """Phase 8.1: sends the webhook deliveries that are due (D209), every minute."""
+    from . import webhooks
+    with get_engine().begin() as conn:
+        out = webhooks.deliver_due(conn)
+    if any(out.values()):
+        log.info("webhooks: %s", out)

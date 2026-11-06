@@ -37,8 +37,9 @@ Each phase has its own notes: what it delivers, a demo, checks, how to upgrade a
 | 9 | The change log: one row per action, in its own database (EAX_CHANGELOG_DB_URL), everyone their own changes, Model Admins their models, Super Admins all; export and delete for Super Admins | 0.9.0 | accepted and closed | [phase-9.md](docs/phase-9.md) |
 | 10 | Administration console (application and system settings applied at once, start-up settings shown, restart through the operations helper, health, licences), installation-wide formats, model Hierarchy tab, VP-26 Gap, report guides | 0.10.0 | accepted and closed | [phase-10.md](docs/phase-10.md) |
 | 10.1 | Import and export sheets: choose types, Excel (.xlsx, .xlsm) or CSV set built on the fly with data, drop-downs and provisional IDs; upload with a preview into your uncommitted changes; column mappings, undo a load | 0.10.1 | accepted and closed | [phase-10.1.md](docs/phase-10.1.md) |
+| 8.1 | Notifications (bell, page, home tile; action ones resolved once with a note), requests between people like tickets, installation-wide signed webhooks (never email), metamodel versions pushed down the hierarchy forced or offered, change documents | 0.11.0 | accepted and closed | [phase-8.1.md](docs/phase-8.1.md) |
 
-Next, in order (D147, D161, D179, D181): **8.1** actions, alerts and workflows · **12** validation · **13** documents · **15 to 16.2** TOGAF projects · **16.3** guided wizards. Backup and restore (8.4) comes in operations and launch, after phases 35 and 35.1; phase 8.5 and the start page clean-up towards the end.
+Next, in order (D147, D161, D179, D181): **12** validation · **13** documents · **15 to 16.2** TOGAF projects · **16.3** guided wizards. Backup and restore (8.4) comes in operations and launch, after phases 35 and 35.1; phase 8.5 and the start page clean-up towards the end.
 The full plan (52 phases) is in [docs/requirements/EA_Explorer_Build_Plan.xlsx](docs/requirements/EA_Explorer_Build_Plan.xlsx).
 
 ## Quick start (laptop)

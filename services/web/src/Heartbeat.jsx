@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { apiFetch, signedIn } from "./auth";
+import { apiFetch, can, signedIn } from "./auth";
 import { fmtDateTime, fmtTime } from "./fmt";
 
 function Status({ ok, children }) {
@@ -128,6 +128,7 @@ export default function Heartbeat() {
         </table>
       )}
       {signedIn() && <Services />}
+      <Integrate />
       <h2>Background job</h2>
       {signedIn() ? (
         <>
@@ -139,5 +140,46 @@ export default function Heartbeat() {
         <p>Sign in to run a background job.</p>
       )}
     </section>
+  );
+}
+
+// Where the customer's SOC and monitoring tools read health from (owner, 6 Nov 2026, D213). The addresses that exist
+// today; a monitoring-only service-account token, one versioned health API and a security events feed come with
+// ADM-088 (phase 35.1)
+const FEEDS = [
+  ["/api/v1/heartbeat", "Up or not, versions, database and job queue", "None: open to anyone who can reach the server"],
+  ["/api/v1/heartbeat/services", "Every service: up, warning, down or off, with its response time", "A signed-in user's token"],
+  ["/api/v1/admin/services/health", "Everything on Administration > Services: each check, every container's state, Docker health, exit code, CPU, memory, disk, up time and restarts", "An IT Admin or Super Admin token"],
+  ["/api/v1/admin/containers", "Every container and its state", "An IT Admin or Super Admin token"],
+  ["/api/v1/admin/containers/<service>", "One container in detail: health check log, mounts, ports, networks, limits, what it uses now", "An IT Admin or Super Admin token"],
+];
+
+function Integrate() {
+  const [copied, setCopied] = useState("");
+  const base = window.location.origin;
+  const copy = (u) => { try { navigator.clipboard.writeText(u); setCopied(u); } catch { /* no clipboard */ } };
+  return (
+    <>
+      <h2>Read health from your monitoring or SOC</h2>
+      <p>Your security operations centre or monitoring tool can read the same health as JSON over HTTPS, with
+        {" "}<code>Authorization: Bearer &lt;token&gt;</code> where a token is needed (a Keycloak access token; ask a User Admin for a
+        service account). Every address is described in the <a href="/api/docs" target="_blank" rel="noreferrer">API documentation ↗</a>.</p>
+      <table className="grid-table">
+        <thead><tr><th>Address</th><th>What it gives</th><th>Sign-in</th></tr></thead>
+        <tbody>
+          {FEEDS.filter(([, , who]) => !who.includes("IT Admin") || can("system.operate")).map(([path, what, who]) => (
+            <tr key={path}>
+              <td className="nowrap"><code>{base}{path}</code>{" "}
+                <button className="linkish small" onClick={() => copy(`${base}${path}`)}>{copied === `${base}${path}` ? "Copied" : "Copy"}</button></td>
+              <td className="small">{what}</td>
+              <td className="small">{who}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="quiet small">Coming in phase 35.1 (ADM-081, ADM-088): one versioned health API with a verdict per service, alerts,
+        backups and a security events feed, read with a monitoring-only token that sees no model content, and a metrics endpoint for
+        monitoring tools.</p>
+    </>
   );
 }

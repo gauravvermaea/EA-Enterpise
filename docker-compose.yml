@@ -25,6 +25,8 @@ networks:
   frontend:
   backend:
     internal: true
+  terminal:          # only the proxy and the operations helper: interactive terminals (D214)
+    internal: true
 
 volumes:
   eax-pgdata:
@@ -78,7 +80,7 @@ services:
     volumes:
       - ./deploy/proxy/templates:/etc/nginx/templates:ro
       - ${EAX_TLS_DIR:-eax-tls}:/etc/nginx/tls:ro
-    networks: [frontend]
+    networks: [frontend, terminal]
 
   # ---------------------------------------------------------------- our containers
   web:
@@ -150,7 +152,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./work:/eax-work
-    networks: [backend]
+    networks: [backend, terminal]
 
   db:
     image: ${EAX_IMAGE_POSTGRES:-postgres:17-alpine}

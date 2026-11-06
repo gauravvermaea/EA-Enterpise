@@ -163,34 +163,108 @@ class ServicesHealth(MethodView):
     def get(self):
         """Each service's health now (IT and Super Admins): its health check with the response time, and per container
         CPU, memory, disk, Docker health, restarts and uptime from the operations helper. Checked afresh each call"""
-        import time
-        from concurrent.futures import ThreadPoolExecutor
+        from ..admin_check import health_now
+        return health_now()
 
-        from .. import health as hc
-        checks = {"api": hc.check_api, "db": hc.check_database, "keycloak": hc.check_keycloak, "web": hc.check_web,
-                  "proxy": hc.check_proxy, "reports": hc.check_reports, "documents": hc.check_dms,
-                  "documents_broker": hc.check_dms_broker, "drawio": hc.check_drawio, "mcp": hc.check_mcp,
-                  "backups": hc.check_backup, "api_jobs": hc.check_jobs}
-        with ThreadPoolExecutor(max_workers=len(checks) + 1) as pool:
-            futures = {k: pool.submit(f) for k, f in checks.items()}
 
-            def ops_stats():
-                started = time.perf_counter()
-                try:
-                    return _ops_raw("GET", "/stats?fresh=1", timeout=60), round((time.perf_counter() - started) * 1000), None
-                except Exception as exc:  # noqa: BLE001
-                    return None, round((time.perf_counter() - started) * 1000), str(exc)
-            st = pool.submit(ops_stats)
-            out = {"checks": {k: f.result() for k, f in futures.items()}}
-            stats, ms, err = st.result()
-        out["checks"]["ops"] = {"name": "Operations helper", "status": "down" if err else "up", "response_ms": ms,
-                                "detail": err or "answering"}
-        out["containers"] = (stats or {}).get("containers", [])
-        out["volumes_at"] = (stats or {}).get("volumes_at")
-        out["checked_at"] = time.time()
-        if err:
-            out["helper"] = f"The operations helper is not reachable: CPU, memory and disk cannot be shown ({err})."
+@blp.route("/admin/sign-in-check")
+class SignInCheck(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(202, Free)
+    @require_auth("system.operate")
+    def post(self):
+        """The sign-in check (IT and Super Admins, D215): the screens call it once when an admin signs in; it runs in the
+        background and, when containers, services, backups, the certificate, versions or default passwords need
+        attention, makes one notification for this admin listing them (and tells the webhooks when the list changed)"""
+        from ..jobs import admin_sign_in_check
+        try:
+            admin_sign_in_check.configure(queueing_lock=f"sign_in_check:{g.user.username.lower()}").defer(
+                username=g.user.username)
+        except Exception as exc:  # noqa: BLE001 - one already waiting for this admin: that one will do
+            return {"queued": False, "message": f"A check is already waiting ({exc.__class__.__name__})."}
+        return {"queued": True, "message": "Checking in the background: a notification follows if anything needs attention."}
+
+
+# ---------------------------------------------------------------- the container console (owner, 6 Nov 2026)
+@blp.route("/admin/containers/<service>")
+class Container(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def get(self, service):
+        """One container: state, health and its last checks, image, mounts, ports, networks, environment (clear text),
+        restart policy, limits and what it uses now (IT and Super Admins)"""
+        return _ops("GET", f"/containers/{service}", timeout=90)
+
+
+@blp.route("/admin/containers/<service>/logs")
+class ContainerLogs(MethodView):
+    @blp.doc(security=SECURITY, parameters=[{"in": "query", "name": "tail", "schema": {"type": "integer"}}])
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def get(self, service):
+        """The container's last log lines (?tail=, at most 5,000)"""
+        return _ops("GET", f"/containers/{service}/logs?tail={int(request.args.get('tail', 300))}", timeout=60)
+
+
+@blp.route("/admin/containers/<service>/exec")
+class ContainerExec(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def post(self, data, service):
+        """Run a command inside a container ({command, cwd}: cwd is the folder to run it in, answered back after cd; sh -c,
+        60 seconds; IT and Super Admins, D214; off when EAX_CONTAINER_CONSOLE=off). Every command is in the audit trail"""
+        command = str((data or {}).get("command") or "")
+        cwd = str((data or {}).get("cwd") or "")[:1000]
+        out = _ops("POST", f"/containers/{service}/exec", {"command": command, "cwd": cwd}, timeout=75)
+        with get_engine().begin() as conn:
+            audit.record(conn, actor=g.user.username, action="container.exec", object_type="container", object_id=service,
+                         details={"command": command[:2000], "folder": cwd, "exit_code": out.get("exit_code")},
+                         request_id=getattr(g, "request_id", None))
         return out
+
+
+@blp.route("/admin/containers/<service>/terminal")
+class ContainerTerminal(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def post(self, data, service):
+        """Open an interactive terminal in a container (IT and Super Admins, D214; off when EAX_CONTAINER_CONSOLE=off):
+        answers a one-time address (good for 30 seconds) for the browser's WebSocket, {cols, rows} the screen size.
+        The start is in the audit trail now, the end when the session ends"""
+        out = _ops("POST", "/terminal/ticket", {"service": service, "user": g.user.username,
+                                                "cols": int((data or {}).get("cols") or 120),
+                                                "rows": int((data or {}).get("rows") or 32)})
+        with get_engine().begin() as conn:
+            audit.record(conn, actor=g.user.username, action="container.terminal.open", object_type="container",
+                         object_id=service, details={"session": out.get("session")},
+                         request_id=getattr(g, "request_id", None))
+        return {"url": f"/ops-terminal/{out['ticket']}", "session": out.get("session"),
+                "idle_minutes": out.get("idle_minutes")}
+
+
+def record_terminal_ends() -> int:
+    """The job runner, every minute: terminal sessions that have ended go into the audit trail (who, which container,
+    how long, why it ended), then the operations helper forgets them."""
+    try:
+        sessions = _ops_raw("GET", "/terminal/sessions").get("sessions", [])
+    except Exception:  # noqa: BLE001 - the helper is down or switched off: try again next minute
+        return 0
+    done = [x for x in sessions if x.get("ended")]
+    if not done:
+        return 0
+    with get_engine().begin() as conn:
+        for x in done:
+            audit.record(conn, actor=x.get("user") or "?", action="container.terminal.close", object_type="container",
+                         object_id=x.get("service") or "", details={"session": x.get("id"), "reason": x.get("reason"),
+                         "minutes": round(((x.get("ended") or 0) - (x.get("started") or 0)) / 60, 1),
+                         "exit_code": x.get("exit_code")})
+    _ops_raw("POST", "/terminal/sessions/ack", {"ids": [x["id"] for x in done]})
+    return len(done)
 
 
 @blp.route("/admin/services/<key>")

@@ -119,6 +119,10 @@ Metamodel drafts** and applies it, sends it back with comments, or rejects it.
 | `comment_on_metamodel_draft(draft, body, section?, code?)` | A comment on the draft or on one item |
 | `resolve_draft_comment(draft, comment, resolved?)` | Mark a review comment fixed |
 | `resubmit_metamodel_draft(draft, note?)` | Send a fixed draft for review again: a new round |
+| `list_my_notifications(show?, category?, model?)` | Your notifications (phase 8.1): open, waiting for action, resolved or all; by kind or model. Resolving them stays in the screens |
+| `list_my_requests(box?, status?)` | Requests sent to you or by you (phase 8.1), active, closed or all |
+| `get_request(request)` | One of your requests by number, with its comments and status trail |
+| `send_request(to, subject, body?)` | Send a request to another person on your behalf, like a ticket (phase 8.1); they move it along in the screens |
 | `get_report_catalogue(model)` | The model's standard reports (SR-01 to SR-30, model overview, heatmaps) with dashboard links, every entity type and attribute with its report view and column (rpt.t_<type>), and which types the standard reports use (phase 5) |
 
 A sent-back draft can be fixed by asking your assistant, for example: "Read the comments on my draft
