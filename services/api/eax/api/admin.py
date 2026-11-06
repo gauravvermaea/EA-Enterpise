@@ -285,6 +285,34 @@ class Service(MethodView):
         return _ops("POST", "/services", {"service": key, "on": on, "by": g.user.username}, timeout=30)
 
 
+@blp.route("/admin/servers")
+class Servers(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def get(self):
+        """The API and job servers (copies of the api container: each answers API calls, which nginx spreads across them,
+        and runs background jobs), and how many are wanted (D249; Super and IT Admins)"""
+        return _ops("GET", "/servers")
+
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def put(self, data):
+        """Run this many API and job servers {count: 1 to 16}, at once and without a restart: copies of the first are added,
+        or the highest-numbered stop (the jobs they run finish first) and are removed; the number is kept in the config
+        file (a dated copy first) so eax up keeps it (D249; Super and IT Admins)"""
+        try:
+            count = int((data or {}).get("count"))
+        except (TypeError, ValueError):
+            abort(400, message="count is a whole number.")
+        with get_engine().connect() as conn, conn.begin():
+            audit.record(conn, actor=g.user.username, action="system.servers", object_type="system", object_id="api",
+                         details={"count": count})
+        return _ops("POST", "/servers", {"count": count, "by": g.user.username}, timeout=30)
+
+
 @blp.route("/admin/config-file")
 class ConfigFile(MethodView):
     @blp.doc(security=SECURITY, parameters=[{"in": "query", "name": "name", "schema": {"type": "string"}}])

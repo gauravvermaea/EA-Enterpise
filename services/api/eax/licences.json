@@ -98,6 +98,12 @@
       "kind": "Library in our code"
     },
     {
+      "product": "ReportLab",
+      "image": "",
+      "licence": "BSD-3-Clause",
+      "kind": "Library in our code"
+    },
+    {
       "product": "cryptography",
       "image": "",
       "licence": "Apache-2.0/BSD",

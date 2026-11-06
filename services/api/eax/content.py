@@ -72,6 +72,14 @@ def _entity_id(conn, m: dict, ref: Any, what: str = "entity") -> int | None:
 
 
 # ---------------------------------------------------------------- the form: a type's fields
+def _quality_bands(conn, m: dict) -> dict:
+    from . import quality
+    try:
+        return quality.bands_for(conn, m)
+    except Exception:  # noqa: BLE001 - the colours of the meter never stop a form
+        return dict(quality.BANDS)
+
+
 def form(conn, model: Any, entity_type: Any) -> dict:
     """What a form for one entity type shows: the built-in fields and every attribute of the type in
     its sections, with data type, unit, whether it is required, pick-list values and, for links to
@@ -82,7 +90,8 @@ def form(conn, model: Any, entity_type: Any) -> dict:
     tid = et["_id"]
     attrs = _rows(conn, """
         SELECT at.code, at.name, at.description, at.data_type_code AS data_type, dt.name AS data_type_name, at.unit,
-               ia.is_required, coalesce(nullif(ia.section, ''), 'General') AS section, at.pick_list_id AS _pick
+               ia.is_required, coalesce(nullif(ia.section, ''), 'General') AS section, at.pick_list_id AS _pick,
+               coalesce(ia.quality_weight, at.quality_weight, CASE WHEN ia.is_required THEN 3 ELSE 1 END) AS quality_weight
           FROM core.item_attributes ia
           JOIN core.attribute_types at ON at.id = ia.attribute_type_id AND NOT at.is_deleted
           JOIN core.data_types dt ON dt.code = at.data_type_code
@@ -100,7 +109,7 @@ def form(conn, model: Any, entity_type: Any) -> dict:
     status = _one(conn, "SELECT status_code FROM core.entity_types WHERE id = :t", t=tid)["status_code"]
     return {"model": {"id": m["id"], "name": m["name"], "is_locked": m.get("is_locked"), "kind": m["kind"]},
             "entity_type": {k: v for k, v in et.items() if not k.startswith("_")}, "retired": status == "retired",
-            "attributes": attrs, "rules": rules,
+            "attributes": attrs, "rules": rules, "quality_bands": _quality_bands(conn, m),
             "fields": [{"code": "name", "name": "Name", "required": True}, {"code": "description", "name": "Description"},
                        {"code": "parent", "name": "Part of (parent)"}, {"code": "tags", "name": "Tags"}]}
 

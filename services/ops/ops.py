@@ -33,6 +33,9 @@ restarts the system from the administration console. It talks to the Docker engi
   GET  /restores/<id>[?tail=N]  one restore with its log;  POST /restores/<id>/delete  forget a finished one
   GET  /restore/active          on port 8091, no token: whether a restore runs (the screens' lock page, D227)
   GET  /restore/<id>?token=     on port 8091: a restore's status and log for whoever started it, while the API is down
+  GET  /servers                 the API and job servers (copies of the api container) and how many are wanted (D249)
+  POST /servers                 {count, by}: run that many (1 to 16): copies of the first are added, or the highest-numbered
+                                stopped (their jobs finish first) and removed; the number is written to the config file
   GET  /services                the optional services, on or off in the config file (D191)
   POST /services                {service, on, by}: switch one on or off: the config file is copied first (a dated copy
                                 in work/config-history), the switch written, then its containers started or stopped
@@ -119,13 +122,21 @@ def containers() -> list[dict]:
     rows = []
     for line in out.splitlines():
         c = json.loads(line)
-        svc = docker("inspect", "--format", '{{index .Config.Labels "com.docker.compose.service"}}', c["ID"]).strip()
-        rows.append({"id": c["ID"], "name": c["Names"], "service": svc, "state": c["State"], "status": c["Status"],
-                     "image": c["Image"]})
+        svc, num = (docker("inspect", "--format", '{{index .Config.Labels "com.docker.compose.service"}}|'
+                                                  '{{index .Config.Labels "com.docker.compose.container-number"}}',
+                           c["ID"]).strip().split("|") + ["1"])[:2]
+        rows.append({"id": c["ID"], "name": c["Names"], "service": svc, "number": int(num or 1) if (num or "1").isdigit() else 1,
+                     "state": c["State"], "status": c["Status"], "image": c["Image"]})
+    # a service with several containers (the API and job servers, D249): each is named and reached as service-number
+    count: dict[str, int] = {}
+    for r in rows:
+        count[r["service"]] = count.get(r["service"], 0) + 1
+    for r in rows:
+        r["key"] = f"{r['service']}-{r['number']}" if count[r["service"]] > 1 or r["service"] == "api" and r["number"] > 1 else r["service"]
     me = socket.gethostname()
     for r in rows:
         r["self"] = r["id"].startswith(me) or me.startswith(r["id"])
-    return sorted(rows, key=lambda r: (ORDER.index(r["service"]) if r["service"] in ORDER else 50, r["service"]))
+    return sorted(rows, key=lambda r: (ORDER.index(r["service"]) if r["service"] in ORDER else 50, r["service"], r["number"]))
 
 
 def _restart(services: list[str] | None) -> None:
@@ -133,7 +144,7 @@ def _restart(services: list[str] | None) -> None:
     try:
         time.sleep(2)   # the API answers the console first
         for c in containers():
-            if c["self"] or (services and c["service"] not in services) or c["state"] != "running":
+            if c["self"] or (services and c["service"] not in services and c["key"] not in services) or c["state"] != "running":
                 continue   # one-shot set-up containers (setup, reports-init) that have finished are left alone
             state["log"].append(f"restarting {c['service']}")
             try:
@@ -239,11 +250,10 @@ def apply_switch(key: str, on: bool) -> list[str]:
     """Starts (in order) or stops the service's containers; mcp and the change log restart the api container."""
     log = []
     names = SERVICES[key][1]
-    if names == ["api"]:
-        c = _container("api")
-        if c:
+    if names == ["api"]:          # every API and job server (D249)
+        for c in [x for x in containers() if x["service"] == "api" and x["state"] == "running"]:
             docker("restart", "--time", "20", c["id"], timeout=180)
-            log.append("restarted api")
+            log.append(f"restarted {c['name']}")
         return log
     missing = [n for n in names if not _container(n)]
     if missing and on:
@@ -287,6 +297,134 @@ def _in_background(key: str, what: str, fn) -> None:
         finally:
             jobs[key].update(busy=False, finished=time.time())
     threading.Thread(target=run, daemon=True).start()
+
+
+# ---------------------------------------------------------------- API and job servers (D249)
+MAX_SERVERS = 16
+SERVERS_KEY = "EAX_API_SERVERS"
+
+
+def api_servers() -> list[dict]:
+    """The api containers (each answers API calls, which nginx spreads across them, and runs background jobs), by their
+    number; number 1 is the first, which applies the database upgrade at start."""
+    out = []
+    for c in containers():
+        if c["service"] != "api":
+            continue
+        info = json.loads(docker("inspect", "--format", "{{json .}}", c["id"]))
+        labels = info["Config"].get("Labels") or {}
+        health = ((info.get("State") or {}).get("Health") or {}).get("Status", "")
+        out.append({"id": c["id"], "name": c["name"], "key": c["key"], "number": int(labels.get("com.docker.compose.container-number", "1")),
+                    "state": c["state"], "health": health, "started": (info.get("State") or {}).get("StartedAt", ""),
+                    "status": c["status"]})
+    return sorted(out, key=lambda x: x["number"])
+
+
+def servers_wanted(lines: list[str] | None = None) -> int:
+    try:
+        return max(1, min(MAX_SERVERS, int(_values(lines if lines is not None else _read_config()).get(SERVERS_KEY, "1"))))
+    except ValueError:
+        return 1
+
+
+def _set_value(lines: list[str], key: str, value: str) -> list[str]:
+    out, done = [], False
+    for line in lines:
+        if re.match(rf"^\s*{key}\s*=", line):
+            out.append(f"{key}={value}")
+            done = True
+        else:
+            out.append(line)
+    if not done:
+        out += ["", "# ---- API and job servers (D249): how many copies of the api container run; .\\eax servers <n> or the console",
+                f"{key}={value}"]
+    return out
+
+
+def _clone_api(template: dict, number: int) -> str:
+    """A new api container like the first one (image, settings, volumes, networks, labels, health check), with the next
+    number, so Docker Compose counts it as one of the api service's containers (eax up keeps it)."""
+    import shlex
+    info = json.loads(docker("inspect", "--format", "{{json .}}", template["id"]))
+    cfg, host = info["Config"], info["HostConfig"]
+    labels = dict(cfg.get("Labels") or {})
+    labels["com.docker.compose.container-number"] = str(number)
+    project_name = labels.get("com.docker.compose.project", project())
+    name = f"{project_name}-api-{number}"
+    args = ["create", "--name", name]
+    for e in cfg.get("Env") or []:
+        args += ["-e", e]
+    for k, v in labels.items():
+        args += ["--label", f"{k}={v}"]
+    for m in info.get("Mounts") or []:
+        src = m.get("Name") if m.get("Type") == "volume" else m.get("Source")
+        args += ["-v", f"{src}:{m['Destination']}{'' if m.get('RW', True) else ':ro'}"]
+    rp = (host.get("RestartPolicy") or {}).get("Name")
+    if rp:
+        args += ["--restart", rp]
+    lc = host.get("LogConfig") or {}
+    if lc.get("Type"):
+        args += ["--log-driver", lc["Type"]]
+        for k, v in (lc.get("Config") or {}).items():
+            args += ["--log-opt", f"{k}={v}"]
+    hc = cfg.get("Healthcheck") or {}
+    test = hc.get("Test") or []
+    if test and test[0] in ("CMD", "CMD-SHELL"):
+        args += ["--health-cmd", test[1] if test[0] == "CMD-SHELL" else shlex.join(test[1:])]
+        for key, flag in (("Interval", "--health-interval"), ("Timeout", "--health-timeout"), ("StartPeriod", "--health-start-period")):
+            if hc.get(key):
+                args += [flag, f"{int(hc[key] / 1e9)}s"]
+        if hc.get("Retries"):
+            args += ["--health-retries", str(hc["Retries"])]
+    if cfg.get("User"):
+        args += ["--user", cfg["User"]]
+    if host.get("StopTimeout") or cfg.get("StopTimeout"):
+        args += ["--stop-timeout", str(cfg.get("StopTimeout") or host.get("StopTimeout"))]
+    nets = (info.get("NetworkSettings") or {}).get("Networks") or {}
+    names = list(nets)
+    if names:
+        args += ["--network", names[0], "--network-alias", "api"]
+    args.append(cfg["Image"])
+    cid = docker(*args, timeout=120).strip()
+    for n in names[1:]:
+        docker("network", "connect", "--alias", "api", n, cid)
+    docker("start", cid, timeout=120)
+    return name
+
+
+def scale_api(count: int) -> list[str]:
+    """Adds api containers up to count (copies of the first), or stops and removes the highest-numbered ones down to it
+    (each stops gracefully: the jobs it is running finish first; the first is never removed)."""
+    log = []
+    have = api_servers()
+    if not have:
+        raise RuntimeError("No api container yet: run eax up first.")
+    first = next((s for s in have if s["state"] == "running"), have[0])
+    running = [s for s in have if s["state"] == "running"]
+    for s in have:          # a stopped copy within the count is started again
+        if s["state"] != "running" and s["number"] <= count and len(running) < count:
+            docker("start", s["id"], timeout=120)
+            running.append(s)
+            log.append(f"started api {s['number']} again")
+    used = {s["number"] for s in have}
+    n = 1
+    while len(running) < count:
+        while n in used:
+            n += 1
+        name = _clone_api(first, n)
+        used.add(n)
+        running.append({"number": n})
+        log.append(f"added api {n} ({name})")
+    now = [s for s in api_servers() if s["state"] == "running"]
+    for s in sorted(now, key=lambda x: -x["number"]):
+        if len(now) <= count or s["number"] == 1:
+            break
+        log.append(f"stopping api {s['number']} (its running jobs finish first)")
+        docker("stop", "--time", "120", s["id"], timeout=200)
+        docker("rm", s["id"], timeout=60)
+        now = [x for x in now if x["id"] != s["id"]]
+        log.append(f"removed api {s['number']}")
+    return log
 
 
 def copies() -> list[dict]:
@@ -529,10 +667,15 @@ def stats(fresh: bool = False) -> dict:
 # ---------------------------------------------------------------- the container console (owner, 6 Nov 2026)
 
 def _one_container(service: str) -> dict:
-    for c in containers():
+    """A container by its key (api-2 for the second API and job server, D249) or its service (the first one)."""
+    rows = containers()
+    for c in rows:
+        if c.get("key") == service:
+            return c
+    for c in rows:
         if c["service"] == service:
             return c
-    raise FileNotFoundError(f"No container for the service {service}.")
+    raise FileNotFoundError(f"No container {service}.")
 
 
 def container_detail(service: str) -> dict:
@@ -1448,8 +1591,14 @@ def _restore_steps(name: str, what: str, by: str, version: str, force: bool, rec
                 stopped.append(c)
         if plan["config"] and parts.get("config"):
             copy_config(by, f"before-restore-of-{name}")
+            servers_now = servers_wanted()
             shutil.copy2(os.path.join(folder, "config", "eaexplorer.env"), CONFIG)
             rlog(rec, "config file restored (the one before is kept in config-history)")
+            # how many API and job servers run is how the installation is sized now, not restored data (D249): kept
+            if servers_wanted() != servers_now:
+                with config_lock:
+                    _write(_set_value(_read_config(), SERVERS_KEY, str(servers_now)))
+                rlog(rec, f"kept {servers_now} API and job server(s) (the backup had another number)")
             try:
                 write_services_file()
             except OSError:
@@ -1575,6 +1724,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, container_detail(m.group(1)))
             except FileNotFoundError as exc:
                 return self._send(404, {"message": str(exc)})
+            except Exception as exc:  # noqa: BLE001
+                return self._send(500, {"message": str(exc)})
+        if self.path == "/servers":
+            try:
+                return self._send(200, {"servers": api_servers(), "wanted": servers_wanted(), "max": MAX_SERVERS,
+                                        "busy": busy("servers"), "job": jobs.get("servers")})
             except Exception as exc:  # noqa: BLE001
                 return self._send(500, {"message": str(exc)})
         if self.path == "/services":
@@ -1705,6 +1860,29 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(403, {"message": str(exc)})
             except ValueError as exc:
                 return self._send(400, {"message": str(exc)})
+        if self.path == "/servers":
+            b = self._body()
+            try:
+                count = int(b.get("count"))
+            except (TypeError, ValueError):
+                return self._send(400, {"message": "count is a whole number."})
+            if not 1 <= count <= MAX_SERVERS:
+                return self._send(400, {"message": f"Between 1 and {MAX_SERVERS} servers."})
+            if busy("servers") or busy("config"):
+                return self._send(409, {"message": "Still changing the servers. Try again in a moment."})
+            by = str(b.get("by") or "console")
+            try:
+                with config_lock:
+                    saved = None
+                    if servers_wanted() != count:
+                        saved = copy_config(by, f"servers-{count}")
+                        _write(_set_value(_read_config(), SERVERS_KEY, str(count)))
+            except OSError as exc:
+                return self._send(500, {"message": f"Could not write the config file: {exc}"})
+            _in_background("servers", f"{count} API and job servers", lambda: scale_api(count))
+            return self._send(202, {"count": count, "saved_first": saved,
+                                    "message": f"{count} API and job server{'s' if count != 1 else ''}: being started or stopped; "
+                                               "nginx spreads API calls across them within seconds."})
         if self.path == "/services":
             b = self._body()
             key, on, by = b.get("service"), bool(b.get("on")), str(b.get("by") or "console")

@@ -1,10 +1,10 @@
 // Relationship matrix: the entities of one type down the side, of another across the top, and in
 // each cell the relationships between the two (either way). For example processes against roles, or
 // capabilities against business services. Click a name to open its entity page.
-// Saves as CSV (the grid) and .drawio (a table of boxes).
+// Saves as CSV (the grid) and opens in draw.io (a table of boxes, D256).
 import { useEffect, useMemo, useState } from "react";
 import { apiFetch } from "./auth";
-import { downloadCsv, downloadDrawio } from "./exporting";
+import { downloadCsv, openDrawio } from "./exporting";
 import { relColour } from "./MetamodelDiagram";
 
 const initial = (r) => r.relationship_type_code === "Parent" ? "P" : (r.relationship_type || "?").slice(0, 2);
@@ -83,7 +83,7 @@ export default function RelationMatrix({ model }) {
           w: W, h: H, fill: list ? "e8f0fb" : "ffffff", stroke: "d9dee5", align: "center", fontSize: 10 });
       });
     });
-    downloadDrawio(title, cells, []);
+    openDrawio(title, cells, []);
   }
 
   return (
@@ -102,7 +102,7 @@ export default function RelationMatrix({ model }) {
         </label>
         <label><input type="checkbox" checked={onlyLinked} onChange={(e) => setOnlyLinked(e.target.checked)} /> Only rows and columns with relationships</label>
         <span className="er-spacer" />
-        <button onClick={exportDrawio} disabled={!grid}>.drawio</button>
+        <button onClick={exportDrawio} disabled={!grid}>Open in draw.io</button>
         <button onClick={exportCsv} disabled={!grid}>CSV</button>
       </div>
       {!grid ? <p className="quiet">Loading...</p> : (

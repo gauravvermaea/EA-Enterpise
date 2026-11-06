@@ -6,7 +6,7 @@
 //                      coloured by type or by an attribute, with today marked
 // Click a capability or a bar to open its entity page. Both save as CSV.
 import { useMemo, useState } from "react";
-import { downloadCsv, downloadDrawio } from "./exporting";
+import { downloadCsv, openDrawio } from "./exporting";
 import { useApi } from "./ModelViews";
 import { Legend, heatScale } from "./Viewpoints";
 
@@ -41,7 +41,7 @@ export function ValueStreamMap({ model }) {
         <label>Colour by <select value={chosen} onChange={(e) => setAttr(e.target.value)}>
           {data.attributes.map((a) => <option key={a} value={a}>{a}</option>)}</select></label>
         <button onClick={csv}>CSV</button>
-        <button onClick={() => vsDrawio(streams, chosen, scale)} title="The value stream map as a draw.io diagram">.drawio</button>
+        <button onClick={() => vsDrawio(streams, chosen, scale)} title="The value stream map, opened in draw.io in a new tab">Open in draw.io</button>
       </div>
       <Legend legend={scale.legend} attribute={chosen} />
       {as === "map" ? streams.map((v) => (
@@ -116,7 +116,7 @@ function vsDrawio(streams, attr, scale) {
     y += SH + GAP + tallest * (CH + 6) + 30;
   }
   scale.legend.forEach(([val, c], i) => nodes.push({ id: `l_${i}`, label: `${attr}: ${val}`, x: i * 150, y, w: 140, h: 24, fill: c, fontSize: 11, align: "center" }));
-  downloadDrawio(`Value stream map by ${attr}`, nodes, []);
+  openDrawio(`Value stream map by ${attr}`, nodes, []);
 }
 
 const TYPE_COLOUR = { Plateau: "#8e7cc3", WorkPackage: "#2f7d9b", Deliverable: "#e69138" };
@@ -134,7 +134,7 @@ function roadmapDrawio(items, lo, hi, years, colour) {
     nodes.push({ id: i.id, label: i.name, x: xOf(t(i.start_date)), y, w: Math.max(8, xOf(t(i.end_date) + DAY) - xOf(t(i.start_date))), h: RH - 8,
       fill: colour(i).replace("#", ""), fontColor: "ffffff", fontSize: 10, ea_type: i.entity_type, ea_id: i.id });
   });
-  downloadDrawio("Roadmap", nodes, []);
+  openDrawio("Roadmap", nodes, []);
 }
 
 export function Roadmap({ model }) {
@@ -166,7 +166,7 @@ export function Roadmap({ model }) {
         </select></label>
         {colourBy === "type" ? Object.entries(TYPE_COLOUR).map(([k, c]) => <span key={k} className="legend-chip"><span className="heat-swatch" style={{ background: c }} />{k.replace("WorkPackage", "Work package")}</span>)
           : <Legend legend={scale.legend} attribute={colourBy === "priority" ? "Priority" : "Architecture state"} />}
-        <button onClick={() => roadmapDrawio(items, lo, hi, years, colour)} title="The roadmap as a draw.io diagram">.drawio</button>
+        <button onClick={() => roadmapDrawio(items, lo, hi, years, colour)} title="The roadmap, opened in draw.io in a new tab">Open in draw.io</button>
         <button onClick={() => downloadCsv([["Type", "ID", "Name", "Start", "End", "Owner", "Priority", "Architecture state", "Delivers"],
           ...data.items.map((i) => [i.entity_type, i.display_id, i.name, i.start_date || "", i.end_date || "", i.owner || "", i.priority || "",
             i.architecture_state || "", i.delivers.map((d) => d.name).join("; ")])], "Roadmap")}>CSV</button>

@@ -509,6 +509,96 @@ async def send_request(to: str, subject: str, body: str = "") -> Any:
     return await _run(run, begin=True)
 
 
+# ---------------------------------------------------------------- data quality (build phase 12, D239)
+@mcp.tool()
+async def quality_summary(model: str) -> Any:
+    """A model's data quality as last measured (D245; measurements run in the background): its score (by default half
+    completeness, almost a third rules passed, a fifth freshness), completeness, how many entities are incomplete, fail
+    rules, are stale or orphans, the seals, the weakest entity types and owners, and when it was measured. Use it for
+    questions like 'how good is the data in this model?'."""
+    from . import quality
+    from . import repository as repo
+
+    def run(conn):
+        d = quality.kept(conn, repo.get_model(conn, model))
+        if not d:
+            return {"model": model, "measured": False,
+                    "message": "Not measured yet: ask a person to press Measure now on the model's Quality tab."}
+        return {"model": d["model"], "measured_at": d["measured_at"], "summary": d["summary"], "by_type": d["by_type"][:15],
+                "by_owner": d["by_owner"][:15]}
+    return await _run(run)
+
+
+@mcp.tool()
+async def quality_findings(model: str, kind: str = "", entity_type: str = "", owner: str = "", responsible: str = "",
+                           limit: int = 100) -> Any:
+    """The data quality problems of a model, worst kinds first: kind incomplete (a weighted item missing), rule (a failing
+    rule, with its severity), stale (not changed or confirmed within the stale period), orphan (connected to nothing),
+    seal-broken or seal-expired, as last measured (D245). Filter by kind, entity type (code or name), owner text or the
+    responsible username (for 'what are my gaps?'). Each row names the entity, what is wrong and who should fix it."""
+    from . import quality
+    from . import repository as repo
+
+    def run(conn):
+        d = quality.kept(conn, repo.get_model(conn, model))
+        rows = d["findings"] if d else []
+        t, o, r = entity_type.lower(), owner.lower(), responsible.lower()
+        rows = [f for f in rows if (not kind or f["kind"] == kind) and (not t or t in (f["type"].lower(), f["type_name"].lower()))
+                and (not o or o in (f["owner"] or "").lower()) and (not r or r in [x.lower() for x in f["responsible"]])]
+        return {"count": len(rows), "findings": rows[:max(1, min(int(limit), 500))]}
+    return await _run(run)
+
+
+@mcp.tool()
+async def suggest_quality_fix(model: str, entity: str, values: dict | None = None, description: str | None = None,
+                              note: str = "") -> Any:
+    """Suggest a fix for an entity's data quality gap as YOUR uncommitted change (nothing is committed): values is
+    {attribute code: value}, description a new description. Only the person you act for sees it until a committer
+    commits it on the model's Changes tab; say so to the person, and never guess values you were not given or cannot
+    justify from the model."""
+    from . import commits
+
+    def run(conn):
+        who = permissions.current.get()
+        data = {}
+        if values:
+            data["values"] = values
+        if description is not None:
+            data["description"] = description
+        if not data:
+            return {"error": "Give values or a description to suggest."}
+        m = repo.get_model(conn, model)
+        e = repo.get_entity_detail(conn, str(m["id"]), entity)
+        out = commits.record(conn, m["id"], who.username, "entity.update", {"entity": str(e["id"]), "data": data})
+        audit.record(conn, actor=who.username, action="quality.suggest", object_type="entity", object_id=str(e["id"]),
+                     details={"note": note[:300]}, source="mcp")
+        return {"pending": True, "change": out.get("change"), "label": out.get("change_label"), "note": out.get("note")}
+    return await _run(run, begin=True)
+
+
+@mcp.tool()
+async def draft_quality_rule(model: str, code: str, name: str, kind: str, entity_type: str, spec: dict,
+                             severity: str = "warning", message: str = "", save: bool = False) -> Any:
+    """Draft a data quality rule from plain words and see what it would find now. kind: relationship (spec:
+    relationship_type, direction out|in|any, other_type, min, max), attribute (spec: when {attribute, op, value} optional,
+    then {attribute, op, value}), consistency (spec: when optional, via {relationship_type, direction, other_type}, other
+    {attribute, op, value}, must none|all) or naming (spec: pattern, unique, scope type|model). ops: filled, empty, equals,
+    not_equals, in, not_in, matches, at_least, at_most, before_today, after_today. severity error blocks commits, warning
+    does not. With save=false (the default) nothing is kept: show the person the rule and what it finds. With save=true
+    the rule is saved as the person: a Model Admin's waits for a Super Admin's approval."""
+    from . import quality
+    rule = {"code": code, "name": name, "kind": kind, "entity_type": entity_type, "spec": spec, "severity": severity,
+            "message": message, "enabled": True}
+
+    def run(conn):
+        prev = quality.preview_rule(conn, model, rule)
+        if not save:
+            return {**prev, "saved": False}
+        out = quality.change(conn, model, permissions.current.get(), "rule", rule, "Drafted with Claude (MCP)")
+        return {**prev, "saved": True, **out}
+    return await _run(run, begin=save)
+
+
 def _authenticate(header: str) -> permissions.Principal | None:
     """Who a bearer token belongs to, with their EA Explorer roles (mapped from Keycloak's), or None.
     The laptop development token is a Super Admin."""

@@ -11,7 +11,7 @@
 // Library Admins add, change and delete the organisation's own viewpoints; the built-in ones are fixed and can be copied.
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { apiFetch, can } from "./auth";
-import { downloadCsv, downloadDrawio } from "./exporting";
+import { downloadCsv, openDrawio } from "./exporting";
 import { Modal } from "./ModelOps";
 import { refreshAll, useApi } from "./ModelViews";
 
@@ -225,7 +225,7 @@ function HeatMap({ data, model }) {
           {data.attributes.map((a) => <option key={a} value={a}>{a}</option>)}
         </select></label>
         <Legend legend={scale.legend} attribute={attr} />
-        <button onClick={() => heatDrawio(data, attr, scale)} title="The heat map as a draw.io diagram, each box linked to its entity">.drawio</button>
+        <button onClick={() => heatDrawio(data, attr, scale)} title="The heat map, opened in draw.io in a new tab, each box linked to its entity">Open in draw.io</button>
       </div>
       <div className="heat-groups">
         {data.types.map((t) => (
@@ -276,7 +276,7 @@ function heatDrawio(data, attr, scale) {
     y += rowH + 24;
   }
   scale.legend.forEach(([v, c], i) => nodes.push({ id: `l_${i}`, label: v, x: i * 130, y, w: 120, h: 24, fill: c, fontSize: 11, align: "center" }));
-  downloadDrawio(`${data.model.name} ${data.viewpoint.code} heat map by ${attr}`, nodes, []);
+  openDrawio(`${data.model.name} ${data.viewpoint.code} heat map by ${attr}`, nodes, []);
 }
 
 // draw.io: the matrix as a table of boxes, the row and column heads linked to their entities
@@ -293,7 +293,7 @@ function matrixDrawio(data, rows, cols, cell) {
         stroke: "d9dee5", align: "center", fontSize: 9 });
     });
   });
-  downloadDrawio(`${data.model.name} ${data.viewpoint.code} matrix`, nodes, []);
+  openDrawio(`${data.model.name} ${data.viewpoint.code} matrix`, nodes, []);
 }
 
 // tiles of one type; parents with parts in the same type hold their parts (a capability map by level)
@@ -364,7 +364,7 @@ function Matrix({ data, model }) {
         <label>Across the top <select value={colType} onChange={(e) => setColType(e.target.value)}>
           {types.map((t) => <option key={t.code} value={t.code}>{t.name} ({t.count})</option>)}</select></label>
         <button disabled={!linkedRows.length} onClick={() => matrixDrawio(data, linkedRows, linkedCols, cell)}
-          title="The matrix as a draw.io diagram">.drawio</button>
+          title="The matrix, opened in draw.io in a new tab">Open in draw.io</button>
         <button onClick={() => downloadCsv([["", ...linkedCols.map((c) => c.name)],
           ...linkedRows.map((r) => [r.name, ...linkedCols.map((c) => (cell[`${r.id}|${c.id}`] || []).join("; "))])],
         `${data.model.name} ${data.viewpoint.code} matrix`)}>CSV</button>

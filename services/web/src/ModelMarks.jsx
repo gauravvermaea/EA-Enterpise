@@ -5,6 +5,7 @@
 //   🔒 Locked          (a Model Admin has locked it: metamodel, content or maintenance)
 // Used by the model list, the hierarchy tree, the model page, the model switcher and the library.
 import { canOn } from "./auth";
+import { ModelIcon } from "./ModelIcon";
 
 export const KINDS = {
   template: { glyph: "◆", label: "Root metamodel", help: "A framework other models are built on (ArchiMate 4, or one built from scratch)" },
@@ -32,9 +33,12 @@ export function marksText(m) {
   return [inLibrary(m) && "📚", readOnlyWhy(m) && "👁", lockWhy(m) && "🔒"].filter(Boolean).join(" ");
 }
 
-export function KindMark({ m, big = false }) {
+// the kind mark, with the model's icon before it when it has one (D247)
+export function KindMark({ m, big = false, noIcon = false }) {
   const k = KINDS[m.kind] || KINDS.project;
-  return <span className={`kind-mark ${m.kind}${big ? " big" : ""}`} title={`${k.label}: ${k.help}`} aria-label={k.label}>{k.glyph}</span>;
+  const mark = <span className={`kind-mark ${m.kind}${big ? " big" : ""}`} title={`${k.label}: ${k.help}`} aria-label={k.label}>{k.glyph}</span>;
+  if (noIcon || !m.icon) return mark;
+  return <span className={`model-marks${big ? " big" : ""}`}><ModelIcon m={m} size={big ? 34 : 18} />{mark}</span>;
 }
 
 export function StatusMarks({ m }) {
@@ -84,4 +88,31 @@ export function PendingBanner({ count, model }) {
       committed. <a href={`#/metamodel/${model}/changes`}>Changes tab</a>: commit, ask for a commit, or discard.
     </div>
   );
+}
+
+// a model's state in words with an icon (owner, 6 Nov 2026): what it is now, for the Models page (list and tiles) and
+// Administration > Quality
+export const MODEL_STATES = {
+  archived: ["🗄", "archived", "Archived (retired): kept for history; data quality never measures it"],
+  readonly: ["👁", "read-only", "Read-only for everyone: a shipped library model or locked by the installer"],
+  content: ["❄", "frozen", "Content locked (frozen): nobody changes its content"],
+  maintenance: ["🛠", "maintenance", "Locked for maintenance"],
+  metamodel: ["🔒", "metamodel locked", "Its metamodel is locked; its content can still change"],
+  draft: ["📝", "draft", "A draft: only its Model Admins create models from it until it is published"],
+  library: ["📚", "in the library", "In the model library: everyone may start a model from it"],
+  active: ["🟢", "active", "Active: people work on it"],
+};
+export function modelStateOf(m) {
+  if (m.lifecycle && m.lifecycle !== "active") return "archived";
+  if (m.lock_level && MODEL_STATES[m.lock_level]) return m.lock_level;
+  if (m.is_draft || m.library_state === "building") return "draft";
+  if (m.is_locked) return inLibrary(m) ? "library" : "readonly";
+  if (inLibrary(m) && m.library_state !== "withdrawn") return "library";
+  return "active";
+}
+export function ModelStateBadge({ m }) {
+  const k = modelStateOf(m);
+  const [icon, label, help] = MODEL_STATES[k];
+  const why = [help, m.locked_by && `by ${m.locked_by}`, m.lock_reason].filter(Boolean).join(" · ");
+  return <span className={`model-state ${k}`} title={why}><span aria-hidden="true">{icon}</span> {label}</span>;
 }

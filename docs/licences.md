@@ -16,7 +16,7 @@ The products it runs are used unmodified, as separate programs:
 | Apache Hop (from phase 34.1, D128) | apache/hop, apache/hop-web | Apache-2.0 |
 
 Main libraries in our code: Flask (BSD-3), flask-smorest (MIT), SQLAlchemy (MIT), Alembic (MIT),
-psycopg (LGPL-3.0), Procrastinate (MIT), PyJWT (MIT), openpyxl (MIT, Excel packages), cryptography (Apache-2.0/BSD), gunicorn
+psycopg (LGPL-3.0), Procrastinate (MIT), PyJWT (MIT), openpyxl (MIT, Excel packages), ReportLab (BSD-3-Clause, data quality PDFs), cryptography (Apache-2.0/BSD), gunicorn
 (MIT), React (MIT), keycloak-js (Apache-2.0), elkjs (EPL-2.0, diagram layout, used unchanged), xterm.js (MIT, the terminal in Administration > Containers, D214), Vite (MIT). The operations
 helper (phase 10) runs the Docker CLI (Apache-2.0). The administration console's Licences tab shows this list
 (services/api/eax/licences.json: keep it in step with this page).

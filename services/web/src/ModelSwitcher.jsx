@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "./auth";
 import { KINDS, marksText } from "./ModelMarks";
+import { ModelIcon } from "./ModelIcon";
 
 const KEY = "eax.lastModel";
 const remember = (id) => { try { localStorage.setItem(KEY, id); } catch { /* storage may be blocked */ } };
@@ -40,6 +41,7 @@ export default function ModelSwitcher({ route }) {
   return (
     <div className={`model-switch${inModel ? " here" : ""}`} title={inModel ? "The model you are in" : "The last model you opened"}>
       <span className="model-switch-label">{inModel ? "Model" : "Last model"}</span>
+      {m && <ModelIcon m={m} size={18} />}
       <select value={m ? m.id : ""} onChange={(e) => choose(e.target.value)} aria-label="Change model">
         {!m && <option value="">Choose a model...</option>}
         {KIND_ORDER.map((k) => {

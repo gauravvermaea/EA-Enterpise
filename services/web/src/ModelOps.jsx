@@ -14,6 +14,7 @@ import { apiDownload, apiFetch, apiUpload, can, canOn, myInfo, needsRole } from 
 import { refreshAll, useApi } from "./ModelViews";
 import { fmtDateTime } from "./fmt";
 import { trackTask, useTask } from "./tasks";
+import { IconPicker, saveIcon } from "./ModelIcon";
 
 const go = (path) => { window.location.hash = path; };
 const post = (path, body, method = "POST") => apiFetch(path, { method, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -81,6 +82,8 @@ export function NewModelDialog({ from, onClose }) {
   const [link, setLink] = useState(!creator && !curator && fromProjectAdmin ? "child" : "independent");   // project sources: "child" (merges back) or "independent"
   const [version, setVersion] = useState(kind === "project" ? "" : "1.0");
   const [industry, setIndustry] = useState(from?.industry || "");
+  const [icon, setIcon] = useState("");          // D247: every new model has an icon; empty until picked: the kind's
+  const [iconFile, setIconFile] = useState(null);
   const [description, setDescription] = useState("");
   const [framework, setFramework] = useState("");
   const [busy, setBusy] = useState(false);
@@ -105,14 +108,16 @@ export function NewModelDialog({ from, onClose }) {
     : kind === "project" && link === "independent" && !mayIndependent ? `An independent model: ${needsRole(["model-creator"])}`
     : "";
 
+  const iconName = icon || { root: "layers", library: "bank", project: "building" }[kind] || "building";
   async function create() {
     setBusy(true); setError("");
     try {
       const out = await post("/api/v1/models", {
         kind, name: name.trim(), source: source || null, parent: child ? source : null,
         copy: holdsContent && kind !== "root" ? copy : "metamodel", version_label: version, industry, description,
-        framework: kind === "root" ? framework : "",
+        framework: kind === "root" ? framework : "", icon: iconName,
       });
+      if (iconFile) await saveIcon(out.model.id, null, iconFile).catch(() => {});   // the model exists; an upload failing leaves the library icon
       refreshAll();
       onClose();
       go(`/metamodel/${out.model.id}`);
@@ -202,6 +207,8 @@ export function NewModelDialog({ from, onClose }) {
           <Field label="Industry" tip="Used to group and search models and library models."><input value={industry} onChange={(e) => setIndustry(e.target.value)} /></Field>
         </div>
         <Field label="Description" tip="What the model is for and who looks after it."><textarea value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
+        <Field label="Icon" tip="Shown wherever the model is named. Pick one from the library or upload your own (for this model only); its Model Admins can change it later.">
+          <IconPicker value={iconName} onChange={setIcon} file={iconFile} onFile={setIconFile} kind={kind === "root" ? "template" : kind === "library" ? "reference" : "project"} /></Field>
         <p className="quiet small-note">You become the new model's Model Admin. It starts as a <b>draft</b>: you and the people you give roles
           work on it, and nobody else can create a model from it until you publish it (Actions &gt; Publish).</p>
         {error && <p className="status bad">{error}</p>}
@@ -694,6 +701,8 @@ export function ModelActions({ m }) {
     ["Create a model from this", () => setDialog("new"), mayCreateFrom(m), m.kind === "project"
       ? "A child model that merges back into this one, or an independent copy that can be compared" : "A new model built on this one's metamodel, with or without its content and history",
       m.is_draft && !ownsDraft(m) ? draftWhy(m) : needsRole(CREATE_ROLES) + (m.kind === "project" ? ` (or Model Admin of ${m.name}, for a child of it)` : "")],
+    ["Change the icon...", () => setDialog("icon"), admin || can("models.delete"),
+      "Pick the model's icon from the library or upload your own (for this model only); shown wherever the model is named", adminWhy],
     ["Download...", () => setDialog("download"), true, "The model as one package, Excel or zip: without data, with the data, or deep with its full history (to upload here or elsewhere)"],
     ["Download the metamodel (JSON)", spec, true, "The metamodel as one document, to give an AI assistant or upload as a metamodel draft"],
     ["-"],
@@ -768,6 +777,7 @@ export function ModelActions({ m }) {
       {error && <span className="status bad"> {error}</span>}
       {dialog === "new" && <NewModelDialog from={m} onClose={close} />}
       {dialog === "download" && <DownloadDialog m={m} onClose={close} />}
+      {dialog === "icon" && <IconDialog m={m} onClose={close} />}
       {["request-publish", "publish", "send-back-publish", "reject-publish", "reopen"].includes(dialog) && <PublishStepDialog m={m} step={dialog} onClose={close} />}
       {dialog === "move" && <FrameworkMoveDialog m={m} onClose={close} />}
       {dialog === "delete" && <DeleteDialog m={m} onClose={close} />}
@@ -1335,4 +1345,25 @@ function ApplyDraftDialog({ d, onClose }) {
   );
 }
 
-
+// a model's icon (D247): its Model Admins pick one from the library or upload their own, for this model only
+export function IconDialog({ m, onClose }) {
+  const [name, setName] = useState(m.icon?.startsWith("lib:") ? m.icon.slice(4) : "building");
+  const [file, setFile] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  async function save() {
+    setBusy(true); setErr("");
+    try { await saveIcon(m.id, name, file); refreshAll(); onClose(); } catch (e) { setErr(e.message); setBusy(false); }
+  }
+  return (
+    <Modal title={`Icon of ${m.name}`} onClose={onClose}
+      actions={<><button onClick={onClose}>Cancel</button><button className="primary" disabled={busy} onClick={save}>{busy ? "Saving..." : "Save"}</button></>}>
+      <div className="ed-form">
+        <p className="quiet small">Shown wherever the model is named. An image you upload is for this model only.</p>
+        <IconPicker value={name} onChange={setName} file={file} onFile={setFile} kind={m.kind} />
+        {m.icon === "upload" && !file && <p className="small">It has its own uploaded icon now; pick one above to replace it.</p>}
+        {err && <p className="status bad">{err}</p>}
+      </div>
+    </Modal>
+  );
+}

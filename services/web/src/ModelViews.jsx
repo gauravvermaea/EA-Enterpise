@@ -5,18 +5,20 @@
 //   #/metamodel/<m>/rels/<relTypeId>          the relationships of one type
 //   #/metamodel/<m>/graph[/<kind>]            pictures: network, layered, impact chain, hierarchy map, matrix
 //   #/metamodel/<m>/entity/<id>[/relations|/history|/graph]   one entity
-// Every list has a CSV button; every picture saves as .drawio (and SVG, PNG, CSV).
+// Every list has a CSV button; every picture opens in draw.io (D256) and saves as SVG, PNG, CSV.
 // Changing things arrives later: values and relationships in build phase 6; entity types,
 // relationship types, mappings (allowed relationships) and rules in build phase 3. Those buttons
 // are shown now, switched off, so the screens do not change shape when they arrive.
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
-import { apiFetch } from "./auth";
+import { apiFetch, canOn } from "./auth";
 import { downloadCsv } from "./exporting";
 import { EditButton, entityTypeSpec, mappingSpec, relationshipTypeSpec } from "./MetamodelEditor";
 import { PendingMark } from "./ModelMarks";
 import { EntityChanges, useEntityChanges, WasValue } from "./Changes";
 import { AddRelationshipButton, EntityActions, NewEntityButton, NewRelationshipButton, RemoveRelationshipButton, RollBackButton, RowActions } from "./DataEntry";
 import { fmtDate, fmtDateTime } from "./fmt";
+import { EntityTree } from "./Trees";
+import { EntityReasons, fieldClass, FieldQuality, q2, QualityBadge, QualityCell, RecheckAll, ScoreChip, useEntityQuality, useTypeQuality, useTypeScores } from "./QualityBits";
 
 const EntityGraph = lazy(() => import("./EntityGraph"));
 const HierarchyMap = lazy(() => import("./HierarchyMap"));
@@ -36,6 +38,8 @@ export function refreshAll() {
   generation += 1;
   window.dispatchEvent(new Event("eax-refresh"));
 }
+// screens that cannot import this one (QualityBits) ask for the same with an event
+window.addEventListener("eax-clear-cache", refreshAll);
 
 export function useApi(path) {
   const [state, setState] = useState({ data: null, error: null });
@@ -125,6 +129,9 @@ export function CsvButton({ rows, name, title = "Download this table as CSV (ope
 // ---------------------------------------------------------------- tab 1: entity types
 export function EntityTypesTab({ model, m }) {
   const { data: mm, error } = useApi(`/api/v1/models/${model}/metamodel`);
+  const tq = useTypeScores(m?.kind === "project" ? model : null).data;      // each type's data quality now (D246)
+  const tScore = (t) => tq?.types?.find((x) => x.type === t.code);
+  const [asTree, setAsTree] = useState(false);       // D250: the entity tree
   const [filter, setFilter] = useState("");
   const [layer, setLayer] = useState("");
   const [withEntities, setWithEntities] = useState(true);
@@ -133,6 +140,13 @@ export function EntityTypesTab({ model, m }) {
     ...t, layer: l.name, layer_id: l.id, colour: l.colour, layer_order: i * 1000 + l.entity_types.indexOf(t),
   }))) : []), [mm]);
   if (!mm) return <Loading error={error} />;
+  const treeSeg = (
+    <div className="seg small" role="tablist" style={{ marginBottom: 8 }}>
+      <button className={!asTree ? "on" : ""} onClick={() => setAsTree(false)}>Table</button>
+      <button className={asTree ? "on" : ""} onClick={() => setAsTree(true)}>Entity tree</button>
+    </div>
+  );
+  if (asTree) return <div>{treeSeg}<EntityTree model={model} m={m} /></div>;
   const anyContent = types.some((t) => t.entity_count > 0);
   const f = filter.trim().toLowerCase();
   const shown = apply(types.filter((t) => (!f || `${t.name} ${t.code} ${t.description}`.toLowerCase().includes(f))
@@ -140,6 +154,7 @@ export function EntityTypesTab({ model, m }) {
   (r, k) => r[k]);
   return (
     <div>
+      {treeSeg}
       <div className="toolbar">
         <input className="search" style={{ maxWidth: 260 }} placeholder="Filter entity types" value={filter} onChange={(e) => setFilter(e.target.value)} />
         <select value={layer} onChange={(e) => setLayer(e.target.value)}>
@@ -156,7 +171,7 @@ export function EntityTypesTab({ model, m }) {
       <div className="scroll">
         <table className="grid-table click-rows">
           <thead><tr>{head("name", "Entity type")}{head("layer_order", "Layer")}{head("entity_count", "Entities", { className: "num" })}
-            {head("attribute_count", "Attributes", { className: "num" })}{head("code", "Code")}<th>Description</th></tr></thead>
+            {head("attribute_count", "Attributes", { className: "num" })}{tq && <th className="num" title={`Each entity type's data quality as last calculated${tq.calculated_to ? ` (${fmtDateTime(tq.calculated_to)})` : ""}: completeness, rules, freshness`}>Quality</th>}{head("code", "Code")}<th>Description</th></tr></thead>
           <tbody>
             {shown.map((t) => (
               <tr key={t.id} onClick={() => go(`/metamodel/${model}/types/${t.id}`)}>
@@ -164,6 +179,8 @@ export function EntityTypesTab({ model, m }) {
                 <td>{t.layer}</td>
                 <td className="num">{t.entity_count}</td>
                 <td className="num">{t.attribute_count}</td>
+                {tq && <td className="num">{tScore(t) ? <a href={`#/metamodel/${model}/quality/type/${encodeURIComponent(t.name)}`}><ScoreChip score={tScore(t).score} bands={tq.bands}
+                  title={`${t.name}: data quality ${q2(tScore(t).score)} · completeness ${q2(tScore(t).completeness)} · ${tScore(t).failing} failing a rule · ${tScore(t).stale} stale`} /></a> : <span className="quiet">-</span>}</td>}
                 <td><code className="quiet">{t.code}</code></td>
                 <td className="quiet clip">{t.description}</td>
               </tr>
@@ -221,9 +238,18 @@ export function TypeEntitiesTable({ model, m, typeId }) {
   const [page, setPage] = useState(0);
   const [open, setOpen] = useState({});
   const [hiddenCols, setHiddenCols] = useState([]);
+  const [asTree, setAsTree] = useState(false);       // D250: this entity type's tree
+  const tqt = useTypeQuality(m?.kind === "project" ? model : null, typeId).data;     // data quality as last calculated (D245)
   const { head, apply } = useSort("display_id");
   useEffect(() => { setPage(0); }, [filter, check, typeId]);
   if (!t) return <Loading error={error} />;
+  const treeSeg = (
+    <div className="seg small" role="tablist" style={{ margin: "6px 0" }}>
+      <button className={!asTree ? "on" : ""} onClick={() => setAsTree(false)}>Table</button>
+      <button className={asTree ? "on" : ""} onClick={() => setAsTree(true)}>Tree</button>
+    </div>
+  );
+  if (asTree) return <div><p className="quiet crumbs"><a href={`#/metamodel/${model}/types`}>Entity types</a> / {t.entity_type.name}</p>{treeSeg}<EntityTree model={model} m={m} typeId={typeId} /></div>;
   const et = t.entity_type;
   const cols = t.columns.filter((c) => !hiddenCols.includes(c.code));
   const f = filter.trim().toLowerCase();
@@ -236,7 +262,7 @@ export function TypeEntitiesTable({ model, m, typeId }) {
   }), (r, k) => (k.startsWith("v:") ? r.values[k.slice(2)] : k === "checks" ? r.errors * 1000 + r.warnings : r[k]));
   const pageRows = rows.slice(page * PAGE, (page + 1) * PAGE);
   const withIssues = t.rows.filter((r) => r.errors || r.warnings).length;
-  const colSpan = 8 + cols.length;
+  const colSpan = 8 + cols.length + (tqt ? 1 : 0);
 
   function exportCsv() {
     const header = ["Display ID", "Name", "Description", "Parent", "Status", ...t.columns.map((c) => c.name), "Relationships", "Errors", "Warnings", "Messages", "Created in metamodel v", "Last changed in metamodel v"];
@@ -252,6 +278,7 @@ export function TypeEntitiesTable({ model, m, typeId }) {
         <span> · {et.layer} layer · <a href={`#/metamodel/${model}/type/${et.id}`}>definition and rules</a>
           {" · "}<a href={`#/metamodel/${model}/diagram/${et.id}`}>in the ER diagram</a></span>
       </p>
+      {treeSeg}
       <div className="toolbar">
         <input className="search" style={{ maxWidth: 280 }} placeholder={`Search ${t.rows.length} ${et.name} entities`} value={filter} onChange={(e) => setFilter(e.target.value)} />
         <select value={check} onChange={(e) => setCheck(e.target.value)} title="Validation results">
@@ -273,6 +300,8 @@ export function TypeEntitiesTable({ model, m, typeId }) {
           </details>
         )}
         <button onClick={exportCsv}>CSV</button>
+        {tqt && <span className="small">Data quality <ScoreChip score={tqt.summary.score} bands={tqt.bands} title={`${q2(tqt.summary.score)} as calculated ${tqt.calculated_to ? fmtDateTime(tqt.calculated_to) : "- not yet"}`} />{" "}
+          <RecheckAll model={model} type={typeId} /></span>}
         <span className="er-spacer" />
         <Pager page={page} total={rows.length} setPage={setPage} />
         <NewEntityButton model={model} m={m} typeId={typeId} typeName={et.name} retired={et.status === "retired"} />
@@ -286,6 +315,7 @@ export function TypeEntitiesTable({ model, m, typeId }) {
               {head("display_id", "ID", { className: "stick1" })}
               {head("name", "Name", { className: "stick2" })}
               {head("checks", "Rules")}
+              {tqt && <th title="Data quality as last calculated; ↻ rechecks the row now">Quality</th>}
               {head("parent_name", "Parent")}
               {cols.map((c) => head(`v:${c.code}`, <>{c.name}{c.is_required && <span className="req" title="Required">*</span>}</>, { key: c.code }))}
               {head("relationship_count", "Rel.", { className: "num" })}
@@ -304,10 +334,13 @@ export function TypeEntitiesTable({ model, m, typeId }) {
                 <td className="stick2"><a href={`#/metamodel/${model}/entity/${r.id}`}>{r.name}</a>{" "}
                   <RowActions model={model} m={m} entityId={r.id} name={r.name} retiredType={et.status === "retired"} /></td>
                 <td><Checks {...r} /></td>
+                {tqt && <td><QualityCell model={model} entity={r.id} row={tqt.entities?.[r.id]} bands={tqt.bands} /></td>}
                 <td>{r.parent_id ? <a href={`#/metamodel/${model}/entity/${r.parent_id}`}>{r.parent_name}</a> : ""}</td>
                 {cols.map((c) => {
                   const v = r.values[c.code];
-                  return <td key={c.code} className={c.is_required && (v === undefined || v === "") ? "missing" : ""}>
+                  const qc = fieldClass(tqt?.entities?.[r.id], c.code);
+                  return <td key={c.code} className={qc || (c.is_required && (v === undefined || v === "") ? "missing" : "")}
+                    title={(tqt?.entities?.[r.id]?.fields?.[c.code] || []).map((x) => x.message).join("\n") || undefined}>
                     {v ?? ""}{v !== undefined && c.unit ? ` ${c.unit}` : ""}</td>;
                 })}
                 <td className="num">{r.relationship_count}</td>
@@ -473,8 +506,10 @@ function WarningList({ warnings }) {
   );
 }
 
-function DetailsTab({ model, m, e }) {
+function DetailsTab({ model, m, e, q }) {
   const ec = useEntityChanges(model, m, e.id);
+  const mayEdit = canOn(model, "model.content");
+  const fq = (code) => <FieldQuality model={model} entity={e.id} code={code} q={q} mayEdit={mayEdit} />;
   const f = (code) => ec.fields[String(code).toLowerCase()];
   const hl = (code) => (f(code) ? "pending-field" : "");
   const sections = [];
@@ -484,7 +519,7 @@ function DetailsTab({ model, m, e }) {
     s.items.push(a);
   }
   const fieldWarnings = (code) => e.warnings.filter((w) => w.code === code);
-  const Status = ({ list }) => (list.length
+  const Status = ({ list, hide }) => (hide && !list.length ? null : list.length
     ? <span className={`sev ${list.some((w) => w.severity === "error") ? "error" : "warning"}`} title={list.map((w) => w.message).join("\n")}>
       {list.map((w) => w.message).join("; ")}</span>
     : <span className="ok-mark">✓</span>);
@@ -506,9 +541,9 @@ function DetailsTab({ model, m, e }) {
         <thead><tr><th>Field</th><th>Value</th><th>Type</th><th>Check</th></tr></thead>
         <tbody>
           <tr className="section-row"><td colSpan="4">Basic</td></tr>
-          <tr className={hl("name")}><th>Name <span className="req">*</span></th><td>{e.name} <WasValue f={f("name")} /></td><td className="quiet">Text</td><td><Status list={fieldWarnings("name")} /></td></tr>
+          <tr className={[hl("name"), fieldClass(q, "name")].join(" ").trim()}><th>Name <span className="req">*</span></th><td>{e.name} <WasValue f={f("name")} /></td><td className="quiet">Text</td><td><Status list={fieldWarnings("name")} hide={!!q?.fields?.name} />{fq("name")}</td></tr>
           <tr><th>Display ID</th><td>{e.display_id}</td><td className="quiet">Generated</td><td><Status list={fieldWarnings("display_id")} /></td></tr>
-          <tr className={hl("description")}><th>Description</th><td className="pre">{e.description} <WasValue f={f("description")} /></td><td className="quiet">Text</td><td><Status list={fieldWarnings("description")} /></td></tr>
+          <tr className={[hl("description"), fieldClass(q, "description")].join(" ").trim()}><th>Description</th><td className="pre">{e.description} <WasValue f={f("description")} /></td><td className="quiet">Text</td><td><Status list={fieldWarnings("description")} hide={!!q?.fields?.description} />{fq("description")}</td></tr>
           <tr className={hl("parent")}><th>Parent</th><td>{e.parent_id ? <a href={`#/metamodel/${model}/entity/${e.parent_id}`}>{e.parent_name}</a> : <span className="quiet">-</span>}</td><td className="quiet">Entity</td><td><Status list={fieldWarnings("parent")} /></td></tr>
           <tr className={hl("status")}><th>Status</th><td>{e.status} <WasValue f={f("status")} /></td><td className="quiet">Workflow</td><td><Status list={fieldWarnings("status")} /></td></tr>
           <tr className={hl("tags")}><th>Tags</th><td>{(e.tags || []).length ? e.tags.map((t) => <span key={t} className="tag">{t}</span>) : <span className="quiet">-</span>}</td><td className="quiet">Tags</td><td><Status list={fieldWarnings("tags")} /></td></tr>
@@ -517,14 +552,14 @@ function DetailsTab({ model, m, e }) {
             ...s.items.map((a) => {
               const empty = a.value === null || a.value === "";
               return (
-                <tr key={a.code} className={[a.warnings.length ? "has-warning" : "", hl(`value:${a.code}`)].join(" ").trim()}>
+                <tr key={a.code} className={[a.warnings.length ? "has-warning" : "", hl(`value:${a.code}`), fieldClass(q, a.code)].join(" ").trim()}>
                   <th>{a.name}{a.is_required && <span className="req" title="Required">*</span>}</th>
                   <td>{empty ? <span className="quiet">not set</span>
                     : a.ref_id ? <a href={`#/metamodel/${model}/entity/${a.ref_id}`}>{a.value}</a>
                     : <>{a.value}{a.unit && ` ${a.unit}`}</>} <WasValue f={f(`value:${a.code}`)} /></td>
                   <td className="quiet" title={a.pick_list_values.length ? `One of: ${a.pick_list_values.join(", ")}` : undefined}>
                     {a.data_type_name}</td>
-                  <td><Status list={a.warnings} />{a.override && <span className="override-mark" title={`Saved although it fails the rule, by ${a.override.by} on ${fmtDateTime(a.override.at)}`}> saved anyway</span>}</td>
+                  <td><Status list={a.warnings} hide={!!q?.fields?.[a.code]} />{a.override && <span className="override-mark" title={`Saved although it fails the rule, by ${a.override.by} on ${fmtDateTime(a.override.at)}`}> saved anyway</span>}{fq(a.code)}</td>
                 </tr>
               );
             }),
@@ -928,12 +963,13 @@ function RulesTab({ model, e }) {
 
 export function EntityPage({ model, m, entityId, sub }) {
   const { data: e, error } = useApi(`/api/v1/models/${model}/entities/${entityId}`);
+  const quality = useEntityQuality(m?.kind === "project" ? model : null, entityId);     // live (D246)
   if (!e) return <Loading error={error} />;
   const tab = sub || "details";
   const errors = e.warnings.filter((w) => w.severity === "error").length;
   const failing = e.warnings.length + e.relationships.filter((r) => !r.allowed).length;
   const tabs = [["details", "Details"], ["relations", `Relations (${e.relationships.length})`],
-    ["rules", failing ? `Rules (${failing} failing)` : "Rules ✓"], ["history", "History"], ["graph", "Graph"]];
+    ["rules", failing ? `Rules (${failing} failing)` : "Rules ✓"], ["history", "History"], ["graph", "Graph"], ["tree", "Tree"]];
   return (
     <div>
       <p className="quiet crumbs">
@@ -945,6 +981,8 @@ export function EntityPage({ model, m, entityId, sub }) {
             <h2><Swatch colour={e.colour} /> {e.name} <PendingMark kind={e.pending} model={model} /></h2>
             <span className="quiet">{e.display_id} · {e.entity_type} · {e.layer} layer · {e.status} · metamodel v{e.created_mm_version}{e.modified_mm_version !== e.created_mm_version ? `, changed in v${e.modified_mm_version}` : ""}</span>
             <Checks errors={errors} warnings={e.warnings.length - errors} messages={e.warnings.map((w) => w.message)} />
+            {quality.data && <div className="q-entity-head"><QualityBadge q={quality.data} /> <a className="small" href={`#/metamodel/${model}/quality`}>Quality tab</a>
+              <EntityReasons q={quality.data} /></div>}
           </div>
           {e.description && <p className="entity-desc">{e.description}</p>}
           <Lineage e={e} />
@@ -957,11 +995,12 @@ export function EntityPage({ model, m, entityId, sub }) {
         </div>
         <div className="entity-card-body" role="tabpanel">
           {/* keyed by entity, so moving to another entity starts each tab afresh */}
-          {tab === "details" && <DetailsTab key={e.id} model={model} m={m} e={e} />}
+          {tab === "details" && <DetailsTab key={e.id} model={model} m={m} e={e} q={quality.data} />}
           {tab === "relations" && <RelationsTab key={e.id} model={model} m={m} e={e} />}
           {tab === "rules" && <RulesTab key={e.id} model={model} e={e} />}
           {tab === "history" && <HistoryTab key={e.id} model={model} m={m} e={e} />}
           {tab === "graph" && <EntityGraphTab key={e.id} model={model} e={e} />}
+          {tab === "tree" && <EntityTree key={e.id} model={model} m={m} entityId={e.id} />}
         </div>
       </div>
     </div>

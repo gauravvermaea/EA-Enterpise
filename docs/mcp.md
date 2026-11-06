@@ -131,6 +131,15 @@ Retail bank metamodel, fix what they ask, mark them fixed and resubmit it."
 Models, entity types and entities can be given by guid or by name. Lists come back as
 `{"count": n, "items": [...]}`; errors as `{"error": "..."}`.
 
+### Data quality (phase 12, D239)
+
+| Tool | What it does |
+| --- | --- |
+| `quality_summary(model)` | The model's quality score, completeness, rules passed, fresh, orphans and seals, the weakest types and owners, and the trend |
+| `quality_findings(model, entity_type?, owner?, rule?, mine?)` | The entities with problems and why, with the person responsible ("what are my gaps?") |
+| `suggest_quality_fix(model, entity, changes)` | Fills in what is missing as your uncommitted change; Claude never commits it |
+| `draft_quality_rule(model, rule, save?)` | Shows what a rule would find; with `save=true` it is saved, and a Model Admin's rule waits for a Super Admin's approval |
+
 ## How it is built and kept up to date
 
 `services/api/eax/mcp_server.py` runs in the api container next to the REST API (uvicorn on port

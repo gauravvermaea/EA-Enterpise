@@ -37,6 +37,8 @@ Tick an item (`[x]`) when it is done; remove it at the next tidy-up.
 - [x] **Test phase 7** (accepted 4 Nov 2026, D157; end-to-end test in 36.1): `.\eax clean-restart`, the demo and checks in [phase-7.md](phase-7.md).
 - [x] **Test phase 8.2** (accepted 5 Nov 2026, D164; each report checked in 36.1): `.\eax clean-restart`, the demo and checks in [phase-8.2.md](phase-8.2.md). The Superset charts new in 8.2 (network, sankey, treemap, bubble) could not be tried here: check they draw.
 - [x] **Test phase 8** (accepted 5 Nov 2026, D171; end-to-end test in 36.1) (0.8.3): `.\eax clean-restart`, the demo and checks in [phase-8.md](phase-8.md). New test users `user_committer` and `user_history_viewer` (same password as the others).
+- [x] **Phase 12 accepted and closed** (6 Nov 2026, D254): validation and data quality (0.13.0).
+- [ ] **Test phase 12.1** (0.13.1): `.\eax clean-restart` (and once with `--wait-all`), the demo and checks in [phase-12.1.md](phase-12.1.md).
 - [ ] **Test phase 8.3** (0.8.4): `.\eax clean-restart`, the demo and checks in [phase-8.3.md](phase-8.3.md).
 - [ ] **Test phase 9** (0.9.0), with 8.3: `.\eax clean-restart`, the demo and checks in [phase-9.md](phase-9.md).
 - [ ] **Test phase 10** (0.10.0), with 8.3 and 9: the demo and checks in [phase-10.md](phase-10.md).

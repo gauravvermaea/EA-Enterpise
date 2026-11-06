@@ -5,6 +5,8 @@ import { useEffect, useMemo, useState } from "react";
 import { apiFetch, canOn, needsRole } from "./auth";
 import { contentAccess } from "./DataEntry";
 import Grid from "./Grid";
+import { fmtDateTime } from "./fmt";
+import { fieldClass, q2, QualityCell, RecheckAll, ScoreChip, useTypeQuality } from "./QualityBits";
 import { Modal } from "./ModelOps";
 import { metamodelEditable } from "./MetamodelEditor";
 import { refreshAll, Swatch, useApi } from "./ModelViews";
@@ -136,30 +138,59 @@ export function TopSearch() {
 }
 
 // ---------------------------------------------------------------- the entity grid of one type
+// a cell's data quality (D246): highlighted with its reasons when it lowers the entity's quality
+const qCell = (tq, code) => ({
+  cellClass: (row) => fieldClass(tq?.entities?.[row.id], code),
+  cellTitle: (row) => (tq?.entities?.[row.id]?.fields?.[code] || []).map((x) => x.message).join("\n"),
+});
+
 function EntityGrid({ model, m, typeId }) {
   const { data, error } = useApi(`/api/v1/models/${model}/grids/entities/${typeId}`);
+  const tq = useTypeQuality(m?.kind === "project" ? model : null, typeId).data;    // as last calculated (D245)
+  // my saved, uncommitted changes, by entity: commit (or ask to), or discard, in place (owner, 6 Nov 2026)
+  const ch = useApi(m?.kind === "project" ? `/api/v1/models/${model}/changes` : null).data;
+  const pendingBy = useMemo(() => {
+    const out = {};
+    for (const s of ch?.mine || []) for (const c of s.changes) for (const e of c.entities || []) (out[e] = out[e] || []).push(c.id);
+    return out;
+  }, [ch]);
+  const [cmsg, setCmsg] = useState("");
+  async function changeStep(step, ids, entities) {
+    setCmsg("");
+    try {
+      const r = await apiFetch(`/api/v1/models/${model}/changes/${step}`, { method: "POST", body: JSON.stringify({ changes: ids }) });
+      if (step === "commit") {      // the committed rows' data quality, checked at once (one entity at a time)
+        await Promise.all(entities.slice(0, 50).map((e) => apiFetch(`/api/v1/models/${model}/entities/${e}/quality/recheck`, { method: "POST", body: "{}" }).catch(() => null)));
+      }
+      setCmsg(step === "commit" ? `Committed${r.number ? ` (commit ${r.number})` : ""}.` : step === "request" ? "Asked the committers to commit it." : "Discarded: back to the committed values.");
+      refreshAll();
+    } catch (e) { setCmsg(e.status === 409 ? `${e.message} Open the Changes tab to resolve it.` : e.message); }
+  }
   const [config, setConfig] = useState(null);
   const [applied, setApplied] = useState(null);
   const access = contentAccess(model, m, data?.retired);
   const columns = useMemo(() => (data ? [
     { key: "display_id", label: "ID", readOnly: true, createOnly: true, width: 90, title: "Given when saved; you may type your own for a new row" },
-    { key: "name", label: "Name", required: true, width: 200 },
-    { key: "description", label: "Description", width: 220 },
+    { key: "name", label: "Name", required: true, width: 200, ...qCell(tq, "name") },
+    ...(tq ? [{ key: "quality", label: "Quality", readOnly: true, type: "number", width: 92,
+      title: "Data quality of the entity now (completeness, rules, freshness); hover a highlighted cell for why",
+      render: (row) => (row.id ? <QualityCell model={model} entity={row.id} row={tq.entities?.[row.id]} bands={tq.bands} /> : "") }] : []),
+    { key: "description", label: "Description", width: 220, ...qCell(tq, "description") },
     { key: "parent_name", label: "Part of", width: 160, title: "The parent entity: its name or ID" },
     { key: "tags", label: "Tags", width: 140, title: "Separated by commas" },
     ...data.attributes.map((a) => ({ key: `v:${a.code}`, label: a.name, type: cellType(a.data_type), options: a.pick_list_values,
-      required: a.is_required, width: a.data_type === "long_text" ? 220 : 120,
+      required: a.is_required, width: a.data_type === "long_text" ? 220 : 120, ...qCell(tq, a.code),
       title: [a.data_type_name, a.unit, a.pick_list_values.length ? `One of: ${a.pick_list_values.join(", ")}` : "", a.data_type === "entity_ref" ? "an entity's name or ID" : ""].filter(Boolean).join(" · ") })),
     { key: "status", label: "Status", readOnly: true, width: 80 },
     { key: "relationship_count", label: "Rel.", readOnly: true, type: "number", width: 50 },
     { key: "checks", label: "Checks", readOnly: true, width: 160 },
-  ] : []), [data]);
+  ] : []), [data, tq, ch, pendingBy]);
   const rows = useMemo(() => (data ? data.rows.map((r) => ({
     id: r.id, row_version: r.row_version, display_id: r.display_id, name: r.name, description: r.description,
     parent_name: r.parent_name || "", tags: (r.tags || []).join(", "), status: r.pending ? `✎ ${r.pending}, uncommitted` : r.status, relationship_count: r.relationship_count,
     checks: r.messages?.join("; ") || "",
     ...Object.fromEntries(data.attributes.map((a) => [`v:${a.code}`, r.values[a.code] ?? ""])),
-  })) : []), [data]);
+  })) : []), [data]);   // not the quality: a new quality result must never reset rows being edited
   if (!data) return <p className="quiet">{error || "Loading..."}</p>;
   async function save(batch) {
     const body = batch.map((b) => {
@@ -182,8 +213,32 @@ function EntityGrid({ model, m, typeId }) {
   return (
     <Grid key={typeId} columns={columns} rows={rows} canEdit={access.ok} why={access.why} onSave={save} name={`${m.name} - ${data.entity_type.name}`}
       initialConfig={applied} onConfig={setConfig} deleteLabel="Delete"
+      rowMark={ch?.uses_commits ? (row) => {
+        const ids = pendingBy[row.id];
+        if (!ids) return null;
+        const n = `${ids.length} saved change${ids.length === 1 ? "" : "s"} not committed yet`;
+        return ch.may_commit
+          ? <button className="linkish grid-commit-one" onClick={() => changeStep("commit", ids, [row.id])} title={`Commit now: ${n} (right-click to discard them)`}>⇪</button>
+          : <button className="linkish grid-commit-one ask" onClick={() => changeStep("request", ids, [row.id])} title={`Ask a committer to commit: ${n} (right-click to discard them)`}>⇪</button>;
+      } : null}
+      rowMenu={ch?.uses_commits ? (row) => (pendingBy[row.id] ? [{ label: "Discard this row's uncommitted changes",
+        onClick: () => changeStep("discard", pendingBy[row.id], [row.id]) }] : []) : null}
       emptyText={`No ${data.entity_type.name} entities yet: press + Row or paste rows from Excel.`}
-      views={<ViewPicker model={model} kind="entity_grid" target={typeId} config={config || {}} onApply={setApplied} />} />
+      views={<ViewPicker model={model} kind="entity_grid" target={typeId} config={config || {}} onApply={setApplied} />}
+      toolbar={<>{ch?.uses_commits && Object.keys(pendingBy).length > 0 && <span className="small grid-commit">
+        <span className="uc">✎ {Object.keys(pendingBy).filter((k) => rows.some((r) => r.id === k)).length} {data.entity_type.name} uncommitted</span>
+        {(() => {
+          const ents = Object.keys(pendingBy).filter((k) => rows.some((r) => r.id === k));
+          const ids = [...new Set(ents.flatMap((k) => pendingBy[k]))];
+          return ents.length ? <>{ch.may_commit ? <button onClick={() => changeStep("commit", ids, ents)}>Commit all</button>
+            : <button onClick={() => changeStep("request", ids, ents)}>Ask to commit all</button>}{" "}
+            <button onClick={() => changeStep("discard", ids, ents)}>Discard all</button></> : null;
+        })()}
+        {cmsg && <span className="quiet"> {cmsg}</span>}</span>}
+      {!Object.keys(pendingBy).length && cmsg && <span className="small quiet">{cmsg} </span>}
+      {tq && <span className="small" title={`${data.entity_type.name}: data quality ${q2(tq.summary.score)} over ${tq.summary.entities} entities; completeness ${q2(tq.summary.completeness)}, rules passed ${q2(tq.summary.passing)}, fresh ${q2(tq.summary.fresh)}`}>
+        {data.entity_type.name} data quality <ScoreChip score={tq.summary.score} bands={tq.bands} /> <span className="quiet">· as calculated {tq.calculated_to ? fmtDateTime(tq.calculated_to) : "- not yet"}; highlighted cells lower it (hover for why); ↻ rechecks a row</span>{" "}
+        <RecheckAll model={model} type={typeId} /></span>}</>} />
   );
 }
 

@@ -42,6 +42,11 @@ function normalise(col, raw) {
 }
 
 let newSeq = 0;
+// the values someone changed in a row (and not yet saved)
+function pick(it) {
+  return Object.fromEntries(Object.keys(it.cur).filter((k) => show(it.cur[k]) !== show(it.orig[k])).map((k) => [k, it.cur[k]]));
+}
+
 function makeItems(rows, rowKey) {
   return rows.map((r) => ({ key: String(r[rowKey]), orig: r, cur: { ...r }, isNew: false, deleted: false, error: "", note: "" }));
 }
@@ -50,6 +55,8 @@ export default function Grid({
   columns, rows, rowKey = "id", canEdit = true, why = "", onSave, allowAdd = true, allowDelete = true,
   name = "grid", toolbar = null, views = null, initialConfig = null, onConfig = null, emptyText = "No rows yet.",
   height = "64vh", deleteLabel = "Delete", saveNote = "",
+  rowMark = null,    // (row) => a quick action shown on the left of a row, after its number (e.g. commit, D257)
+  rowMenu = null,    // (row) => [{ label, onClick, disabled }] more right-click items for that row
 }) {
   const [items, setItems] = useState(() => makeItems(rows, rowKey));
   const [active, setActive] = useState({ r: 0, c: 0 });
@@ -66,7 +73,19 @@ export default function Grid({
   const box = useRef(null);
   const scroller = useRef(null);
 
-  useEffect(() => { setItems(makeItems(rows, rowKey)); setEditing(null); }, [rows]);
+  // fresh rows from the server: unsaved edits, new rows and rows marked for deletion are kept (another screen reading
+  // again, a recheck of data quality, must never lose what someone is typing); everything else takes the new values
+  useEffect(() => {
+    setItems((old) => {
+      const fresh = makeItems(rows, rowKey);
+      const changed = new Map(old.filter((it) => !it.isNew && (it.deleted || it.error || Object.keys(it.cur).some((k) => show(it.cur[k]) !== show(it.orig[k]))))
+        .map((it) => [it.key, it]));
+      if (!changed.size && !old.some((it) => it.isNew)) return fresh;
+      const merged = fresh.map((it) => (changed.has(it.key) ? { ...it, cur: { ...it.cur, ...pick(changed.get(it.key)) }, deleted: changed.get(it.key).deleted,
+        error: changed.get(it.key).error || "" } : it));
+      return [...merged, ...old.filter((it) => it.isNew)];
+    });
+  }, [rows]);
   useEffect(() => { onConfig?.({ filter, sort, hidden }); }, [filter, sort, hidden]);
   useEffect(() => {
     if (!initialConfig) return;
@@ -155,6 +174,12 @@ export default function Grid({
     else if (bottom > el.scrollTop + el.clientHeight) el.scrollTop = bottom - el.clientHeight;
   }
 
+  // a click that should open the editor once the cell is active (pick lists and dates at once; any cell clicked again)
+  const pendingEdit = useRef(null);
+  useEffect(() => {
+    const p = pendingEdit.current;
+    if (p && p.r === active.r && p.c === active.c) { pendingEdit.current = null; startEdit(); }
+  }, [active]); // eslint-disable-line react-hooks/exhaustive-deps
   function startEdit(initial) {
     const it = view[active.r], c = cols[active.c];
     if (!it || !c) return;
@@ -263,10 +288,11 @@ export default function Grid({
   }
   const selectedKeys = () => { const s = selection(); return view.slice(s.r0, s.r1 + 1).map((x) => x.key); };
 
-  async function save() {
+  // save every change, or (onlyKey) one row's (owner, 6 Nov 2026: per-row save)
+  async function save(onlyKey = null) {
     if (!dirtyCount || busy) return;
     setBusy(true); setMsg("");
-    const batch = changed.filter((it) => !(it.isNew && it.deleted)).map((it) => {
+    const batch = changed.filter((it) => !(it.isNew && it.deleted) && (!onlyKey || it.key === onlyKey)).map((it) => {
       const diff = {};
       columns.forEach((c) => {
         if (c.readOnly && !(c.createOnly && it.isNew)) return;
@@ -287,8 +313,12 @@ export default function Grid({
         }
       } else if (failed.length) {
         setItems((list) => list.filter((x) => !(byKey[x.key]?.ok)).map((x) => (byKey[x.key] && !byKey[x.key].ok ? { ...x, error: byKey[x.key].error } : x)));
-        setMsg(`Saved ${outcome.saved}; ${failed.length} row${failed.length === 1 ? "" : "s"} not saved (marked ⚠, hover for why). Fix them and save again.`);
+        const why = failed.slice(0, 3).map((r) => { const b = batch[r.row - 1]; return `${b?.cur?.name || b?.cur?.display_id || `row ${r.row}`}: ${String(r.error || "").replace(/\.+$/, "")}`; }).join("; ");
+        setMsg(`Saved ${outcome.saved}; ${failed.length} row${failed.length === 1 ? "" : "s"} not saved: ${why}${failed.length > 3 ? "; ..." : ""}. Fix and save again (the row is marked ⚠).`);
       } else {
+        // saved: these rows are no longer changes of this screen (the server's rows replace them when they arrive)
+        const keys = new Set(batch.map((b) => b.key));
+        setItems((list) => list.filter((x) => !(keys.has(x.key) && (x.isNew || x.deleted))).map((x) => (keys.has(x.key) ? { ...x, orig: { ...x.cur }, error: "" } : x)));
         const warned = (outcome?.rows || []).filter((r) => r.warnings?.length).length;
         setMsg(`Saved ${batch.length} row${batch.length === 1 ? "" : "s"}${warned ? `, ${warned} with rule warnings (kept, flagged)` : ""}.${outcome?.note ? ` ${outcome.note}` : saveNote ? ` ${saveNote}` : ""}`);
       }
@@ -304,6 +334,12 @@ export default function Grid({
   }
 
   function discard() { setItems(makeItems(rows, rowKey)); undo.current = []; setMsg("Changes discarded."); }
+  // one row back to its saved values (a new row goes away)
+  function revertRow(key) {
+    setItems((list) => list.filter((x) => !(x.key === key && x.isNew)).map((x) => (x.key === key ? { ...x, cur: { ...x.orig }, deleted: false, error: "" } : x)));
+    setEditing(null);
+  }
+  const rowDirty = (it) => it.isNew || it.deleted || columns.some((c) => !c.readOnly && show(it.cur[c.key]) !== show(it.orig[c.key]));
 
   // only the rows in view are drawn
   const viewportH = scroller.current?.clientHeight || 600;
@@ -320,13 +356,15 @@ export default function Grid({
     if (c.type === "select" || c.type === "bool") {
       const opts = c.type === "bool" ? ["", "Yes", "No"] : ["", ...(c.options || [])];
       return (
-        <select autoFocus value={editing.value} onChange={(e2) => commit(e2.target.value)} onKeyDown={done} onBlur={(e2) => commit(e2.target.value)}>
+        <select autoFocus value={editing.value} onChange={(e2) => commit(e2.target.value)} onKeyDown={done} onBlur={(e2) => commit(e2.target.value)}
+          ref={(el) => { if (el && !el.dataset.opened) { el.dataset.opened = "1"; try { el.showPicker?.(); } catch { /* older browsers: the list opens on the next click */ } } }}>
           {opts.map((o) => <option key={o} value={o}>{o || "(empty)"}</option>)}
           {editing.value && !opts.includes(editing.value) && <option value={editing.value}>{editing.value}</option>}
         </select>
       );
     }
     return <input autoFocus type={c.type === "date" ? "date" : "text"} defaultValue={c.type === "date" ? String(editing.value).slice(0, 10) : editing.value}
+      ref={(el) => { if (el && c.type === "date" && !el.dataset.opened) { el.dataset.opened = "1"; try { el.showPicker?.(); } catch { /* typed instead */ } } }}
       onKeyDown={done} onBlur={(e2) => commit(e2.target.value)} list={c.suggest ? `dl-${c.key}` : undefined} />;
   };
 
@@ -352,7 +390,7 @@ export default function Grid({
         <span className="er-spacer" />
         {dirtyCount > 0 && <span className="dirty-count">{dirtyCount} changed row{dirtyCount === 1 ? "" : "s"}</span>}
         {dirtyCount > 0 && <button onClick={discard} title="Forget every change not saved">Discard</button>}
-        <button className={canEdit ? "ed-btn" : "later"} disabled={!canEdit || !dirtyCount || busy} title={canEdit ? "Save the changed rows (Ctrl+S)" : why} onClick={save}>
+        <button className={canEdit ? "ed-btn" : "later"} disabled={!canEdit || !dirtyCount || busy} title={canEdit ? "Save the changed rows (Ctrl+S)" : why} onClick={() => save()}>
           {busy ? "Saving..." : "Save"}</button>
       </div>
       {msg && <p className={/not saved|cannot|Row \d|No |not |refused|needs/i.test(msg) ? "status bad" : "status ok"}>{msg}</p>}
@@ -382,17 +420,26 @@ export default function Grid({
                     onContextMenu={(e) => { e.preventDefault(); if (!inSel(r, active.c)) { setActive({ r, c: active.c }); setAnchor(null); } setMenu({ x: e.clientX, y: e.clientY, r }); }}>
                     <td className="rownum" title={it.error || (it.isNew ? "New row (not saved)" : it.deleted ? "Will be deleted when you save" : "")}>
                       {it.error ? "⚠" : it.isNew ? "+" : it.deleted ? "✕" : r + 1}
+                      {canEdit && rowDirty(it) && <span className="row-acts" onMouseDown={(e) => e.stopPropagation()}>
+                        <button className="linkish" disabled={busy} onClick={() => save(it.key)} title="Save this row">✓</button>
+                        <button className="linkish" onClick={() => revertRow(it.key)} title="Put this row back as it was saved">↶</button>
+                      </span>}
+                      {rowMark && !it.isNew && !rowDirty(it) && <span className="row-acts" onMouseDown={(e) => e.stopPropagation()}>{rowMark(it.cur, it)}</span>}
                     </td>
                     {cols.map((c, ci) => {
                       const isActive = active.r === r && active.c === ci;
                       const dirty = !it.isNew && !c.readOnly && show(it.cur[c.key]) !== show(it.orig[c.key]);
                       return (
-                        <td key={c.key} className={`${isActive ? "active" : ""} ${inSel(r, ci) ? "sel" : ""} ${dirty ? "dirty" : ""} ${c.readOnly && !(c.createOnly && it.isNew) ? "ro" : ""} ${c.type === "number" ? "num" : ""}`}
-                          title={dirty ? `Was: ${show(it.orig[c.key]) || "(empty)"}` : undefined}
+                        <td key={c.key} className={`${isActive ? "active" : ""} ${inSel(r, ci) ? "sel" : ""} ${dirty ? "dirty" : ""} ${c.readOnly && !(c.createOnly && it.isNew) ? "ro" : ""} ${c.type === "number" ? "num" : ""} ${(!dirty && c.cellClass?.(it.cur, it)) || ""} ${editable(c, it) && ["select", "bool", "date"].includes(c.type) ? `pick ${c.type}` : ""}`}
+                          title={dirty ? `Was: ${show(it.orig[c.key]) || "(empty)"}` : c.cellTitle?.(it.cur, it) || undefined}
                           onMouseDown={(e) => {
                             if (e.button !== 0) return;
                             if (e.shiftKey) { if (!anchor) setAnchor(active); } else setAnchor(null);
+                            if (isActive && editing) return;      // clicking inside the editor
+                            // one click opens a pick list or a date; a second click on the same cell edits any cell
+                            if (!e.shiftKey && editable(c, it) && (["select", "bool", "date"].includes(c.type) || isActive)) pendingEdit.current = { r, c: ci };
                             setActive({ r, c: ci });
+                            if (isActive && pendingEdit.current) { pendingEdit.current = null; setTimeout(() => startEdit(), 0); }
                           }}
                           onDoubleClick={() => { setActive({ r, c: ci }); setTimeout(() => startEdit(), 0); }}>
                           {isActive && editing ? editor(c, it) : (c.render ? c.render(it.cur, it) : show(it.cur[c.key]))}
@@ -416,6 +463,8 @@ export default function Grid({
             <li><button disabled={!canEdit || !allowDelete} onClick={() => { toggleDelete(selectedKeys()); setMenu(null); }}>
               {deleteLabel} / undelete selected rows</button></li>
             <li><button onClick={() => { doUndo(); setMenu(null); }}>Undo (Ctrl+Z)</button></li>
+            {rowMenu && view[menu.r] && !view[menu.r].isNew && rowMenu(view[menu.r].cur, view[menu.r]).map((x) => (
+              <li key={x.label}><button disabled={!!x.disabled} onClick={() => { setMenu(null); x.onClick(); }}>{x.label}</button></li>))}
           </ul>
         )}
         {columns.filter((c) => c.suggest).map((c) => (

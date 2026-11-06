@@ -415,6 +415,25 @@ REPORTS += [
        ["enterprise_architect", "portfolio_manager"]),
 ]
 
+# data quality reports (phase 12, D239, RPT-007): the latest measurement of each model and the trend; every number drills
+# down to the entities behind it, and each row opens the entity (or the model's Quality tab) in EA Explorer
+_Q = "Data quality"
+REPORTS += [
+    _f("QR-01", _Q, "Data quality", "Data quality across models", "quality_runs",
+       "Each model's quality score and its parts (completeness, rules passed, freshness), and how they moved over time.",
+       ["enterprise_architect", "architecture_board", "model_owner", "cio"]),
+    _f("QR-02", _Q, "Data quality", "Completeness by type and owner", "quality_groups",
+       "Completeness, failing rules, stale entities and orphans by entity type and by owner, weakest first.",
+       ["model_owner", "enterprise_architect", "data_steward"]),
+    _f("QR-03", _Q, "Data quality", "What to fix", "quality_findings",
+       "Every finding of the latest measurement: missing values, failing rules, stale entities, orphans and broken seals, "
+       "with who is responsible; each opens the entity to fix it.",
+       ["model_owner", "data_steward", "enterprise_architect"]),
+    _f("QR-04", _Q, "Data quality", "Failing rules", "quality_findings",
+       "The rules entities fail, errors first, and the entities failing each.",
+       ["model_owner", "data_steward", "architecture_board"]),
+]
+
 # standard report audiences (D153, the table agreed on 4 Nov 2026)
 STANDARD_AUDIENCES = {
     "MO": ["model_owner", "enterprise_architect", "architecture_board"],

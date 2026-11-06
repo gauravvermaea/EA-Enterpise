@@ -3,6 +3,7 @@
 // it uses now, its logs, an interactive terminal (D214) and a command line (IT and Super Admins; EAX_CONTAINER_CONSOLE=off
 // switches both off). Every command, and the start and end of every terminal, is in the audit trail.
 import { useEffect, useRef, useState } from "react";
+import { StartupCell, StartupLine, TONE, WORD, containerStartup } from "./StartupStatus";
 import { apiFetch, can } from "./auth";
 import { fmtDateTime } from "./fmt";
 import { useApi } from "./ModelViews";
@@ -20,16 +21,18 @@ export default function ContainerConsole() {
       <p className="quiet">Every container of this installation. Choose one to see its properties and logs, open a terminal in it
         or run a command (IT and Super Admins; recorded in the audit trail).</p>
       {error && <p className="status bad">{error}</p>}
+      <StartupLine />
+      <ApiServers />
       <div className="ct-layout">
         <ul className="ct-list" role="listbox" aria-label="Containers">
           <li role="option" aria-selected={pick === SUMMARY} className={`ct-summary-item${pick === SUMMARY ? " on" : ""}`}>
             <button className="linkish" onClick={() => setPick(SUMMARY)}>☰ Summary</button>
           </li>
           {list.map((c) => (
-            <li key={c.id} role="option" aria-selected={pick === c.service} className={pick === c.service ? "on" : ""}>
-              <button className="linkish" onClick={() => setPick(c.service)}>
-                <span className={`dot ${c.state === "running" ? "green" : c.state === "exited" ? "grey" : "amber"}`} />
-                {c.service}<span className="quiet small"> {c.state}</span>
+            <li key={c.id} role="option" aria-selected={pick === (c.key || c.service)} className={pick === (c.key || c.service) ? "on" : ""}>
+              <button className="linkish" onClick={() => setPick(c.key || c.service)} title={c.name}>
+                <span className={`dot ${TONE[containerStartup(c)]}`} />
+                {c.key || c.service}<span className="quiet small"> {WORD[containerStartup(c)]}</span>
               </button>
             </li>
           ))}
@@ -86,7 +89,7 @@ function Summary({ onPick }) {
       {h && (
         <div className="table-scroll">
           <table className="grid-table ct-sum">
-            <thead><tr><th>Container</th><th>Health</th><th>State</th><th>Docker health</th><th className="num">CPU</th>
+            <thead><tr><th>Container</th><th title="Start-up (D255): up, starting or down; 1st: starts first (needed to sign in), 2nd: after it, in the background">Start-up</th><th>Health</th><th>State</th><th>Docker health</th><th className="num">CPU</th>
               <th className="num">Memory</th><th className="num">% of limit</th><th className="num">Processes</th>
               <th className="num">Disk (own layer)</th><th className="num">Volumes</th><th>Up for</th><th className="num">Restarts</th></tr></thead>
             <tbody>
@@ -95,7 +98,8 @@ function Summary({ onPick }) {
                 const up = c.state === "running";
                 return (
                   <tr key={c.id}>
-                    <td><button className="linkish" onClick={() => onPick(c.service)}>{c.service}</button></td>
+                    <td><button className="linkish" onClick={() => onPick(c.key || c.service)} title={c.name}>{c.key || c.service}</button></td>
+                    <td><StartupCell c={c} /></td>
                     <td><span className={`rag ${lv}`}>{txt}</span></td>
                     <td className={up ? "" : "quiet"}>{c.state}{!up && c.exit_code ? ` (exit ${c.exit_code})` : ""}{c.oom_killed ? <span className="bad-text"> · out of memory</span> : null}</td>
                     <td className={c.health === "healthy" ? "ok-text" : c.health === "unhealthy" ? "bad-text" : "quiet"}>{up && c.health !== "none" ? c.health : ""}</td>
@@ -114,7 +118,7 @@ function Summary({ onPick }) {
             <tfoot>
               <tr>
                 <th>Total</th>
-                <th colSpan="3">{run.length} of {cs.length} running</th>
+                <th colSpan="4">{run.length} of {cs.length} running</th>
                 <th className="num">{sum("cpu_percent").toFixed(1)}%</th>
                 <th className="num">{mb(sum("memory_bytes"))}</th>
                 <th className="num">{limit ? `${((sum("memory_bytes") / limit) * 100).toFixed(1)}%` : ""}</th>
@@ -368,5 +372,54 @@ function Terminal({ service, on, running }) {
       {err && <p className="status bad">{err}</p>}
       <div className={`ct-xterm${state === "idle" ? " empty" : ""}`} ref={box} />
     </div>
+  );
+}
+
+
+// the API and job servers (D249): copies of the api container; each answers API calls (nginx spreads them across all)
+// and runs background jobs. Super and IT Admins add or remove them at once, without a restart.
+function ApiServers() {
+  const [data, setData] = useState(null);
+  const [msg, setMsg] = useState("");
+  const [gen, setGen] = useState(0);
+  useEffect(() => {
+    let live = true;
+    apiFetch("/api/v1/admin/servers").then((d) => live && setData(d)).catch((e) => live && setMsg(e.message));
+    return () => { live = false; };
+  }, [gen]);
+  useEffect(() => {          // while servers start or stop, read again every few seconds
+    if (!data?.busy) return undefined;
+    const t = setTimeout(() => setGen((g) => g + 1), 3000);
+    return () => clearTimeout(t);
+  }, [data, gen]);
+  if (!data) return msg ? <p className="status bad small">{msg}</p> : null;
+  const running = data.servers.filter((s) => s.state === "running").length;
+  async function set(count) {
+    setMsg("");
+    try { const r = await apiFetch("/api/v1/admin/servers", { method: "PUT", body: JSON.stringify({ count }) }); setMsg(r.message); setGen((g) => g + 1); }
+    catch (e) { setMsg(e.message); }
+  }
+  return (
+    <section className="q-card api-servers">
+      <h3>API and job servers</h3>
+      <p className="quiet small">Copies of the api container: each answers API calls (nginx spreads them across all of them) and runs background
+        jobs such as data quality measurements. Add one when jobs queue up or the screens slow down; removing one lets the jobs it runs finish
+        first. The first server is never removed. The number is kept in the config file, so a restart keeps it.</p>
+      <div className="row-gap">
+        <button onClick={() => set(data.wanted - 1)} disabled={data.busy || data.wanted <= 1} title="Remove a server" aria-label="Remove a server">−</button>
+        <b>{data.wanted}</b> wanted · {running} running
+        <button onClick={() => set(data.wanted + 1)} disabled={data.busy || data.wanted >= data.max} title="Add a server" aria-label="Add a server">+</button>
+        {data.busy && <span className="small"><span className="spinner" aria-hidden="true" /> {data.job?.what}...</span>}
+      </div>
+      {data.job && !data.busy && (data.job.log?.length > 0 || data.job.error) && <p className={`small ${data.job.error ? "status bad" : "quiet"}`}>{data.job.error || data.job.log.join(" · ")}</p>}
+      {msg && <p className="small status warn">{msg}</p>}
+      <table className="grid-table">
+        <thead><tr><th>#</th><th>Container</th><th>State</th><th>Health</th><th>Started</th></tr></thead>
+        <tbody>{data.servers.map((s) => (
+          <tr key={s.id}><td>{s.number}{s.number === 1 && <span className="quiet small"> (first)</span>}</td><td className="small"><b>{s.key || `api-${s.number}`}</b> <span className="quiet">{s.name}</span></td>
+            <td>{s.state}</td><td>{s.health || "-"}</td><td className="small">{s.started ? fmtDateTime(s.started) : "-"}</td></tr>
+        ))}</tbody>
+      </table>
+    </section>
   );
 }

@@ -1,23 +1,20 @@
 """Loads the built-in models on start:  python -m eax.seed
 
-Run by the api container's entrypoint after the database migrations. Each model is loaded once:
-whatever is already present is left alone, so it is safe on every start.
+Run by the api container's entrypoint after the database migrations, before the API starts: only what everyone
+needs to sign in and work (the core of the start-up, D255). Each model is loaded once: whatever is already present is
+left alone, so it is safe on every start.
   * ArchiMate 4 template (always)
   * Insurance reference model (always; a new version is a new model beside the old one)
-  * Sample insurance model (when EAX_SEED_SAMPLE is true: the laptop template sets it)
-  * Laptop only (with the sample): test models for roles (a fictitious insurer, Fynbos Mutual, from the
-    insurance reference model, with Fynbos Life and Fynbos Commercial derived from it, and an
-    independent Karoo Re), the demo estate Protea Insurance (phase 8.2), the test users' model
-    assignments (phase 3.1), and a few saved versions of two sample entities for the History tab (D110). The demo
-    estate's tags and gap analyses (phase 8.3, D176) are made after the API starts: eax/seed/versions_demo.py
   * The built-in viewpoints and report audiences (always, phase 8.2)
+  * Laptop only: the test users' roles on the models present
+The sample insurance model, the laptop test models, the demo estate and the first data quality measurement are loaded
+after the API has started, in the background, one step at a time (eax/seed/later.py), so the start is not held up.
 Templates and reference models are locked, so this runs as the installer's login (eax_migrator,
 EAX_DB_MIGRATOR_PASSWORD), the only login the database lets change them.
 """
 
 from __future__ import annotations
 
-import os
 import sys
 import time
 
@@ -25,16 +22,7 @@ import psycopg
 
 from ..config import get_settings
 from ..permissions import TEST_USERS
-from .build import (
-    GROUP_KEY,
-    INSURANCE_ID,
-    SAMPLE_ID,
-    TEMPLATE_ID,
-    gid,
-    history_demo_steps,
-    seed_sql,
-    test_models_sql,
-)
+from .build import INSURANCE_ID, TEMPLATE_ID, history_demo_steps, seed_sql
 from .catalog import catalog_sql
 
 
@@ -43,40 +31,40 @@ def main() -> int:
     if not settings.db_migrator_password:
         print("EA Explorer seed: EAX_DB_MIGRATOR_PASSWORD is not set; built-in models not loaded", file=sys.stderr)
         return 1
-    with_sample = os.environ.get("EAX_SEED_SAMPLE", "false").strip().lower() in ("1", "true", "yes")
     with psycopg.connect(settings.migrator_conninfo) as conn:
         present = {str(r[0]) for r in conn.execute(
-            "SELECT guid FROM core.models WHERE guid IN (%s, %s, %s)",
-            (TEMPLATE_ID, INSURANCE_ID, SAMPLE_ID)).fetchall()}
-        need = {
-            "ArchiMate 4 template": TEMPLATE_ID not in present,
-            "insurance reference model": INSURANCE_ID not in present,
-            "sample model": with_sample and SAMPLE_ID not in present,
-        }
+            "SELECT guid FROM core.models WHERE guid IN (%s, %s)", (TEMPLATE_ID, INSURANCE_ID)).fetchall()}
+        need = {"ArchiMate 4 template": TEMPLATE_ID not in present, "insurance reference model": INSURANCE_ID not in present}
         if not any(need.values()):
             print("EA Explorer: built-in models already present")
         else:
             conn.execute(seed_sql(with_template=need["ArchiMate 4 template"],
-                                  with_insurance=need["insurance reference model"],
-                                  with_sample=need["sample model"]))
-            counts = conn.execute(
-                "SELECT (SELECT count(*) FROM core.models), (SELECT count(*) FROM core.entities)").fetchone()
+                                  with_insurance=need["insurance reference model"], with_sample=False))
             loaded = ", ".join(name for name, n in need.items() if n)
-            print(f"EA Explorer: loaded the {loaded} ({counts[0]} models, {counts[1]} entities)")
-        if settings.deployment == "laptop" and with_sample:
-            if not conn.execute("SELECT 1 FROM core.models WHERE guid = %s", (gid("model", GROUP_KEY),)).fetchone():
-                conn.execute(test_models_sql())
-                print("EA Explorer: loaded the laptop test models (Fynbos Mutual group, Fynbos Life, Fynbos Commercial, Karoo Re)")
-                history_demo(conn)
+            print(f"EA Explorer: loaded the {loaded}")
+        if settings.deployment == "laptop":
             assign_test_users(conn)
-            # the demo estate's tags and gap analyses are made after the API starts (entrypoint.sh, D176)
+        give_icons(conn)
         # the built-in viewpoints and report audiences follow eax/report_defs.py (phase 8.2, D161)
         conn.execute(catalog_sql())
         print("EA Explorer: viewpoints and report audiences brought up to date")
-        # the typed report views (rpt.t_*) follow the metamodels just loaded (D139)
-        n = conn.execute("SELECT rpt.refresh_typed_views()").fetchone()[0]
-        print(f"EA Explorer: report views brought up to date ({n} changed)")
+        refresh_views(conn)
     return 0
+
+
+def give_icons(conn) -> None:
+    """Every model has an icon (D247): those without one get their kind's."""
+    conn.execute("""INSERT INTO core.model_icons (model_id, library, set_by)
+                    SELECT m.id, CASE m.kind_code WHEN 'template' THEN 'layers' WHEN 'reference' THEN 'bank' ELSE 'building' END,
+                           'eax_migrator'
+                      FROM core.models m WHERE NOT m.is_deleted
+                       AND NOT EXISTS (SELECT 1 FROM core.model_icons i WHERE i.model_id = m.id)""")
+
+
+def refresh_views(conn) -> None:
+    """The typed report views (rpt.t_*) follow the metamodels loaded (D139)."""
+    n = conn.execute("SELECT rpt.refresh_typed_views()").fetchone()[0]
+    print(f"EA Explorer: report views brought up to date ({n} changed)")
 
 
 def history_demo(conn) -> None:

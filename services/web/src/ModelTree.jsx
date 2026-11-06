@@ -1,8 +1,8 @@
 // The model hierarchy as a drawn tree (Models > Hierarchy): each model a box under the model it merges
 // into or, failing that, the one it was created from (D63, D81). Top-down or left-to-right, pan and
-// zoom, click a box to open the model; saves as .drawio, SVG and PNG. Only the models you may read.
+// zoom, click a box to open the model; opens in draw.io (D256) and saves as SVG and PNG. Only the models you may read.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { downloadDrawio, downloadPng, downloadSvg } from "./exporting";
+import { openDrawio, downloadPng, downloadSvg } from "./exporting";
 import usePanZoom from "./usePanZoom";
 import { KINDS, lockWhy, marksText, readOnlyWhy } from "./ModelMarks";
 
@@ -70,7 +70,7 @@ export default function ModelTree({ models, focus }) {
     return `M${x1},${y1} V${my} H${x2} V${y2}`;
   };
   function exportDrawio() {
-    downloadDrawio(title, t.nodes.map(({ m, x, y }) => ({
+    openDrawio(title, t.nodes.map(({ m, x, y }) => ({
       id: m.id, label: m.name, sub: `${STYLE[m.kind]?.label || m.kind}${m.kind !== "template" ? ` · ${m.entity_count} entities` : ""}`,
       x, y, w: W, h: H, fill: STYLE[m.kind]?.fill, stroke: STYLE[m.kind]?.stroke, ea_type: "Model", ea_id: m.id, align: "center",
     })), t.edges.map((e) => ({ source: e.from, target: e.to, dashed: !e.merges, arrow: false })));
@@ -89,7 +89,7 @@ export default function ModelTree({ models, focus }) {
         <button onClick={() => fit(t.width, t.height, 1)}>Fit</button>
         <button onClick={() => zoomCentre(1.25)}>+</button>
         <button onClick={() => zoomCentre(0.8)}>−</button>
-        <button onClick={exportDrawio} title="Boxes and lines for draw.io, hosted or desktop">.drawio</button>
+        <button onClick={exportDrawio} title="Boxes and lines, opened in draw.io in a new tab; save or export it there">Open in draw.io</button>
         <button onClick={() => downloadSvg(svgRef.current, t.width, t.height, title)}>SVG</button>
         <button onClick={() => downloadPng(svgRef.current, t.width, t.height, title)}>PNG</button>
       </div>

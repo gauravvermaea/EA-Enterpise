@@ -16,6 +16,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import ELK from "elkjs/lib/elk-api.js";
 import elkWorkerUrl from "elkjs/lib/elk-worker.min.js?url";
 import { apiFetch } from "./auth";
+import { openDrawioXml } from "./exporting";
 
 const GENERIC = ["Association", "Specialization"];
 const REL_COLOURS = {
@@ -538,11 +539,11 @@ export default function MetamodelDiagram({ model, focus }) {
     img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(text);
   }
 
-  function downloadDrawio() {
+  function openDrawio() {
     if (!graph) return;
     const text = drawioXml(fileName("drawio").replace(/\.drawio$/, ""), boxes, links, data.entity_types, showAttrs, bands);
-    saveBlob(new Blob([text], { type: "application/xml" }), fileName("drawio"));
-    setNote(".drawio saved: open it in draw.io here or in the desktop app (File > Open).");
+    openDrawioXml(fileName("drawio").replace(/\.drawio$/, ""), text);
+    setNote("Opened in draw.io in a new tab: save or export it there (File > Save as, File > Export as).");
     setTimeout(() => setNote(""), 6000);
   }
 
@@ -624,7 +625,7 @@ export default function MetamodelDiagram({ model, focus }) {
         {Object.keys(moved).length > 0 && <button onClick={() => setMoved({})} title="Put dragged boxes back">Reset layout</button>}
         <button onClick={downloadSvg}>SVG</button>
         <button onClick={downloadPng}>PNG</button>
-        <button onClick={downloadDrawio} title="For draw.io, hosted or desktop">.drawio</button>
+        <button onClick={openDrawio} title="Opens in draw.io in a new tab; save or export it there (File > Save as, Export as)">Open in draw.io</button>
         <button onClick={copyMermaid}>Copy as Mermaid</button>
       </div>
 
@@ -702,8 +703,8 @@ export default function MetamodelDiagram({ model, focus }) {
         Boxes are entity types with their attributes (* required; every entity also has a display ID, name,
         description, parent, status and history). Lines are the relationships the metamodel allows, from source to
         target, combined per pair of types. Drag a box to move it, click it to focus on it; drag the background to
-        move around; scroll to zoom. SVG, PNG and .drawio save what you see (.drawio opens in the hosted draw.io and
-        the desktop app).
+        move around; scroll to zoom. SVG and PNG save what you see; Open in draw.io opens it in the platform's draw.io in
+        a new tab, to edit, save or export there.
       </p>
     </div>
   );

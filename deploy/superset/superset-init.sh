@@ -42,6 +42,24 @@ fi
 echo "EA Explorer: importing the report dashboards (the first start takes a few minutes)"
 python /app/eax/eax_import_reports.py
 
+# the sample data loads after the API has started (D255): its typed report views are made as its models arrive, so the
+# datasets wait for it (up to 15 minutes; then they are added with what is there, and the rest at the next start)
+echo "EA Explorer: waiting for the sample data before adding the report datasets"
+python - <<'PY' || true
+import json, time, urllib.request
+until = time.time() + 15 * 60
+while time.time() < until:
+    try:
+        with urllib.request.urlopen("http://api:8000/api/startup", timeout=10) as r:
+            later = next((p for p in json.load(r).get("parts", []) if p["key"] == "later"), None)
+        if later is None or later["status"] in ("up", "down", "off"):
+            print("EA Explorer: sample data", later["status"] if later else "not loading")
+            break
+    except Exception as exc:  # noqa: BLE001
+        print("EA Explorer: the API is not answering yet:", exc)
+    time.sleep(10)
+PY
+
 echo "EA Explorer: report datasets, the reader role and model access"
 python /app/eax/eax_reports_init.py
 

@@ -12,6 +12,12 @@ STAMP=$(date +%Y%m%d-%H%M%S)
 LOG=""
 CMD="${1:-help}"
 [ "$CMD" = run ] && CMD=up   # run: the everyday start, the same as up
+# --wait-all (up, run, debug and the clean-* commands): start everything and wait until all of it is up, the sample data
+# loaded too; without it the core starts first and the rest in the background (D255)
+WAIT_ALL=""
+_args=()
+for _a in "$@"; do if [ "$_a" = --wait-all ]; then WAIT_ALL=1; else _args+=("$_a"); fi; done
+set -- "${_args[@]}"
 
 # ------------------------------------------------------------------ help
 help_text() {
@@ -27,14 +33,20 @@ Getting started
                         are valid. Starts nothing.
   run                   The everyday start, after the first clean-run: the same as up. Keeps the
                         databases, documents and settings from last time.
-  up [service...]       Builds our images, pulls the others, and starts every container in the
+  up [service...] [--wait-all]
+                        Starts in two tiers (D255): the core first (sign-in, the API, the screens; you can sign
+                        in when it says ready), then Reports, Documents, draw.io and the sample data in the
+                        background. --wait-all starts everything and waits until all of it is up (also on
+                        run, debug and the clean-* commands).
+                        Builds our images, pulls the others, and starts every container in the
                         background. Then prints the addresses and (laptop) the logins.
                         Name services to start only those and what they depend on, for example
                         "up api proxy" starts the API, PostgreSQL and nginx only (about 1 GB);
                         the API is then at https://localhost/api/docs (laptop also http://).
 
 Finding problems
-  debug [service...]    Same as up, but does not stop on failure: it saves a diagnostics report and
+  debug [service...] [--wait-all]
+                        Same as up, but does not stop on failure: it saves a diagnostics report and
                         then keeps recording the containers' output to
                         work/logs/containers-<date-time>.log until you press Ctrl+C.
                         The containers keep running after Ctrl+C. "debug api" starts and records
@@ -84,6 +96,9 @@ Everyday use
                         restores one as a new model or over itself (needs the api container running).
   services              Lists the optional services (reports, documents, drawio, mcp, change_log,
                         backups), whether each is on in the config file and its containers' state.
+  servers [n]           How many API and job servers run (D249): without n, shows them; with n (1 to 16), writes
+                        EAX_API_SERVERS (a dated copy of the config file first) and adds or removes servers now,
+                        without a restart (nginx spreads API calls across them). Also on Administration > Containers.
   service <name> on|off Switches one optional service on or off: keeps a dated copy of the config file
                         in work/config-history, writes the switch, then starts or stops its containers.
                         Everything is on unless switched off (D191). Also in Administration > System
@@ -96,14 +111,14 @@ Starting again
                         deletes the Docker volumes, so the databases and documents start empty.
                         The local certificate (work/data/tls) is kept, so you need not trust it
                         again; --certificate deletes it too. Asks you to type yes unless --yes is given.
-  clean-run [laptop|server]
+  clean-run [laptop|server] [--wait-all]
                         Starts again from scratch in one step: cleanup --all --yes, then init
                         (laptop if not given), then up. Deletes the databases and everything in
                         the work folder without asking.
-  clean-debug [laptop|server]
+  clean-debug [laptop|server] [--wait-all]
                         The same, but ends with debug instead of up (keeps recording the
                         containers' output until Ctrl+C).
-  clean-restart [laptop|server]
+  clean-restart [laptop|server] [--wait-all]
                         For testing a new version: down (stops and removes the running containers),
                         then clean-run (cleanup --all --yes, init, up). Rebuilds our images and
                         starts with empty databases; the trusted certificate is kept.
@@ -233,21 +248,102 @@ off_containers() {
 }
 # up (all services): everything but the switched-off services; those are created, not started, so the console can
 # switch them on later
+# how many API and job servers (copies of the api container) run (D249): 1 to 16, 1 when not set
+api_servers() {
+  local n; n=$(setting EAX_API_SERVERS 1)
+  case "$n" in ''|*[!0-9]*) n=1 ;; esac
+  [ "$n" -lt 1 ] && n=1; [ "$n" -gt 16 ] && n=16
+  echo "$n"
+}
+# The start-up in two tiers (D255): the core first (database, set-up, proxy, screens, sign-in, the API with the database
+# upgrade and the built-in models), so people can sign in in a minute or two; everything else after it, in the
+# background (Reports, Documents, draw.io, backups, the operations helper), while the API loads the sample data and
+# measures data quality. The screens show each part red, amber or green (down, starting, up).
+CORE_SERVICES="db setup proxy web keycloak api"
+tiers() {  # sets FIRST, LATER and OFF
+  local s
+  OFF=$(off_containers); FIRST=""; LATER=""
+  for s in $(compose config --services); do
+    case " $OFF " in *" $s "*) continue ;; esac
+    case " $CORE_SERVICES " in *" $s "*) FIRST="$FIRST $s" ;; *) LATER="$LATER $s" ;; esac
+  done
+}
+# waits until the API (every copy) and Keycloak say healthy; shows each change
+wait_core() {
+  local until=$(( $(date +%s) + 900 )) last="" rows now
+  while [ "$(date +%s)" -lt "$until" ]; do
+    rows=$(compose ps -a --format '{{.Name}}|{{.State}}|{{.Health}}' api keycloak 2>/dev/null | grep '|' || true)
+    now=$(echo "$rows" | awk -F'|' 'NF { printf "%s%s: %s", (n++ ? ", " : ""), $1, ($3 != "" ? $3 : $2) }')
+    if [ -n "$now" ] && [ "$now" != "$last" ]; then echo "  $now"; last=$now; fi
+    if [ "$(echo "$rows" | grep -c '|')" -ge 2 ] && ! echo "$rows" | awk -F'|' '$3 != "healthy"' | grep -q .; then return 0; fi
+    if echo "$rows" | awk -F'|' '$2 == "exited" || $2 == "dead"' | grep -q .; then
+      echo "A core container stopped; see ./eax.sh logs api (or keycloak)."; return 1
+    fi
+    sleep 5
+  done
+  echo "The API or sign-in was not ready after 15 minutes; see ./eax.sh logs api (or keycloak)."
+  return 1
+}
+# --wait-all: waits until every part is up (the API's start-up status, D255): Reports, Documents, Diagrams, the sample data
+wait_all() {
+  local until=$(( $(date +%s) + 1800 )) t0 last="" now
+  t0=$(date +%s)
+  echo "Waiting for everything: Reports, Documents, Diagrams and the sample data (up to 30 minutes)..."
+  while [ "$(date +%s)" -lt "$until" ]; do
+    now=$(compose exec -T api python -c "import json,urllib.request as u; d=json.load(u.urlopen('http://localhost:8000/api/startup',timeout=20)); print(d['overall']+'|'+', '.join(p['key']+': '+p['status'] for p in d['parts']))" 2>/dev/null | tail -n1 || true)
+    if [ -n "$now" ] && [ "$now" != "$last" ]; then echo "  ${now#*|}"; last=$now; fi
+    case "$now" in
+      up\|*) echo "Everything is up after $(( $(date +%s) - t0 )) s."; return 0 ;;
+      down\|*) if ! echo "$now" | grep -q starting; then echo "Started, but not everything is up (see above): ./eax.sh logs <service>."; return 0; fi ;;
+    esac
+    sleep 10
+  done
+  echo "Not everything was up after 30 minutes (see above); EA Explorer is usable, the rest may still come."
+}
+# start-later: the second tier, the rest without touching the core, then the switched-off ones created
+start_later() {
+  tiers
+  if [ -n "${LATER// }" ]; then
+    echo "Starting after the core (D255):$LATER"
+    # shellcheck disable=SC2086
+    compose up -d --build --no-deps $LATER || true
+  fi
+  if [ -n "${OFF// }" ]; then
+    # shellcheck disable=SC2086
+    compose create --build $OFF || true
+    # shellcheck disable=SC2086
+    compose stop $OFF >/dev/null 2>&1 || true
+  fi
+  echo "Everything is started."
+}
 up_services() {
-  local off on s
+  local t0
   write_services_file
-  if [ "$#" -gt 0 ]; then compose up -d --build "$@"; return; fi
-  off=$(off_containers)
-  if [ -z "${off// }" ]; then compose up -d --build; return; fi
-  on=""
-  for s in $(compose config --services); do case " $off " in *" $s "*) ;; *) on="$on $s" ;; esac; done
-  echo "Switched off (D191):$off: created, not started."
+  if [ "$#" -gt 0 ]; then
+    case " $* " in *" api "*) compose up -d --build --scale "api=$(api_servers)" "$@" ;; *) compose up -d --build "$@" ;; esac
+    return
+  fi
+  tiers
+  [ -n "${OFF// }" ] && echo "Switched off (D191):$OFF: created, not started."
+  echo "Starting the core first (D255):$FIRST"
   # shellcheck disable=SC2086
-  compose up -d --build $on || return 1
-  # shellcheck disable=SC2086
-  compose create --build $off || true
-  # shellcheck disable=SC2086
-  compose stop $off >/dev/null 2>&1 || true
+  compose up -d --build --scale "api=$(api_servers)" $FIRST || return 1
+  echo "Waiting for the API and sign-in to be ready (the database upgrade and the built-in models come first)..."
+  t0=$(date +%s)
+  if wait_core; then READY=$(( $(date +%s) - t0 )); else READY=""; fi
+  if [ -n "$WAIT_ALL" ]; then        # --wait-all: the rest now, in this terminal, and wait until everything is up
+    start_later
+    wait_all
+    return 0
+  fi
+  # the second tier in the background, with its own log, so this terminal is free at once
+  nohup "$BASH" "$0" start-later >/dev/null 2>&1 &
+  echo "Reports, documents, draw.io, backups and the operations helper start now in the background (log: work/logs/eax-*-start-later.log)."
+  echo "(To wait for everything instead: ./eax.sh up --wait-all.)"
+  if [ -n "$READY" ]; then
+    echo "EA Explorer is ready after ${READY} s: you can sign in."
+    echo "Still starting in the background: Reports, Documents, Diagrams and the sample data; the screens show each in red, amber or green (down, starting, up)."
+  fi
 }
 show_services() {
   local n
@@ -451,7 +547,7 @@ case "$CMD" in
     # cleanup --all --yes, init, then up or debug: each as its own run of this script (own log);
     # clean-restart brings the running containers down first
     kind="${2:-laptop}"; last=up; [ "$CMD" = clean-debug ] && last=debug
-    steps=("cleanup --all --yes" "init $kind" "$last")
+    steps=("cleanup --all --yes" "init $kind" "$last${WAIT_ALL:+ --wait-all}")
     if [ "$CMD" = clean-restart ]; then
       if [ -f "$ENV_FILE" ]; then steps=("down" "${steps[@]}")
       else echo "No $ENV_FILE yet: nothing running to bring down; going straight to clean-run."; fi
@@ -470,7 +566,7 @@ if [ -f eaexplorer.env ] && [ ! -f "$ENV_FILE" ]; then
   echo "Delete the old file and run ./eax.sh init laptop (or copy your changes into $ENV_FILE)."
 fi
 
-case "$CMD" in check|up|debug|status|logs|down|backup|backups|restore|restores|restore-log|delete-backup|delete-restore|app-backup|restore-model|restore-app|stop-backup|services|service) assert_docker ;; esac
+case "$CMD" in check|up|start-later|debug|status|logs|down|backup|backups|restore|restores|restore-log|delete-backup|delete-restore|app-backup|restore-model|restore-app|stop-backup|services|service) assert_docker ;; esac
 
 case "$CMD" in
   init)
@@ -508,6 +604,7 @@ case "$CMD" in
     if [ -n "$PAGE" ]; then rm -f work/proxy/maintenance; fi
     if [ "$#" -gt 0 ]; then show_part_urls "$@"; else show_urls; show_logins; fi
     ;;
+  start-later) start_later ;;
   debug)
     shift
     if ! up_services "$@"; then echo "docker compose up failed; recording what is running anyway."; fi
@@ -540,6 +637,18 @@ case "$CMD" in
   restore-model) shift; compose exec api python -m eax.backups_cli restore "$@" ;;
   services) show_services ;;
   service) set_service "${2:-}" "${3:-}" ;;
+  servers)
+    if [ -z "${2:-}" ]; then echo "API and job servers wanted: $(api_servers) (EAX_API_SERVERS). Running:"; compose ps api
+    else
+      case "$2" in ''|*[!0-9]*) echo "Usage: ./eax.sh servers <1 to 16>"; exit 1 ;; esac
+      if [ "$2" -lt 1 ] || [ "$2" -gt 16 ]; then echo "Usage: ./eax.sh servers <1 to 16>"; exit 1; fi
+      mkdir -p "$WORK_DIR/config-history"
+      cp -p "$ENV_FILE" "$WORK_DIR/config-history/eaexplorer.env.$(date -u +%Y%m%d-%H%M%S).${USER:-console}.servers-$2"
+      if grep -qE '^\s*EAX_API_SERVERS\s*=' "$ENV_FILE"; then sed -i.bak -E "s/^\s*EAX_API_SERVERS\s*=.*/EAX_API_SERVERS=$2/" "$ENV_FILE" && rm -f "$ENV_FILE.bak"
+      else printf '\n# ---- API and job servers (D249)\nEAX_API_SERVERS=%s\n' "$2" >> "$ENV_FILE"; fi
+      echo "Running $2 API and job server(s); stopping a server lets the jobs it runs finish first."
+      compose up -d --no-deps --no-recreate --scale "api=$2" api
+    fi ;;
   url)     show_urls; show_logins ;;
   logins)  [ -f "$ENV_FILE" ] || { echo "ERROR: no $ENV_FILE yet: run ./eax.sh init first."; exit 1; }; show_logins ;;
   trust)   [ -f "$ENV_FILE" ] || { echo "ERROR: no $ENV_FILE yet: run ./eax.sh init first."; exit 1; }; trust "${2:-}" ;;

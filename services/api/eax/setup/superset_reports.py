@@ -158,6 +158,9 @@ THRESHOLD_FILTERS = {"sr16_capability_heat": [("Medium from", "medium_from"), ("
 VIEWS.update({
     "gap_analyses": [('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('analysis_guid', 'UUID'), ('gap_analysis', 'TEXT'), ('description', 'TEXT'), ('template', 'TEXT'), ('baseline', 'TEXT'), ('target', 'TEXT'), ('baseline_model', 'TEXT'), ('baseline_tag', 'TEXT'), ('target_model', 'TEXT'), ('target_tag', 'TEXT'), ('compared_at', 'TIMESTAMP WITH TIME ZONE'), ('compared_by', 'TEXT'), ('kept', 'BIGINT'), ('changed', 'BIGINT'), ('new', 'BIGINT'), ('eliminated', 'BIGINT'), ('undecided', 'BIGINT'), ('link', 'TEXT')],
     "gap_items": [('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('gap_analysis', 'TEXT'), ('template', 'TEXT'), ('baseline', 'TEXT'), ('target', 'TEXT'), ('compared_at', 'TIMESTAMP WITH TIME ZONE'), ('entity_type', 'TEXT'), ('entity_type_name', 'TEXT'), ('layer', 'TEXT'), ('name', 'TEXT'), ('status', 'TEXT'), ('togaf_cell', 'TEXT'), ('baseline_name', 'TEXT'), ('target_name', 'TEXT'), ('fields_changed', 'INTEGER'), ('changed_fields', 'TEXT'), ('note', 'TEXT'), ('resolution', 'TEXT'), ('work_packages', 'TEXT'), ('work_package_count', 'INTEGER'), ('has_gap_entity', 'BOOLEAN'), ('link', 'TEXT')],
+    "quality_runs": [('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('run_at', 'TIMESTAMP WITH TIME ZONE'), ('run_by', 'TEXT'), ('trigger', 'TEXT'), ('score', 'NUMERIC'), ('completeness', 'NUMERIC'), ('passing', 'NUMERIC'), ('fresh', 'NUMERIC'), ('entities', 'INTEGER'), ('incomplete', 'INTEGER'), ('failing', 'INTEGER'), ('errors', 'INTEGER'), ('stale', 'INTEGER'), ('orphans', 'INTEGER'), ('seals_valid', 'INTEGER'), ('seals_broken', 'INTEGER'), ('is_latest', 'BOOLEAN'), ('link', 'TEXT')],
+    "quality_findings": [('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('run_at', 'TIMESTAMP WITH TIME ZONE'), ('display_id', 'TEXT'), ('name', 'TEXT'), ('entity_type', 'TEXT'), ('owner', 'TEXT'), ('responsible', 'TEXT'), ('kind', 'TEXT'), ('rule', 'TEXT'), ('rule_name', 'TEXT'), ('severity', 'TEXT'), ('message', 'TEXT'), ('link', 'TEXT')],
+    "quality_groups": [('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('run_at', 'TIMESTAMP WITH TIME ZONE'), ('grouped_by', 'TEXT'), ('name', 'TEXT'), ('entities', 'INTEGER'), ('completeness', 'NUMERIC'), ('incomplete', 'INTEGER'), ('failing', 'INTEGER'), ('errors', 'INTEGER'), ('stale', 'INTEGER'), ('orphans', 'INTEGER'), ('link', 'TEXT')],
     "gap_matrix": [('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('gap_analysis', 'TEXT'), ('entity_type_name', 'TEXT'), ('layer', 'TEXT'), ('baseline_element', 'TEXT'), ('target_element', 'TEXT'), ('togaf_cell', 'TEXT'), ('status', 'TEXT'), ('resolution', 'TEXT'), ('link', 'TEXT')],
 })
 LINKED = {v for v, cols in VIEWS.items() if any(c == "link" for c, _ in cols)}
@@ -773,6 +776,8 @@ SUMS["depends_on"] = "Depends on"
 SUMS["relationships"] = "Relationships"
 SUMS["contributors"] = "Contributors"
 SUMS["realisations"] = "Realisations"
+SUMS["failing"] = "Entities failing a rule"        # data quality (phase 12)
+AVERAGES["score"] = "Quality score"
 
 # richer pictures on the standard reports (owner, 4 Nov 2026: more impressive reports)
 EXTRA = {
@@ -840,8 +845,49 @@ def _gap_charts(report: dict) -> list[dict]:
     raise ValueError(f"no charts for {code}")
 
 
+def _quality_charts(report: dict) -> list[dict]:
+    """QR-01 to QR-04: data quality (phase 12, D239). Bars drill down by their groups; tables open the entity."""
+    code, about = report["code"], report["about"]
+    latest = [_filter("is_latest", "true")]
+    if code == "QR-01":
+        return [table_chart("QR-01/now", "Each model now", "quality_runs", ["model_name", "score", "completeness", "passing",
+                                                                         "fresh", "entities", "incomplete", "failing", "stale",
+                                                                         "orphans", "run_at"], order="score", filters=latest,
+                            about=about),
+                line_chart("QR-01/trend", "Quality score over time", "quality_runs", "run_at", metric="avg_score",
+                           group=["model_name"]),
+                bar_chart("QR-01/problems", "Entities with problems, by model", "quality_runs", "model_name",
+                          metric="failing", filters=latest)]
+    if code == "QR-02":
+        by_type, by_owner = [_filter("grouped_by", "Entity type")], [_filter("grouped_by", "Owner")]
+        return [bar_chart("QR-02/type", "Completeness by entity type", "quality_groups", "name", metric="avg_completeness",
+                          filters=by_type, width=6, about=about),
+                bar_chart("QR-02/owner", "Completeness by owner", "quality_groups", "name", metric="avg_completeness",
+                          filters=by_owner, width=6),
+                table_chart("QR-02/table", "Type and owner in detail", "quality_groups",
+                            ["model_name", "grouped_by", "name", "entities", "completeness", "incomplete", "failing", "errors",
+                             "stale", "orphans"], order="completeness")]
+    if code == "QR-03":
+        return [bar_chart("QR-03/kind", "Findings by kind", "quality_findings", "kind", group=["entity_type"], width=6,
+                          about=about),
+                bar_chart("QR-03/owner", "Findings by owner", "quality_findings", "owner", group=["kind"], width=6),
+                table_chart("QR-03/list", "What to fix (Open goes to the entity)", "quality_findings",
+                            ["model_name", "display_id", "name", "entity_type", "owner", "responsible", "kind", "message"],
+                            order="name")]
+    if code == "QR-04":
+        rules = [_filter("kind", "rule")]
+        return [bar_chart("QR-04/bar", "Entities failing each rule", "quality_findings", "rule_name", group=["severity"],
+                          filters=rules, about=about),
+                table_chart("QR-04/list", "The failing entities (Open goes to the entity)", "quality_findings",
+                            ["model_name", "severity", "rule", "rule_name", "display_id", "name", "entity_type", "responsible",
+                             "message"], order="severity", filters=rules)]
+    raise ValueError(f"no charts for {code}")
+
+
 def charts_for(report: dict) -> list[dict]:
     family = report.get("family", "Standard")
+    if family == "Data quality":
+        return _quality_charts(report)
     if family == "Gap analysis":
         return _gap_charts(report)
     if family == "Viewpoint":
@@ -876,6 +922,12 @@ def dashboard_filters(report: dict, charts: list[dict]) -> list[dict]:
         out += [colour, _native(slug, "Type", "filter_select", "vp_elements", "entity_type", n),
                 _native(slug, "Lifecycle", "filter_select", "vp_elements", "lifecycle", n),
                 _native(slug, "Owner", "filter_select", "vp_elements", "owner", n)]
+        return out
+    if family == "Data quality":
+        for label, column in (("Entity type", "entity_type"), ("Owner", "owner"), ("Kind", "kind"), ("Severity", "severity"),
+                              ("Grouped by", "grouped_by")):
+            if column in {c for c, _ in VIEWS[first]}:
+                out.append(_native(slug, label, "filter_select", first, column, n))
         return out
     if family == "Gap analysis" and first != "entity_std":
         for label, column in (("Gap analysis", "gap_analysis"), ("Status", "status"), ("Layer", "layer"),

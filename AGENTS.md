@@ -29,6 +29,9 @@ draw.io, nginx, React screens. How it is built: [docs/architecture.md](docs/arch
 
 ## Rules the product keeps (do not break)
 
+- **Avoid logic in the database where possible (D248)**: rules, calculations and checks go in Python; no new triggers or
+  database functions for them. Heavy calculations run as background jobs and are stored; screens show the last result
+  with its date (only a single entity is checked at once).
 - Checks warn, never block (D48); a metamodel change is never blocked by existing content (D64).
 - A retired entity type's entities are read-only until it is restored (D87, database trigger).
 - Nothing is hard-deleted: `is_deleted` plus `history.row_versions`; removed values stay in history (D75).
@@ -62,3 +65,4 @@ draw.io, nginx, React screens. How it is built: [docs/architecture.md](docs/arch
 | 9 Change log (D180): one row per action in its own database (EAX_CHANGELOG_DB_URL, schema changelog), shipped in the background from history.row_versions and audit.events once their transaction finished (eax/change_log.py, `python -m eax.change_log` in entrypoint.sh); never write to it from a request; API actions to log are listed in change_log.ACTIONS; screen ChangeLog.jsx | 0.9.0 | built 5 Nov 2026, waiting for the owner's test |
 | 10 Administration console (D183): core.settings (eax/settings.py: runtime settings applied at once, start-up settings shown masked), Admin.jsx, fmt.js (every date and number through the installation's settings, D182: never toLocaleString), operations helper services/ops (Docker engine, EAX_OPS_TOKEN, restart only), "About this report" section on every report (eax/report_about.py, D186), VP-26 Gap (D185) | 0.10.0 | built 5 Nov 2026, waiting for the owner's test |
 | 10.1 Import and export sheets (D197): eax/sheets.py (build on the fly, read back), eax/sheets_vba.py (.xlsm: VBA project to [MS-OVBA]/[MS-CFB]), eax/loads.py (preview, add as the owner's uncommitted changes, undo, column mappings; feeds and collection sets: phase 34, D198), eax/api/sheets.py, Sheets.jsx; background tasks eax/tasks.py (D192) | 0.10.1 | built 5 Nov 2026, waiting for the owner's test |
+| 12.1 Start-up in two tiers (D255): core seed only before the API (eax/seed/__main__.py), the rest after it (eax/seed/later.py: sample and test models step by step via build.test_model_steps, demo estate, first quality measurement; progress in core.startup_parts, migration 0021_startup); eax/startup.py once; eax/startup_status.py and /api/v1/startup, /api/startup; eax.ps1/eax.sh Get-Tiers, Wait-Core, start-later, --wait-all; Keycloak health check; StartupStatus.jsx (header, Administration > Containers). Open in draw.io (D256): exporting.js openDrawio/openDrawioXml (#R compressed). Grid commit icon (D257) | 0.13.1 | built 6 Nov 2026, waiting for the owner's test |

@@ -1,0 +1,60 @@
+# Documentation
+
+Every document of EA Explorer, in one place. Start with the [README](../README.md): what EA Explorer is, the quick start,
+the `eax` commands (backups and restores included) and the phase table.
+
+## Running it
+
+| Document | What it covers |
+| --- | --- |
+| [README](../README.md) | Quick start on a laptop, the `eax` commands, the work folder, certificates, the phase table |
+| [Operations](operations.md) | Health, services on and off, backups and restores (console and command line), the maintenance page, upgrades, logs and diagnostics |
+| [Licences](licences.md) | The open-source components EA Explorer uses and their licences |
+| [CI](../ci/README.md) | The checks and tests run on every change |
+| [Sample files](../deploy/samples/README.md) | The sample files that come with the deployment |
+
+## How it is built
+
+| Document | What it covers |
+| --- | --- |
+| [Architecture](architecture.md) | The containers, how they talk to each other, sign-in, the reports and documents services |
+| [Database](database.md) | The repository database: schemas, tables, row security, history, report views |
+| [MCP server](mcp.md) | Using EA Explorer from AI assistants: connecting, the tools, what each person may do |
+| [Decision log](decisions.md) | Every decision with its date and reason (D1 onwards) |
+| [To do](todo.md) | Open items and ideas not yet in a phase |
+| [For AI coding agents](../AGENTS.md) | The rules for anyone (or any agent) changing the code |
+
+## Requirements and plan
+
+| Document | What it covers |
+| --- | --- |
+| [Requirements](requirements/EA_Explorer_Requirements.xlsx) | Every requirement with its acceptance criteria, priority and phase |
+| [Build plan](requirements/EA_Explorer_Build_Plan.xlsx) | The 52 phases, their order, demos and requirements, and the timeline |
+| [High-level requirements](requirements/EA_Explorer_High_Level_Requirements.docx) | The product's purpose, scope and main requirements |
+| [Technical architecture](requirements/EA_Explorer_Technical_Architecture.docx) | The technical architecture document |
+
+## The build phases
+
+Each phase has its own notes: what it delivers, a demo, checks, how to upgrade and what is not in it.
+
+| Phase | Notes | State |
+| --- | --- | --- |
+| 0 | [Foundations](phase-0.md) | closed |
+| 1 | [Metamodel store and the ArchiMate 4 seed](phase-1.md) | closed |
+| 2 | [Insurance reference model, locked models, library page and versions](phase-2.md) | closed |
+| 3 | [Metamodel editing, versions and history, failing checks, model locks](phase-3.md) | accepted |
+| 3.1 | [Roles and permissions](phase-3.1.md) | accepted |
+| 4 | [Creating and copying models, library models and packages](phase-4.md) | closed |
+| 5 | [Report views and the thirty standard reports](phase-5.md) | closed |
+| 6 | [Data entry in forms](phase-6.md) | closed |
+| 7 | [Grids, search and saved views](phase-7.md) | closed |
+| 8 | [Commits, drafts, approvals and merges](phase-8.md) | closed |
+| 8.1 | [Notifications, requests, webhooks, push down, change documents](phase-8.1.md) | closed |
+| 8.2 | [Reports and views: viewpoints, TOGAF catalogues and matrices](phase-8.2.md) | closed |
+| 8.3 | [Model tags, comparison and gap analysis](phase-8.3.md) | closed |
+| 8.4 | [Backups and restores](phase-8.4.md) | closed |
+| 9 | [The change log](phase-9.md) | closed |
+| 10 | [Administration console and application settings](phase-10.md) | closed |
+| 10.1 | [Import and export sheets](phase-10.1.md) | closed |
+| 12 | [Validation and data quality](phase-12.md) | closed |
+| 12.1 | [Start-up in two tiers, open pictures in draw.io](phase-12.1.md) | built, waiting for the owner's test |

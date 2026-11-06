@@ -977,8 +977,25 @@ def commit(conn, model: Any, user, set_id: Any = None, change_ids: list | None =
         _exec(conn, "UPDATE core.pending_changes SET status = 'committed', commit_id = :c, decided_by = :u, decided_at = now() "
                     "WHERE id = :i", c=c["id"], u=user.username.lower(), i=r["id"])
         done += 1
+    # data quality rules of severity error block the commit (phase 12, D239.8): checked on the entities it touched
+    from . import quality
+    touched = set()
+    for r in rows:
+        args = r["args"] if isinstance(r["args"], dict) else _json(r["args"]) or {}
+        if r["target_kind"] == "entity" and _s(r["target"]):
+            touched.add(_s(r["target"]))
+        data = args.get("data") or {}
+        for k in ("source", "target"):
+            if repo._as_guid(data.get(k)):
+                touched.add(str(repo._as_guid(data.get(k))))
+    errors = quality.commit_errors(conn, m, touched)
+    if errors:
+        raise EditError("This commit breaks data quality rules that are errors, so nothing was committed. Fix these first "
+                        "(or ask the Model Admin about the rule):\n" + "\n".join(f"• {e}" for e in errors[:20])
+                        + ("\n..." if len(errors) > 20 else ""), 409)
     for sid in {r["change_set_id"] for r in rows}:
         _close_if_done(conn, sid)
+    quality.queue_entities(str(m["id"]), touched)      # recalculated in the background a few seconds later (D245)
     return {"commit": str(c["guid"]), "number": c["number"], "committed": done, "skipped": skipped}
 
 

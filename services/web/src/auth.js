@@ -155,6 +155,13 @@ export async function apiUpload(path, form) {
   return body;
 }
 
+// An image the API serves (for example a model's uploaded icon, D247) as an object URL an <img> can show
+export async function apiBlobUrl(path) {
+  const response = await fetch(path, { headers: await authHeaders() });
+  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+  return URL.createObjectURL(await response.blob());
+}
+
 // Download a file the API makes (for example a model package) and hand it to the browser to save (phase 4);
 // with a body, the request is a POST (for example a comparison's Excel workbook, phase 8.3)
 export async function apiDownload(path, fallbackName = "download", body = undefined) {

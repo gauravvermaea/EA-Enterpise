@@ -10,7 +10,8 @@ from eax.report_defs import REPORTS
 from eax.setup import superset_reports as sr
 
 _SQL_DIR = Path(__file__).resolve().parent.parent / "migrations" / "sql"
-SQL = "".join((_SQL_DIR / f).read_text(encoding="utf-8") for f in ("0009_reports.sql", "0012_viewpoints.sql", "0014_tags.sql"))
+SQL = "".join((_SQL_DIR / f).read_text(encoding="utf-8") for f in ("0009_reports.sql", "0012_viewpoints.sql", "0014_tags.sql",
+                                                                                     "0020_quality.sql"))
 SUPERSET = Path(__file__).resolve().parents[3] / "deploy" / "superset"
 
 

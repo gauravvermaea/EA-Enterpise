@@ -10,7 +10,9 @@ for that run (the script is not signed); the long form is
 | Task | Windows | Linux / macOS |
 | --- | --- | --- |
 | First set-up | `.\eax init laptop` | `./eax.sh init laptop` |
-| Start or update | `.\eax up` | `./eax.sh up` |
+| Start or update (the core first, the rest in the background) | `.\eax up` | `./eax.sh up` |
+| Start and wait until everything is up | `.\eax up --wait-all` | `./eax.sh up --wait-all` |
+| Start again from scratch | `.\eax clean-restart` (add `--wait-all` to wait for everything) | `./eax.sh clean-restart` |
 | Start and keep recording container logs | `.\eax debug` | `./eax.sh debug` |
 | Diagnostics report | `.\eax diag` | `./eax.sh diag` |
 | Status | `.\eax status` | `./eax.sh status` |
@@ -24,6 +26,60 @@ for that run (the script is not signed); the long form is
 | Empty it and delete the databases | `.\eax cleanup --all` | `./eax.sh cleanup --all` |
 | Also delete the certificate | `.\eax cleanup --all --certificate` | `./eax.sh cleanup --all --certificate` |
 | List backups | `.\eax backups` | `./eax.sh backups` |
+
+## How EA Explorer starts (phase 12.1, D255)
+
+A start used to wait for everything, one part after another, and took five to seven minutes. It now starts in **two
+tiers**, so you can sign in as soon as the core is ready (usually one to two minutes):
+
+| Tier | What | When |
+| --- | --- | --- |
+| **1st, the core** | `db` (PostgreSQL), `setup`, `proxy` (nginx), `web` (the screens), `keycloak` (sign-in), `api` (every copy) with the database upgrade and the built-in models (ArchiMate 4, the insurance reference model, viewpoints, the laptop test users' roles) | `eax up` waits for it: the API and Keycloak must say *healthy* |
+| **2nd, after the core** | `reports-init` and `reports` (Superset), `dms-broker` and `dms` (Mayan), `drawio`, `backup`, `ops` (the operations helper) | started in the background as soon as the core is ready |
+| **2nd, inside the API** | the sample insurance model, the laptop test models (Fynbos, Karoo Re, Lean EA and the models in each state), the demo estate Protea Insurance, the data quality samples, the History tab samples, the demo estate's tags, gap analyses and sheets, then **each model's first data quality measurement** | loaded one step at a time by `eax/seed/later.py`, after the API has started; each model appears as soon as its step is done |
+
+What `eax up` does (`run` is the same):
+
+1. Starts the core and shows each change while it waits: `eaexplorer-api-1: starting`, then `healthy`.
+2. Says **"EA Explorer is ready after N s: you can sign in."**
+3. Starts the second tier in a hidden window of its own (log: `work/logs/eax-<time>-start-later.log`) and returns, so the
+   window is free at once.
+
+**`--wait-all`** (on `up`, `run`, `debug`, `clean-run`, `clean-debug` and `clean-restart`): starts the second tier in
+the same window and waits until **everything** is up (Reports, Documents, Diagrams and the sample data), showing each
+change, for up to 30 minutes. Use it before a demo or a test that needs everything, or in a script:
+
+```
+.\eax up --wait-all
+.\eax clean-restart --wait-all
+./eax.sh up --wait-all
+```
+
+Naming services (`eax up api proxy`) starts only those, as before, with no tiers.
+
+**What people see while the second tier starts.** Everyone sees the start-up status in the header:
+
+| Colour | Word | Meaning |
+| --- | --- | --- |
+| green | up | it answers (or the work is done) |
+| amber | starting | its container is starting or setting up, or the sample data is loading (*loading 3 of 9*) |
+| red | down | its container stopped or failed, or a step of the sample data failed (the next start tries it again) |
+| grey | off | switched off (Administration > System settings > Services) |
+
+When everything is up the header shows a single green **All up**. Click it for each part with what it is doing; IT and
+Super Admins also get **Every container →**, which opens Administration > Containers. There each container has a
+**Start-up** column: up, starting or down, and **1st** (the core) or **2nd** (after it). A line at the top shows every part.
+
+**Open in draw.io** (D256) while draw.io is still starting opens a tab that says so: close it and try again in a moment.
+
+**Reports** wait for the sample data before adding their typed datasets (one per entity type in use), so every type is
+there; they wait at most 15 minutes, then add what is there (the rest at the next start).
+
+**Several API servers** (D249): every copy belongs to the core; one of them loads the second tier inside the API, and the
+others skip it.
+
+The start-up status is also readable without signing in at `/api/startup` (the parts and their states only), and with
+details at `/api/v1/startup` (signed in; the containers for IT and Super Admins).
 
 ## The work folder and logs
 
@@ -146,6 +202,19 @@ their containers; `eax service <name> on|off` switches one: it keeps a dated cop
 Administration > System settings > Services, and restores an earlier copy of the config file there. The switches (no
 secrets) are also written to `work/services.env`, which the API reads. `eax up` creates switched-off containers without
 starting them.
+
+## API and job servers (D249)
+
+The api container answers API calls and runs the background jobs (data quality measurements among them). Run more
+copies of it when jobs queue up or the screens slow down: `.\eax servers` shows them, `.\eax servers 3` runs three
+(a dated copy of the config file is kept first; `EAX_API_SERVERS` in the config file; laptop default 1, server 2), at
+once and without a restart. Super and IT Admins do the same on Administration > Containers with + and −. nginx spreads
+API calls across every copy within seconds. Removing one stops the highest-numbered copy, giving the jobs it runs two
+minutes to finish; the first is never removed. At start the copies apply the database upgrade one at a time (the first
+does the work), and the change log is shipped by one copy only (another takes over if it stops). With more than one,
+each is named **api-1**, **api-2**... on Administration > Containers: its properties, logs, terminal and commands are
+its own. The number is kept in the config file (`EAX_API_SERVERS`), so `eax restart`, `eax up`, `eax run` and
+`eax clean-restart` keep it; an infrastructure restore that puts the config file back keeps the current number too.
 
 ## The operations helper
 

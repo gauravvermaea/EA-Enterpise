@@ -45,6 +45,14 @@ NS = uuid.UUID("3f4b7c58-61a5-4b0b-9d7e-0c1d2e3f4a5b")   # keys that are not gui
 BUILT_IN_FIELDS = ("name", "description", "display_id", "relationships")
 
 
+
+def _qw(v):
+    """A data quality weight from a metamodel document (D241): 0-10, or None (the default)."""
+    try:
+        return None if v in (None, "") else max(0, min(10, int(v)))
+    except (TypeError, ValueError):
+        return None
+
 def _rows(conn, sql: str, **p) -> list[dict]:
     return repo._rows(conn, sql, **p)
 
@@ -91,11 +99,13 @@ def metamodel_spec(conn, model: Any) -> dict:
     for pl in lists:
         pl["values"] = [v["value"] for v in values if v["_p"] == pl["_id"]]
         del pl["_id"]
-    attrs = _rows(conn, """SELECT a.code, a.name, a.data_type_code AS data_type, pl.code AS pick_list, a.unit, a.description
+    attrs = _rows(conn, """SELECT a.code, a.name, a.data_type_code AS data_type, pl.code AS pick_list, a.unit, a.description,
+                                  a.quality_weight
                              FROM core.attribute_types a LEFT JOIN core.pick_lists pl ON pl.id = a.pick_list_id
                             WHERE a.model_id = :m AND NOT a.is_deleted ORDER BY a.code""", m=mid)
     items = _rows(conn, """SELECT i.entity_type_id AS _t, i.relationship_type_id AS _r, a.code AS attribute,
-                                  i.is_required AS required, i.section, i.default_value AS "default", i.help_text AS help
+                                  i.is_required AS required, i.section, i.default_value AS "default", i.help_text AS help,
+                                  i.quality_weight
                              FROM core.item_attributes i JOIN core.attribute_types a ON a.id = i.attribute_type_id
                             WHERE i.model_id = :m AND NOT i.is_deleted ORDER BY i.sort_order, a.name""", m=mid)
     types = _rows(conn, """SELECT t.id AS _id, t.code, t.name, l.code AS layer, t.id_prefix, t.aspect, t.description,
@@ -360,6 +370,7 @@ def apply_spec(conn, model_id: int, spec: dict, mode: str = "new", remove_missin
             "name": a["name"].strip(), "data_type_code": a["data_type"],
             "pick_list_id": ids["pick_lists"].get(str(a.get("pick_list") or "").lower()),
             "unit": a.get("unit") or "", "description": a.get("description") or "",
+            "quality_weight": _qw(a.get("quality_weight")),
             **({} if mode == "merge" and have("attribute_types", a["code"]) else
                {"column_name": free("column_name", snake_from(a["name"]) or a["code"].lower())})})
     used_prefix: set[str] = set()
@@ -389,7 +400,8 @@ def apply_spec(conn, model_id: int, spec: dict, mode: str = "new", remove_missin
                 aid = ids["attributes"][str(i["attribute"]).lower()]
                 cols = {"is_required": bool(i.get("required")), "section": i.get("section") or "",
                         "default_value": None if i.get("default") in (None, "") else str(i["default"]),
-                        "help_text": i.get("help") or "", "sort_order": (k + 1) * 10}
+                        "help_text": i.get("help") or "", "sort_order": (k + 1) * 10,
+                        "quality_weight": _qw(i.get("quality_weight"))}
                 old = _one(conn, f"""SELECT id, is_deleted FROM core.item_attributes WHERE {col} = :o AND attribute_type_id = :a""",
                            o=oid, a=aid)
                 if old:
@@ -397,8 +409,9 @@ def apply_spec(conn, model_id: int, spec: dict, mode: str = "new", remove_missin
                     _exec(conn, f"UPDATE core.item_attributes SET {sets}, is_deleted = false WHERE id = :i", i=old["id"], **cols)
                 else:
                     _exec(conn, f"""INSERT INTO core.item_attributes (model_id, attribute_type_id, {col}, is_required, section,
-                                     default_value, help_text, sort_order)
-                                    VALUES (:m, :a, :o, :is_required, :section, :default_value, :help_text, :sort_order)""",
+                                     default_value, help_text, sort_order, quality_weight)
+                                    VALUES (:m, :a, :o, :is_required, :section, :default_value, :help_text, :sort_order,
+                                            :quality_weight)""",
                           m=model_id, a=aid, o=oid, **cols)
                     counts["added"] += 1
     # allowed relationships
@@ -474,7 +487,7 @@ def _model_row(conn, guid) -> dict:
 
 def _create_row(conn, *, name: str, kind: str, source_id: int | None, parent_id: int | None = None,
                 description: str = "", metamodel_name: str = "", owner: str = "", industry: str = "",
-                version_label: str = "", history_from_source: bool = False) -> dict:
+                version_label: str = "", history_from_source: bool = False, icon: str | None = None) -> dict:
     name = (name or "").strip()
     if not name:
         raise EditError("Give the new model a name.")
@@ -482,12 +495,22 @@ def _create_row(conn, *, name: str, kind: str, source_id: int | None, parent_id:
             n=name, v=version_label or ""):
         raise EditError(f"A model called {name!r}{' version ' + version_label if version_label else ''} already exists.", 409)
     try:
-        return _one(conn, """INSERT INTO core.models (name, kind_code, source_model_id, parent_model_id, description,
-                                                       metamodel_name, owner, industry, version_label, history_from_source)
-                              VALUES (:n, :k, :s, :p, :d, :mm, :o, :i, :v, :h)
-                              RETURNING id, guid, name, kind_code, library_state""",
-                    n=name, k=kind, s=source_id, p=parent_id, d=description or "", mm=metamodel_name or "", o=owner or "",
-                    i=industry or "", v=version_label or "", h=history_from_source)
+        row = _one(conn, """INSERT INTO core.models (name, kind_code, source_model_id, parent_model_id, description,
+                                                      metamodel_name, owner, industry, version_label, history_from_source)
+                             VALUES (:n, :k, :s, :p, :d, :mm, :o, :i, :v, :h)
+                             RETURNING id, guid, name, kind_code, library_state""",
+                   n=name, k=kind, s=source_id, p=parent_id, d=description or "", mm=metamodel_name or "", o=owner or "",
+                   i=industry or "", v=version_label or "", h=history_from_source)
+    except DBAPIError as exc:
+        raise EditError(_db_message(exc), 403 if "Not allowed" in str(exc.orig) else 409) from exc
+    # every new model has an icon (D247): the one picked, else the kind's; an upload follows the create
+    from .model_icons import DEFAULT_BY_KIND, LIBRARY
+    lib = str(icon or "").removeprefix("lib:")
+    lib = lib if lib in LIBRARY else DEFAULT_BY_KIND.get(kind, "building")
+    try:
+        _exec(conn, "INSERT INTO core.model_icons (model_id, library) VALUES (:m, :l) ON CONFLICT (model_id) DO NOTHING",
+              m=row["id"], l=lib)
+        return row
     except DBAPIError as exc:
         raise EditError(_db_message(exc), 403 if "Not allowed" in str(exc.orig) else 409) from exc
 
@@ -531,7 +554,7 @@ def create_model(conn, actor: str, p: dict) -> dict:
         root_top = _one(conn, "SELECT id, guid, name FROM core.models WHERE kind_code = 'template' AND source_model_id IS NULL "
                               "AND NOT is_deleted ORDER BY id LIMIT 1")
         from_id = src["_id"] if src else root_top["id"]
-        row = _create_row(conn, name=p.get("name"), kind="template", source_id=from_id, description=p.get("description", ""),
+        row = _create_row(conn, icon=p.get("icon"), name=p.get("name"), kind="template", source_id=from_id, description=p.get("description", ""),
                           metamodel_name=p.get("framework") or p.get("name"), owner=p.get("owner", ""),
                           version_label=p.get("version_label", ""))
         counts = copy_into(conn, src["_id"], row["id"], False) if src and src["_id"] != root_top["id"] else {}
@@ -540,12 +563,12 @@ def create_model(conn, actor: str, p: dict) -> dict:
     if not src:
         raise EditError("Choose the root metamodel, library model or model to start from.")
     if kind == "library":
-        row = _create_row(conn, name=p.get("name"), kind="reference", source_id=src["_id"], description=p.get("description", ""),
+        row = _create_row(conn, icon=p.get("icon"), name=p.get("name"), kind="reference", source_id=src["_id"], description=p.get("description", ""),
                           metamodel_name=src["metamodel_name"], owner=p.get("owner", ""), industry=p.get("industry", ""),
                           version_label=p.get("version_label") or "0.1", history_from_source=(copy == "history"))
         content = src["kind"] != "template" and copy in ("content", "history")
     else:
-        row = _create_row(conn, name=p.get("name"), kind="project", source_id=src["_id"], parent_id=parent["_id"] if parent else None,
+        row = _create_row(conn, icon=p.get("icon"), name=p.get("name"), kind="project", source_id=src["_id"], parent_id=parent["_id"] if parent else None,
                           description=p.get("description", ""), metamodel_name=src["metamodel_name"], owner=p.get("owner", ""),
                           industry=src.get("industry", ""), history_from_source=(copy == "history"))
         content = copy in ("content", "history") and src["kind"] != "template"
@@ -1139,13 +1162,13 @@ def write_package(manifest: dict, spec: dict, content: dict, hist: dict | None, 
 _XL_SHEETS = [  # sheet, section, columns
     ("Layers", "layers", ["code", "name", "colour", "description"]),
     ("Pick lists", "pick_lists", ["code", "name", "description", "values"]),
-    ("Attributes", "attributes", ["code", "name", "data_type", "pick_list", "unit", "description"]),
+    ("Attributes", "attributes", ["code", "name", "data_type", "pick_list", "unit", "description", "quality_weight"]),
     ("Entity types", "entity_types", ["code", "name", "layer", "id_prefix", "aspect", "description", "status"]),
     ("Relationship types", "relationship_types", ["code", "name", "verb", "category", "directed", "description", "status"]),
     ("Allowed", "allowed", ["source", "relationship", "target", "note"]),
     ("Rules", "rules", ["entity_type", "attribute", "field", "rule_type", "param1", "param2", "severity", "message"]),
 ]
-_XL_ITEMS = ["owner", "code", "attribute", "required", "section", "default", "help"]
+_XL_ITEMS = ["owner", "code", "attribute", "required", "section", "default", "help", "quality_weight"]
 
 
 def _to_xlsx(manifest: dict, spec: dict, content: dict, hist: dict | None = None) -> bytes:
@@ -1267,7 +1290,8 @@ def _from_xlsx(data: bytes) -> dict:
         o = owners.get((i.get("owner"), str(i.get("code", "")).lower()))
         if o is not None:
             o["attributes"].append({"attribute": i.get("attribute"), "required": str(i.get("required")).lower() in ("yes", "true", "1"),
-                                    "section": i.get("section") or "", "default": i.get("default") or None, "help": i.get("help") or ""})
+                                    "section": i.get("section") or "", "default": i.get("default") or None, "help": i.get("help") or "",
+                                    "quality_weight": _qw(i.get("quality_weight"))})
     for r in spec["rules"]:
         for k in ("entity_type", "attribute", "field"):
             r[k] = r.get(k) or None

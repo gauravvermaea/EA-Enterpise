@@ -5,7 +5,10 @@ a governed metamodel, an architecture repository, diagrams (draw.io), reports (A
 documents (Mayan EDMS), sign-in through Keycloak, and an MCP server so you can connect your own
 language model. Everything runs in Docker containers from one config file.
 
-**Status: phase 10.1 (version 0.10.1) built, waiting for the owner's test together with phases 8.3, 9 and 10; phase 8 accepted.** The platform runs end to end; the
+**All the documentation, listed with what each covers: [docs/index.md](docs/index.md).** Backup and restore
+commands: [below](#backup-and-restore-from-the-command-line) and in [docs/operations.md](docs/operations.md#backup-and-restore-from-the-command-line-d227).
+
+**Status: phase 12.1, the start-up in two tiers and opening pictures in draw.io (version 0.13.1), is built and waiting for the owner's test; every phase before it is accepted and closed, the last being phase 12, validation and data quality (0.13.0, 6 Nov 2026).** The platform runs end to end; the
 repository database holds the ArchiMate 4 template, a locked insurance reference model and a sample
 model; model pages show entities, relationships, graphs and history; a project model's metamodel can be
 changed from the screens, every change publishing a new metamodel version; a failing-checks screen;
@@ -38,9 +41,11 @@ Each phase has its own notes: what it delivers, a demo, checks, how to upgrade a
 | 10 | Administration console (application and system settings applied at once, start-up settings shown, restart through the operations helper, health, licences), installation-wide formats, model Hierarchy tab, VP-26 Gap, report guides | 0.10.0 | accepted and closed | [phase-10.md](docs/phase-10.md) |
 | 10.1 | Import and export sheets: choose types, Excel (.xlsx, .xlsm) or CSV set built on the fly with data, drop-downs and provisional IDs; upload with a preview into your uncommitted changes; column mappings, undo a load | 0.10.1 | accepted and closed | [phase-10.1.md](docs/phase-10.1.md) |
 | 8.1 | Notifications (bell, page, home tile; action ones resolved once with a note), requests between people like tickets, installation-wide signed webhooks (never email), metamodel versions pushed down the hierarchy forced or offered, change documents | 0.11.0 | accepted and closed | [phase-8.1.md](docs/phase-8.1.md) |
-| 8.4 | Backups (pulled ahead, D216): tagged infrastructure backups (every database, files, certificate, config, release and image versions; nightly and on demand; pinned; restored whole or in part from the console or `eax restore`, read only while restoring) and application backups (every model as a file with an Excel workbook inside, downloadable, restorable as a new model or over itself, portable), model backups on the model page; documents and diagrams added in phase 13 | 0.12.0 | built, waiting for the owner's test | [phase-8.4.md](docs/phase-8.4.md) |
+| 8.4 | Backups (pulled ahead, D216): tagged infrastructure backups (every database, files, certificate, config, release and image versions; nightly and on demand; pinned; restored whole or in part from the console or `eax restore`, read only while restoring) and application backups (every model as a file with an Excel workbook inside, downloadable, restorable as a new model or over itself, portable), model backups on the model page; restores run on their own with a log, a Restores tab and a maintenance page, idempotent, everyone notified, models locked while restored; backups searchable, stoppable and restorable whole from the console or the command line; documents and diagrams added in phase 13 | 0.12.0 | accepted and closed | [phase-8.4.md](docs/phase-8.4.md) |
+| 12 | Validation and data quality (D239, D241, D242): a Quality tab on every project model (score, completeness, rules passed, fresh, orphans, seals, charts, everything drilling down to the entities with actions), rules of four kinds without SQL (errors block a commit, warnings do not), who is responsible for each entity, a stale period with one-click "still current", seals, settings and weights inherited (a Model Admin's change waits for a Super Admin), weights set in the metamodel and shown while typing, notifications as it happens and a weekly digest, the estate on Administration > Quality with the choice of which models are measured (archived never), PDF and Excel downloads with drill-downs, reports QR-01 to QR-04, MCP tools; calculated in the background and stored (only one entity checked at once), highlights and reasons on the entity page, form and grids, entity type scores, not applicable and leave out with approvals in bulk, model icons, several API and job servers (`eax servers`) | 0.13.0 | accepted and closed |  [phase-12.md](docs/phase-12.md) |
+| 12.1 | Start-up in two tiers (D255): the core (sign-in, the API, the screens) first, then Reports, Documents, draw.io, backups and the sample data in the background; `--wait-all` to wait for everything; the start-up status for everyone in the header (red, amber, green: down, starting, up) and per container for admins. Pictures open in the platform's draw.io in a new tab instead of downloading a file (D256). The grid's commit is one icon on the left of a saved row (D257) | 0.13.1 | built, waiting for the owner's test | [phase-12.1.md](docs/phase-12.1.md) |
 
-Next, in order (D147, D161, D179, D181): **12** validation · **13** documents · **15 to 16.2** TOGAF projects · **16.3** guided wizards. Backup and restore (8.4) was pulled ahead (D216); its documents and diagrams come with phase 13. Phase 8.5 and the start page clean-up towards the end.
+Next, in order (D147, D161, D179, D181): **12** validation (built, being tested) · **13** documents · **15 to 16.2** TOGAF projects · **16.3** guided wizards. Backup and restore (8.4) was pulled ahead (D216); its documents and diagrams come with phase 13. Phase 8.5 and the start page clean-up towards the end.
 The full plan (52 phases) is in [docs/requirements/EA_Explorer_Build_Plan.xlsx](docs/requirements/EA_Explorer_Build_Plan.xlsx).
 
 ## Quick start (laptop)
@@ -55,8 +60,14 @@ Windows (PowerShell or Command Prompt, in this folder):
 .\eax clean-restart  # TESTING a new version: down, then clean-run (empty databases, images rebuilt)
 .\eax trust          # OPTIONAL, once after the first clean-run: trust the local certificate (no browser warnings)
 .\eax run            # NEXT TIME ONWARDS: starts it again, keeping your data
+.\eax run --wait-all # the same, but waits until everything (reports, documents, draw.io, sample data) is up
 .\eax help           # what every command does
 ```
+
+**Starting takes a minute or two** (D255): `up`, `run` and the `clean-*` commands start the core first (sign-in, the
+API, the screens) and say *"EA Explorer is ready: you can sign in"*; Reports, Documents, draw.io and the sample data
+follow in the background, and the header shows each in red, amber or green (down, starting, up). Add **`--wait-all`** to
+any of them to wait until everything is up instead. See [How EA Explorer starts](docs/operations.md#how-ea-explorer-starts-phase-121-d255).
 
 - **`clean-run`** is for the first time, and again whenever you take a new version from GitHub. It
   starts from scratch in one step: it deletes the databases, documents and the work folder (without
@@ -102,7 +113,9 @@ exports, certificate) and `work/backups` (every backup and restore log). `.\eax 
 **backups and restore logs included** (copy `work/backups` elsewhere first to keep them); `.\eax cleanup --all`
 also deletes the Docker volumes so the databases start empty.
 
-**Backup and restore from the command line** (they work when the screens cannot; Linux and macOS: `./eax.sh`):
+### Backup and restore from the command line
+
+They work when the screens cannot (Linux and macOS: `./eax.sh`):
 
 | Command | What it does |
 | --- | --- |

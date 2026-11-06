@@ -97,11 +97,15 @@ services:
       EAX_KEYCLOAK_REALM: ${EAX_KEYCLOAK_REALM:-eaexplorer}
     networks: [frontend]
 
+  # The API and job servers (D249): EAX_API_SERVERS copies of this container (eax up --scale api=N; the console adds or
+  # removes copies at once); nginx spreads API calls across them and each runs background jobs. No container_name and
+  # no published port, so it can have several copies; stopping one waits for the jobs it runs to finish.
   api:
     build:
       context: ./services/api
     image: eaexplorer/api:${EAX_VERSION:-dev}
     <<: [*restart, *logging]
+    stop_grace_period: 2m
     env_file: work/eaexplorer.env
     environment:
       EAX_ROLE: api            # entrypoint runs migrations, then the web API and the job runner
@@ -118,7 +122,7 @@ services:
     networks: [frontend, backend]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health').status==200 else 1)"]
-      interval: 15s
+      interval: 10s
       timeout: 5s
       retries: 10
       start_period: 30s
@@ -224,6 +228,14 @@ services:
     volumes:
       - eax-kc-import:/opt/keycloak/data/import:ro
     networks: [frontend, backend]
+    # ready when it answers a realm (the image has bash but no curl); the start waits for it before saying people can
+    # sign in (the first tier of the start-up, D255)
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /auth/realms/master HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && read -r line <&3 && [[ \"$$line\" == *' 200'* ]]"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
 
   # ---------------------------------------------------------------- diagrams (out of the box)
   drawio:

@@ -21,6 +21,7 @@ const Sql = lazy(() => import("./Sql"));
 const ContainerConsole = lazy(() => import("./ContainerConsole"));
 const AdminBackups = lazy(() => import("./Backups"));
 const RestoresPage = lazy(() => import("./Restores"));
+const QualityAdmin = lazy(() => import("./Quality").then((x) => ({ default: x.QualityAdmin })));
 
 const TABS = [
   ["application", "Application settings", () => true, null],
@@ -30,6 +31,7 @@ const TABS = [
   ["containers", "Containers", () => can("system.operate"), ["it-admin", "super-admin"]],
   ["backups", "Backups", () => can("system.operate"), ["it-admin", "super-admin"]],
   ["restores", "Restores", () => can("system.operate"), ["it-admin", "super-admin"]],
+  ["quality", "Quality", () => true, null],
   ["sql", "SQL", () => can("system.operate"), ["it-admin", "super-admin"]],
   ["licences", "Licences", () => true, null],
 ];
@@ -62,6 +64,7 @@ export default function Admin({ route }) {
                 : t[0] === "containers" ? <ContainerConsole />
                   : t[0] === "backups" ? <AdminBackups />
                     : t[0] === "restores" ? <RestoresPage route={route} />
+                    : t[0] === "quality" ? <QualityAdmin />
                   : t[0] === "sql" ? <Sql />
                   : t[0] === "licences" ? <Licences />
                     : <Settings group={t[0]} />}

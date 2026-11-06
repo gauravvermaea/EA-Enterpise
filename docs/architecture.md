@@ -17,7 +17,7 @@ One Docker Compose stack (`docker-compose.yml`, plus `deploy/compose/docker-comp
 | --- | --- | --- |
 | `proxy` | nginx: TLS, routes `/` to web, `/api` and `/mcp` to api, `/auth` to Keycloak, reports.* and docs.* hosts | `deploy/proxy/templates/default.conf.template` |
 | `web` | The React screens, built by Vite, served by nginx | `services/web` |
-| `api` | Flask REST API (gunicorn, port 8000), the job runner (Procrastinate) and the MCP server (uvicorn, port 8001), side by side, reached only through nginx; runs migrations and the seed on start | `services/api` (`entrypoint.sh`) |
+| `api` | Flask REST API (gunicorn, port 8000), the job runner (Procrastinate) and the MCP server (uvicorn, port 8001), side by side, reached only through nginx; runs migrations and the seed on start. Runs as `EAX_API_SERVERS` copies (D249; 1 on a laptop): nginx spreads API calls across them (Docker's DNS, re-read every 10 s), each runs background jobs, the upgrade and seed run one server at a time and the change log shipper on one server only (`eax/startup.py`, PostgreSQL advisory locks) | `services/api` (`entrypoint.sh`) |
 | `setup` | One-off: certificates, Keycloak realm, Superset sample and the standard report bundles | `services/api` (`python -m eax.setup`) |
 | `db` | PostgreSQL 17: databases `eaexplorer` (repository), `keycloak`, `superset`, `mayan` | `deploy/postgres/initdb` |
 | `keycloak` | Sign-in (OIDC); realm `eaexplorer` from `deploy/keycloak/realm-eaexplorer.json.tmpl` | image |
@@ -25,6 +25,15 @@ One Docker Compose stack (`docker-compose.yml`, plus `deploy/compose/docker-comp
 | `dms`, `dms-broker` | Mayan EDMS and its Valkey broker | image |
 | `drawio` | Self-hosted draw.io | image |
 | `backup` | Database dumps and Mayan files to `/backups`; `eax backup` / `eax restore` | `services/backup` |
+
+## Several API and job servers (D249)
+
+`EAX_API_SERVERS` (1 to 16) copies of the api container run: `eax up` passes `--scale api=N`, `eax servers <n>` changes
+it at once, and Super and IT Admins add or remove servers on Administration > Containers (the operations helper copies
+the first server's container, or stops the highest-numbered ones with two minutes for their jobs to finish, and writes
+the number to the config file). Nothing in the code may assume a single server: work that must run once uses a
+Procrastinate queueing lock, a periodic task (deferred once per tick) or an advisory lock (`eax/startup.py`), and
+heavy calculations run as background jobs (D248).
 
 ## The API (`services/api`)
 

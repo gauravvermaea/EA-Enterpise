@@ -142,6 +142,11 @@ FAMILY: dict[str, tuple[str, str]] = {
     "Audience": ("Use it as the starting dashboard for the {title}: the reports that matter to this audience, together.",
                  "Each chart is described where it comes from; open the full report from the Reports tab for detail."),
     "Gap analysis": ("Use it to follow gap analyses and their decisions.", "Read the counts by status and resolution."),
+    "Data quality": ("Use it to see where the data is weakest and who should fix it: click a bar to drill down to the "
+                     "entities behind it, and Open on a row to fix the entity in EA Explorer.",
+                     "Scores run from 0 to 100: half completeness, almost a third the share of entities failing no rule, a "
+                     "fifth the share that is not stale. The latest measurement of each model is shown; the trend shows "
+                     "every measurement."),
     "Dependency": ("Use the filters to choose what to analyse.", "Read the dependants and dependencies by step."),
     "Standard": ("Use it to review the model with its owners.", "Blank values are data to complete."),
 }

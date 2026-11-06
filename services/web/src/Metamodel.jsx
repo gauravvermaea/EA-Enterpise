@@ -20,7 +20,9 @@
 import { lazy, Suspense, useState } from "react";
 import { can, keycloak, signedIn, canOn, myRolesOn, roleName } from "./auth";
 import { CopyButton, LockBadge } from "./Library";
-import { KindMark, MarksLegend, StatusMarks, readOnlyWhy } from "./ModelMarks";
+import { KindMark, MarksLegend, ModelStateBadge, StatusMarks, readOnlyWhy } from "./ModelMarks";
+import { RecalculateButton } from "./QualityBits";
+import { MetamodelTree } from "./Trees";
 import {
   CsvButton, EntityPage, EntityTypesTab, GraphTab, RelationshipsOfType, RelationshipTypesTab, Swatch, TypeEntitiesTable, useApi,
 } from "./ModelViews";
@@ -39,8 +41,9 @@ import { TagPage, TagsTab } from "./Versions";
 import { DataEntryTab } from "./DataEntry";
 import { ChangeDocumentsTab, PushDownTab } from "./Notifications";
 import { ModelBackupsTab } from "./Backups";
+import QualityTab from "./Quality";
 import { GridTab, MetamodelGrids } from "./GridPages";
-import { CopyBanner, DraftPage, Drafts, ModelActions, NewModelButton, UploadButton } from "./ModelOps";
+import { CopyBanner, DraftPage, Drafts, IconDialog, ModelActions, NewModelButton, UploadButton } from "./ModelOps";
 import { fmtDate } from "./fmt";
 
 // the diagram and its layout library load only when the ER diagram tab is opened
@@ -59,6 +62,9 @@ function ModelList({ view }) {
   const [search, setSearch] = useState("");
   const [kind, setKind] = useState("");
   const [archived, setArchived] = useState(false);
+  // list or tiles, remembered for this person in this browser (owner, 6 Nov 2026)
+  const [tiles, setTilesState] = useState(() => { try { return localStorage.getItem("eax.models.view") === "tiles"; } catch { return false; } });
+  const setTiles = (v) => { setTilesState(v); try { localStorage.setItem("eax.models.view", v ? "tiles" : "list"); } catch { /* per-viewer convenience only */ } };
   const q = new URLSearchParams();
   if (search.trim()) q.set("search", search.trim());
   if (kind) q.set("kind", kind);
@@ -89,6 +95,10 @@ function ModelList({ view }) {
           {KINDS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
         <label><input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} /> Show archived</label>
+        {!tree && <div className="seg small" role="tablist" aria-label="Show as">
+          <button className={!tiles ? "on" : ""} onClick={() => setTiles(false)} title="A table: one row per model">☰ List</button>
+          <button className={tiles ? "on" : ""} onClick={() => setTiles(true)} title="A tile per model, with its icon">▦ Tiles</button>
+        </div>}
         {models && <CsvButton name="EA Explorer models" rows={() => [["Model", "Version", "Kind", "Industry", "Owner", "Status", "Locked", "Created from", "Merges into", "Entity types", "Entities", "Relationships", "Changed"],
           ...models.map((m) => [m.name, m.version_label, m.kind_name, m.industry, m.owner, m.lifecycle, m.is_locked ? "yes" : "", m.source_model_name, m.parent_model_name,
             m.entity_type_count, m.entity_count, m.relationship_count, m.modified_at])]} />}
@@ -98,10 +108,11 @@ function ModelList({ view }) {
       {error && <p className="status bad">{error}</p>}
       {!models && !error && <p>Loading...</p>}
       {models && tree && <Suspense fallback={<p>Loading the tree...</p>}><ModelTree models={models} /></Suspense>}
-      {models && !tree && (
+      {models && !tree && tiles && <ModelTiles models={models} empty={search || kind ? "No models match." : "There are no models for you yet."} />}
+      {models && !tree && !tiles && (
         <div className="scroll">
           <table className="grid-table models-table">
-            <thead><tr><th>Model</th><th>Kind</th><th>Comes from</th><th>Owner</th><th>Status</th><th className="num">Types</th><th className="num">Entities</th><th className="num">Relationships</th><th>Changed</th></tr></thead>
+            <thead><tr><th>Model</th><th>Kind</th><th>Comes from</th><th>Owner</th><th>State</th><th className="num">Types</th><th className="num">Entities</th><th className="num">Relationships</th><th>Changed</th></tr></thead>
             <tbody>
               {models.map((m) => (
                 <tr key={m.id}>
@@ -118,7 +129,7 @@ function ModelList({ view }) {
                     {!m.parent_model_id && !m.source_model_id && <span className="quiet">-</span>}
                   </td>
                   <td>{m.owner || <span className="quiet">-</span>}</td>
-                  <td>{m.lifecycle}</td>
+                  <td className="nowrap"><ModelStateBadge m={m} /></td>
                   <td className="num">{m.entity_type_count}</td>
                   <td className="num">{m.kind === "template" ? "-" : m.entity_count}</td>
                   <td className="num">{m.kind === "template" ? "-" : m.relationship_count}</td>
@@ -134,6 +145,26 @@ function ModelList({ view }) {
       )}
       </>}
     </section>
+  );
+}
+
+// the models as tiles: the icon large, the name, kind and state marks, what it comes from and its counts
+function ModelTiles({ models, empty }) {
+  if (!models.length) return <p className="quiet">{empty}</p>;
+  return (
+    <div className="model-tiles">
+      {models.map((m) => (
+        <a key={m.id} className={`model-tile ${m.kind}${m.lifecycle === "archived" ? " archived" : ""}`} href={`#/metamodel/${m.id}`}>
+          <div className="model-tile-head"><KindMark m={m} big /><span><ModelStateBadge m={m} /> <StatusMarks m={m} /></span></div>
+          <strong className="model-tile-name">{m.name}{m.version_label && <span className="quiet"> {m.version_label}</span>}</strong>
+          <span className="small quiet">{m.kind_name}{m.industry ? ` · ${m.industry}` : ""} · {m.metamodel_name}</span>
+          {m.description && <span className="small model-tile-desc">{m.description}</span>}
+          <span className="small">{m.entity_type_count} types{m.kind !== "template" ? ` · ${m.entity_count} entities · ${m.relationship_count} relationships` : ""}</span>
+          <span className="small quiet">{m.parent_model_name ? `merges into ${m.parent_model_name}` : m.source_model_name ? `from ${m.source_model_name}` : ""}
+            {" · "}changed {fmtDate(m.modified_at)}</span>
+        </a>
+      ))}
+    </div>
   );
 }
 
@@ -279,7 +310,7 @@ function TypeDetail({ model, m, mm, typeId, holdsContent }) {
   );
 }
 
-const MM_VIEWS = [["", "Definition"], ["grids", "Grids"], ["lists", "Pick lists"], ["history", "History and versions"]];
+const MM_VIEWS = [["", "Definition"], ["tree", "Tree"], ["grids", "Grids"], ["lists", "Pick lists"], ["history", "History and versions"]];
 
 function MetamodelView({ model, m, typeId, holdsContent, sub, gridKind }) {
   const { data: mm, error } = useApi(`/api/v1/models/${model}/metamodel`);
@@ -292,6 +323,7 @@ function MetamodelView({ model, m, typeId, holdsContent, sub, gridKind }) {
     </div>
   );
   if (view === "lists") return <>{seg}<PickLists model={model} m={m} /></>;
+  if (view === "tree") return <>{seg}<MetamodelTree model={model} m={m} /></>;
   if (view === "grids") return <>{seg}<MetamodelGrids key={gridKind || "entity_types"} model={model} m={m} kindFromUrl={gridKind || "entity_types"} /></>;
   if (view === "history") return <>{seg}<MetamodelHistory model={model} m={m} /></>;
   const types = mm.layers.flatMap((l) => l.entity_types).filter((x) => x.status !== "retired");
@@ -402,6 +434,7 @@ function descendsFrom(x, root, byId, up) {
 function ModelPage({ model, view, itemId, sub }) {
   const { data: m, error } = useApi(`/api/v1/models/${model}`);
   const [showProps, setShowProps] = useState(false);
+  const [iconOpen, setIconOpen] = useState(false);
   const pending = usePendingCount(model, m);
   if (error) return <section><p className="status bad">{error}</p><a href="#/metamodel">All models</a></section>;
   if (!m) return <section><p>Loading...</p></section>;
@@ -412,6 +445,7 @@ function ModelPage({ model, view, itemId, sub }) {
   const tabs = [
     ...(holdsContent ? [["types", "Entity types", m.entity_type_count], ["entry", "Data entry", null], ["grid", "Grid", null], ["rels", "Relationship types", null],
       ["graph", "Graph", null], ["viewpoints", "Viewpoints", null], ["checks", "Failing checks", null]] : []),
+    ...(m.kind === "project" ? [["quality", "Quality", null]] : []),
     ...(m.kind === "project" ? [["changes", pending ? `Changes (${pending})` : "Changes", null], ["merge", "Merge", null]] : []),
     ...(holdsContent ? [["tags", "Tags", null], ["import", "Import and export", null]] : []),
     ["metamodel", "Metamodel", null],
@@ -425,7 +459,11 @@ function ModelPage({ model, view, itemId, sub }) {
     <section className="model-page">
       <Lineage m={m} />
       <div className="model-head">
-        <KindMark m={m} big />
+        {canOn(model, "model.lock") || can("models.delete")
+          ? <button className="linkish icon-edit" onClick={() => setIconOpen(true)} title="Change the model's icon: pick one from the library or upload your own">
+            <KindMark m={m} big />{!m.icon && <span className="icon-add">+ icon</span>}<span className="icon-pencil" aria-hidden="true">✎</span></button>
+          : <KindMark m={m} big />}
+        {iconOpen && <IconDialog m={m} onClose={() => setIconOpen(false)} />}
         <h1>{m.name} {m.version_label && <span className="quiet">{m.version_label}</span>}</h1>
         <StatusMarks m={m} />
         <LockBadge model={m} />
@@ -433,6 +471,7 @@ function ModelPage({ model, view, itemId, sub }) {
         <ModelActions m={m} />
         <LockControl model={model} m={m} />
         {myRolesOn(model).length > 0 && <span className="rchip on" title="Your roles on this model">You: {myRolesOn(model).map(roleName).join(", ")}</span>}
+        {m.kind === "project" && m.lifecycle !== "archived" && <RecalculateButton model={model} />}
         <button className="linkish" onClick={() => setShowProps((x) => !x)}>{showProps ? "Hide details" : "Details"}</button>
       </div>
       <p className="quiet">
@@ -469,6 +508,7 @@ function ModelPage({ model, view, itemId, sub }) {
         : tab === "graph" ? <GraphTab model={model} kind={itemId} />
         : tab === "viewpoints" ? <ViewpointsTab model={model} m={m} code={itemId} sub={sub} />
         : tab === "checks" ? <FailingChecks model={model} m={m} />
+        : tab === "quality" ? <QualityTab model={model} m={m} drill={itemId} value={sub} />
         : tab === "people" ? <ModelPeople model={model} m={m} />
         : tab === "merge" ? <MergeTab model={model} m={m} />
         : tab === "hierarchy" ? <ModelLineageTab model={model} m={m} />

@@ -42,6 +42,8 @@ _MODEL_SQL = """
            m.lock_level, m.lock_reason, m.locked_at, m.locked_by,
            m.library_state, m.copy_state, m.copy_note, m.history_from_source, m.is_draft, m.approval_state, m.published_at, m.published_by,
            m.created_at, m.created_by, m.modified_at, m.modified_by,
+           CASE WHEN ic.library IS NOT NULL THEN 'lib:' || ic.library WHEN ic.data IS NOT NULL THEN 'upload' END AS icon,
+           CAST(extract(epoch FROM ic.set_at) AS bigint) AS icon_version,
            (SELECT count(*) FROM core.entity_types t WHERE t.model_id = m.id AND NOT t.is_deleted) AS entity_type_count,
            (SELECT count(*) FROM core.entities e WHERE e.model_id = m.id AND NOT e.is_deleted) AS entity_count,
            (SELECT count(*) FROM core.relationships r WHERE r.model_id = m.id AND NOT r.is_deleted) AS relationship_count
@@ -49,6 +51,7 @@ _MODEL_SQL = """
       JOIN core.model_kinds k ON k.code = m.kind_code
       LEFT JOIN core.models p ON p.id = m.parent_model_id
       LEFT JOIN core.models s ON s.id = m.source_model_id
+      LEFT JOIN core.model_icons ic ON ic.model_id = m.id
      WHERE NOT m.is_deleted AND core.can_read_model(m.id)"""
 
 
@@ -179,6 +182,8 @@ def get_entity_type(conn, model: Any, entity_type: Any) -> dict:
         SELECT ia.guid AS item_id, at.guid AS attribute_id, at.code, at.name, at.description, at.column_name,
                at.data_type_code AS data_type, dt.name AS data_type_name, at.unit, ia.is_required, ia.section,
                ia.default_value, ia.help_text, pl.guid AS pick_list_id,
+               at.quality_weight AS attribute_quality_weight, ia.quality_weight AS item_quality_weight,
+               coalesce(ia.quality_weight, at.quality_weight, CASE WHEN ia.is_required THEN 3 ELSE 1 END) AS quality_weight,
                pl.name AS pick_list,
                coalesce((SELECT array_agg(v.value ORDER BY v.sort_order) FROM core.pick_list_values v
                           WHERE v.pick_list_id = at.pick_list_id AND NOT v.is_deleted),
@@ -1449,8 +1454,8 @@ def failing_checks(conn, model: Any, entity_type: Any = None) -> dict:
             for c in r["checks"]:
                 rows.append({"entity_id": r["id"], "display_id": r["display_id"], "name": r["name"],
                              "entity_type": et["name"], "entity_type_id": et["id"], "colour": et["colour"],
-                             "rule": c["rule"], "field": c["field"], "severity": c["severity"], "message": c["message"],
-                             "created_mm_version": r["created_mm_version"], "modified_mm_version": r["modified_mm_version"]})
+                             "rule": c["rule"], "field": c["field"], "code": c.get("code"), "severity": c["severity"],
+                             "message": c["message"], "created_mm_version": r["created_mm_version"], "modified_mm_version": r["modified_mm_version"]})
     for r in list_relationships(conn, m["id"]):
         if r["allowed"]:
             continue

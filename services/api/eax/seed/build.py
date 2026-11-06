@@ -45,6 +45,22 @@ COMMERCIAL_PRODUCTS = {"Comprehensive Motor", "Household Contents", "Buildings",
 EMPTY_KEY = "empty-root"
 LEAN_KEY = "lean-ea-metamodel-1.0"
 LEAN_PROJECT_KEY = "karoo-digital-lean"
+# laptop test models in each state (D242), on the Lean EA metamodel: key, name, description, how it is put in that state
+STATE_MODELS = [
+    ("karoo-legacy-archived", "Karoo Legacy (archived)",
+     "Test model: an archived (retired) model. Data quality never measures it.", "lifecycle = 'archived'"),
+    ("karoo-audit-frozen", "Karoo Audit 2025 (frozen)",
+     "Test model: content frozen (locked against changes to its content), for example after an audit. Not measured unless "
+     "an admin ticks it.", "lock_level = 'content', lock_reason = 'Frozen after the 2025 audit'"),
+    ("karoo-pilot-metamodel-locked", "Karoo Pilot (metamodel locked)",
+     "Test model: its metamodel is locked but its content can still change. Measured by default.",
+     "lock_level = 'metamodel', lock_reason = 'Metamodel agreed for the pilot'"),
+    ("karoo-ops-maintenance", "Karoo Operations (maintenance)",
+     "Test model: locked for maintenance (nobody changes it while it is worked on). Measured by default.",
+     "lock_level = 'maintenance', lock_reason = 'Being restructured'"),
+    ("karoo-board-read-only", "Karoo Board pack (read-only)",
+     "Test model: read-only (locked by the installer). Not measured unless an admin ticks it.", "is_locked = true"),
+]
 EMPTY_ID = gid("model", EMPTY_KEY)
 TEMPLATE_ID = gid("model", TEMPLATE_KEY)
 SAMPLE_ID = gid("model", SAMPLE_KEY)
@@ -405,6 +421,31 @@ def history_demo_steps(k: str = SAMPLE_KEY) -> list[tuple[str, str]]:
 
 
 def test_models_sql() -> str:
+    """Every laptop test model in one script (tests and manual loads); the start-up loads them step by step."""
+    return "".join(sql for _key, _label, _check, sql in test_model_steps())
+
+
+SEED_ACTOR = "SELECT set_config('eax.actor', 'system:seed', true);\n"
+
+
+def test_model_steps() -> list[tuple[str, str, str, str]]:
+    """The laptop test models as steps, loaded one transaction each in the background after the API has started (D255),
+    so the models appear one by one: (key, what it loads, a query that finds it already loaded, the SQL)."""
+    by_guid = "SELECT 1 FROM core.models WHERE guid = '{}'::uuid"
+    sql = _test_models_parts()
+    return [
+        ("fynbos-group", "Fynbos Mutual (group)", by_guid.format(gid("model", GROUP_KEY)), SEED_ACTOR + sql[0]),
+        ("fynbos-life-commercial", "Fynbos Life and Fynbos Commercial", by_guid.format(gid("model", COMMERCIAL_KEY)), SEED_ACTOR + sql[1]),
+        ("karoo-re", "Karoo Re (independent) and its rules", by_guid.format(gid("model", KAROO_KEY)), SEED_ACTOR + sql[2]),
+        ("lean", "Lean EA metamodel, Karoo Digital and a model in each state", by_guid.format(gid("model", LEAN_KEY)), SEED_ACTOR + sql[3]),
+        ("demo-estate", "Protea Insurance (demo estate)", by_guid.format(gid("model", DEMO.DEMO_KEY)), SEED_ACTOR + sql[4]),
+        ("quality-demo", "Data quality samples",
+         "SELECT 1 FROM core.quality_rules r JOIN core.models m ON m.id = r.model_id WHERE m.name = 'Protea Insurance (demo estate)'",
+         SEED_ACTOR + sql[5]),
+    ]
+
+
+def _test_models_parts() -> list[str]:
     """Laptop test models (phase 3.1), for trying roles and model assignments:
       Fynbos Mutual (group)       project, created from the Insurance reference model (full copy)
         Fynbos Life               project, derived from the group (merges into it): life products only
@@ -416,15 +457,15 @@ def test_models_sql() -> str:
     cols = ["id", "origin_id", "name", "description", "kind_code", "source_model_id", "parent_model_id",
             "metamodel_name", "owner", "industry"]
     not_product = lambda t, n, keep: t != "Product" or n in keep  # noqa: E731
-    return "".join([
-        "SELECT set_config('eax.history_label', 'Laptop test models', true);\n",
-        insert("model", cols, [[group_id, INSURANCE_ID, "Fynbos Mutual (group)",
+    label = "SELECT set_config('eax.history_label', 'Laptop test models', true);\n"
+    return [
+        label + "".join([insert("model", cols, [[group_id, INSURANCE_ID, "Fynbos Mutual (group)",
                                 "Test model: Fynbos Mutual, a fictitious South African insurer, created from the Insurance "
                                 "reference model. Its life and commercial models derive from it.",
                                 "project", INSURANCE_ID, None, "ArchiMate 4", "Fynbos group architecture", "Insurance"]]),
         metamodel_sql(GROUP_KEY, INSURANCE_KEY),
-        insurance_content_sql(GROUP_KEY, INSURANCE_KEY),
-        insert("model", cols, [
+        insurance_content_sql(GROUP_KEY, INSURANCE_KEY)]),
+        label + "".join([insert("model", cols, [
             [life_id, group_id, "Fynbos Life", "Test model: the life and funeral business, derived from the Fynbos group model.",
              "project", group_id, group_id, "ArchiMate 4", "Fynbos Life architecture", "Insurance"],
             [com_id, group_id, "Fynbos Commercial", "Test model: the short-term and commercial business, derived from the "
@@ -432,16 +473,105 @@ def test_models_sql() -> str:
         metamodel_sql(LIFE_KEY, GROUP_KEY),
         insurance_content_sql(LIFE_KEY, GROUP_KEY, lambda t, n: not_product(t, n, LIFE_PRODUCTS)),
         metamodel_sql(COMMERCIAL_KEY, GROUP_KEY),
-        insurance_content_sql(COMMERCIAL_KEY, GROUP_KEY, lambda t, n: not_product(t, n, COMMERCIAL_PRODUCTS)),
-        insert("model", cols, [[karoo_id, TEMPLATE_ID, "Karoo Re (independent)",
+        insurance_content_sql(COMMERCIAL_KEY, GROUP_KEY, lambda t, n: not_product(t, n, COMMERCIAL_PRODUCTS))]),
+        label + "".join([insert("model", cols, [[karoo_id, TEMPLATE_ID, "Karoo Re (independent)",
                                 "Test model: an independent model created from the ArchiMate 4 template, not related to Fynbos.",
                                 "project", TEMPLATE_ID, None, "ArchiMate 4", "Karoo Re architecture", "Reinsurance"]]),
         metamodel_sql(KAROO_KEY, TEMPLATE_KEY),
         sample_content_sql(KAROO_KEY),
-        rules_demo_sql(),
-        lean_sql(),
-        demo_estate_sql(),
-    ])
+        rules_demo_sql()]),
+        label + lean_sql(),
+        label + demo_estate_sql(),
+        label + quality_demo_sql(),
+    ]
+
+
+def quality_demo_sql() -> str:
+    """Laptop test data for data quality (phase 12, D239 to D246), on the demo estate and the test models, so every case
+    can be tried after a clean rebuild:
+      Protea Insurance: three quality rules (a warning relationship rule, a warning attribute rule, an error naming rule),
+        Url left out of data quality for the whole model (D246), Retirement date not applicable on Actuarial Modelling
+        (approved), Repository area on Complaints Tracker (waiting for a Model Admin), Landscape level waiting on the
+        Chief Executive (a stakeholder), a valid seal (Billing Engine), an expired one (Broker Portal), one broken by a
+        later change (Claims Platform) and one marked still current (CRM); stale entities appear once the stale period has passed (the loader cannot date content in the past)
+      Contact Centre Telephony retired, so data quality leaves it out
+      Every test model with a library icon (D247), Karoo Re with an uploaded one
+      Fraud Analytics: a 'not applicable' a Model Admin rejected (ask again); Fynbos Commercial: a Model Admin's change a
+        Super Admin rejected (ask again)
+      Fynbos Life: its own score weights and colours (D244); Karoo Re: a Model Admin's change waiting for a Super Admin
+      Sample insurance model left out of the measurements and Karoo Audit 2025 (frozen) ticked in (D242)"""
+    P = "(SELECT id FROM core.models WHERE name = 'Protea Insurance (demo estate)')"
+
+    def ent(name, typ="ApplicationComponent"):
+        return (f"(SELECT e.id FROM core.entities e JOIN core.entity_types t ON t.id = e.entity_type_id WHERE e.model_id = {P} "
+                f"AND t.code = '{typ}' AND e.name = '{name}' AND NOT e.is_deleted LIMIT 1)")
+    return f"""SELECT set_config('eax.history_label', 'Laptop test models: data quality cases', true);
+INSERT INTO core.quality_rules (model_id, code, name, kind, entity_type, spec, severity, message, created_by, modified_by) VALUES
+ ({P}, 'QR-01', 'Every application serves something', 'relationship', 'ApplicationComponent',
+  '{{"relationship_type": "Serving", "direction": "out", "min": 1}}', 'warning', '', 'user_model_admin', 'user_model_admin'),
+ ({P}, 'QR-02', 'A retiring application has a retirement date', 'attribute', 'ApplicationComponent',
+  '{{"when": {{"attribute": "Lifecycle", "op": "in", "value": ["Retiring", "Phase Out"]}}, "then": {{"attribute": "RetirementDate", "op": "filled"}}}}',
+  'warning', '', 'user_model_admin', 'user_model_admin'),
+ ({P}, 'QR-03', 'Application names start with a capital letter', 'naming', 'ApplicationComponent',
+  '{{"pattern": "[A-Z0-9].*"}}', 'error', 'Start the name with a capital letter', 'user_model_admin', 'user_model_admin');
+INSERT INTO core.quality_settings (model_id, weights, modified_by) VALUES ({P}, '{{"*": {{"attr:Url": 0}}}}', 'user_model_admin');
+INSERT INTO core.quality_exemptions (model_id, entity_id, item, reason, status, requested_by, requested_at, decided_by, decided_at) VALUES
+ ({P}, {ent('Actuarial Modelling')}, 'attr:RetirementDate', 'In production with no retirement planned', 'approved', 'user_architect',
+  now() - interval '9 days', 'user_model_admin', now() - interval '8 days'),
+ ({P}, {ent('Complaints Tracker')}, 'attr:RepositoryArea', 'A team spreadsheet kept outside the architecture repository', 'pending', 'user_architect',
+  now() - interval '1 day', NULL, NULL),
+ ({P}, {ent('Chief Executive', 'Stakeholder')}, 'attr:LandscapeLevel', 'A person is not on the landscape', 'pending', 'user_architect',
+  now() - interval '2 hours', NULL, NULL);
+INSERT INTO core.quality_exemptions (model_id, entity_id, item, reason, status, requested_by, requested_at, decided_by, decided_at,
+                                     decision_note) VALUES
+ ({P}, {ent('Fraud Analytics')}, 'attr:RetirementDate', 'No retirement planned', 'rejected', 'user_architect',
+  now() - interval '5 days', 'user_model_admin', now() - interval '4 days', 'It is replaced next year: add the planned date');
+INSERT INTO core.quality_seals (entity_id, model_id, kind, sealed_by, sealed_at, note) VALUES
+ ({ent('Billing Engine')}, {P}, 'seal', 'user_model_admin', now(), 'Checked with the billing team'),
+ ({ent('Broker Portal')}, {P}, 'seal', 'eax_migrator', now() - interval '400 days', 'Checked when it was loaded, long ago'),
+ ({ent('CRM')}, {P}, 'current', 'user_model_admin', now(), ''),
+ ({ent('Claims Platform')}, {P}, 'seal', 'user_model_admin', now() - interval '20 days', 'Checked before its last change');
+INSERT INTO core.quality_settings (model_id, score_parts, bands, modified_by) VALUES
+ ((SELECT id FROM core.models WHERE name = 'Fynbos Life'), '{{"completeness": 60, "rules": 30, "freshness": 10}}',
+  '{{"green": 75, "amber": 50}}', 'user_super_admin');
+INSERT INTO core.quality_changes (model_id, kind, payload, summary, note, requested_by) VALUES
+ ((SELECT id FROM core.models WHERE name = 'Karoo Re (independent)'), 'settings',
+  '{{"stale_days": 180, "cron": null, "weights": {{}}, "score_parts": {{"completeness": 40, "rules": 40, "freshness": 20}}, "bands": null}}',
+  'Stale after 180 days; schedule inherited; score 40% completeness, 40% rules passed, 20% fresh; colours inherited',
+  'Reinsurance treaties change twice a year', 'user_model_admin');
+UPDATE core.entities SET status_code = 'retired' WHERE id = {ent('Contact Centre Telephony')};
+-- model icons (D247): a library icon for each test model, and Karoo Re with an image uploaded for it alone
+INSERT INTO core.model_icons (model_id, library, set_by)
+SELECT m.id, v.icon, 'eax_migrator' FROM (VALUES
+ ('Root', 'layers'),
+ ('ArchiMate 4', 'compass'),
+ ('Insurance reference model', 'umbrella'),
+ ('Sample insurance model', 'shield'),
+ ('Fynbos Mutual (group)', 'bank'),
+ ('Fynbos Life', 'heart'),
+ ('Fynbos Commercial', 'briefcase'),
+ ('Lean EA metamodel', 'puzzle'),
+ ('Karoo Digital (lean)', 'rocket'),
+ ('Karoo Legacy (archived)', 'ship'),
+ ('Karoo Audit 2025 (frozen)', 'lock'),
+ ('Karoo Pilot (metamodel locked)', 'target'),
+ ('Karoo Operations (maintenance)', 'gear'),
+ ('Karoo Board pack (read-only)', 'chart'),
+ ('Protea Insurance (demo estate)', 'leaf')) AS v (name, icon) JOIN core.models m ON m.name = v.name AND NOT m.is_deleted
+ON CONFLICT (model_id) DO NOTHING;
+INSERT INTO core.model_icons (model_id, content_type, data, set_by)
+SELECT id, 'image/svg+xml', convert_to('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="12" fill="#e8590c"/><path d="M10 46 L24 24 L32 36 L40 22 L54 46 Z" fill="#fff"/><circle cx="46" cy="16" r="5" fill="#ffd43b"/></svg>', 'UTF8'), 'user_model_admin' FROM core.models WHERE name = 'Karoo Re (independent)'
+ON CONFLICT (model_id) DO NOTHING;
+INSERT INTO core.quality_changes (model_id, kind, payload, summary, note, requested_by, requested_at, status, decided_by, decided_at,
+                                  decision_note) VALUES
+ ((SELECT id FROM core.models WHERE name = 'Fynbos Commercial'), 'settings',
+  '{{"stale_days": 30, "cron": null, "weights": {{}}, "score_parts": null, "bands": null}}',
+  'Stale after 30 days; schedule inherited; score weights inherited; colours inherited', 'Keep it fresh', 'user_model_admin',
+  now() - interval '3 days', 'rejected', 'user_super_admin', now() - interval '2 days', 'A month is too short: everything would be stale');
+INSERT INTO core.quality_scope (model_id, measured, set_by) VALUES
+ ((SELECT id FROM core.models WHERE name = 'Sample insurance model'), false, 'user_super_admin'),
+ ((SELECT id FROM core.models WHERE name = 'Karoo Audit 2025 (frozen)'), true, 'user_super_admin');
+"""
 
 
 def demo_estate_sql() -> str:
@@ -608,6 +738,21 @@ def lean_sql() -> str:
     links = [("Karoo Portal", "Supports", "Customer Onboarding"), ("Claims Engine", "Supports", "Claims Handling"),
              ("Register a claim", "Uses", "Claims Engine"), ("Claims Engine", "Owns", "Claim"), ("Claims Engine", "RunsOn", "Azure")]
     pm = gid("model", p)
+
+    def project(key, name, description, owner):
+        """A small project model on the Lean EA metamodel with the same seven entities and five relationships."""
+        m = gid("model", key)
+        return "".join([
+            insert("model", cols, [[m, gid("model", k), name, description, "project", gid("model", k), "Lean EA metamodel 1.0",
+                                    False, owner, "", "Reinsurance"]]),
+            metamodel(key, k),
+            insert("entity", ["id", "model_id", "entity_type_id", "name"], [[gid(key, "entity", n), m, gid(key, "entity_type", t), n] for t, n in ents]),
+            insert("relationship", ["id", "model_id", "relationship_type_id", "source_entity_id", "target_entity_id"],
+                   [[gid(key, "relationship", a, r, b), m, gid(key, "relationship_type", r), gid(key, "entity", a), gid(key, "entity", b)]
+                    for a, r, b in links])])
+    # one small model in each state (D242): what data quality measures, and what it leaves out, on Administration > Quality
+    states = "".join(project(key, name, desc, "Karoo enterprise architecture") for key, name, desc, _ in STATE_MODELS)
+    states += "".join(f"UPDATE core.models SET {upd} WHERE guid = '{gid('model', key)}'::uuid;\n" for key, _n, _d, upd in STATE_MODELS)
     return "".join([
         "SELECT set_config('eax.history_label', 'Laptop test models: a root metamodel from scratch', true);\n",
         insert("model", cols, [[gid("model", k), None, "Lean EA metamodel",
@@ -622,6 +767,7 @@ def lean_sql() -> str:
         insert("entity", ["id", "model_id", "entity_type_id", "name"], [[gid(p, "entity", n), pm, gid(p, "entity_type", t), n] for t, n in ents]),
         insert("relationship", ["id", "model_id", "relationship_type_id", "source_entity_id", "target_entity_id"],
                [[gid(p, "relationship", a, r, b), pm, gid(p, "relationship_type", r), gid(p, "entity", a), gid(p, "entity", b)] for a, r, b in links]),
+        states,
     ])
 
 

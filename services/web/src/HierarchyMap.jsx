@@ -1,10 +1,10 @@
 // Hierarchy map: the entities of one type as nested boxes, parents holding their parts, for example
 // the capability map from level 1 down to level 4. Colour the boxes by layer colour or by one
 // attribute (a heat map: maturity, criticality, lifecycle...). Click a box to open its entity page.
-// Saves as .drawio (nested containers), SVG, PNG and CSV (one row per entity with its path).
+// Opens in draw.io (nested containers, D256); saves as SVG, PNG and CSV (one row per entity with its path).
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "./auth";
-import { downloadCsv, downloadDrawio, downloadPng, downloadSvg } from "./exporting";
+import { downloadCsv, openDrawio, downloadPng, downloadSvg } from "./exporting";
 import { textWidth } from "./MetamodelDiagram";
 import usePanZoom from "./usePanZoom";
 
@@ -128,7 +128,7 @@ export default function HierarchyMap({ model }) {
 
   function exportDrawio() {
     if (!placed) return;
-    downloadDrawio(title, placed.all.map((n) => ({
+    openDrawio(title, placed.all.map((n) => ({
       id: n.id, label: n.drawKids.length ? `${n.name}` : n.name, x: n.x, y: n.y, w: n.w, h: n.h,
       fill: fill(n), container: n.drawKids.length > 0, bold: n.drawKids.length > 0,
       parent: n.parent_id && placed.all.some((p) => p.id === n.parent_id) ? n.parent_id : null,
@@ -172,7 +172,7 @@ export default function HierarchyMap({ model }) {
         <button onClick={() => placed && fit(placed.width, placed.height, 1)}>Fit</button>
         <button onClick={() => zoomCentre(1.25)}>+</button>
         <button onClick={() => zoomCentre(0.8)}>−</button>
-        <button onClick={exportDrawio} title="Nested boxes for draw.io, hosted or desktop">.drawio</button>
+        <button onClick={exportDrawio} title="Nested boxes, opened in draw.io in a new tab; save or export it there">Open in draw.io</button>
         <button onClick={() => placed && downloadSvg(svgRef.current, placed.width, placed.height, title)}>SVG</button>
         <button onClick={() => placed && downloadPng(svgRef.current, placed.width, placed.height, title)}>PNG</button>
         <button onClick={exportCsv} disabled={!tree}>CSV</button>
@@ -210,7 +210,7 @@ export default function HierarchyMap({ model }) {
         </svg>
       </div>
       <p className="quiet er-info">
-        Parents hold their parts; +n counts the parts on levels not shown. Click a box to open its entity page. .drawio keeps
+        Parents hold their parts; +n counts the parts on levels not shown. Click a box to open its entity page. In draw.io the picture keeps
         the nesting (move a parent and its parts move with it).
       </p>
     </div>

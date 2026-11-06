@@ -1,4 +1,4 @@
-// Saving what a screen shows: CSV for tables, .drawio for pictures.
+// Saving what a screen shows: CSV for tables; pictures open in the platform's draw.io (D256).
 // The .drawio files are plain (uncompressed) draw.io XML that opens in the hosted draw.io and the
 // desktop app. Every box that stands for an entity carries ea_type (its entity type) and ea_id (its
 // guid) as shape data, the same tags as the metamodel ER diagram, so later phases can read files back.
@@ -72,8 +72,44 @@ export function drawioXml(title, nodes, edges = []) {
     cells.join("") + "</root></mxGraphModel></diagram></mxfile>";
 }
 
-export function downloadDrawio(title, nodes, edges) {
-  saveBlob(new Blob([drawioXml(title, nodes, edges)], { type: "application/xml" }), `${title}.drawio`);
+// Opens a picture in the platform's draw.io, in a new tab (D256): nothing is downloaded. The diagram travels in the
+// address after "#" (compressed; the part after "#" never leaves the browser), so draw.io opens it straight away; there
+// it can be edited and saved or exported (File > Save as, File > Export as: .drawio, PNG, SVG, PDF...).
+export function openDrawio(title, nodes, edges) {
+  return openDrawioXml(title, drawioXml(title, nodes, edges));
+}
+
+async function compressed(xml) {
+  // draw.io's own encoding: deflate (raw) of the URI-encoded text, as base 64
+  const { CompressionStream, Response } = window;
+  if (typeof CompressionStream === "undefined") return null;
+  const stream = new Blob([encodeURIComponent(xml)]).stream().pipeThrough(new CompressionStream("deflate-raw"));
+  const bytes = new Uint8Array(await new Response(stream).arrayBuffer());
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
+const notReady = (status) => `<!doctype html><meta charset="utf-8"><title>draw.io</title>
+<body style="font:15px system-ui,sans-serif;margin:40px;color:#1f2328">
+<h2>Diagrams (draw.io) ${status === "off" ? "are switched off" : status === "down" ? "are not running" : "are still starting"}</h2>
+<p>${status === "off" ? "An administrator can switch them on (Administration &gt; System settings &gt; Services)."
+    : "EA Explorer starts draw.io after sign-in and the screens. Close this tab and press <b>Open in draw.io</b> again in a moment."}</p></body>`;
+
+export async function openDrawioXml(title, xml) {
+  const tab = window.open("", "_blank");          // opened at once, while the click counts, so no pop-up blocker stops it
+  if (!tab) return false;
+  const { startupPart } = await import("./StartupStatus");
+  const part = startupPart("drawio");
+  if (part && part.status !== "up") {
+    tab.document.write(notReady(part.status));
+    tab.document.close();
+    return false;
+  }
+  const name = `${String(title || "diagram").replace(/[\\/:*?"<>|]+/g, "-").slice(0, 120)}.drawio`;
+  const packed = await compressed(xml).catch(() => null);
+  tab.location.href = `${window.location.origin}/drawio/?title=${encodeURIComponent(name)}#R${encodeURIComponent(packed || xml)}`;
+  return true;
 }
 
 // An <svg> on screen as a stand-alone SVG text (white background, the pan and zoom removed)

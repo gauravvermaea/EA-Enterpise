@@ -7,7 +7,7 @@
 //   impact   from one entity, follow the lines one way only (out: what it leads to, uses or
 //            contains; in: what leads to, uses or contains it), up to 6 steps, in columns by distance
 // Click a box to open its entity page (or, by choice, to put it in the middle). Drag a box to move
-// it, drag the background to pan, scroll to zoom. Save as .drawio, SVG, PNG or CSV (the lines).
+// it, drag the background to pan, scroll to zoom. Open in draw.io (D256), or save as SVG, PNG or CSV (the lines).
 // For one entity (its page) there are also:
 //   split    both ways at once: what leads to it on the left, what it leads to on the right
 //   tree     its family tree: every parent up to the top, its parts down a chosen number of levels
@@ -16,7 +16,7 @@
 //   asof     its relationships at a moment of its history: removed since in red, added since in green
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "./auth";
-import { downloadCsv, downloadDrawio, downloadPng, downloadSvg } from "./exporting";
+import { downloadCsv, openDrawio, downloadPng, downloadSvg } from "./exporting";
 import { elk, relColour, straightSection, textWidth } from "./MetamodelDiagram";
 import { fmtDateTime } from "./fmt";
 
@@ -407,7 +407,7 @@ export default function EntityGraph({ model, focus: fixedFocus = null, lockFocus
       if (b) cells.push({ id: n.id, label: n.name, sub: `${n.entity_type} · ${n.display_id}`, x: b.x, y: b.y, w: b.width, h: b.height,
         fill: n.colour, stroke: n.id === focus ? "1f5fb8" : "8a96a3", ea_type: n.entity_type, ea_id: n.id, ea_layer: n.layer });
     }
-    downloadDrawio(title(), cells, edges.filter((e) => e.source !== e.target).map((e) => ({
+    openDrawio(title(), cells, edges.filter((e) => e.source !== e.target).map((e) => ({
       source: e.source, target: e.target, label: labels || e.status === "removed" || e.status === "added" ? `${e.verb}${e.status === "removed" ? " (removed since)" : e.status === "added" ? " (added since)" : ""}` : "",
       colour: e.status === "removed" ? "b3261e" : e.status === "added" ? "1e7b3c" : lineColour(e.relationship_type_code),
       dashed: e.relationship_type_code === PARENT || !e.allowed || e.status === "removed",
@@ -518,7 +518,7 @@ export default function EntityGraph({ model, focus: fixedFocus = null, lockFocus
         <button onClick={() => zoomAt(1.25, frame.current.clientWidth / 2, frame.current.clientHeight / 2)}>+</button>
         <button onClick={() => zoomAt(0.8, frame.current.clientWidth / 2, frame.current.clientHeight / 2)}>−</button>
         {Object.keys(moved).length > 0 && <button onClick={() => setMoved({})}>Reset layout</button>}
-        <button onClick={exportDrawio} title="For draw.io, hosted or desktop">.drawio</button>
+        <button onClick={exportDrawio} title="Opens in draw.io in a new tab; save or export it there (File > Save as, Export as)">Open in draw.io</button>
         <button onClick={() => graph && downloadSvg(svgRef.current, graph.width, graph.height, title())}>SVG</button>
         <button onClick={() => graph && downloadPng(svgRef.current, graph.width, graph.height, title())}>PNG</button>
         <button onClick={exportCsv} title="The lines (and entities without lines) as a table">CSV</button>
@@ -635,7 +635,7 @@ export default function EntityGraph({ model, focus: fixedFocus = null, lockFocus
         {kind === "tree" ? "Parents above, parts below. " : ""}
         {kind === "path" ? "Columns are steps from this entity to the other one (outlined). " : ""}
         {kind === "asof" ? "Red dashed: relationships it had then and has no longer; green: relationships added since. " : ""}Click a box to open its entity page.
-        Drag a box to move it, drag the background to move around, scroll to zoom. .drawio opens in draw.io (hosted or desktop).
+        Drag a box to move it, drag the background to move around, scroll to zoom. Open in draw.io opens it in a new tab, to edit, save or export there.
       </p>
     </div>
   );

@@ -14,6 +14,8 @@ import { refreshAll, Swatch, useApi } from "./ModelViews";
 import { PendingBanner, PendingMark } from "./ModelMarks";
 import { EntityChanges, useEntityChanges, WasValue } from "./Changes";
 import { fmtDateTime } from "./fmt";
+import { toneOf } from "./Quality";
+import { fieldClass, FieldQuality, q2, QualityBadge, QualityCell, RecheckAll, ScoreChip, useEntityQuality, useTypeQuality } from "./QualityBits";
 
 const CONTENT_ROLES = ["architect", "model-sub-admin", "model-admin"];
 const me = () => currentUser().preferred_username || "";
@@ -138,6 +140,8 @@ export function EntityFormDialog({ model, m, typeId, e, onClose, onSaved }) {
   const [msg, setMsg] = useState("");
   const [saved, setSaved] = useState(null);
   const ec = useEntityChanges(model, m, e?.id);   // my uncommitted changes to it, highlighted (phase 8)
+  const eq = useEntityQuality(e && m?.kind === "project" ? model : null, e?.id);   // as saved: reasons, not applicable (D246)
+  const na = (code) => (eq.data?.fields?.[code] || []).some((r) => r.kind === "not-applicable");
   const f = (code) => ec.fields[String(code).toLowerCase()];
   useEffect(() => { if (form && values === null) setValues(initialValues(e, form)); }, [form]);
   // the rules checked as you type (D194): the same checks as after a save, on the values in the form, nothing saved
@@ -178,6 +182,14 @@ export function EntityFormDialog({ model, m, typeId, e, onClose, onSaved }) {
     return out;
   };
   const missing = form.attributes.filter((a) => a.is_required && (values[a.code] === undefined || values[a.code] === "" || values[a.code] === null));
+  // data quality as you type (D241): each field's weight from the metamodel; the description weighs 1 and a relationship 2
+  const filled = (v) => !(v === undefined || v === null || v === "" || (typeof v === "string" && !v.trim()));
+  const qItems = [{ w: na("description") ? 0 : 1, ok: filled(description) }, { w: 2, ok: (e?.relationship_count ?? e?.relationships?.length ?? 0) > 0 },
+    ...form.attributes.map((a) => ({ w: na(a.code) ? 0 : a.quality_weight ?? (a.is_required ? 3 : 1), ok: filled(values[a.code]) }))].filter((x) => x.w > 0);
+  // a field that lowers data quality as it stands in the form: empty and counted (and not marked not applicable)
+  const qBad = (a) => a.quality_weight > 0 && !na(a.code) && !filled(values[a.code]);
+  const qTotal = qItems.reduce((n, x) => n + x.w, 0);
+  const quality = qTotal ? Math.round((100 * qItems.filter((x) => x.ok).reduce((n, x) => n + x.w, 0)) / qTotal) : 100;
   async function save(another = false) {
     setBusy(true); setMsg("");
     const body = { values: changedValues() };
@@ -218,6 +230,7 @@ export function EntityFormDialog({ model, m, typeId, e, onClose, onSaved }) {
       </>}>
       {msg && <p className={msg.startsWith("Saved") ? "status ok" : "status bad"}>{msg}</p>}
       {e && <EntityChanges model={model} entity={e} ec={ec} compact />}
+      {eq.data && <p className="small"><QualityBadge q={eq.data} label="Data quality as saved" /> <span className="quiet">fields highlighted lower it; fill them, or mark one not applicable</span></p>}
       {live && (live.summary.errors + live.summary.warnings > 0
         ? <p className="status warn small live-check">⚠ With these values it fails {live.summary.errors + live.summary.warnings} rule{live.summary.errors + live.summary.warnings === 1 ? "" : "s"}
           {" "}(checked as you type): {live.warnings.map((w) => `${w.field}: ${w.message}`).join("; ")}. You can still save; it is flagged until fixed (D48).</p>
@@ -248,13 +261,17 @@ export function EntityFormDialog({ model, m, typeId, e, onClose, onSaved }) {
               const warn = now ? now.map((w) => w.message).join("; ") : cur?.warnings?.length ? cur.warnings.map((w) => w.message).join("; ") : "";
               const sev = now?.some((w) => w.severity === "error") ? "error" : "warning";
               return (
-                <div key={a.code} className={`ed-field${a.data_type === "long_text" ? " wide" : ""}${f(`value:${a.code}`) ? " pending-field" : ""}`}>
+                <div key={a.code} className={`ed-field${a.data_type === "long_text" ? " wide" : ""}${f(`value:${a.code}`) ? " pending-field" : ""}${qBad(a) ? " q-field-bad" : na(a.code) ? " q-field-na" : ""}`}>
                   <label htmlFor={`f-${a.code}`} title={[a.description, a.data_type_name, a.pick_list_values.length ? `One of: ${a.pick_list_values.join(", ")}` : ""].filter(Boolean).join(" · ")}>
-                    {a.name}{a.is_required && <span className="req" title="Required">*</span>}{a.unit && <span className="quiet"> ({a.unit})</span>} <span className="tip">ⓘ</span> <WasValue f={f(`value:${a.code}`)} />
+                    {a.name}{a.is_required && <span className="req" title="Required">*</span>}{a.unit && <span className="quiet"> ({a.unit})</span>} <span className="tip">ⓘ</span>
+                    {a.quality_weight > 0 && <span className={`q-weight${filled(values[a.code]) ? " done" : ""}`} title={`Counts ${a.quality_weight} towards data quality (set in the metamodel)`}>{"●".repeat(Math.min(5, a.quality_weight))}</span>}
+                    <WasValue f={f(`value:${a.code}`)} />
                   </label>
                   <ValueInput model={model} a={a} id={`f-${a.code}`} value={values[a.code]} onChange={(v) => setValues((x) => ({ ...x, [a.code]: v }))} />
                   {now && !now.length && <span className="live-ok small" title="Every rule on this field passes">✓</span>}
                   {warn && <span className={`sev ${sev} small`} title={cur?.override ? `Saved anyway by ${cur.override.by} on ${fmtDateTime(cur.override.at)}` : undefined}>{warn}</span>}
+                  {qBad(a) && !e && <span className="q-r missing small">Empty: counts {a.quality_weight} towards data quality</span>}
+                  {e && (qBad(a) || na(a.code)) && <FieldQuality model={model} entity={e.id} code={a.code} q={eq.data} mayEdit />}
                 </div>
               );
             })}
@@ -262,6 +279,9 @@ export function EntityFormDialog({ model, m, typeId, e, onClose, onSaved }) {
         </fieldset>
       ))}
       {missing.length > 0 && <p className="quiet">Required and still empty: {missing.map((a) => a.name).join(", ")}. You can save anyway; it shows as a warning (D48).</p>}
+      <p className="q-form small" title="Each field counts by its data quality weight (set in the metamodel); the description counts 1 and having a relationship 2">
+        Data quality: <span className="q-mini"><span className={`q-bar-fill ${toneOf(quality, form.quality_bands || undefined)}`} style={{ width: `${quality}%` }} /></span>{" "}
+        <b>{quality}% complete</b>{!e && " (add a relationship after saving for the rest)"}</p>
     </Modal>
   );
 }
@@ -467,7 +487,10 @@ function cellValue(row, a) {
   return row.values[a.code] ?? "";
 }
 
-function EntryRow({ model, m, form, row, cols, access, onRelate }) {
+// why a cell lowers data quality, for its hover text (D246)
+const qWhy = (tq, id, code) => ((tq?.entities?.[id]?.fields?.[code] || []).map((x) => x.message).join("\n") || undefined);
+
+function EntryRow({ model, m, form, row, cols, access, onRelate, tq }) {
   const [edit, setEdit] = useState(null);   // { name, description, values } while editing
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
@@ -504,6 +527,7 @@ function EntryRow({ model, m, form, row, cols, access, onRelate }) {
         <td>{row.display_id || <span className="quiet">new</span>}</td>
         <td><input autoFocus value={edit.name} placeholder="Name *" onChange={(ev) => setEdit({ ...edit, name: ev.target.value })}
           onKeyDown={(ev) => { if (ev.key === "Enter") save(); if (ev.key === "Escape") setEdit(null); }} /></td>
+        {tq && <td />}
         <td><input value={edit.description} onChange={(ev) => setEdit({ ...edit, description: ev.target.value })} /></td>
         {cols.map((a) => (
           <td key={a.code}><ValueInput model={model} a={a} value={edit.values[a.code]} onChange={(v) => setEdit({ ...edit, values: { ...edit.values, [a.code]: v } })} /></td>
@@ -521,10 +545,12 @@ function EntryRow({ model, m, form, row, cols, access, onRelate }) {
     <tr className={warn ? "has-warning" : ""}>
       <td><a href={`#/metamodel/${model}/entity/${row.id}`}>{row.display_id}</a></td>
       <td>{row.name}{row.status === "retired" && <span className="quiet"> (retired)</span>} <PendingMark kind={row.pending} model={model} /></td>
-      <td className="quiet clip">{row.description}</td>
+      {tq && <td><QualityCell model={model} entity={row.id} row={tq.entities?.[row.id]} bands={tq.bands} /></td>}
+      <td className={`quiet clip ${fieldClass(tq?.entities?.[row.id], "description")}`} title={qWhy(tq, row.id, "description")}>{row.description}</td>
       {cols.map((a) => {
         const ov = row.overrides?.[a.code];
-        return <td key={a.code} className={ov ? "override" : ""} title={ov ? `Saved although it fails: ${ov.rules.map((r) => r.message).join("; ")} (by ${ov.by})` : undefined}>{cellValue(row, a)}</td>;
+        return <td key={a.code} className={`${ov ? "override" : ""} ${fieldClass(tq?.entities?.[row.id], a.code)}`.trim()}
+          title={ov ? `Saved although it fails: ${ov.rules.map((r) => r.message).join("; ")} (by ${ov.by})` : qWhy(tq, row.id, a.code)}>{cellValue(row, a)}</td>;
       })}
       <td className="quiet">{(row.tags || []).join(", ")}</td>
       <td className="nowrap">
@@ -542,6 +568,7 @@ export function DataEntryTab({ model, m, typeFromUrl }) {
   const { data: mm } = useApi(`/api/v1/models/${model}/metamodel`);
   const [type, setType] = useState(typeFromUrl || "");
   const { data, error } = useApi(type ? `/api/v1/models/${model}/entry/${type}` : null);
+  const tq = useTypeQuality(type && m?.kind === "project" ? model : null, type).data;    // as last calculated (D245)
   const [filter, setFilter] = useState("");
   const [newRows, setNewRows] = useState(0);
   const [relateTo, setRelateTo] = useState(null);
@@ -584,11 +611,16 @@ export function DataEntryTab({ model, m, typeFromUrl }) {
       {type && !data && <p className="quiet">{error || "Loading..."}</p>}
       {!access.ok && data && <p className="quiet">{access.why}</p>}
       {data && <PendingBanner count={data.pending_changes} model={model} />}
+      {data && tq && <p className="small q-type-line">{data.entity_type.name} data quality <ScoreChip score={tq.summary.score} bands={tq.bands}
+        title={`${q2(tq.summary.score)}: completeness ${q2(tq.summary.completeness)}, rules passed ${q2(tq.summary.passing)}, fresh ${q2(tq.summary.fresh)}`} />{" "}
+        <span className="quiet">as calculated {tq.calculated_to ? fmtDateTime(tq.calculated_to) : "- not yet"}; highlighted cells lower it (hover for why); ↻ rechecks a row</span>{" "}
+        <RecheckAll model={model} type={type} /></p>}
       {data && (
         <div className="table-scroll">
           <table className="grid-table entry-table">
             <thead><tr>
-              <th>ID</th><th>Name <span className="req">*</span></th><th>Description</th>
+              <th>ID</th><th>Name <span className="req">*</span></th>
+              {tq && <th title="Data quality as last calculated; ↻ rechecks the row now">Quality</th>}<th>Description</th>
               {cols.map((a) => <th key={a.code} title={[a.data_type_name, a.unit, a.pick_list_values.length ? `One of: ${a.pick_list_values.join(", ")}` : ""].filter(Boolean).join(" · ")}>
                 {a.name}{a.is_required && <span className="req">*</span>}</th>)}
               <th>Tags</th><th />
@@ -596,11 +628,11 @@ export function DataEntryTab({ model, m, typeFromUrl }) {
             <tbody>
               {Array.from({ length: newRows }, (_, i) => (
                 <EntryRow key={`new-${i}-${data.rows.length}`} model={model} m={m} form={data} cols={cols} access={access}
-                  row={{ values: {}, tags: [] }} onRelate={() => {}} />
+                  row={{ values: {}, tags: [] }} onRelate={() => {}} tq={tq} />
               ))}
               {rows.map((r) => <EntryRow key={`${r.id}-${r.row_version}`} model={model} m={m} form={data} row={r} cols={cols} access={access}
-                onRelate={(row) => setRelateTo(row)} />)}
-              {!rows.length && !newRows && <tr><td colSpan={cols.length + 5} className="quiet">No {data.entity_type.name} entities yet. Press + Row.</td></tr>}
+                onRelate={(row) => setRelateTo(row)} tq={tq} />)}
+              {!rows.length && !newRows && <tr><td colSpan={cols.length + (tq ? 6 : 5)} className="quiet">No {data.entity_type.name} entities yet. Press + Row.</td></tr>}
             </tbody>
           </table>
         </div>

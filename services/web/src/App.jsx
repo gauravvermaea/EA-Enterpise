@@ -16,6 +16,7 @@ import { refreshAll } from "./ModelViews";
 import ModelSwitcher from "./ModelSwitcher";
 import { SearchPage, TopSearch } from "./GridPages";
 import { RestoreLock, useRestoreLock } from "./Restores";
+import StartupStatus from "./StartupStatus";
 
 function useHashRoute() {
   const [route, setRoute] = useState(window.location.hash || "#/");
@@ -87,6 +88,7 @@ export default function App() {
           <a href="/api/docs">API</a>
         </nav>
         <TopSearch />
+        <StartupStatus />
         <Bell route={route} />
         <ModelSwitcher route={route} />
         <div className="user">

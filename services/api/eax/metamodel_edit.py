@@ -15,9 +15,10 @@ Operations (payload fields in brackets; ids are guids; "type" means an entity ty
   entity_type.retire / entity_type.restore   id   (retired: no new entities, its entities read-only, D87)
   attribute.create     (entity_type | relationship_type), name, data_type,
                        [code, description, unit, pick_list | values, is_required, section, help_text,
-                        default_value, apply_default_to_existing, existing_attribute]
+                        default_value, apply_default_to_existing, existing_attribute, quality_weight (the attribute's
+                        default data quality weight, 0-10), item_quality_weight (this type's override, D241)]
   attribute.update     item, [name, description, unit, is_required, section, help_text, default_value,
-                        apply_default_to_existing]
+                        apply_default_to_existing, quality_weight, item_quality_weight ("" or null: the default)]
   attribute.remove     item     (the attribute leaves the type and its values are removed; they stay in history)
   lifecycle.create     entity_type, name, phases   (a phase pick list and a date per phase, D-MM-021)
   pick_list.create     name, values
@@ -289,6 +290,19 @@ def _new_pick_list(conn, mid: int, name: str, values: list[str]) -> int:
     return pl["id"]
 
 
+def _weight(v, what: str):
+    """A data quality weight (D241): 0 (left out) to 10, or None (the default)."""
+    if v is None or str(v).strip() == "":
+        return None
+    try:
+        w = int(v)
+    except (TypeError, ValueError) as exc:
+        raise EditError(f"The {what} is a whole number from 0 to 10.") from exc
+    if not 0 <= w <= 10:
+        raise EditError(f"The {what} is from 0 (left out) to 10.")
+    return w
+
+
 def _op_attribute_create(conn, m, p):
     mid = m["_id"]
     owner_type = owner_rel = None
@@ -315,10 +329,11 @@ def _op_attribute_create(conn, m, p):
                 raise EditError("A pick-list attribute needs a pick list or its values.")
         code = _unique(conn, "attribute_types", "code", mid, p.get("code") or code_from(p["name"]), lower=True)
         column = _unique(conn, "attribute_types", "column_name", mid, snake_from(p["name"]))
-        attr = _one(conn, """INSERT INTO core.attribute_types (model_id, code, name, description, data_type_code, pick_list_id, unit, column_name)
-                             VALUES (:m, :c, :n, :d, :t, :p, :u, :col) RETURNING *""",
+        attr = _one(conn, """INSERT INTO core.attribute_types (model_id, code, name, description, data_type_code, pick_list_id, unit,
+                                                               column_name, quality_weight)
+                             VALUES (:m, :c, :n, :d, :t, :p, :u, :col, :qw) RETURNING *""",
                     m=mid, c=code, n=p["name"].strip(), d=p.get("description", ""), t=dtype, p=pick_list_id,
-                    u=p.get("unit", "") or "", col=column)
+                    u=p.get("unit", "") or "", col=column, qw=_weight(p.get("quality_weight"), "data quality weight"))
     default = typed_default(attr["data_type_code"], p.get("default_value"), _pick_values(conn, attr["pick_list_id"]))
     owner_col, owner_id = ("entity_type_id", owner_type["id"]) if owner_type else ("relationship_type_id", owner_rel["id"])
     if _one(conn, f"SELECT 1 AS x FROM core.item_attributes WHERE {owner_col} = :o AND attribute_type_id = :a AND NOT is_deleted",
@@ -327,10 +342,11 @@ def _op_attribute_create(conn, m, p):
     sort = _one(conn, f"SELECT coalesce(max(sort_order), 0) + 10 AS s FROM core.item_attributes WHERE {owner_col} = :o",
                 o=owner_id)["s"]
     item = _one(conn, f"""INSERT INTO core.item_attributes (model_id, attribute_type_id, {owner_col}, is_required, section,
-                                                            sort_order, default_value, help_text)
-                          VALUES (:m, :a, :o, :r, :s, :so, :dv, :h) RETURNING guid""",
+                                                            sort_order, default_value, help_text, quality_weight)
+                          VALUES (:m, :a, :o, :r, :s, :so, :dv, :h, :qw) RETURNING guid""",
                 m=mid, a=attr["id"], o=owner_id, r=bool(p.get("is_required")), s=p.get("section") or "General", so=sort,
-                dv=None if default is None else str(p.get("default_value")).strip(), h=p.get("help_text", "") or "")
+                dv=None if default is None else str(p.get("default_value")).strip(), h=p.get("help_text", "") or "",
+                qw=_weight(p.get("item_quality_weight"), "data quality weight on this type"))
     filled = 0
     if owner_type and p.get("apply_default_to_existing"):
         filled = _apply_default(conn, mid, owner_type["id"], attr, default)
@@ -357,6 +373,10 @@ def _op_attribute_update(conn, m, p):
     mid = m["_id"]
     it = _item(conn, mid, p["item"])
     attr_fields = {k: p[k] for k in ("name", "description", "unit") if p.get(k) is not None}
+    if "quality_weight" in p:   # only when it changes (the form sends it every time)
+        qw = _weight(p["quality_weight"], "data quality weight")
+        if qw != _one(conn, "SELECT quality_weight AS w FROM core.attribute_types WHERE id = :i", i=it["attribute_type_id"])["w"]:
+            attr_fields["quality_weight"] = qw
     if attr_fields:
         sets = ", ".join(f"{k} = :{k}" for k in attr_fields)
         _exec(conn, f"UPDATE core.attribute_types SET {sets} WHERE id = :id", id=it["attribute_type_id"], **attr_fields)
@@ -364,6 +384,10 @@ def _op_attribute_update(conn, m, p):
     for k in ("is_required", "section", "help_text"):
         if k in p and p[k] is not None:
             item_fields[k] = bool(p[k]) if k == "is_required" else p[k]
+    if "item_quality_weight" in p:
+        qw = _weight(p["item_quality_weight"], "data quality weight on this type")
+        if qw != it.get("quality_weight"):
+            item_fields["quality_weight"] = qw
     default = None
     if "default_value" in p:
         default = typed_default(it["data_type_code"], p.get("default_value"), _pick_values(conn, it["pick_list_id"]))
@@ -384,6 +408,10 @@ def _op_attribute_update(conn, m, p):
         what.append("mandatory" if item_fields["is_required"] else "optional")
     if "default_value" in item_fields:
         what.append("default " + (item_fields["default_value"] or "removed"))
+    if "quality_weight" in attr_fields:
+        what.append(f"data quality weight {attr_fields['quality_weight'] if attr_fields['quality_weight'] is not None else 'by default'}")
+    if "quality_weight" in item_fields:
+        what.append(f"weight on this type {item_fields['quality_weight'] if item_fields['quality_weight'] is not None else 'as the attribute'}")
     note = f"Changed attribute {attr_fields.get('name', it['attr_name'])} on {it['type_name'] or it['rel_name']}"
     return ({"item": it["guid"], "filled_with_default": filled}, note + (f" ({', '.join(what)})" if what else ""),
             [it["entity_type_id"]] if it["entity_type_id"] else [])

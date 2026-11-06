@@ -22,6 +22,10 @@ $EnvFile = "work/eaexplorer.env"
 $LogDir = Join-Path $WorkDir "logs"
 $Stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $RestArgs = @($Rest | Where-Object { $_ })   # extra arguments, without empty entries
+# --wait-all (up, run, debug and the clean-* commands): start everything and wait until all of it is up, the sample data
+# loaded too; without it the core starts first and the rest in the background (D255)
+$WaitAll = $RestArgs -contains "--wait-all"
+$RestArgs = @($RestArgs | Where-Object { $_ -ne "--wait-all" })
 $script:Log = $null          # StreamWriter for this run's log
 $script:LogPath = $null
 $Utf8 = New-Object System.Text.UTF8Encoding $false
@@ -166,20 +170,113 @@ function Get-OffContainers {
 }
 # up (all services): starts everything but the switched-off services; those are created, not started, so the
 # console can switch them on later
-function Invoke-Up([string[]]$Names, [switch]$NoThrow) {
-    Write-ServicesFile
-    if ($Names.Count -gt 0) { return (Invoke-Compose (@("up", "-d", "--build") + $Names) -NoThrow:$NoThrow) }
+# how many API and job servers (copies of the api container) run (D249): 1 to 16, 1 when not set
+function Get-ApiServers {
+    $n = 1
+    if (-not [int]::TryParse((Get-Setting "EAX_API_SERVERS" "1"), [ref]$n)) { $n = 1 }
+    return [Math]::Max(1, [Math]::Min(16, $n))
+}
+# The start-up in two tiers (D255): the core first (database, set-up, proxy, screens, sign-in, the API with the database
+# upgrade and the built-in models), so people can sign in in a minute or two; everything else after it, in the
+# background (Reports, Documents, draw.io, backups, the operations helper), while the API loads the sample data and
+# measures data quality. The screens show each part red, amber or green (down, starting, up).
+$CoreServices = @("db", "setup", "proxy", "web", "keycloak", "api")
+function Get-Tiers {
     $off = @(Get-OffContainers)
-    if ($off.Count -eq 0) { return (Invoke-Compose @("up", "-d", "--build") -NoThrow:$NoThrow) }
     $old = $ErrorActionPreference; $ErrorActionPreference = "Continue"
     $all = @(& docker @(Get-ComposeArgs @("config", "--services")) 2>$null | Where-Object { $_ })
     $ErrorActionPreference = $old
     $on = @($all | Where-Object { $_ -notin $off })
-    Write-Log "Switched off (D191): $($off -join ', '): created, not started."
-    $code = Invoke-Compose (@("up", "-d", "--build") + $on) -NoThrow:$NoThrow
-    Invoke-Compose (@("create", "--build") + $off) -NoThrow | Out-Null
-    Invoke-Compose (@("stop") + $off) -NoThrow -Quiet | Out-Null
-    return $code
+    return @{ First = @($on | Where-Object { $_ -in $CoreServices }); Later = @($on | Where-Object { $_ -notin $CoreServices }); Off = $off }
+}
+# waits until the API (every copy) and Keycloak say healthy; shows each change; false when one stopped or it took too long
+function Wait-Core([int]$Minutes = 15) {
+    $until = (Get-Date).AddMinutes($Minutes)
+    $last = ""
+    while ((Get-Date) -lt $until) {
+        $old = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+        $rows = @(& docker @(Get-ComposeArgs @("ps", "-a", "--format", "{{.Name}}|{{.State}}|{{.Health}}", "api", "keycloak")) 2>$null | Where-Object { $_ -match "\|" })
+        $ErrorActionPreference = $old
+        $now = ($rows | ForEach-Object { $p = $_ -split "\|"; "$($p[0]): $(if ($p[2]) { $p[2] } else { $p[1] })" }) -join ", "
+        if ($now -and $now -ne $last) { Write-Log "  $now"; $last = $now }
+        if ($rows.Count -ge 2 -and -not ($rows | Where-Object { ($_ -split "\|")[2] -ne "healthy" })) { return $true }
+        if ($rows | Where-Object { ($_ -split "\|")[1] -in @("exited", "dead") }) {
+            Write-Log "A core container stopped; see .\eax logs api (or keycloak)." "Red"
+            return $false
+        }
+        Start-Sleep -Seconds 5
+    }
+    Write-Log "The API or sign-in was not ready after $Minutes minutes; see .\eax logs api (or keycloak)." "Yellow"
+    return $false
+}
+# --wait-all: waits until every part is up (the API's start-up status, D255): Reports, Documents, Diagrams, the sample data
+function Wait-All([int]$Minutes = 30) {
+    $until = (Get-Date).AddMinutes($Minutes)
+    $t0 = Get-Date
+    $last = ""
+    $py = "import json,urllib.request as u; d=json.load(u.urlopen('http://localhost:8000/api/startup',timeout=20)); print(d['overall']+'|'+', '.join(p['key']+': '+p['status'] for p in d['parts']))"
+    Write-Log "Waiting for everything: Reports, Documents, Diagrams and the sample data (up to $Minutes minutes)..."
+    while ((Get-Date) -lt $until) {
+        $old = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+        $now = @(& docker @(Get-ComposeArgs @("exec", "-T", "api", "python", "-c", $py)) 2>$null | Where-Object { $_ -match "\|" }) | Select-Object -Last 1
+        $ErrorActionPreference = $old
+        if ($now -and $now -ne $last) { Write-Log "  $(($now -split '\|', 2)[1])"; $last = $now }
+        if ($now -like "up|*") { Write-Log "Everything is up after $([int]((Get-Date) - $t0).TotalSeconds) s." "Green"; return }
+        if ($now -like "down|*" -and $now -notmatch "starting") {
+            Write-Log "Started, but not everything is up (see above): .\eax logs <service>." "Yellow"; return
+        }
+        Start-Sleep -Seconds 10
+    }
+    Write-Log "Not everything was up after $Minutes minutes (see above); EA Explorer is usable, the rest may still come." "Yellow"
+}
+# the second tier, in a hidden PowerShell of its own with its own log, so this window is free at once
+function Start-Later {
+    $p = @{ FilePath = (Get-Process -Id $PID).Path; WorkingDirectory = $PSScriptRoot
+            ArgumentList = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`"", "start-later") }
+    if (-not ($IsLinux -or $IsMacOS)) { $p.WindowStyle = "Hidden" }   # Windows only; elsewhere it has no window anyway
+    Start-Process @p | Out-Null
+    Write-Log "Reports, documents, draw.io, backups and the operations helper start now in the background (log: work\logs\eax-*-start-later.log)."
+}
+function Invoke-Up([string[]]$Names, [switch]$NoThrow) {
+    Write-ServicesFile
+    $scale = @("--scale", "api=$(Get-ApiServers)")
+    if ($Names.Count -gt 0) {
+        if ($Names -contains "api") { return (Invoke-Compose (@("up", "-d", "--build") + $scale + $Names) -NoThrow:$NoThrow) }
+        return (Invoke-Compose (@("up", "-d", "--build") + $Names) -NoThrow:$NoThrow)
+    }
+    $t = Get-Tiers
+    if ($t.Off.Count -gt 0) { Write-Log "Switched off (D191): $($t.Off -join ', '): created, not started." }
+    Write-Log "Starting the core first (D255): $($t.First -join ', ')" "Cyan"
+    $code = Invoke-Compose (@("up", "-d", "--build") + $scale + $t.First) -NoThrow:$NoThrow
+    if ($code -ne 0) { return $code }
+    Write-Log "Waiting for the API and sign-in to be ready (the database upgrade and the built-in models come first)..."
+    $started = Get-Date
+    $ready = Wait-Core
+    if ($WaitAll) {          # --wait-all: the rest now, in this window, and wait until everything is up
+        Invoke-Later
+        Wait-All
+        return 0
+    }
+    Start-Later
+    Write-Log "(To wait for everything instead: .\eax up --wait-all.)"
+    if ($ready) {
+        Write-Log "EA Explorer is ready after $([int]((Get-Date) - $started).TotalSeconds) s: you can sign in." "Green"
+        Write-Log "Still starting in the background: Reports, Documents, Diagrams and the sample data; the screens show each in red, amber or green (down, starting, up)." "Green"
+    }
+    return 0
+}
+# start-later: the second tier (run by Start-Later): the rest without touching the core, then the switched-off ones created
+function Invoke-Later {
+    $t = Get-Tiers
+    if ($t.Later.Count -gt 0) {
+        Write-Log "Starting after the core (D255): $($t.Later -join ', ')"
+        Invoke-Compose (@("up", "-d", "--build", "--no-deps") + $t.Later) -NoThrow | Out-Null
+    }
+    if ($t.Off.Count -gt 0) {
+        Invoke-Compose (@("create", "--build") + $t.Off) -NoThrow | Out-Null
+        Invoke-Compose (@("stop") + $t.Off) -NoThrow -Quiet | Out-Null
+    }
+    Write-Log "Everything is started."
 }
 function Show-Services {
     foreach ($n in $Services.Keys) {
@@ -369,14 +466,20 @@ Getting started
                         files are valid. Starts nothing.
   run                   The everyday start, after the first clean-run: the same as up. Keeps the
                         databases, documents and settings from last time.
-  up [service...]       Builds our images, pulls the others, and starts every container in the
+  up [service...] [--wait-all]
+                        Starts in two tiers (D255): the core first (sign-in, the API, the screens; you can sign
+                        in when it says ready), then Reports, Documents, draw.io and the sample data in the
+                        background. --wait-all starts everything and waits until all of it is up (also on
+                        run, debug and the clean-* commands).
+                        Builds our images, pulls the others, and starts every container in the
                         background. Then prints the addresses and (laptop) the logins.
                         Name services to start only those and what they depend on, for example
                         "up api proxy" starts the API, PostgreSQL and nginx only (about 1 GB);
                         the API is then at https://localhost/api/docs (laptop also http://).
 
 Finding problems
-  debug [service...]    Same as up, but does not stop on failure: it saves a diagnostics report and
+  debug [service...] [--wait-all]
+                        Same as up, but does not stop on failure: it saves a diagnostics report and
                         then keeps recording the containers' output to
                         work\logs\containers-<date-time>.log until you press Ctrl+C.
                         The containers keep running after Ctrl+C. "debug api" starts and records
@@ -427,6 +530,9 @@ Everyday use
                         restores one as a new model or over itself (needs the api container running).
   services              Lists the optional services (reports, documents, drawio, mcp, change_log,
                         backups), whether each is on in the config file and its containers' state.
+  servers [n]           How many API and job servers run (D249): without n, shows them; with n (1 to 16), writes
+                        EAX_API_SERVERS (a dated copy of the config file first) and adds or removes servers now,
+                        without a restart (nginx spreads API calls across them). Also on Administration > Containers.
   service <name> on|off Switches one optional service on or off: keeps a dated copy of the config file
                         in work\config-history, writes the switch, then starts or stops its containers.
                         Everything is on unless switched off (D191). Also in Administration > System
@@ -439,14 +545,14 @@ Starting again
                         deletes the Docker volumes, so the databases and documents start empty.
                         The local certificate (work\data\tls) is kept, so you need not trust it
                         again; --certificate deletes it too. Asks you to type yes unless --yes is given.
-  clean-run [laptop|server]
+  clean-run [laptop|server] [--wait-all]
                         Starts again from scratch in one step: cleanup --all --yes, then init
                         (laptop if not given), then up. Deletes the databases and everything in
                         the work folder without asking.
-  clean-debug [laptop|server]
+  clean-debug [laptop|server] [--wait-all]
                         The same, but ends with debug instead of up (keeps recording the
                         containers' output until Ctrl+C).
-  clean-restart [laptop|server]
+  clean-restart [laptop|server] [--wait-all]
                         For testing a new version: down (stops and removes the running containers),
                         then clean-run (cleanup --all --yes, init, up). Rebuilds our images and
                         starts with empty databases; the trusted certificate is kept.
@@ -546,7 +652,11 @@ if ($Command -in @("help", "-h", "--help", "/?")) { Show-Help $(if ($RestArgs.Co
 if ($Command -in @("clean-run", "clean-debug", "clean-restart")) {
     $kind = if ($RestArgs.Count -gt 0) { $RestArgs[0] } else { "laptop" }
     $last = if ($Command -eq "clean-debug") { "debug" } else { "up" }
-    $steps = @(@("cleanup", "--all", "--yes"), @("init", $kind), @($last))
+    # built as an array on purpose: an if-expression would turn @("up") into the string "up", and splatting a string
+    # passes its letters one by one ("u")
+    [string[]]$finish = @($last)
+    if ($WaitAll) { $finish += "--wait-all" }
+    $steps = @(@("cleanup", "--all", "--yes"), @("init", $kind), $finish)
     if ($Command -eq "clean-restart") {
         if (Test-Path $EnvFile) { $steps = @(, @("down")) + $steps }
         else { Write-Host "No $EnvFile yet: nothing running to bring down; going straight to clean-run." -ForegroundColor Yellow }
@@ -574,7 +684,7 @@ if ((Test-Path "eaexplorer.env") -and -not (Test-Path $EnvFile)) {
 }
 $failed = $false
 try {
-    if ($Command -in @("check", "up", "debug", "status", "logs", "down", "backup", "backups", "restore", "restores", "restore-log",
+    if ($Command -in @("check", "up", "start-later", "debug", "status", "logs", "down", "backup", "backups", "restore", "restores", "restore-log",
                        "delete-backup", "delete-restore", "app-backup", "restore-model", "restore-app", "stop-backup", "services", "service")) { Assert-Docker }
     switch ($Command) {
         "init" {
@@ -603,6 +713,7 @@ try {
             try { Invoke-Up $RestArgs | Out-Null } finally { if ($page) { Remove-Item -Force "work/proxy/maintenance" -ErrorAction SilentlyContinue } }
             if ($RestArgs.Count -gt 0) { Show-PartUrls $RestArgs } else { Show-Urls; Show-Logins }
         }
+        "start-later" { Invoke-Later }
         "debug" {
             $code = Invoke-Up $RestArgs -NoThrow
             if ($code -ne 0) { Write-Log "docker compose up failed (exit $code); recording what is running anyway." "Red" }
@@ -642,6 +753,24 @@ try {
         "app-backup" { Invoke-Interactive @("api", "python", "-m", "eax.backups_cli", "backup") $RestArgs }
         "restore-model" { Invoke-Interactive @("api", "python", "-m", "eax.backups_cli", "restore") $RestArgs }
         "services" { Show-Services }
+        "servers" {
+            if ($RestArgs.Count -lt 1) {
+                Write-Log "API and job servers wanted: $(Get-ApiServers) (EAX_API_SERVERS). Running:"
+                Invoke-Compose @("ps", "api") | Out-Null
+            } else {
+                $n = 0
+                if (-not [int]::TryParse($RestArgs[0], [ref]$n) -or $n -lt 1 -or $n -gt 16) { throw "Usage: .\eax servers <1 to 16>" }
+                $history = Join-Path $WorkDir "config-history"
+                New-Item -ItemType Directory -Force -Path $history | Out-Null
+                Copy-Item $EnvFile (Join-Path $history "eaexplorer.env.$((Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss')).$($env:USERNAME -replace '[^A-Za-z0-9_.-]', '-').servers-$n")
+                $lines = @(Get-Content $EnvFile)
+                if ($lines | Where-Object { $_ -match "^\s*EAX_API_SERVERS\s*=" }) { $lines = $lines | ForEach-Object { if ($_ -match "^\s*EAX_API_SERVERS\s*=") { "EAX_API_SERVERS=$n" } else { $_ } } }
+                else { $lines += @("", "# ---- API and job servers (D249)", "EAX_API_SERVERS=$n") }
+                [System.IO.File]::WriteAllText((Join-Path $PSScriptRoot $EnvFile), (($lines -join "`n") + "`n"), $Utf8)
+                Write-Log "Running $n API and job server(s); stopping a server lets the jobs it runs finish first."
+                Invoke-Compose @("up", "-d", "--no-deps", "--no-recreate", "--scale", "api=$n", "api") | Out-Null
+            }
+        }
         "service" {
             if ($RestArgs.Count -lt 2) { throw "Usage: .\eax service <name> on|off   (names: $($Services.Keys -join ', '))" }
             Set-Service $RestArgs[0] $RestArgs[1].ToLower()

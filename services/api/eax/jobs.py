@@ -180,3 +180,79 @@ def record_backup_events(timestamp: int) -> None:
                 act = "backup.infrastructure"
             audit.record(conn, actor=e.get("by") or "system", action=act, object_type="backup",
                          object_id=str(e.get("name") or e.get("kind")), details={k: v for k, v in e.items() if k != "log"})
+
+
+# ---------------------------------------------------------------- data quality (phase 12, D239)
+@app.periodic(cron="* * * * *")
+@app.task(name="eax.quality_scheduler", queue="default", queueing_lock="quality_scheduler")
+def quality_scheduler(timestamp: int) -> None:
+    """Every minute: each model whose quality is due on its schedule (every Sunday at 03:00 by default, D244) is measured, the
+    measurement kept, and its responsible people told about new problems (stale entities among them)."""
+    from datetime import datetime
+
+    from . import backup_schedule as bs
+    from . import quality
+    with get_engine().begin() as conn:
+        due = quality.due(conn, datetime.now(bs.zone(conn)))
+    for m in due:
+        try:
+            with get_engine().begin() as conn:
+                mm = {"_id": m["id"], "id": m["g"], "name": m["name"]}
+                quality.run(conn, mm, "system", "scheduled")
+                quality.tell_new(conn, mm)
+        except Exception as exc:  # noqa: BLE001 - one model never stops the others
+            log.warning("quality of %s: %s", m["name"], exc)
+
+
+@app.task(name="eax.quality_entities", queue="default")
+def quality_entities(model: str, entities: list[str]) -> None:
+    """After a commit (D245, D248): the entities it touched recalculated and their stored rows written, a few seconds
+    later; nothing runs inside the commit itself."""
+    from . import quality
+    with get_engine().begin() as conn:
+        n = quality.refresh_entities(conn, model, entities)
+    log.info("quality of %s entities of %s recalculated", n, model)
+
+
+@app.task(name="eax.quality_measure", queue="default")
+def quality_measure(request_id: str) -> None:
+    """Measure now, Measure all and Recalculate (D245): one model's quality measured and kept in the background; the
+    person who asked is told."""
+    from . import quality
+    quality.run_request(lambda: get_engine().begin(), request_id)
+
+
+@app.periodic(cron="*/2 * * * *")
+@app.task(name="eax.quality_watch", queue="default", queueing_lock="quality_watch")
+def quality_watch(timestamp: int) -> None:
+    """Every two minutes: models changed lately are checked and the people responsible told about new problems as they
+    happen (D239.3); each problem is told once until it is fixed."""
+    from datetime import UTC, datetime, timedelta
+
+    from . import quality
+    with get_engine().begin() as conn:
+        changed = quality.changed_since(conn, datetime.now(UTC) - timedelta(minutes=3))
+    for m in changed:
+        try:
+            with get_engine().begin() as conn:
+                n = quality.tell_new(conn, {"_id": m["id"], "id": m["g"], "name": m["name"]})
+            if n:
+                log.info("quality: %s people told about %s", n, m["name"])
+        except Exception as exc:  # noqa: BLE001
+            log.warning("quality watch of %s: %s", m["name"], exc)
+
+
+@app.periodic(cron="0 * * * *")
+@app.task(name="eax.quality_digest", queue="default", queueing_lock="quality_digest")
+def quality_digest(timestamp: int) -> None:
+    """On Mondays at 07:00 in the installation's time zone: each responsible person's weekly data quality digest."""
+    from datetime import datetime
+
+    from . import backup_schedule as bs
+    from . import quality
+    with get_engine().begin() as conn:
+        local = datetime.now(bs.zone(conn))
+        if local.weekday() != 0 or local.hour != 7:
+            return
+        n = quality.weekly_digest(conn)
+    log.info("quality digest sent to %s people", n)
