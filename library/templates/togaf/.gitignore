@@ -1,5 +1,0 @@
-# The TOGAF template files are The Open Group's copyright: they stay on this computer and are never committed.
-# Only this file and the README are kept in git.
-*
-!.gitignore
-!README.md
