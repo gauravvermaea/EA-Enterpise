@@ -17,6 +17,7 @@ import ModelSwitcher from "./ModelSwitcher";
 import { SearchPage, TopSearch } from "./GridPages";
 import { RestoreLock, useRestoreLock } from "./Restores";
 import StartupStatus from "./StartupStatus";
+import Projects from "./Projects";
 
 function useHashRoute() {
   const [route, setRoute] = useState(window.location.hash || "#/");
@@ -80,7 +81,8 @@ export default function App() {
         <nav>
           <a href="#/">Start</a>
           <a href="#/metamodel">Models</a>
-          <a href="#/library">Library</a>
+          <a href="#/projects">Projects</a>
+          <a href="#/library">Model library</a>
           <a href="#/compare">Compare</a>
           <a href="#/change-log">Change log</a>
           {serviceOn("mcp") ? <a href="#/mcp">MCP</a> : <span className="nav-off" title="The MCP server is switched off (Administration > System settings > Services)">MCP</span>}
@@ -117,6 +119,7 @@ export default function App() {
       <main>
         {route.startsWith("#/search") ? <SearchPage key={route} route={route} />
           : route.startsWith("#/metamodel") ? <Metamodel route={route} />
+          : route.startsWith("#/projects") ? <Projects route={route} />
           : route.startsWith("#/mcp") ? <Mcp />
           : route.startsWith("#/library") ? <Library route={route} />
           : route.startsWith("#/compare") ? <CompareScreen route={route} />

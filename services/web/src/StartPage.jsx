@@ -2,6 +2,7 @@ import { groups } from "./services";
 import { config } from "./config";
 import { can, needsRole, roleName, signedIn } from "./auth";
 import { serviceOn } from "./fmt";
+import { useApi } from "./ModelViews";
 
 function Tile({ item }) {
   const allowed = !item.perm || can(item.perm);
@@ -44,6 +45,26 @@ function Tile({ item }) {
   );
 }
 
+// Before the first architecture project: one highlighted tile to the template library setup (D264)
+function ProjectSetupTile() {
+  const { data } = useApi(signedIn() ? "/api/v1/projects" : null);
+  if (!data || data.setup?.done) return null;
+  return (
+    <section>
+      <h2>Get started</h2>
+      <div className="grid">
+        <a className="tile live setup-tile" href={data.may_manage ? "#/admin/projects" : "#/projects"}>
+          <h3>Set up architecture projects</h3>
+          <p>{data.may_manage
+            ? "Choose the template libraries projects start from: EA Explorer's own, TOGAF 10 (upload its zip) and your own. Needed before the first project."
+            : "A Super Admin chooses the template libraries first; then you can create architecture projects."}</p>
+          <span className="badge">{data.may_manage ? "to do: template library setup →" : "waiting for a Super Admin"}</span>
+        </a>
+      </div>
+    </section>
+  );
+}
+
 export default function StartPage() {
   return (
     <>
@@ -55,6 +76,7 @@ export default function StartPage() {
           {!signedIn() && " Sign in once and every product opens without another login."}
         </p>
       </section>
+      <ProjectSetupTile />
       {groups.map((g) => (
         <section key={g.title}>
           <h2>{g.title}</h2>

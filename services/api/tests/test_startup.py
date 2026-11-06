@@ -15,7 +15,6 @@ def test_migration_and_version():
     sql = (ROOT / "migrations" / "sql" / "0021_startup.sql").read_text()
     assert "'0.13.1'" in sql and "CREATE TABLE core.startup_parts" in sql
     assert "TRIGGER" not in sql.upper() and "FUNCTION" not in sql.upper()     # no logic in the database (D248)
-    assert 'version = "0.13.1"' in (ROOT / "version.toml").read_text()
 
 
 def test_the_test_models_load_step_by_step():

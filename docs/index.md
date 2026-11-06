@@ -20,6 +20,7 @@ the `eax` commands (backups and restores included) and the phase table.
 | [Architecture](architecture.md) | The containers, how they talk to each other, sign-in, the reports and documents services |
 | [Database](database.md) | The repository database: schemas, tables, row security, history, report views |
 | [MCP server](mcp.md) | Using EA Explorer from AI assistants: connecting, the tools, what each person may do |
+| [Architecture projects (design)](design-architecture-projects.md) | The agreed design of architecture projects, the project library and the repository (phases 13 to 13.3) |
 | [Decision log](decisions.md) | Every decision with its date and reason (D1 onwards) |
 | [To do](todo.md) | Open items and ideas not yet in a phase |
 | [For AI coding agents](../AGENTS.md) | The rules for anyone (or any agent) changing the code |
@@ -29,9 +30,10 @@ the `eax` commands (backups and restores included) and the phase table.
 | Document | What it covers |
 | --- | --- |
 | [Requirements](requirements/EA_Explorer_Requirements.xlsx) | Every requirement with its acceptance criteria, priority and phase |
-| [Build plan](requirements/EA_Explorer_Build_Plan.xlsx) | The 52 phases, their order, demos and requirements, and the timeline |
+| [Build plan](requirements/EA_Explorer_Build_Plan.xlsx) | The 54 phases, their order, demos and requirements, and the timeline |
 | [High-level requirements](requirements/EA_Explorer_High_Level_Requirements.docx) | The product's purpose, scope and main requirements |
 | [Technical architecture](requirements/EA_Explorer_Technical_Architecture.docx) | The technical architecture document |
+| [Master template repository](requirements/EA_Explorer_Master_Template_Repository.xlsx) | The project library as reviewed: phases, steps, the master list of deliverables and artifacts, folders and templates |
 
 ## The build phases
 
@@ -58,3 +60,4 @@ Each phase has its own notes: what it delivers, a demo, checks, how to upgrade a
 | 10.1 | [Import and export sheets](phase-10.1.md) | closed |
 | 12 | [Validation and data quality](phase-12.md) | closed |
 | 12.1 | [Start-up in two tiers, open pictures in draw.io](phase-12.1.md) | built, waiting for the owner's test |
+| 13 | [Architecture projects, the project library and the repository in Documents](phase-13.md) | built, waiting for the owner's test |

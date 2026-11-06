@@ -13,7 +13,7 @@ from sqlalchemy import text
 
 from . import audit
 from .config import get_settings
-from .db import get_engine
+from .db import get_engine, get_projects_engine
 
 log = logging.getLogger(__name__)
 
@@ -256,3 +256,44 @@ def quality_digest(timestamp: int) -> None:
             return
         n = quality.weekly_digest(conn)
     log.info("quality digest sent to %s people", n)
+
+
+# ---------------------------------------------------------------- architecture projects (phase 13, D260)
+
+@app.task(name="eax.project_repository", queue="default", queueing_lock="project_repository")
+def project_repository(project_id: int) -> None:
+    """A project's repository built in Mayan (cabinets for its folders and items, templates copied)."""
+    from . import projects
+    note = projects.build_repository(lambda: get_projects_engine().begin(), project_id)
+    log.info("project %s repository: %s", project_id, note)
+
+
+@app.task(name="eax.template_library_load", queue="default", queueing_lock="template_library_load")
+def template_library_load(library_id: int) -> None:
+    """An uploaded template library's files stored in Mayan (D264)."""
+    from . import projects
+    note = projects.load_library_upload(lambda: get_projects_engine().begin(), library_id)
+    log.info("template library %s: %s", library_id, note)
+
+
+@app.periodic(cron="* * * * *")
+@app.task(name="eax.project_repositories", queue="default", queueing_lock="project_repositories")
+def project_repositories(timestamp: int) -> None:
+    """Every minute: uploaded template libraries still to store, then the repositories still to build (made while
+    Documents was starting or off) once Mayan answers; each failure is kept on the project and tried again (up to 30 times)."""
+    from . import mayan, projects
+    with get_projects_engine().begin() as conn:
+        todo = projects.pending_repositories(conn)
+        libraries = projects.pending_library_loads(conn)
+    if not (todo or libraries) or not mayan.ping():
+        return
+    for lid in libraries:            # uploaded template libraries first: projects using them wait for them
+        try:
+            projects.load_library_upload(lambda: get_projects_engine().begin(), lid)
+        except Exception as exc:  # noqa: BLE001 - kept on the library; tried again next minute
+            log.warning("template library %s: %s", lid, exc)
+    for pid in todo:
+        try:
+            projects.build_repository(lambda: get_projects_engine().begin(), pid)
+        except Exception as exc:  # noqa: BLE001 - kept on the project; tried again next minute
+            log.warning("project %s repository: %s", pid, exc)

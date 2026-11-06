@@ -41,6 +41,7 @@ class Settings:
     # phase 9 (D180): the change log has a connection string of its own, so it can live on another server; empty
     # means the repository's database (development: its own schema there)
     changelog_db_url: str = field(default_factory=lambda: _env("EAX_CHANGELOG_DB_URL"))
+    projects_db_url: str = field(default_factory=lambda: _env("EAX_PROJECTS_DB_URL"))
     changelog_db_schema: str = field(default_factory=lambda: _env("EAX_CHANGELOG_DB_SCHEMA", "changelog"))
 
     keycloak_internal_url: str = field(
@@ -65,6 +66,18 @@ class Settings:
             f"postgresql+psycopg://{quote(self.db_user, safe='')}:{quote(self.db_password, safe='')}"
             f"@{self.db_host}:{self.db_port}/{self.db_name}"
         )
+
+    @property
+    def projects_sqlalchemy_url(self) -> str:
+        """The architecture projects' database (schema proj, D266): EAX_PROJECTS_DB_URL, or the repository's database
+        when it is empty."""
+        url = self.projects_db_url
+        if not url:
+            return self.sqlalchemy_url
+        for prefix in ("postgresql+psycopg://", "postgresql://", "postgres://"):
+            if url.startswith(prefix):
+                return "postgresql+psycopg://" + url[len(prefix):]
+        return url
 
     @property
     def changelog_sqlalchemy_url(self) -> str:

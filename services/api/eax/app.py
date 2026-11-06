@@ -64,6 +64,7 @@ def create_app(testing: bool = False) -> Flask:
     from .api.metamodel_edit import blp as metamodel_edit_blp
     from .api.models import blp as models_blp
     from .api.notifications import blp as notifications_blp
+    from .api.projects import blp as projects_blp
     from .api.quality import blp as quality_blp
     from .api.sheets import blp as sheets_blp
     from .api.sql import blp as sql_blp
@@ -76,7 +77,7 @@ def create_app(testing: bool = False) -> Flask:
     for blp in (heartbeat_blp, me_blp, access_blp, break_glass_blp, jobs_blp, audit_blp, metamodel_blp,
                 metamodel_edit_blp, models_blp, content_blp, grids_blp, viewpoints_blp, commits_blp,
                 versions_blp, change_log_blp, admin_blp, sql_blp, tasks_blp, sheets_blp, notifications_blp, backups_blp,
-                quality_blp, icons_blp, trees_blp, startup_blp):
+                quality_blp, icons_blp, trees_blp, startup_blp, projects_blp):
         api.register_blueprint(blp)
 
     @app.before_request

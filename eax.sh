@@ -389,7 +389,24 @@ show_urls() {
     local HP; HP=$(setting EAX_HTTP_PORT 80); [ "$HP" = "80" ] && HP="" || HP=":$HP"
     echo "Also on plain http (this computer only): http://localhost$HP/api/docs and http://localhost$HP/mcp"
   fi
+  show_templates_hint
   return 0
+}
+# one-time admin task (phase 13, D262): the TOGAF template deliverables are bought or downloaded from The Open Group
+# (publication I094) and kept in the library folder, never in git; shown until the folder has them
+show_templates_hint() {
+  local dir togaf
+  dir=$(setting EAX_LIBRARY_DIR ./library); togaf="$dir/templates/togaf"
+  if [ -d "$togaf" ] && find "$togaf" -type f \( -name '*.docx' -o -name '*.doc' -o -name '*.pptx' -o -name '*.xlsx' \) | grep -q .; then
+    return 0
+  fi
+  echo
+  echo "One-time admin task: the TOGAF template deliverables (for architecture projects)"
+  echo "  1. Download 'The TOGAF Standard, 10th Edition - Template Deliverables' (The Open Group publication I094):"
+  echo "     https://publications.opengroup.org/i094"
+  echo "  2. Unzip it into $togaf, keeping its phase folders (the files stay on this computer; git ignores them)."
+  echo "     To use another folder, set EAX_LIBRARY_DIR in $ENV_FILE (it must hold templates/togaf) and run ./eax.sh up."
+  echo "  3. As a Super Admin: Administration > Project library > Load templates from the folder."
 }
 
 # ------------------------------------------------------------------ the local certificate (D107)
@@ -459,7 +476,10 @@ show_logins() {
              "user_committer|eax-user|Committer: Protea demo, Sample (commits what others ask to commit)" \
              "user_history_viewer|eax-user|History Viewer and Report Viewer: Protea demo (sees everyone's commits)" \
              "user_report_viewer|eax-user|Report Viewer: Fynbos group, Sample, Protea demo" \
-             "user_global_architect|eax-user|Architect on every model"; do
+             "user_global_architect|eax-user|Architect on every model" \
+             "user_project_admin|eax-user|Project Admin of the sample architecture project (runs its setup and people)" \
+             "user_lead_architect|eax-user|Lead Architect of the sample architecture project" \
+             "user_stakeholder|eax-user|Stakeholder of the sample architecture project (reads; approves documents in 13.1)"; do
     IFS='|' read -r u r n <<< "$row"
     printf '  %-32s %-22s %-16s %s\n' "$r" "$u" "$tpw" "$n"
   done

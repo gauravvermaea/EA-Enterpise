@@ -291,3 +291,19 @@ because they cannot see another session's temporary tables.
 
 `services/api/tests/sql/phase1_checks.sql` checks the seed, `get_entity`, display IDs, history and
 every integrity rule against a real PostgreSQL, inside a transaction that is rolled back.
+
+## Architecture projects: schema `proj` (phase 13, D258)
+
+Migration `0022_projects`. Reached through its own connection string, `EAX_PROJECTS_DB_URL` (empty: this database),
+so it can move to a database of its own (D266): no foreign key or query crosses into the other schemas. Rows only: every rule (who may do what, the wizard's checks, the repository build) is in
+`eax/projects.py` (D248).
+
+| Tables | Hold |
+| --- | --- |
+| `lib_purposes`, `lib_phases`, `lib_steps`, `lib_items`, `lib_item_sources`, `lib_folders`, `lib_principles` | The project library: purposes, ADM phases, steps, deliverables and artifacts (`id` G001...) with each source naming them, master folders and library principles. Loaded on every start by `eax/seed/project_library.py`, adding only what is missing |
+| `template_libraries`, `lib_templates`, `template_library_uploads`, `template_setup`, `project_libraries` | Template libraries (D264): EA Explorer's own, TOGAF 10 and the organisation's own (shared, or private to who added it and their project; loading, ready, failed); each template with its path in the library layout, the item or folder it belongs to and its Mayan document id (EA Explorer's files are read from its folder); an uploaded zip waiting for the background job; the setup a Super Admin finishes before the first project; the libraries each project copies from |
+| `projects` | A project: guid, name (unique), purpose, parent (a rerun), ADM cycle, status, repository state (pending, building, ready, failed) and its Mayan cabinet |
+| `members`, `signoff` | People and roles on a project; who signs off, for the whole project (phase '') or per phase |
+| `project_models`, `project_viewpoints`, `principles` | The models (added, derived, created), viewpoints and principles (from the library, its own or inherited) |
+| `steps`, `items`, `folders` | The project's steps (removed ones kept with the reason), its deliverables and artifacts (chosen or not_for_use) and its folders, each with its Mayan cabinet |
+| `documents`, `document_events` | Documents (the Mayan document id, state, who checked out and when, versions) and who did what to them |

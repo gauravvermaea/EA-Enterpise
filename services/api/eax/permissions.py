@@ -43,6 +43,8 @@ GLOBAL_PERMISSIONS: dict[str, set[str]] = {
     "models.delete": set(),                # delete a model: Super Admin only (D121)
     "library.curate": {LIBRARY_ADMIN},     # create, publish, promote, upload and withdraw library models (D118)
     "settings.manage": set(),              # change settings and restart the system: Super Admin only (phase 10, D183)
+    "projects.create": {USER, MODEL_CREATOR, LIBRARY_ADMIN},   # set up an architecture project (phase 13, D259)
+    "projects.library": set(),             # the project library: Super Admin only (phase 13, D258)
 }
 # Model permissions: the person's roles on that model
 MODEL_PERMISSIONS: dict[str, set[str]] = {
@@ -81,7 +83,15 @@ TEST_USERS = [
     ("user_report_viewer", "eax-user", {"Fynbos Mutual (group)": [REPORT_VIEWER], "Sample insurance model": [REPORT_VIEWER],
                                         "Protea Insurance (demo estate)": [REPORT_VIEWER]}),
     ("user_global_architect", "eax-user", {"*": [ARCHITECT]}),
+    # phase 13 (D259): project roles are given on a project, not in Keycloak; the sample project gives them these
+    ("user_project_admin", "eax-user", {}),
+    ("user_lead_architect", "eax-user", {}),
+    ("user_stakeholder", "eax-user", {}),
 ]
+# Laptop only (phase 13): the people of the sample architecture project and their project roles
+PROJECT_TEST_ROLES = [("user_project_admin", "project-admin"), ("user_lead_architect", "lead-architect"),
+                      ("user_architect", "architect"), ("user_model_admin", "model-admin"),
+                      ("user_model_sub_admin", "model-sub-admin"), ("user_stakeholder", "stakeholder")]
 
 
 @dataclass(frozen=True)

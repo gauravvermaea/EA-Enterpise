@@ -1,0 +1,860 @@
+{
+ "library": "EA Explorer",
+ "templates": [
+  {
+   "item": "G001",
+   "path": "09_ADM_Phase_Workspaces/P_Preliminary/Deliverables/001_Architecture_Board_Terms_of_Reference/Architecture Board Terms of Reference.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G002",
+   "path": "09_ADM_Phase_Workspaces/P_Preliminary/Artifacts/002_Architecture_governance_framework_diagram/Architecture governance framework diagram.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G003",
+   "path": "09_ADM_Phase_Workspaces/P_Preliminary/Artifacts/003_Architecture_Maturity_Assessment/Architecture Maturity Assessment.xlsx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G004",
+   "path": "09_ADM_Phase_Workspaces/P_Preliminary/Deliverables/004_Architecture_Principles/Architecture Principles.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G005",
+   "path": "09_ADM_Phase_Workspaces/P_Preliminary/Deliverables/005_Architecture_Repository/Architecture Repository.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G006",
+   "path": "09_ADM_Phase_Workspaces/P_Preliminary/Deliverables/006_Business_Principles_Goals_and_Drivers/Business Principles, Goals, and Drivers.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G007",
+   "path": "09_ADM_Phase_Workspaces/P_Preliminary/Deliverables/007_EA_Capability_Business_Case/EA Capability Business Case.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G008",
+   "path": "09_ADM_Phase_Workspaces/P_Preliminary/Deliverables/008_EA_Operating_Model_Architecture_Capability_Framework/EA Operating Model (Architecture Capability Framework).docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G009",
+   "path": "09_ADM_Phase_Workspaces/P_Preliminary/Artifacts/009_Organization_decomposition_diagram/Organization decomposition diagram.pptx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G010",
+   "path": "09_ADM_Phase_Workspaces/P_Preliminary/Deliverables/010_Organizational_Model_for_Enterprise_Architecture/Organizational Model for Enterprise Architecture.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G011",
+   "path": "09_ADM_Phase_Workspaces/P_Preliminary/Deliverables/011_Regulatory_Obligation_Register/Regulatory Obligation Register.xlsx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G012",
+   "path": "09_ADM_Phase_Workspaces/P_Preliminary/Artifacts/012_Regulatory_Reference/Regulatory Reference.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G013",
+   "path": "09_ADM_Phase_Workspaces/P_Preliminary/Deliverables/013_Request_for_Architecture_Work/Request for Architecture Work.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G014",
+   "path": "09_ADM_Phase_Workspaces/P_Preliminary/Deliverables/014_Security_Architecture_Principles/Security Architecture Principles.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G015",
+   "path": "09_ADM_Phase_Workspaces/P_Preliminary/Artifacts/015_Strategic_Motivation_Model/Strategic Motivation Model.xlsx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G016",
+   "path": "09_ADM_Phase_Workspaces/P_Preliminary/Deliverables/016_Tailored_Architecture_Framework/Tailored Architecture Framework.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G017",
+   "path": "09_ADM_Phase_Workspaces/A_Vision/Deliverables/017_Architecture_Vision/Architecture Vision.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G018",
+   "path": "09_ADM_Phase_Workspaces/A_Vision/Artifacts/018_Business_model_canvas/Business model canvas.pptx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G019",
+   "path": "09_ADM_Phase_Workspaces/A_Vision/Deliverables/019_Business_Motivation_Model/Business Motivation Model.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G020",
+   "path": "09_ADM_Phase_Workspaces/A_Vision/Deliverables/020_Business_Scenarios/Business Scenarios.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G021",
+   "path": "09_ADM_Phase_Workspaces/A_Vision/Deliverables/021_Capability_Assessment/Capability Assessment.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G022",
+   "path": "09_ADM_Phase_Workspaces/A_Vision/Deliverables/022_Communications_Plan/Communications Plan.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G023",
+   "path": "09_ADM_Phase_Workspaces/A_Vision/Deliverables/023_Conduct_and_Prudential_Exposure_Screen/Conduct and Prudential Exposure Screen.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G024",
+   "path": "09_ADM_Phase_Workspaces/A_Vision/Deliverables/024_High_Level_Strategic_Architecture/High Level Strategic Architecture.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G025",
+   "path": "09_ADM_Phase_Workspaces/A_Vision/Artifacts/025_Regulatory_exposure_matrix/Regulatory exposure matrix.xlsx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G026",
+   "path": "09_ADM_Phase_Workspaces/A_Vision/Artifacts/026_Solution_concept_diagram/Solution concept diagram.pptx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G027",
+   "path": "09_ADM_Phase_Workspaces/A_Vision/Artifacts/027_Stakeholder_map_matrix/Stakeholder map matrix.xlsx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G028",
+   "path": "09_ADM_Phase_Workspaces/A_Vision/Deliverables/028_Statement_of_Architecture_Work/Statement of Architecture Work.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G029",
+   "path": "09_ADM_Phase_Workspaces/A_Vision/Artifacts/029_Value_chain_diagram/Value chain diagram.pptx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G030",
+   "path": "09_ADM_Phase_Workspaces/B_Business/Artifacts/030_Actor_Role_Catalogue/Actor Role Catalogue.xlsx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G031",
+   "path": "09_ADM_Phase_Workspaces/B_Business/Artifacts/031_Actuarial_control_cycle_diagram/Actuarial control cycle diagram.pptx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G032",
+   "path": "09_ADM_Phase_Workspaces/B_Business/Deliverables/032_Architecture_Definition_Document_Business/Architecture Definition Document Business.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G033",
+   "path": "09_ADM_Phase_Workspaces/B_Business/Deliverables/033_Architecture_Requirements_Specification_Business/Architecture Requirements Specification Business.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G034",
+   "path": "09_ADM_Phase_Workspaces/B_Business/Artifacts/034_BPMN_Process_Models/BPMN Process Models.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G035",
+   "path": "09_ADM_Phase_Workspaces/B_Business/Deliverables/035_Business_Architecture_PhaseB/Business Architecture PhaseB.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G036",
+   "path": "09_ADM_Phase_Workspaces/B_Business/Deliverables/036_Business_Capability_Map/Business Capability Map.pptx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G037",
+   "path": "09_ADM_Phase_Workspaces/B_Business/Artifacts/037_Business_footprint_diagram/Business footprint diagram.pptx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G038",
+   "path": "09_ADM_Phase_Workspaces/B_Business/Deliverables/038_Business_Interaction_Matrix/Business Interaction Matrix.xlsx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G039",
+   "path": "09_ADM_Phase_Workspaces/B_Business/Artifacts/039_Business_Service_Function_Catalog/Business Service Function Catalog.xlsx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G040",
+   "path": "09_ADM_Phase_Workspaces/B_Business/Artifacts/040_Channel_and_intermediary_matrix/Channel and intermediary matrix.xlsx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G041",
+   "path": "09_ADM_Phase_Workspaces/B_Business/Artifacts/041_Customer_Journey_Map/Customer Journey Map.xlsx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G042",
+   "path": "09_ADM_Phase_Workspaces/B_Business/Artifacts/042_Driver_Catalogue/Driver Catalogue.xlsx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G043",
+   "path": "09_ADM_Phase_Workspaces/B_Business/Artifacts/043_Goal_Catalogue/Goal Catalogue.xlsx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G044",
+   "path": "09_ADM_Phase_Workspaces/B_Business/Artifacts/044_Goal_objective_service_diagram/Goal objective service diagram.pptx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G045",
+   "path": "09_ADM_Phase_Workspaces/B_Business/Artifacts/045_Information_Map/Information Map.xlsx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G046",
+   "path": "09_ADM_Phase_Workspaces/B_Business/Artifacts/046_Objective_Catalogue/Objective Catalogue.xlsx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G047",
+   "path": "09_ADM_Phase_Workspaces/B_Business/Deliverables/047_Organization_Map/Organization Map.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G048",
+   "path": "09_ADM_Phase_Workspaces/B_Business/Artifacts/048_Process_flow_diagram_at_enterprise_level/Process flow diagram at enterprise level.pptx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G049",
+   "path": "09_ADM_Phase_Workspaces/B_Business/Deliverables/049_Process_Modelling_Convention/Process Modelling Convention.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G050",
+   "path": "09_ADM_Phase_Workspaces/B_Business/Deliverables/050_Product_Architecture/Product Architecture.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G051",
+   "path": "09_ADM_Phase_Workspaces/B_Business/Artifacts/051_Product_lifecycle_diagram/Product lifecycle diagram.pptx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G052",
+   "path": "09_ADM_Phase_Workspaces/B_Business/Deliverables/052_Value_Stream_Definition/Value Stream Definition.pptx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G053",
+   "path": "09_ADM_Phase_Workspaces/C_Information_Systems/Deliverables/053_Architecture_Deliverables_Phases_C_and_D/Architecture Deliverables Phases C and D.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G054",
+   "path": "09_ADM_Phase_Workspaces/CD_Data/Deliverables/054_Architecture_Definition_Document_Data/Architecture Definition Document Data.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G055",
+   "path": "09_ADM_Phase_Workspaces/CD_Data/Deliverables/055_Authoritative_Source_Designation/Authoritative Source Designation.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G056",
+   "path": "09_ADM_Phase_Workspaces/CD_Data/Artifacts/056_Conceptual_and_logical_data_diagram/Conceptual and logical data diagram.pptx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G057",
+   "path": "09_ADM_Phase_Workspaces/CD_Data/Artifacts/057_Data_entity_application_matrix/Data entity application matrix.xlsx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G058",
+   "path": "09_ADM_Phase_Workspaces/CD_Data/Artifacts/058_Data_Architecture/Data Architecture.xlsx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G059",
+   "path": "09_ADM_Phase_Workspaces/CD_Data/Deliverables/059_Data_Architecture_Blueprint/Data Architecture Blueprint.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G060",
+   "path": "09_ADM_Phase_Workspaces/CD_Data/Artifacts/060_Data_classification_and_purpose_catalog/Data classification and purpose catalog.xlsx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G061",
+   "path": "09_ADM_Phase_Workspaces/CD_Data/Artifacts/061_Data_entity_business_function_matrix/Data entity business function matrix.xlsx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G062",
+   "path": "09_ADM_Phase_Workspaces/CD_Data/Artifacts/062_Data_lifecycle_diagram/Data lifecycle diagram.pptx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G063",
+   "path": "09_ADM_Phase_Workspaces/CD_Data/Deliverables/063_Data_Migration_Diagram/Data Migration Diagram.pptx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G064",
+   "path": "09_ADM_Phase_Workspaces/CD_Data/Artifacts/064_Data_Model/Data Model.xlsx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G065",
+   "path": "09_ADM_Phase_Workspaces/CD_Data/Artifacts/065_Data_security_diagram/Data security diagram.pptx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G066",
+   "path": "09_ADM_Phase_Workspaces/CD_Data/Artifacts/066_Information_Source_Map/Information Source Map.xlsx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G067",
+   "path": "09_ADM_Phase_Workspaces/CD_Data/Deliverables/067_IS_Architecture/IS Architecture.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G068",
+   "path": "09_ADM_Phase_Workspaces/CD_Data/Artifacts/068_IS_Landscape/IS Landscape.xlsx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G069",
+   "path": "09_ADM_Phase_Workspaces/CD_Data/Artifacts/069_Master_Data_Model/Master Data Model.xlsx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G070",
+   "path": "09_ADM_Phase_Workspaces/CD_Data/Artifacts/070_Metadata_Model/Metadata Model.xlsx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G071",
+   "path": "09_ADM_Phase_Workspaces/CD_Data/Deliverables/071_Regulatory_Data_Lineage_Model/Regulatory Data Lineage Model.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G072",
+   "path": "09_ADM_Phase_Workspaces/CA_Application/Deliverables/072_Architecture_Definition_Document_Application/Architecture Definition Document Application.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G073",
+   "path": "09_ADM_Phase_Workspaces/CA_Application/Artifacts/073_Application_capability_matrix/Application capability matrix.xlsx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G074",
+   "path": "09_ADM_Phase_Workspaces/CA_Application/Artifacts/074_Application_communication_diagram/Application communication diagram.pptx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G075",
+   "path": "09_ADM_Phase_Workspaces/CA_Application/Deliverables/075_Application_Component_Mapping/Application Component Mapping.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G076",
+   "path": "09_ADM_Phase_Workspaces/CA_Application/Artifacts/076_Application_function_matrix/Application function matrix.xlsx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G077",
+   "path": "09_ADM_Phase_Workspaces/CA_Application/Artifacts/077_Application_Interaction_Matrix/Application Interaction Matrix.xlsx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G078",
+   "path": "09_ADM_Phase_Workspaces/CA_Application/Deliverables/078_Application_Portfolio_Disposition/Application Portfolio Disposition.pptx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G079",
+   "path": "09_ADM_Phase_Workspaces/CA_Application/Deliverables/079_Application_Reference_Model/Application Reference Model.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G080",
+   "path": "09_ADM_Phase_Workspaces/CA_Application/Deliverables/080_Application_Use_Cases/Application Use Cases.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G081",
+   "path": "09_ADM_Phase_Workspaces/CA_Application/Artifacts/081_Function_Application_Mapping/Function Application Mapping.xlsx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G082",
+   "path": "09_ADM_Phase_Workspaces/CA_Application/Deliverables/082_Interface_catalog/Interface catalog.pptx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G083",
+   "path": "09_ADM_Phase_Workspaces/CA_Application/Artifacts/083_Portfolio_Data_Mapping/Portfolio Data Mapping.xlsx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G084",
+   "path": "09_ADM_Phase_Workspaces/CA_Application/Artifacts/084_Software_distribution_diagram/Software distribution diagram.pptx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G085",
+   "path": "09_ADM_Phase_Workspaces/CA_Application/Deliverables/085_Software_Engineering_Diagram/Software Engineering Diagram.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G086",
+   "path": "09_ADM_Phase_Workspaces/D_Technology/Deliverables/086_Architecture_Definition_Document_Technology/Architecture Definition Document Technology.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G087",
+   "path": "09_ADM_Phase_Workspaces/D_Technology/Deliverables/087_Data_Placement_Register/Data Placement Register.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G088",
+   "path": "09_ADM_Phase_Workspaces/D_Technology/Artifacts/088_Environments_and_locations_diagram/Environments and locations diagram.pptx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G089",
+   "path": "09_ADM_Phase_Workspaces/D_Technology/Artifacts/089_Layered_Viewpoint/Layered Viewpoint.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G090",
+   "path": "09_ADM_Phase_Workspaces/D_Technology/Artifacts/090_Networked_computing_hardware_diagram/Networked computing hardware diagram.pptx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G091",
+   "path": "09_ADM_Phase_Workspaces/D_Technology/Artifacts/091_Platform_decomposition_diagram/Platform decomposition diagram.pptx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G092",
+   "path": "09_ADM_Phase_Workspaces/D_Technology/Artifacts/092_Processing_diagram/Processing diagram.pptx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G093",
+   "path": "09_ADM_Phase_Workspaces/D_Technology/Artifacts/093_Reference_Architectures/Reference Architectures.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G094",
+   "path": "09_ADM_Phase_Workspaces/D_Technology/Deliverables/094_Resilience_Tiering_and_Recovery_Evidence/Resilience Tiering and Recovery Evidence.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G095",
+   "path": "09_ADM_Phase_Workspaces/D_Technology/Artifacts/095_Technology_Architecture/Technology Architecture.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G096",
+   "path": "09_ADM_Phase_Workspaces/D_Technology/Artifacts/096_Technology_currency_timeline/Technology currency timeline.pptx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G097",
+   "path": "09_ADM_Phase_Workspaces/D_Technology/Artifacts/097_Technology_Models/Technology Models.xlsx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G098",
+   "path": "09_ADM_Phase_Workspaces/D_Technology/Artifacts/098_Technology_portfolio_catalog/Technology portfolio catalog.xlsx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G099",
+   "path": "09_ADM_Phase_Workspaces/D_Technology/Deliverables/099_Technology_Reference_Model/Technology Reference Model.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G100",
+   "path": "09_ADM_Phase_Workspaces/D_Technology/Artifacts/100_Technology_Service_Catalog/Technology Service Catalog.xlsx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G101",
+   "path": "09_ADM_Phase_Workspaces/D_Technology/Deliverables/101_Technology_Standards_Catalogue/Technology Standards Catalogue.pptx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G102",
+   "path": "09_ADM_Phase_Workspaces/E_Opportunities/Deliverables/102_Architecture_Alternatives/Architecture Alternatives.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G103",
+   "path": "09_ADM_Phase_Workspaces/E_Opportunities/Deliverables/103_Architecture_Definition_Increments/Architecture Definition Increments.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G104",
+   "path": "09_ADM_Phase_Workspaces/E_Opportunities/Deliverables/104_Architecture_Roadmap/Architecture Roadmap.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G105",
+   "path": "09_ADM_Phase_Workspaces/E_Opportunities/Artifacts/105_Benefits_diagram/Benefits diagram.pptx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G106",
+   "path": "09_ADM_Phase_Workspaces/E_Opportunities/Artifacts/106_Capability_dependency_diagram/Capability dependency diagram.pptx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G107",
+   "path": "09_ADM_Phase_Workspaces/E_Opportunities/Deliverables/107_Change_Appetite_Assessment/Change Appetite Assessment.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G108",
+   "path": "09_ADM_Phase_Workspaces/E_Opportunities/Deliverables/108_Consolidated_Gaps_Solutions_and_Dependencies_matrix/Consolidated Gaps, Solutions and Dependencies matrix.pptx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G109",
+   "path": "09_ADM_Phase_Workspaces/E_Opportunities/Deliverables/109_Implementation_Factor_Catalogue/Implementation Factor Catalogue.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G110",
+   "path": "09_ADM_Phase_Workspaces/E_Opportunities/Deliverables/110_Implementation_and_Migration_Plan/Implementation and Migration Plan.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G111",
+   "path": "09_ADM_Phase_Workspaces/E_Opportunities/Deliverables/111_Minimum_Viable_Architecture/Minimum Viable Architecture.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G112",
+   "path": "09_ADM_Phase_Workspaces/E_Opportunities/Artifacts/112_Project_context_diagram/Project context diagram.pptx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G113",
+   "path": "09_ADM_Phase_Workspaces/E_Opportunities/Deliverables/113_Solution_Building_Blocks/Solution Building Blocks.pptx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G114",
+   "path": "09_ADM_Phase_Workspaces/E_Opportunities/Deliverables/114_Solution_Dependency_Matrix/Solution Dependency Matrix.xlsx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G115",
+   "path": "09_ADM_Phase_Workspaces/E_Opportunities/Deliverables/115_Transition_Architecture_Definitions/Transition Architecture Definitions.pptx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G116",
+   "path": "09_ADM_Phase_Workspaces/E_Opportunities/Deliverables/116_Value_Risk_Matrix/Value Risk Matrix.xlsx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G117",
+   "path": "09_ADM_Phase_Workspaces/E_Opportunities/Artifacts/117_Wave_assignment_matrix/Wave assignment matrix.xlsx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G118",
+   "path": "09_ADM_Phase_Workspaces/E_Opportunities/Deliverables/118_Work_Packages/Work Packages.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G119",
+   "path": "09_ADM_Phase_Workspaces/F_Migration/Deliverables/119_Architecture_Definition_Document_consolidated/Architecture Definition Document (consolidated).docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G120",
+   "path": "09_ADM_Phase_Workspaces/F_Migration/Deliverables/120_Architecture_Building_Blocks/Architecture Building Blocks.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G121",
+   "path": "09_ADM_Phase_Workspaces/F_Migration/Deliverables/121_Architecture_Contract/Architecture Contract.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G122",
+   "path": "09_ADM_Phase_Workspaces/F_Migration/Deliverables/122_Final_Product/Final Product.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G123",
+   "path": "09_ADM_Phase_Workspaces/F_Migration/Artifacts/123_Funding_source_matrix/Funding source matrix.xlsx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G124",
+   "path": "09_ADM_Phase_Workspaces/F_Migration/Artifacts/124_Implementation_factor_assessment_and_deduction_matrix/Implementation factor assessment and deduction matrix.xlsx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G125",
+   "path": "09_ADM_Phase_Workspaces/F_Migration/Deliverables/125_Implementation_Factor_Matrix/Implementation Factor Matrix.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G126",
+   "path": "09_ADM_Phase_Workspaces/F_Migration/Deliverables/126_Implementation_Governance_Model/Implementation Governance Model.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G127",
+   "path": "09_ADM_Phase_Workspaces/F_Migration/Deliverables/127_Lessons_Learned_Record/Lessons Learned Record.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G128",
+   "path": "09_ADM_Phase_Workspaces/F_Migration/Deliverables/128_Migration_Roadmap/Migration Roadmap.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G129",
+   "path": "09_ADM_Phase_Workspaces/F_Migration/Deliverables/129_Minimum_Viable_Product/Minimum Viable Product.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G130",
+   "path": "09_ADM_Phase_Workspaces/F_Migration/Deliverables/130_Project_Charters/Project Charters.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G131",
+   "path": "09_ADM_Phase_Workspaces/F_Migration/Deliverables/131_Project_Portfolio_Breakdown/Project Portfolio Breakdown.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G132",
+   "path": "09_ADM_Phase_Workspaces/F_Migration/Deliverables/132_Regulatory_Calendar_Alignment/Regulatory Calendar Alignment.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G133",
+   "path": "09_ADM_Phase_Workspaces/F_Migration/Deliverables/133_Transition_State_Evolution/Transition State Evolution.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G134",
+   "path": "09_ADM_Phase_Workspaces/G_Governance/Deliverables/134_Architecture_Decision_Records/Architecture Decision Records.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G135",
+   "path": "09_ADM_Phase_Workspaces/G_Governance/Deliverables/135_Architecture_Compliance_Assessment/Architecture Compliance Assessment.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G136",
+   "path": "09_ADM_Phase_Workspaces/G_Governance/Artifacts/136_Decision_log/Decision log.xlsx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G137",
+   "path": "09_ADM_Phase_Workspaces/G_Governance/Artifacts/137_Dispensation_register/Dispensation register.xlsx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G138",
+   "path": "09_ADM_Phase_Workspaces/G_Governance/Deliverables/138_Dispensation_and_remediation_plan/Dispensation and remediation plan.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G139",
+   "path": "09_ADM_Phase_Workspaces/G_Governance/Artifacts/139_Gate_model/Gate model.pptx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G140",
+   "path": "09_ADM_Phase_Workspaces/G_Governance/Artifacts/140_Architecture_Governance_Log/Architecture Governance Log.xlsx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G141",
+   "path": "09_ADM_Phase_Workspaces/G_Governance/Artifacts/141_Materiality_triage_decision_tree/Materiality triage decision tree.pptx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G142",
+   "path": "09_ADM_Phase_Workspaces/H_Change/Deliverables/142_Architecture_Change_Requests/Architecture Change Requests.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G143",
+   "path": "09_ADM_Phase_Workspaces/H_Change/Artifacts/143_Architecture_change_request_record/Architecture change request record.xlsx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G144",
+   "path": "09_ADM_Phase_Workspaces/H_Change/Artifacts/144_Architecture_comparison_output/Architecture comparison output.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G145",
+   "path": "09_ADM_Phase_Workspaces/H_Change/Artifacts/145_Baseline_register/Baseline register.xlsx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G146",
+   "path": "09_ADM_Phase_Workspaces/H_Change/Artifacts/146_Dispensation_ageing_report/Dispensation ageing report.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G147",
+   "path": "09_ADM_Phase_Workspaces/H_Change/Deliverables/147_Drift_Report/Drift Report.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G148",
+   "path": "09_ADM_Phase_Workspaces/H_Change/Deliverables/148_Refreshed_baseline/Refreshed baseline.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G149",
+   "path": "09_ADM_Phase_Workspaces/H_Change/Deliverables/149_Solutions_Assessment_Report/Solutions Assessment Report.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G150",
+   "path": "09_ADM_Phase_Workspaces/RM_Requirements/Deliverables/150_Control_Objectives/Control Objectives.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G151",
+   "path": "09_ADM_Phase_Workspaces/RM_Requirements/Deliverables/151_Drivers_and_Objectives/Drivers and Objectives.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G152",
+   "path": "09_ADM_Phase_Workspaces/RM_Requirements/Deliverables/152_Regulatory_Traceability_Report/Regulatory Traceability Report.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G153",
+   "path": "09_ADM_Phase_Workspaces/RM_Requirements/Artifacts/153_Requirements_catalog/Requirements catalog.xlsx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G154",
+   "path": "09_ADM_Phase_Workspaces/RM_Requirements/Deliverables/154_Requirements_Impact_Assessment/Requirements Impact Assessment.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G155",
+   "path": "09_ADM_Phase_Workspaces/RM_Requirements/Artifacts/155_Requirements_Management/Requirements Management.pptx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G156",
+   "path": "09_ADM_Phase_Workspaces/RM_Requirements/Artifacts/156_Requirements_traceability_matrix/Requirements traceability matrix.xlsx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G157",
+   "path": "09_ADM_Phase_Workspaces/RM_Requirements/Deliverables/157_Stakeholder_Engagement_Strategy/Stakeholder Engagement Strategy.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G158",
+   "path": "09_ADM_Phase_Workspaces/RM_Requirements/Artifacts/158_Standards_Library/Standards Library.xlsx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G159",
+   "path": "09_ADM_Phase_Workspaces/X_Across_The_Cycle/Artifacts/159_Architecture_Comparison_Tool/Architecture Comparison Tool.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G160",
+   "path": "09_ADM_Phase_Workspaces/X_Across_The_Cycle/Artifacts/160_Architecture_On_A_Page/Architecture On A Page.pptx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G161",
+   "path": "09_ADM_Phase_Workspaces/X_Across_The_Cycle/Deliverables/161_Assurance_Organisational_Overview/Assurance Organisational Overview.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G162",
+   "path": "09_ADM_Phase_Workspaces/X_Across_The_Cycle/Artifacts/162_Comparison_Tool_How_To_Use/Comparison Tool How To Use.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G163",
+   "path": "09_ADM_Phase_Workspaces/X_Across_The_Cycle/Deliverables/163_Metadata_Management_Strategy/Metadata Management Strategy.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G164",
+   "path": "09_ADM_Phase_Workspaces/X_Across_The_Cycle/Artifacts/164_Metamodel_How_To_Use/Metamodel How To Use.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G165",
+   "path": "09_ADM_Phase_Workspaces/X_Across_The_Cycle/Deliverables/165_Phase_Closure_Record/Phase Closure Record.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G166",
+   "path": "09_ADM_Phase_Workspaces/X_Across_The_Cycle/Deliverables/166_Repository_How_To_Use/Repository How To Use.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G167",
+   "path": "09_ADM_Phase_Workspaces/X_Across_The_Cycle/Deliverables/167_Security_Policy_Architecture/Security Policy Architecture.docx",
+   "origin": "Sample, rebranded"
+  },
+  {
+   "item": "G168",
+   "path": "09_ADM_Phase_Workspaces/X_Across_The_Cycle/Deliverables/168_Template_Architecture_Definition_Document/Template Architecture Definition Document.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G169",
+   "path": "09_ADM_Phase_Workspaces/X_Across_The_Cycle/Deliverables/169_Template_Catalogue_Matrix_Diagram/Template Catalogue Matrix Diagram.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G170",
+   "path": "09_ADM_Phase_Workspaces/X_Across_The_Cycle/Deliverables/170_Template_Checks_Sheet/Template Checks Sheet.docx",
+   "origin": "Starter"
+  },
+  {
+   "item": "G171",
+   "path": "09_ADM_Phase_Workspaces/X_Across_The_Cycle/Artifacts/171_TOGAF_Metamodel/TOGAF Metamodel.docx",
+   "origin": "Starter"
+  }
+ ]
+}

@@ -119,6 +119,11 @@ services:
       - ${EAX_EXPORT_DIR:-eax-exports}:/data/exports
       - ./work/backups:/data/backups   # every backup is in work/backups (mount a share there to keep them elsewhere, D226)
       - ./work:/eax-work:ro      # services.env: which optional services are on (D191); maintenance.json while restoring
+      # the project library's template files (phase 13, D262): library/templates, or the folder EAX_LIBRARY_DIR names;
+      # the TOGAF files you download are kept there and never committed (library/templates/togaf/.gitignore)
+      - ${EAX_LIBRARY_DIR:-./library}:/data/library:ro
+      # EA Explorer's own template library (D264), shipped in the release whatever EAX_LIBRARY_DIR says
+      - ./library/templates/ea-explorer:/data/ea-explorer-templates:ro
     networks: [frontend, backend]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health').status==200 else 1)"]

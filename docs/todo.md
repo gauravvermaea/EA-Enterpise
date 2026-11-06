@@ -39,6 +39,11 @@ Tick an item (`[x]`) when it is done; remove it at the next tidy-up.
 - [x] **Test phase 8** (accepted 5 Nov 2026, D171; end-to-end test in 36.1) (0.8.3): `.\eax clean-restart`, the demo and checks in [phase-8.md](phase-8.md). New test users `user_committer` and `user_history_viewer` (same password as the others).
 - [x] **Phase 12 accepted and closed** (6 Nov 2026, D254): validation and data quality (0.13.0).
 - [ ] **Test phase 12.1** (0.13.1): `.\eax clean-restart` (and once with `--wait-all`), the demo and checks in [phase-12.1.md](phase-12.1.md).
+- [ ] **Test phase 13** (0.14.0): `.\eax clean-restart`, the one-time TOGAF template task (D262) and the template library setup (D264), then the demo and checks in [phase-13.md](phase-13.md). The Mayan API calls (cabinets, upload, versions, check-out) are untested against a running Mayan until then.
+- [ ] **Fix later (owner, 6 Nov 2026): `dms` and `reports-init` show a problem** on Administration > Containers after the phase 12.1 start. Looked at on 6 Nov 2026 (container logs, docker inspect, docker stats); not caused by the new start-up order:
+  - **`dms` (Mayan) runs out of memory.** *Changed in phase 13 (D263): 2 web workers, one task per queue, 3 GB; check it stays up.* Its laptop limit is 2 GB (deploy/compose/docker-compose.laptop.yml); about 40 s after it starts its web server and Celery workers run together, and Docker kills processes (`Worker was sent SIGKILL! Perhaps out of memory?`, `mayan-edms-worker_b/e terminated by SIGKILL`; inspect: `OOMKilled=true`). Supervisor restarts them, so it keeps running, at about 1.66 GB of 2 GB (83%). Fix: fewer Mayan workers on a laptop (its gunicorn and Celery worker counts) or a higher limit, or both; the same 98% was seen before.
+  - **`reports-init` finished well but shows unhealthy.** It exited 0 (*report datasets ready (104 datasets, 47 added)*, *Superset ready*), but it uses the Superset image, whose built-in health check expects the Superset server on port 8088, which the set-up container never runs, so Docker marks it unhealthy and the Containers summary shows Problem. Fix: `healthcheck: disable: true` on reports-init, and treat a set-up container that exited 0 as done (green) in the Containers summary.
+- [ ] **Fix later (owner, 6 Nov 2026): the draw.io diagrams need tidying.** Now that every picture opens in draw.io (D256), the layouts show too much spacing and look poor. Go through each one and fix the layout (box sizes, gaps, alignment, nesting, line routing): the ER diagram (MetamodelDiagram.jsx drawioXml), the entity graph, the hierarchy map, the model tree, the relation matrix, the value stream map and the roadmap (Maps.jsx), and the viewpoint heat map and matrix (Viewpoints.jsx); the shared builder is exporting.js drawioXml.
 - [ ] **Test phase 8.3** (0.8.4): `.\eax clean-restart`, the demo and checks in [phase-8.3.md](phase-8.3.md).
 - [ ] **Test phase 9** (0.9.0), with 8.3: `.\eax clean-restart`, the demo and checks in [phase-9.md](phase-9.md).
 - [ ] **Test phase 10** (0.10.0), with 8.3 and 9: the demo and checks in [phase-10.md](phase-10.md).
@@ -189,7 +194,48 @@ Tick an item (`[x]`) when it is done; remove it at the next tidy-up.
   settled in that phase's design session.
 - [ ] **Kinds of notification and request (8.1, D83)**: to agree in that phase's design session.
 
+## Design session before phase 13.1 (owner, 6 Nov 2026, D267; phase 13.0.1 in the plan)
+
+- **Principles**: as TOGAF defines them (name, statement, rationale, implications); a screen of their own where a principle
+  of a project can be clicked and edited for that project (the project's copy, the library's stays); the library's
+  principles reworked to the TOGAF format; how a principle's versions reach the projects that follow it (15.1).
+- **An execution phase of a project**: what happens after the ADM phases are set up (delivery, Phase G implementation
+  governance, tracking), and how the project shows it.
+- **Changing a project while it runs**: add or remove steps, deliverables and artifacts, viewpoints, principles,
+  template libraries and models after creation, and who may.
+- **Creating a project in the background**: the wizard returns at once and the project shows its set-up progress
+  (models, repository) instead of waiting.
+
+## Design session for phase 13.4, business architecture artifacts (owner, 6 Nov 2026, D268)
+
+**Agreed so far (6 Nov 2026):**
+- The artifacts are **entities in the model**, linked by relationships; a canvas is a view of the model and stays in
+  step with it, so gaps can be found.
+- **Gaps of four kinds**: baseline vs target (added, removed, changed, using the existing tags, versions, compare and
+  gap analysis); completeness inside one artifact (e.g. a value proposition with no customer segment or channel, a
+  segment with no revenue stream, an activity with no resource); against the architecture (items no capability,
+  process or application supports); against strategy (items not traced to a driver, goal or objective, and goals with
+  nothing behind them).
+- **Entity types: both, chosen per model**: a pack of canvas types (Customer Segment, Value Proposition, Channel,
+  Revenue Stream, Cost Item...) each mapped to its ArchiMate 4 type, so a model uses either.
+- **Scope**: the Business Model Canvas, the value proposition canvas, the capability map (with heat) and value streams,
+  motivation and strategy (drivers, goals, objectives, outcomes, SWOT), the customer journey and the stakeholder map.
+- **When 13.4 starts: ask the owner to upload documents to study first.**
+
+**Still to discuss:**
+- **Which artifacts** (beyond the agreed scope): candidates are the Business Model Canvas, value proposition canvas, business capability map,
+  value chain and value streams, business motivation (drivers, goals, objectives), organisation map, actor and role
+  catalogue, customer journey map, stakeholder map, SWOT, and others the owner names. The Meridian samples have most of
+  them (EA Explorer's template library holds them rebranded).
+- **How each works**: filled in on screen with the model's entities (the canvas is a view of the model and stays in
+  step with it), drawn from the model like the report views, or a document in the project repository.
+- **Where they live**: the metamodel types each needs (the insurance reference model and ArchiMate 4's motivation and
+  strategy elements), viewpoints, a project's deliverables and artifacts, versions and approvals (13.1).
+- **Export**: PowerPoint, PDF, draw.io, Excel.
+
 ## Design session before phase 15 (architecture projects and repository, D103-D105)
+
+*Held 6 Nov 2026: settled in [design-architecture-projects.md](design-architecture-projects.md) and D258-D263; phases 13 and 15 merged into 13 to 13.3. Still open: **custom registers** (parked by the owner), and which report view generates each artifact (13.3).*
 
 - Projects and models: several projects on one model, or a project on a copy merged back. What happens to a project's content when
   the project closes, is merged or is abandoned? Can one project work on more than one model?
@@ -274,6 +320,19 @@ Noted 4 Nov 2026 (D99). To discuss and settle when we build the final deployment
   Model Admin of a draft's source model cannot see the requested draft to approve it.
 
 ## Backlog (to work out later)
+
+- [ ] **Feature request (owner, 6 Nov 2026): API servers that scale themselves.** Thresholds on the API and job
+  servers (D249) so that when usage rises more servers start, and when it falls they stop again. To settle: what is
+  measured (CPU, memory, requests per second, response time, waiting background jobs), the thresholds and how long they
+  must hold before acting, the lowest and highest number of servers, a cool-down between changes, who sets them
+  (Administration > Containers, Super and IT Admins) and how each change is shown and logged. Builds on `eax servers`
+  and the operations helper, which already add and remove servers without a restart. Phase to settle.
+
+- [ ] **Feature request (owner, 6 Nov 2026): model actions on the model hierarchy screen.** From a model in the hierarchy,
+  (1) **merge it into its parent** (the merge of phase 8, started from the tree), and (2) **create a model from it**,
+  either as its child (derived, with lineage) or as a stand-alone copy (phase 4's create and copy, started from the
+  tree), and (3) the model's other life-cycle actions from the same place: **archive**, **delete** and the like (with
+  the usual rules and confirmations). Phase to settle.
 
 - **Similarity (fuzzy) matching in Compare and gap analyses** (owner, 5 Nov 2026: not now, keep in the plan; D178). An extra
   matching step after the exact ones, among still unmatched elements of the same entity type, on tidied names (case,

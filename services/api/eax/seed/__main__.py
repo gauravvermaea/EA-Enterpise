@@ -6,6 +6,8 @@ left alone, so it is safe on every start.
   * ArchiMate 4 template (always)
   * Insurance reference model (always; a new version is a new model beside the old one)
   * The built-in viewpoints and report audiences (always, phase 8.2)
+  * The project library (always, phase 13): phases, steps, deliverables and artifacts, folders, templates; on a laptop
+    with the sample, a sample principles library
   * Laptop only: the test users' roles on the models present
 The sample insurance model, the laptop test models, the demo estate and the first data quality measurement are loaded
 after the API has started, in the background, one step at a time (eax/seed/later.py), so the start is not held up.
@@ -15,6 +17,7 @@ EAX_DB_MIGRATOR_PASSWORD), the only login the database lets change them.
 
 from __future__ import annotations
 
+import os
 import sys
 import time
 
@@ -22,6 +25,7 @@ import psycopg
 
 from ..config import get_settings
 from ..permissions import TEST_USERS
+from . import project_library
 from .build import INSURANCE_ID, TEMPLATE_ID, history_demo_steps, seed_sql
 from .catalog import catalog_sql
 
@@ -49,6 +53,13 @@ def main() -> int:
         conn.execute(catalog_sql())
         print("EA Explorer: viewpoints and report audiences brought up to date")
         refresh_views(conn)
+    # the project library: phases, steps, deliverables and artifacts, folders, template libraries (phase 13, D258, D264),
+    # in the projects' database (EAX_PROJECTS_DB_URL when proj has been moved to its own, D266)
+    with (psycopg.connect(settings.projects_db_url) if settings.projects_db_url else psycopg.connect(settings.migrator_conninfo)) as pconn:
+        pconn.execute(project_library.library_sql())
+        if os.environ.get("EAX_SEED_SAMPLE", "false").strip().lower() in ("1", "true", "yes"):
+            pconn.execute(project_library.sample_principles_sql())
+    print("EA Explorer: project library brought up to date")
     return 0
 
 

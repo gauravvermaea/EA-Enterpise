@@ -321,6 +321,22 @@ function Show-Urls {
         Write-Log "Also on plain http (this computer only): http://localhost$hs/api/docs and http://localhost$hs/mcp"
     }
     Show-TrustHint
+    Show-TemplatesHint
+}
+# one-time admin task (phase 13, D262): the TOGAF template deliverables are bought or downloaded from The Open Group
+# (publication I094) and kept in the library folder, never in git; shown until the folder has them
+function Show-TemplatesHint {
+    $dir = Get-Setting "EAX_LIBRARY_DIR" "./library"
+    $togaf = Join-Path (Join-Path $dir "templates") "togaf"
+    $have = @(Get-ChildItem -Path $togaf -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in @(".docx", ".doc", ".pptx", ".xlsx") })
+    if ($have.Count -gt 0) { return }
+    Write-Log ""
+    Write-Log "One-time admin task: the TOGAF template deliverables (for architecture projects)" "Yellow"
+    Write-Log "  1. Download 'The TOGAF Standard, 10th Edition - Template Deliverables' (The Open Group publication I094):" "Yellow"
+    Write-Log "     https://publications.opengroup.org/i094" "Yellow"
+    Write-Log "  2. Unzip it into $togaf, keeping its phase folders (the files stay on this computer; git ignores them)." "Yellow"
+    Write-Log "     To use another folder, set EAX_LIBRARY_DIR in $EnvFile (it must hold templates\togaf) and run .\eax up." "Yellow"
+    Write-Log "  3. As a Super Admin: Administration > Project library > Load templates from the folder." "Yellow"
 }
 
 # ------------------------------------------------------------------ the local certificate (D107)
@@ -401,7 +417,10 @@ function Show-Logins {
         @("user_committer", "eax-user", "Committer: Protea demo, Sample (commits what others ask to commit)"),
         @("user_history_viewer", "eax-user", "History Viewer and Report Viewer: Protea demo (sees everyone's commits)"),
         @("user_report_viewer", "eax-user", "Report Viewer: Fynbos group, Sample, Protea demo"),
-        @("user_global_architect", "eax-user", "Architect on every model")
+        @("user_global_architect", "eax-user", "Architect on every model"),
+        @("user_project_admin", "eax-user", "Project Admin of the sample architecture project (runs its setup and people)"),
+        @("user_lead_architect", "eax-user", "Lead Architect of the sample architecture project"),
+        @("user_stakeholder", "eax-user", "Stakeholder of the sample architecture project (reads; approves documents in 13.1)")
     )
     foreach ($t in $tests) { $rows += ,@("Test user ($($t[1]))", $t[0], $testPw, $t[2]) }
     Write-Log ""

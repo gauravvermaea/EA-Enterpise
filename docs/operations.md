@@ -81,6 +81,26 @@ others skip it.
 The start-up status is also readable without signing in at `/api/startup` (the parts and their states only), and with
 details at `/api/v1/startup` (signed in; the containers for IT and Super Admins).
 
+## One-time task: the TOGAF templates (phase 13, D262)
+
+Architecture projects start their documents from templates. The TOGAF templates belong to The Open Group, so EA
+Explorer ships only their names; a Super Admin loads the licensed files once, after the first start:
+
+1. Download **The TOGAF Standard, 10th Edition: Template Deliverables** (The Open Group publication I094) from
+   <https://publications.opengroup.org/i094>.
+2. (Only for the folder way) Unzip it into `library/templates/togaf` in the EA Explorer folder, keeping its folders. To keep it elsewhere, set
+   `EAX_LIBRARY_DIR` in `work/eaexplorer.env` to a folder holding `templates/togaf` and restart. Git ignores the files;
+   the API reads the folder read-only (`/data/library`).
+3. Sign in as a Super Admin: **Administration > Project library > ⬆ Upload the TOGAF zip** and choose the zip as you
+   downloaded it; or unzip it into the folder above and press **Load templates from the folder**. Each file that
+   matches a TOGAF template is stored in Documents unchanged. A single template can be uploaded on its own line.
+
+`eax up` shows these steps until the folder holds the files. Documents must be up (green in the header) to load them.
+
+**Then finish the template library setup** (D264), on the same page: tick the template libraries to offer to projects
+(EA Explorer's own, TOGAF 10, and any of your own: download a library's zip, rebrand it, add documents and upload it
+under a new name) and press **Finish the setup**. Nobody can create a project until this is done.
+
 ## The work folder and logs
 
 `work/` holds everything local and is never committed: `work/eaexplorer.env` (the config),
@@ -232,6 +252,16 @@ The change log (phase 9) has its own connection string, `EAX_CHANGELOG_DB_URL`
 the log never competes with the repository; the login must be able to create the schema and its two tables (or have
 them made for it). The api container's log shows `EA Explorer change log WARNING` lines when it cannot reach it; the
 repository keeps working and the log catches up once it can.
+
+## The architecture projects' database (D266)
+
+Architecture projects (schema `proj`) have their own connection string, `EAX_PROJECTS_DB_URL`
+(`postgresql://user:password@host:port/database`, the password URL-encoded). Empty, the usual, means the repository's
+database, where the upgrade makes the schema; creating a project and its models is then one transaction. No foreign key
+and no query crosses from `proj` into the other schemas (models are kept by their guid), so the schema can be moved:
+stop EA Explorer, copy it (`pg_dump -n proj` into the new database), set `EAX_PROJECTS_DB_URL` and start again. The
+seed then keeps the project library up to date there. Backups (D216) cover the repository's database only: a moved
+`proj` database needs its own backups until that is added.
 
 ## Moving to a server
 

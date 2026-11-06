@@ -12,9 +12,18 @@ services:
       resources:
         limits: { memory: 2g }
   dms:
+    # phase 13 (D263): Mayan ran out of memory at 2 GB with its defaults (3 web workers, Celery workers A to E at 4, 4,
+    # 4, 1, 4 processes); on a laptop one process per Celery worker and 2 web workers are plenty, within 3 GB
+    environment:
+      MAYAN_GUNICORN_WORKERS: "2"
+      MAYAN_WORKER_A_CONCURRENCY: "1"
+      MAYAN_WORKER_B_CONCURRENCY: "1"
+      MAYAN_WORKER_C_CONCURRENCY: "1"
+      MAYAN_WORKER_D_CONCURRENCY: "1"
+      MAYAN_WORKER_E_CONCURRENCY: "1"
     deploy:
       resources:
-        limits: { memory: 2g }
+        limits: { memory: 3g }
   keycloak:
     environment:
       JAVA_OPTS_KC_HEAP: "-XX:MaxRAMPercentage=50"

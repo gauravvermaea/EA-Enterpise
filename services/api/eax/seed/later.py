@@ -120,8 +120,43 @@ def plan(settings, with_sample: bool) -> list[tuple[str, object]]:
             from .versions_demo import main as demo_main
             demo_main()
         steps.append(("Demo estate tags, gap analyses and sheets", estate))
+    if laptop:
+        steps.append(("Sample architecture project", sample_project))
     steps.append(("First data quality measurement", first_measurements))
     return steps
+
+
+def sample_project() -> None:
+    """Laptop (phase 13): an architecture project on the demo estate with the test users in each project role, so the
+    projects, the wizard's choices and the repository can be tried at once (its repository is built when Documents is up)."""
+    from sqlalchemy import text
+
+    from .. import permissions
+    from .. import projects as pj
+    name = "Protea Target Architecture 2028 (sample project)"
+
+    class _U:
+        username = "user_project_admin"
+        roles = ("user",)
+    with pj.connections() as conn:      # proj may have its own database (D266)
+        if conn.execute(text("SELECT 1 FROM proj.projects WHERE name = :n"), {"n": name}).first():
+            return
+        protea = pj.core(conn).execute(text("SELECT guid::text FROM core.models WHERE name = 'Protea Insurance (demo estate)' AND NOT is_deleted")).scalar()
+        steps = conn.execute(text("SELECT id FROM proj.lib_steps WHERE phase = 'B' AND name LIKE 'Model the product lifecycle%'")).scalar()
+        principles = [r["id"] for r in conn.execute(text("SELECT id FROM proj.lib_principles ORDER BY code LIMIT 6")).mappings().all()]
+        pj.create(conn, _U(), {
+            "name": name, "purpose": "portfolio",
+            "description": "Sample: the demo estate's move from the 2026 baseline to the 2028 target, run as one ADM cycle.",
+            "models": [{"how": "added", "model": protea}] if protea else [],
+            "viewpoints": ["VP-01", "VP-05", "VP-08", "VP-11"],
+            "principles": [{"library_id": i} for i in principles]
+                          + [{"name": "Reuse before buy, buy before build", "statement": "Use what the estate has before buying, and buy before building."}],
+            "removed_steps": [{"library_id": steps, "reason": "Products do not change in this cycle."}] if steps else [],
+            "own_steps": [{"phase": "A", "name": "Agree the 2028 target scope with the Executive Committee"}],
+            "members": [{"username": u, "role": r} for u, r in permissions.PROJECT_TEST_ROLES],
+            "signoff": {"": ["user_lead_architect", "user_stakeholder"]},
+            "libraries": ["EA Explorer"],
+        }, sample=True)
 
 
 def first_measurements() -> None:

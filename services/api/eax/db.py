@@ -58,3 +58,19 @@ def get_changelog_engine() -> Engine:
     settings = get_settings()
     return create_engine(settings.changelog_sqlalchemy_url, pool_pre_ping=True, pool_size=2, max_overflow=3,
                          connect_args={"connect_timeout": 5, "application_name": "eaexplorer-changelog"})
+
+
+def projects_separate() -> bool:
+    """True when the architecture projects (schema proj) live in a database of their own (EAX_PROJECTS_DB_URL, D266)."""
+    return bool(get_settings().projects_db_url)
+
+
+@lru_cache(maxsize=1)
+def get_projects_engine() -> Engine:
+    """The architecture projects' database (schema proj, D266): EAX_PROJECTS_DB_URL, or the repository's engine when it
+    is empty (one database, one transaction). eax/projects.py never joins proj with another schema; what it needs from
+    the repository (models, viewpoints, model roles, notifications) goes through the repository connection."""
+    if not projects_separate():
+        return get_engine()
+    return create_engine(get_settings().projects_sqlalchemy_url, pool_pre_ping=True, pool_size=3, max_overflow=5,
+                         connect_args={"connect_timeout": 5, "application_name": "eaexplorer-projects"})
