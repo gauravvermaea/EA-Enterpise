@@ -27,6 +27,7 @@ CREATE TABLE core.viewpoints (
     heat_attribute     text NOT NULL DEFAULT 'Lifecycle',
     audiences          text[] NOT NULL DEFAULT '{}',
     is_builtin         boolean NOT NULL DEFAULT false,
+    source             text NOT NULL DEFAULT '',   -- where it comes from (D235): the ArchiMate 4 Specification, or empty
     sort_order         integer NOT NULL DEFAULT 1000,
     created_by         text NOT NULL DEFAULT 'system',
     created_at         timestamptz NOT NULL DEFAULT now(),
@@ -44,6 +45,9 @@ BEGIN
         END IF;
         IF TG_OP IN ('INSERT', 'UPDATE') AND NEW.is_builtin THEN
             RAISE EXCEPTION 'Not allowed: only the product''s own viewpoints are built in';
+        END IF;
+        IF TG_OP IN ('INSERT', 'UPDATE') AND NEW.source <> '' THEN
+            RAISE EXCEPTION 'Not allowed: only the built-in viewpoints say where they come from (D235)';
         END IF;
         IF TG_OP IN ('INSERT', 'UPDATE') AND NEW.code ~ '^VP-[0-9]+$' THEN
             RAISE EXCEPTION 'Not allowed: codes VP-<number> belong to the built-in viewpoints; use another code (for example OVP-01)';

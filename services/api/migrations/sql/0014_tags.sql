@@ -23,7 +23,7 @@ CREATE TABLE core.model_tags (
     model_id          bigint NOT NULL REFERENCES core.models (id) ON DELETE CASCADE,
     name              text NOT NULL CHECK (btrim(name) <> ''),
     description       text NOT NULL DEFAULT '',
-    kind              text NOT NULL DEFAULT 'manual' CHECK (kind IN ('manual', 'before-restore')),
+    kind              text NOT NULL DEFAULT 'manual' CHECK (kind IN ('manual', 'before-restore', 'backup')),
     is_locked         boolean NOT NULL DEFAULT false,
     commit_number     integer NOT NULL DEFAULT 0,            -- the last commit when tagged
     metamodel_version integer NOT NULL DEFAULT 1,

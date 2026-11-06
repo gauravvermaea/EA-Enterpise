@@ -53,10 +53,35 @@ Everyday use
                         which need sudo), so the browser stops warning. Once: clean-run keeps it.
   logins                Prints every user name and password (laptop only).
   down                  Stops and removes the containers. Data in Docker volumes and in work/ is kept.
-  backup                Takes a backup now into work/data/backups (laptop) or EAX_BACKUP_DIR.
-  restore <folder> [--scratch]
-                        Restores a backup folder: into the live databases, or with --scratch into
-                        a separate scratch database to inspect first.
+  backup [tag]          Takes an infrastructure backup now (every database, the document files, the
+                        certificate, the config file, the release and image versions) into
+                        work/backups/infrastructure, tagged (D216, D226).
+  backups [words]       Lists every backup: infrastructure (numbered, to restore) and application;
+                        with words, only those whose tag, name or maker has them (search by tag).
+  restore [name|tag|latest] [--what full|app|app+data|db|files] [--yes]
+                        Restores an infrastructure backup: by name, by tag (the newest with it) or
+                        latest (the newest good one). Without one it lists them to choose
+                        from, then asks what to restore and for RESTORE to confirm. full = everything;
+                        app = the config file; app+data = the config file, the repository and
+                        document databases and the document files; db = every database; files =
+                        the document files and the certificate. A backup of the current state is
+                        taken first; nothing live changes until all is restored cleanly; it can be
+                        run again. Works when the console is down (starts db, backup and ops).
+  restores              Lists every restore (infrastructure and model) with its status.
+  restore-log <id>      Shows a restore's whole log (also in work/backups/restores/<id>).
+  delete-backup <name>  Deletes an infrastructure backup (unpin it first if it is pinned).
+  delete-restore <id>   Forgets a finished restore and its log.
+  stop-backup           Stops the backups running (infrastructure: at once; application: after the
+                        model it is on); the partial backup is deleted. A restore cannot be stopped.
+  restore-app [run|tag|latest] [--yes]
+                        Restores every model of an application backup, each over itself (each backed
+                        up first); models no longer there are made again; newer models stay as they
+                        are. Needs the api container running.
+  maintenance on|off    Shows (or stops showing) the maintenance page to everyone, served by the
+                        proxy. Restores and up (an upgrade) switch it on and off themselves.
+  app-backup [tag]      Backs up every model now (an application backup), into work/backups/application.
+  restore-model         Lists the application backups and the models in them to choose from, then
+                        restores one as a new model or over itself (needs the api container running).
   services              Lists the optional services (reports, documents, drawio, mcp, change_log,
                         backups), whether each is on in the config file and its containers' state.
   service <name> on|off Switches one optional service on or off: keeps a dated copy of the config file
@@ -371,7 +396,8 @@ cleanup() {
   for a in "$@"; do
     case "$a" in --all) all=true ;; --yes|-y) yes=true ;; --certificate) cert=true ;; *) echo "ERROR: unknown option $a"; exit 1 ;; esac
   done
-  echo "This deletes everything in $(pwd)/$WORK_DIR: the config file, all logs and the laptop data folders (including backups)."
+  echo "This deletes everything in $(pwd)/$WORK_DIR: the config file, all logs, the laptop data folders, and every backup and"
+  echo "restore log (work/backups)."
   $all && echo "With --all it also deletes the Docker volumes: the databases and documents start empty."
   if ! $yes; then
     read -r -p "Type yes to continue: " answer
@@ -389,9 +415,25 @@ cleanup() {
     # keep work/data/tls: the local certificate you trusted with ./eax.sh trust (D107)
     find "${WORK_DIR:?}" -mindepth 1 -maxdepth 1 ! -name data -exec rm -rf {} + 2>/dev/null || true
     [ -d "$WORK_DIR/data" ] && find "$WORK_DIR/data" -mindepth 1 -maxdepth 1 ! -name tls -exec rm -rf {} + 2>/dev/null || true
+  fi
+  # backups and restore logs are written by the containers (as root on Linux): if any are left, a container removes them
+  if [ -d "$WORK_DIR/backups" ] || [ -d "$WORK_DIR/data/backups" ]; then
+    docker run --rm -v "$(pwd)/$WORK_DIR:/w" --entrypoint sh "${EAX_IMAGE_POSTGRES:-postgres:17-alpine}" -c 'rm -rf /w/backups /w/data/backups' \
+      >/dev/null 2>&1 || true
+  fi
+  if [ -d "$WORK_DIR/backups" ]; then
+    echo "WARNING: $WORK_DIR/backups could not be deleted completely: delete it by hand (sudo rm -rf $WORK_DIR/backups)."
+  else
+    echo "Every backup and restore log is deleted."
+  fi
+  if $cert; then :
+  else
     echo "The work folder is empty apart from the local certificate (work/data/tls). Run ./eax.sh init laptop to start again."
   fi
 }
+
+# Backups and restores from the command line (D227) need the database, the backup container and the operations helper
+backup_helpers() { compose up -d db backup ops >/dev/null; }
 
 # Stops early with a plain message when the Docker engine is not reachable
 assert_docker() {
@@ -428,14 +470,14 @@ if [ -f eaexplorer.env ] && [ ! -f "$ENV_FILE" ]; then
   echo "Delete the old file and run ./eax.sh init laptop (or copy your changes into $ENV_FILE)."
 fi
 
-case "$CMD" in check|up|debug|status|logs|down|backup|restore|services|service) assert_docker ;; esac
+case "$CMD" in check|up|debug|status|logs|down|backup|backups|restore|restores|restore-log|delete-backup|delete-restore|app-backup|restore-model|restore-app|stop-backup|services|service) assert_docker ;; esac
 
 case "$CMD" in
   init)
     K="${2:-laptop}"
     [ -f "$ENV_FILE" ] && { echo "ERROR: $ENV_FILE already exists; not overwriting. Use ./eax.sh cleanup to start again."; exit 1; }
     [ -f "deploy/templates/eaexplorer.$K.env" ] || { echo "ERROR: unknown deployment kind: $K"; exit 1; }
-    mkdir -p work/logs work/data/backups work/data/imports work/data/exports work/data/tls
+    mkdir -p work/logs work/backups work/proxy work/data/imports work/data/exports work/data/tls
     # Plain copy with LF endings: no passwords are generated
     tr -d '\r' < "deploy/templates/eaexplorer.$K.env" > "$ENV_FILE"
     chmod 600 "$ENV_FILE"
@@ -452,10 +494,18 @@ case "$CMD" in
     ;;
   up)
     shift
+    # an upgrade (D230): while a running installation is rebuilt, the proxy shows the maintenance page
+    PAGE=""
+    if [ "$#" -eq 0 ] && [ ! -f work/proxy/maintenance ] && [ -n "$(compose ps --status running -q proxy 2>/dev/null)" ]; then
+      mkdir -p work/proxy; echo upgrade > work/proxy/maintenance; PAGE=1
+      echo "Everyone sees the maintenance page until this has finished."
+    fi
     if ! up_services "$@"; then
+      if [ -n "$PAGE" ]; then rm -f work/proxy/maintenance; fi
       echo "docker compose failed. Collecting diagnostics..."; diagnostics
       echo "ERROR: docker compose failed. Full log with diagnostics: $LOG"; exit 1
     fi
+    if [ -n "$PAGE" ]; then rm -f work/proxy/maintenance; fi
     if [ "$#" -gt 0 ]; then show_part_urls "$@"; else show_urls; show_logins; fi
     ;;
   debug)
@@ -470,9 +520,24 @@ case "$CMD" in
   logs)    shift; compose logs -f --tail=100 "$@" || true ;;
   down)    run_compose down ;;
   backup)  service_on backups || { echo "ERROR: backups are switched off: ./eax.sh service backups on"; exit 1; }
-           run_compose exec -T backup backup.sh ;;
+           shift; backup_helpers; compose exec ops python3 /app/ops.py backup "$@" ;;
+  backups) shift; backup_helpers; compose exec ops python3 /app/ops.py list "$@" ;;
+  stop-backup) backup_helpers; compose exec ops python3 /app/ops.py stop-backup ;;
+  restore-app) shift; compose exec api python -m eax.backups_cli restore-all "$@" ;;
+  maintenance)
+    case "${2:-}" in
+      on) mkdir -p work/proxy; echo maintenance > work/proxy/maintenance
+          echo "The maintenance page is shown to everyone until: ./eax.sh maintenance off" ;;
+      off) rm -f work/proxy/maintenance; echo "The maintenance page is off." ;;
+      *) echo "Usage: ./eax.sh maintenance on|off"; exit 2 ;;
+    esac ;;
   restore) service_on backups || { echo "ERROR: backups are switched off: ./eax.sh service backups on"; exit 1; }
-           shift; run_compose exec -T backup restore.sh "$@" ;;
+           shift; VER=$(sed -n 's/^version = "\(.*\)"/\1/p' services/api/version.toml)
+           backup_helpers; compose exec ops python3 /app/ops.py restore "$@" --version "$VER" ;;
+  restores) backup_helpers; compose exec ops python3 /app/ops.py restores ;;
+  restore-log|delete-backup|delete-restore) C="$1"; shift; backup_helpers; compose exec ops python3 /app/ops.py "$C" "$@" ;;
+  app-backup) shift; compose exec api python -m eax.backups_cli backup "$@" ;;
+  restore-model) shift; compose exec api python -m eax.backups_cli restore "$@" ;;
   services) show_services ;;
   service) set_service "${2:-}" "${3:-}" ;;
   url)     show_urls; show_logins ;;

@@ -86,6 +86,7 @@ function ReportList({ model, m }) {
                   rel="noreferrer" title={`Open ${r.title} in the reporting tool`}>
                   <span className="report-code">{r.code.startsWith("AU-") ? r.group : r.code}</span>
                   <strong>{r.title}</strong>
+                  {r.source && <span className="vp-source" title={r.source}>ArchiMate 4</span>}
                   <span className="quiet">{r.about}</span>
                 </a>
               ))}

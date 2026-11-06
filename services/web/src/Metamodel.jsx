@@ -38,6 +38,7 @@ import MergeTab from "./Merge";
 import { TagPage, TagsTab } from "./Versions";
 import { DataEntryTab } from "./DataEntry";
 import { ChangeDocumentsTab, PushDownTab } from "./Notifications";
+import { ModelBackupsTab } from "./Backups";
 import { GridTab, MetamodelGrids } from "./GridPages";
 import { CopyBanner, DraftPage, Drafts, ModelActions, NewModelButton, UploadButton } from "./ModelOps";
 import { fmtDate } from "./fmt";
@@ -418,6 +419,7 @@ function ModelPage({ model, view, itemId, sub }) {
     ["documents", "Change documents", null],
     ["diagram", "ER diagram", null], ["reports", "Reports", null], ["hierarchy", "Hierarchy", null],
     ...(changeableModel(m) ? [["people", "People", null]] : []),
+    ...(canOn(model, "model.metamodel") && m.kind !== "template" ? [["backups", "Backups", null]] : []),
   ];
   return (
     <section className="model-page">
@@ -472,6 +474,7 @@ function ModelPage({ model, view, itemId, sub }) {
         : tab === "hierarchy" ? <ModelLineageTab model={model} m={m} />
         : tab === "pushdown" ? <PushDownTab model={model} m={m} />
         : tab === "documents" ? <ChangeDocumentsTab model={model} m={m} />
+        : tab === "backups" ? <ModelBackupsTab model={model} />
         : tab === "tags" ? (itemId ? <TagPage key={itemId} model={model} m={m} tagId={itemId} entityId={sub} /> : <TagsTab model={model} m={m} />)
         : tab === "changes" ? <ChangesTab model={model} m={m} sub={itemId} itemId={sub} />
         : tab === "reports" ? <ModelReports model={model} m={m} />

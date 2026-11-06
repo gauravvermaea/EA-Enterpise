@@ -10,7 +10,7 @@ from flask.views import MethodView
 from flask_smorest import Blueprint
 from sqlalchemy import text
 
-from .. import __version__, audit, health
+from .. import __version__, audit, health, maintenance
 from ..auth import require_auth
 from ..config import get_settings
 from ..db import get_engine
@@ -72,6 +72,7 @@ class HeartbeatView(MethodView):
             "time": datetime.now(UTC),
             "database": db,
             "jobs": jobs,
+            "maintenance": maintenance.state(),
         }
 
     @blp.arguments(HeartbeatRecordIn)

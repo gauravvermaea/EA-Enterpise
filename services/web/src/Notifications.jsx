@@ -7,7 +7,7 @@ import { fmtDateTime } from "./fmt";
 import { Modal } from "./ModelOps";
 import { refreshAll, useApi } from "./ModelViews";
 
-const CATEGORY = { commit: "Commits", metamodel: "Metamodel", request: "Requests", model: "Model events", system: "System health" };
+const CATEGORY = { commit: "Commits", metamodel: "Metamodel", request: "Requests", model: "Model events", system: "System" };
 const ICON = { commit: "✔", metamodel: "⬇", request: "✉", model: "◆", system: "⚠" };
 const STATUS = { open: "Open", in_progress: "In progress", done: "Done", declined: "Declined" };
 

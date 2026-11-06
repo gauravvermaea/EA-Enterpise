@@ -27,6 +27,8 @@ class Heartbeat(Schema):
     time = fields.DateTime(required=True)
     database = fields.Nested(DatabaseStatus, required=True)
     jobs = fields.Nested(JobQueueStatus, required=True)
+    maintenance = fields.Dict(allow_none=True, metadata={
+        "description": "Set while a backup is restored (phase 8.4): what, since when, by whom; the installation is read only"})
 
 
 class HeartbeatRecordIn(Schema):

@@ -1015,7 +1015,8 @@ def readable_history(conn, model: Any) -> list[dict]:
            AND ((h.table_name = 'entities' AND h.row_id = e.id)
              OR (h.table_name = 'attribute_values' AND h.data->>'entity_id' = e.id::text)
              OR (h.table_name = 'relationships' AND (h.data->>'source_entity_id' = e.id::text OR h.data->>'target_entity_id' = e.id::text)))
-         WHERE e.model_id = :m AND (h.operation <> 'insert' OR h.changed_at > e.created_at + interval '2 seconds'
+         WHERE e.model_id = :m AND NOT e.is_deleted   -- a deleted entity's rows stay in history.json, not in this reading
+           AND (h.operation <> 'insert' OR h.changed_at > e.created_at + interval '2 seconds'
                                     OR h.changed_at < e.created_at)""", m=m["_id"])]
     out = []
     for eid in ids:

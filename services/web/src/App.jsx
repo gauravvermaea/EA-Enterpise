@@ -15,6 +15,7 @@ import { serviceOn, setAppSettings } from "./fmt";
 import { refreshAll } from "./ModelViews";
 import ModelSwitcher from "./ModelSwitcher";
 import { SearchPage, TopSearch } from "./GridPages";
+import { RestoreLock, useRestoreLock } from "./Restores";
 
 function useHashRoute() {
   const [route, setRoute] = useState(window.location.hash || "#/");
@@ -32,8 +33,9 @@ export default function App() {
   const user = currentUser();
   const [version, setVersion] = useState(null);  // the product version, from the API (version.toml)
   const [, setFormatsReady] = useState(0);        // re-render once the installation's formats are in
+  const [maintenance, setMaintenance] = useState(null);   // a restore is running: read only (D216)
   useEffect(() => {
-    if (signedIn) apiFetch("/api/v1/heartbeat").then((b) => setVersion(b.version)).catch(() => {});
+    if (signedIn) apiFetch("/api/v1/heartbeat").then((b) => { setVersion(b.version); setMaintenance(b.maintenance || null); }).catch(() => {});
     // the installation's formats and time zone, for every screen (phase 10, D182)
     if (signedIn) apiFetch("/api/v1/settings").then((s) => { setAppSettings(s); setFormatsReady((n) => n + 1); }).catch(() => {});
     // the sign-in check (D215): IT and Super Admins, once per sign-in, in the background; a notification follows if
@@ -48,6 +50,10 @@ export default function App() {
       }
     }
   }, [signedIn]);
+
+  // While an infrastructure restore runs, every screen shows the lock page (D227)
+  const lock = useRestoreLock();
+  if (lock) return <RestoreLock lock={lock} />;
 
   // Nothing of the application shows until the user has signed in.
   if (!signedIn) {
@@ -103,6 +109,8 @@ export default function App() {
         <div className="lock-banner">You have no role yet: you see nothing until a model's Model Admin gives you a role
           on a model, or a Keycloak Admin gives you a global role.</div>
       )}
+      {maintenance && <div className="break-glass-banner">EA Explorer is read only: {maintenance.what || "a restore is running"} (started by {maintenance.by}).
+        Nothing can be changed until it is done; you will be asked to sign in again.</div>}
       {signedIn && <TaskBar />}
       <main>
         {route.startsWith("#/search") ? <SearchPage key={route} route={route} />

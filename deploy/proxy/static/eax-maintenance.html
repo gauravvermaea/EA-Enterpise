@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>EA Explorer: under maintenance</title>
+<!-- Served by the proxy itself (D230) while EA Explorer is restored, upgraded or starting: it needs nothing else. -->
+<style>
+  :root { --bg: #f5f7fa; --card: #fff; --ink: #1f2937; --quiet: #5b6472; --line: #d9dee5; --accent: #1d5fd1; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #11151b; --card: #1a2029; --ink: #e5e9ef; --quiet: #9aa4b2; --line: #2c3440; --accent: #6ea2ff; } }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 560px; margin: 12vh auto 0; padding: 32px 28px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+  h1 { margin: 0 0 4px; font-size: 26px; }
+  h2 { margin: 0 0 20px; font-size: 18px; font-weight: 500; color: var(--quiet); }
+  p { margin: 0 0 12px; }
+  .quiet { color: var(--quiet); font-size: 14px; }
+  .dot { display: inline-block; width: 10px; height: 10px; margin-right: 8px; border-radius: 50%; background: var(--accent); animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .25; } }
+  @media (max-width: 600px) { main { margin: 6vh 16px 0; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>EA Explorer</h1>
+  <h2><span class="dot" aria-hidden="true"></span>Under maintenance</h2>
+  <p>EA Explorer is being maintained (for example restored from a backup or upgraded) and cannot be used just now.</p>
+  <p>Please come back a little later. This page checks every 15 seconds and opens EA Explorer again as soon as it is back;
+     you may be asked to sign in again.</p>
+  <p class="quiet" id="checked"></p>
+</main>
+<script>
+  // Ask again every 15 seconds; anything but a 5xx answer means EA Explorer is back.
+  function check() {
+    fetch("/api/v1/heartbeat", { cache: "no-store" }).then(function (r) {
+      if (r.status < 500) { window.location.reload(); return; }
+      document.getElementById("checked").textContent = "Last checked " + new Date().toLocaleTimeString() + ".";
+    }).catch(function () {
+      document.getElementById("checked").textContent = "Last checked " + new Date().toLocaleTimeString() + ".";
+    });
+  }
+  setInterval(check, 15000);
+</script>
+</body>
+</html>

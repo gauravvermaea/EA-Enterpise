@@ -274,8 +274,9 @@ async def search_entities(text: str, model: str | None = None, entity_type: str 
 # ---------------------------------------------------------------- viewpoints and maps (build phase 8.2, D161)
 @mcp.tool()
 async def list_viewpoints(model: str | None = None) -> Any:
-    """The viewpoints (VP-01 to VP-26 from ArchiMate 4, and the organisation's own): concerns, stakeholders,
-    element and relationship types; with a model, how many of its entities each viewpoint shows."""
+    """The viewpoints: VP-01 to VP-25 from the ArchiMate 4 Specification (their "source" says so), VP-26 Gap (EA
+    Explorer's own) and the organisation's own: concerns, stakeholders, element and relationship types; with a model,
+    how many of its entities each viewpoint shows."""
     from . import viewpoints
     return await _run(viewpoints.list_viewpoints, model)
 

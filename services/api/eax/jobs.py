@@ -111,3 +111,72 @@ def deliver_webhooks(timestamp: int) -> None:
         out = webhooks.deliver_due(conn)
     if any(out.values()):
         log.info("webhooks: %s", out)
+
+
+# ---------------------------------------------------------------- backups (phase 8.4, D216, D222)
+@app.periodic(cron="* * * * *")
+@app.task(name="eax.announce_restores", queue="default", queueing_lock="announce_restores")
+def announce_restores(timestamp: int) -> None:
+    """Every minute: a restore that ended (or one running that was not announced) is told to everyone (D229); after a
+    full restore this is how the restored database hears of it. A model lock left by a restore that stopped is lifted."""
+    from . import backups, restore_notice
+    with get_engine().begin() as conn:
+        n = restore_notice.catch_up(conn, backups.list_records())
+        lifted = backups.lift_stale_restore_locks(conn)     # D236: a restore that stopped leaves no lock behind
+    if lifted:
+        log.info("restore locks lifted: %s", lifted)
+    if n:
+        log.info("restores announced: %s", n)
+
+
+@app.periodic(cron="* * * * *")
+@app.task(name="eax.backup_scheduler", queue="default", queueing_lock="backup_scheduler")
+def backup_scheduler(timestamp: int) -> None:
+    """Every minute: the backups due on their schedules (core.backup_schedules, set on Administration > Backups) start.
+    Infrastructure: in the operations helper; application: here, as the system. The oldest beyond 'keep' go after each."""
+    from . import __version__, services
+    from . import backup_schedule as bs
+    from . import backups as bk
+    from . import permissions as perms
+    from .api.admin import _ops_raw
+    with get_engine().begin() as conn:
+        due = bs.due(conn)
+    for s in due:
+        status = "started"
+        try:
+            if not services.enabled("backups"):
+                status = "skipped: Backups are switched off"
+            elif s["kind"] == "infrastructure":
+                _ops_raw("POST", "/backups/backup", {"tag": s["tag"], "by": "system", "kind": "scheduled", "version": __version__,
+                                                     "keep": s["keep"]}, timeout=30)
+            else:
+                with get_engine().begin() as conn:
+                    status, _ = bk.application_backup(conn, perms.Principal("system", (perms.SUPER_ADMIN,)), s["tag"], keep_n=s["keep"])
+        except Exception as exc:  # noqa: BLE001 - busy, or the helper is down: the sign-in check reports an old backup
+            status = f"failed: {exc}"
+            log.warning("scheduled %s backup: %s", s["kind"], exc)
+        with get_engine().begin() as conn:
+            bs.set_status(conn, s["kind"], status)
+            audit.record(conn, actor="system", action="backup.scheduled", object_type="backup", object_id=s["kind"],
+                         details={"tag": s["tag"], "status": status[:300]})
+
+
+@app.periodic(cron="* * * * *")
+@app.task(name="eax.record_backup_events", queue="default", queueing_lock="record_backup_events")
+def record_backup_events(timestamp: int) -> None:
+    """Every minute: backups, restores and clean-ups done by the operations helper go into the audit trail."""
+    from .api.admin import _ops_raw
+    try:
+        events = _ops_raw("GET", "/backups/events", timeout=20).get("events", [])
+    except Exception:  # noqa: BLE001 - the helper is down: next minute
+        return
+    if not events:
+        return
+    action = {"backup": "backup.scheduled", "restore": "backup.restore.done", "cleanup": "backup.cleanup", "delete": "backup.delete"}
+    with get_engine().begin() as conn:
+        for e in events:
+            act = action.get(e.get("kind"), "backup.scheduled")
+            if e.get("kind") == "backup" and e.get("reason") != "scheduled":
+                act = "backup.infrastructure"
+            audit.record(conn, actor=e.get("by") or "system", action=act, object_type="backup",
+                         object_id=str(e.get("name") or e.get("kind")), details={k: v for k, v in e.items() if k != "log"})

@@ -50,6 +50,7 @@ def create_app(testing: bool = False) -> Flask:
     from .api.access import blp as access_blp
     from .api.admin import blp as admin_blp
     from .api.audit import blp as audit_blp
+    from .api.backups import blp as backups_blp
     from .api.break_glass import blp as break_glass_blp
     from .api.change_log import blp as change_log_blp
     from .api.commits import blp as commits_blp
@@ -70,7 +71,7 @@ def create_app(testing: bool = False) -> Flask:
 
     for blp in (heartbeat_blp, me_blp, access_blp, break_glass_blp, jobs_blp, audit_blp, metamodel_blp,
                 metamodel_edit_blp, models_blp, content_blp, grids_blp, viewpoints_blp, commits_blp,
-                versions_blp, change_log_blp, admin_blp, sql_blp, tasks_blp, sheets_blp, notifications_blp):
+                versions_blp, change_log_blp, admin_blp, sql_blp, tasks_blp, sheets_blp, notifications_blp, backups_blp):
         api.register_blueprint(blp)
 
     @app.before_request
@@ -93,6 +94,18 @@ def create_app(testing: bool = False) -> Flask:
             if size > limit * 1024 * 1024:
                 return {"message": f"The upload is {size / 1048576:.1f} MB; the largest allowed is {limit} MB "
                                    "(Administration > System settings)."}, 413
+        return None
+
+    @app.before_request
+    def _maintenance():
+        """While a backup is restored (D216) the installation is read only: every change is refused with why."""
+        if request.method in ("GET", "HEAD", "OPTIONS") or request.path.startswith("/api/v1/internal/"):
+            return None
+        from . import maintenance
+        m = maintenance.state()
+        if m:
+            return {"message": f"EA Explorer is read only while {m.get('what') or 'a restore runs'} (started by {m.get('by') or '?'} "
+                               f"at {m.get('since') or '?'}): nothing can be changed until it is done.", "maintenance": m}, 503
         return None
 
     @app.after_request

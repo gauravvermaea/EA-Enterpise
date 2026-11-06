@@ -41,6 +41,18 @@ from .metamodel_edit import EditError
 # (entities, values, relationships, metamodel parts) or not a change at all (reads, downloads, queries)
 ACTIONS: dict[str, tuple[str, str]] = {
     "tag.create": ("Tagged the model", "Tag"),
+    "backup.infrastructure": ("Made an infrastructure backup", "Backup"),
+    "backup.application": ("Made an application backup", "Backup"),
+    "backup.model": ("Backed up the model", "Backup"),
+    "backup.restore": ("Restored a model backup", "Backup"),
+    "backup.restore.start": ("Started restoring an infrastructure backup", "Backup"),
+    "backup.restore.done": ("An infrastructure restore finished", "Backup"),
+    "backup.pin": ("Pinned or unpinned a backup", "Backup"),
+    "backup.upload": ("Uploaded a model backup", "Backup"),
+    "backup.cleanup": ("Removed old backups", "Backup"),
+    "backup.scheduled": ("A scheduled backup ran", "Backup"),
+    "backup.schedule": ("Changed a backup schedule", "Backup"),
+    "backup.delete": ("Deleted a backup or a restore by hand", "Backup"),
     "tag.update": ("Changed a tag", "Tag"),
     "tag.delete": ("Deleted a tag", "Tag"),
     "tag.restore": ("Made a tag the latest", "Tag"),

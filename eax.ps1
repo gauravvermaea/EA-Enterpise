@@ -396,10 +396,35 @@ Everyday use
                         takes EA Explorer's certificates out again.
   logins                Prints every user name and password (laptop only).
   down                  Stops and removes the containers. Data in Docker volumes and in work\ is kept.
-  backup                Takes a backup now into work\data\backups (laptop) or EAX_BACKUP_DIR.
-  restore <folder> [--scratch]
-                        Restores a backup folder: into the live databases, or with --scratch into
-                        a separate scratch database to inspect first.
+  backup [tag]          Takes an infrastructure backup now (every database, the document files, the
+                        certificate, the config file, the release and image versions) into
+                        work\backups\infrastructure, tagged (D216, D226).
+  backups [words]       Lists every backup: infrastructure (numbered, to restore) and application;
+                        with words, only those whose tag, name or maker has them (search by tag).
+  restore [name|tag|latest] [--what full|app|app+data|db|files] [--yes]
+                        Restores an infrastructure backup: by name, by tag (the newest with it) or
+                        latest (the newest good one). Without one it lists them to choose
+                        from, then asks what to restore and for RESTORE to confirm. full = everything;
+                        app = the config file; app+data = the config file, the repository and
+                        document databases and the document files; db = every database; files =
+                        the document files and the certificate. A backup of the current state is
+                        taken first; nothing live changes until all is restored cleanly; it can be
+                        run again. Works when the console is down (starts db, backup and ops).
+  restores              Lists every restore (infrastructure and model) with its status.
+  restore-log <id>      Shows a restore's whole log (also in work\backups\restores\<id>).
+  delete-backup <name>  Deletes an infrastructure backup (unpin it first if it is pinned).
+  delete-restore <id>   Forgets a finished restore and its log.
+  stop-backup           Stops the backups running (infrastructure: at once; application: after the
+                        model it is on); the partial backup is deleted. A restore cannot be stopped.
+  restore-app [run|tag|latest] [--yes]
+                        Restores every model of an application backup, each over itself (each backed
+                        up first); models no longer there are made again; newer models stay as they
+                        are. Needs the api container running.
+  maintenance on|off    Shows (or stops showing) the maintenance page to everyone, served by the
+                        proxy. Restores and up (an upgrade) switch it on and off themselves.
+  app-backup [tag]      Backs up every model now (an application backup), into work\backups\application.
+  restore-model         Lists the application backups and the models in them to choose from, then
+                        restores one as a new model or over itself (needs the api container running).
   services              Lists the optional services (reports, documents, drawio, mcp, change_log,
                         backups), whether each is on in the config file and its containers' state.
   service <name> on|off Switches one optional service on or off: keeps a dated copy of the config file
@@ -433,6 +458,40 @@ work\logs\eax-<date-time>-<command>.log. When a Docker step fails, a diagnostics
 that log automatically, so the log file is all you need to send when something goes wrong.
 '@
 
+# Backups and restores from the command line (D227): they talk to the operations helper and the backup container, so
+# those (and the database) are started first if they are not running; the console is not needed.
+function Start-BackupHelpers {
+    Invoke-Compose @("up", "-d", "db", "backup", "ops") -Quiet | Out-Null
+}
+function Get-Version {
+    return (Select-String -Path "services\api\version.toml" -Pattern '^version = "(.*)"').Matches[0].Groups[1].Value
+}
+# Runs a command in a container with this console attached, so it can ask (choose a backup, type RESTORE) and show
+# progress as it comes; the restore keeps its own log in work\backups\restores
+function Invoke-Interactive([string[]]$Target, [string[]]$Arguments) {
+    Write-Log "> docker compose exec $($Target -join ' ') $($Arguments -join ' ')  (interactive: output in this window, not in this log)"
+    $old = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    $rest = @($Arguments | Where-Object { $null -ne $_ -and $_ -ne "" })
+    & docker @(Get-ComposeArgs (@("exec") + $Target + $rest))
+    $code = $LASTEXITCODE
+    $ErrorActionPreference = $old
+    if ($code -ne 0) { throw "$($Target[0]) $($Target[2..($Target.Count - 1)] -join ' ') ended with exit $code" }
+}
+
+# Shows the maintenance page while up rebuilds a running installation (D230); only when the proxy runs already and the
+# page is not on for another reason. Returns whether it switched it on.
+function Set-UpgradePage([bool]$All) {
+    if (-not $All -or (Test-Path "work/proxy/maintenance")) { return $false }
+    $old = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    $running = @(& docker @(Get-ComposeArgs @("ps", "--status", "running", "-q", "proxy")) 2>$null | Where-Object { $_ })
+    $ErrorActionPreference = $old
+    if ($running.Count -eq 0) { return $false }
+    New-Item -ItemType Directory -Force -Path "work/proxy" | Out-Null
+    [System.IO.File]::WriteAllText((Join-Path $PSScriptRoot "work/proxy/maintenance"), "upgrade`n", $Utf8)
+    Write-Log "Everyone sees the maintenance page until this has finished."
+    return $true
+}
+
 function Show-Help([string]$Name) {
     if (-not $Name) { Write-Host $HelpText; return }
     $show = $false
@@ -449,7 +508,7 @@ function Invoke-Cleanup([string[]]$Options) {
     foreach ($o in $Options) {
         switch ($o) { "--all" { $all = $true } "--yes" { $yes = $true } "-y" { $yes = $true } "--certificate" { $cert = $true } default { throw "Unknown option $o" } }
     }
-    Write-Host "This deletes everything in ${WorkDir}: the config file, all logs and the laptop data folders (including backups)." -ForegroundColor Yellow
+    Write-Host "This deletes everything in ${WorkDir}: the config file, all logs, the laptop data folders, and every backup and restore log (work\backups)." -ForegroundColor Yellow
     if ($all) { Write-Host "With --all it also deletes the Docker volumes: the databases and documents start empty." -ForegroundColor Yellow }
     if (-not $yes) {
         $answer = Read-Host "Type yes to continue"
@@ -470,6 +529,11 @@ function Invoke-Cleanup([string[]]$Options) {
             if (Test-Path $data) { Get-ChildItem -Path $data -Force | Where-Object { $_.Name -ne "tls" } | Remove-Item -Recurse -Force }
         }
     }
+    foreach ($b in @((Join-Path $WorkDir "backups"), (Join-Path $WorkDir "data\backups"))) {
+        if (Test-Path $b) { Remove-Item -Recurse -Force $b -ErrorAction SilentlyContinue }
+    }
+    if (Test-Path (Join-Path $WorkDir "backups")) { Write-Host "WARNING: work\backups could not be deleted completely (a file is in use?): delete it by hand." -ForegroundColor Yellow }
+    else { Write-Host "Every backup and restore log is deleted." }
     if ($cert) { Write-Host "The work folder is empty. Run .\eax init laptop to start again." }
     else { Write-Host "The work folder is empty apart from the local certificate (work\data\tls). Run .\eax init laptop to start again." }
 }
@@ -510,7 +574,8 @@ if ((Test-Path "eaexplorer.env") -and -not (Test-Path $EnvFile)) {
 }
 $failed = $false
 try {
-    if ($Command -in @("check", "up", "debug", "status", "logs", "down", "backup", "restore", "services", "service")) { Assert-Docker }
+    if ($Command -in @("check", "up", "debug", "status", "logs", "down", "backup", "backups", "restore", "restores", "restore-log",
+                       "delete-backup", "delete-restore", "app-backup", "restore-model", "restore-app", "stop-backup", "services", "service")) { Assert-Docker }
     switch ($Command) {
         "init" {
             $kind = if ($RestArgs.Count -gt 0) { $RestArgs[0] } else { "laptop" }
@@ -518,7 +583,7 @@ try {
             if (Test-Path $EnvFile) { throw "$EnvFile already exists; not overwriting. Use .\eax cleanup to start again." }
             if (-not (Test-Path $template)) { throw "Unknown deployment kind: $kind" }
             # Plain copy, UTF-8 without BOM and LF endings (Docker Compose reads it cleanly). No passwords are generated.
-            foreach ($d in "work/logs", "work/data/backups", "work/data/imports", "work/data/exports", "work/data/tls") { New-Item -ItemType Directory -Force -Path $d | Out-Null }
+            foreach ($d in "work/logs", "work/backups", "work/proxy", "work/data/imports", "work/data/exports", "work/data/tls") { New-Item -ItemType Directory -Force -Path $d | Out-Null }
             $lines = Get-Content $template
             [System.IO.File]::WriteAllText((Join-Path $PSScriptRoot $EnvFile), (($lines -join "`n") + "`n"), $Utf8)
             Write-Log "Created $EnvFile ($kind) from $template."
@@ -533,7 +598,9 @@ try {
             Write-Log "Compose configuration is valid."
         }
         "up"      {
-            Invoke-Up $RestArgs | Out-Null
+            # an upgrade (D230): while the containers are rebuilt and restarted, the proxy shows the maintenance page
+            $page = Set-UpgradePage ($RestArgs.Count -eq 0)
+            try { Invoke-Up $RestArgs | Out-Null } finally { if ($page) { Remove-Item -Force "work/proxy/maintenance" -ErrorAction SilentlyContinue } }
             if ($RestArgs.Count -gt 0) { Show-PartUrls $RestArgs } else { Show-Urls; Show-Logins }
         }
         "debug" {
@@ -547,8 +614,33 @@ try {
         "status"  { Invoke-Compose @("ps", "-a") | Out-Null }
         "logs"    { Invoke-Compose (@("logs", "-f", "--tail=100") + $RestArgs) -NoThrow | Out-Null }
         "down"    { Invoke-Compose @("down") | Out-Null }
-        "backup"  { if (-not (Test-ServiceOn "backups")) { throw "Backups are switched off: .\eax service backups on" }; Invoke-Compose @("exec", "-T", "backup", "backup.sh") | Out-Null }
-        "restore" { if (-not (Test-ServiceOn "backups")) { throw "Backups are switched off: .\eax service backups on" }; Invoke-Compose (@("exec", "-T", "backup", "restore.sh") + $RestArgs) | Out-Null }
+        "backup"  { if (-not (Test-ServiceOn "backups")) { throw "Backups are switched off: .\eax service backups on" }
+                    Start-BackupHelpers
+                    Invoke-Interactive @("ops", "python3", "/app/ops.py", "backup") $RestArgs }
+        "backups" { Start-BackupHelpers; Invoke-Interactive @("ops", "python3", "/app/ops.py", "list") $RestArgs }
+        "stop-backup" { Start-BackupHelpers; Invoke-Interactive @("ops", "python3", "/app/ops.py", "stop-backup") @() }
+        "restore-app" { Invoke-Interactive @("api", "python", "-m", "eax.backups_cli", "restore-all") $RestArgs }
+        "maintenance" {
+            $flag = "work/proxy/maintenance"
+            if ($RestArgs.Count -lt 1 -or $RestArgs[0] -notin @("on", "off")) { throw "Usage: .\eax maintenance on|off" }
+            if ($RestArgs[0] -eq "on") {
+                New-Item -ItemType Directory -Force -Path "work/proxy" | Out-Null
+                [System.IO.File]::WriteAllText((Join-Path $PSScriptRoot $flag), "maintenance`n", $Utf8)
+                Write-Log "The maintenance page is shown to everyone until: .\eax maintenance off"
+            } else {
+                if (Test-Path $flag) { Remove-Item -Force $flag }
+                Write-Log "The maintenance page is off."
+            }
+        }
+        "restore" { if (-not (Test-ServiceOn "backups")) { throw "Backups are switched off: .\eax service backups on" }
+                    Start-BackupHelpers
+                    Invoke-Interactive @("ops", "python3", "/app/ops.py", "restore") ($RestArgs + @("--version", (Get-Version))) }
+        "restores" { Start-BackupHelpers; Invoke-Interactive @("ops", "python3", "/app/ops.py", "restores") @() }
+        "restore-log" { Start-BackupHelpers; Invoke-Interactive @("ops", "python3", "/app/ops.py", "restore-log") $RestArgs }
+        "delete-backup" { Start-BackupHelpers; Invoke-Interactive @("ops", "python3", "/app/ops.py", "delete-backup") $RestArgs }
+        "delete-restore" { Start-BackupHelpers; Invoke-Interactive @("ops", "python3", "/app/ops.py", "delete-restore") $RestArgs }
+        "app-backup" { Invoke-Interactive @("api", "python", "-m", "eax.backups_cli", "backup") $RestArgs }
+        "restore-model" { Invoke-Interactive @("api", "python", "-m", "eax.backups_cli", "restore") $RestArgs }
         "services" { Show-Services }
         "service" {
             if ($RestArgs.Count -lt 2) { throw "Usage: .\eax service <name> on|off   (names: $($Services.Keys -join ', '))" }

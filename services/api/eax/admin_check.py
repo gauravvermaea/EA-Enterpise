@@ -6,7 +6,7 @@ problem, with a link to Administration > Services. It looks at:
   * containers: a container that should run is stopped or exited with an error, Docker says unhealthy, it ran out of
     memory (red); it is still starting, it restarted, or it is above 90% of its memory limit (amber);
   * the health checks of every service: down (red); a warning or slower than a second (amber);
-  * backups (none, or older than EAX_BACKUP_MAX_AGE_HOURS) and the site certificate (expired: red; within 30 days: amber);
+  * backups (none, or older than set on Administration > Backups) and the site certificate (expired: red; within 30 days: amber);
   * config and versions: API and database versions differ, the operations helper cannot be reached (red), a laptop
     default password or token still set on a server (red; the setting names only, never the values).
 The admin's previous open sign-in notification is resolved when the new check runs, so only the latest is open. The

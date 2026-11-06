@@ -31,7 +31,6 @@ networks:
 volumes:
   eax-pgdata:
   eax-docs:
-  eax-backups:
   eax-imports:
   eax-exports:
   eax-tls:
@@ -79,6 +78,8 @@ services:
       NGINX_ENVSUBST_FILTER: "^EAX_"
     volumes:
       - ./deploy/proxy/templates:/etc/nginx/templates:ro
+      - ./deploy/proxy/static:/etc/nginx/eax:ro          # the maintenance page (D230)
+      - ./work/proxy:/eax-proxy:ro                        # work/proxy/maintenance switches it on (restores, upgrades)
       - ${EAX_TLS_DIR:-eax-tls}:/etc/nginx/tls:ro
     networks: [frontend, terminal]
 
@@ -112,8 +113,8 @@ services:
     volumes:
       - ${EAX_IMPORT_DIR:-eax-imports}:/data/imports
       - ${EAX_EXPORT_DIR:-eax-exports}:/data/exports
-      - ${EAX_BACKUP_DIR:-eax-backups}:/data/backups:ro   # read only: the health check reads backup ages
-      - ./work:/eax-work:ro      # services.env: which optional services are on (D191)
+      - ./work/backups:/data/backups   # every backup is in work/backups (mount a share there to keep them elsewhere, D226)
+      - ./work:/eax-work:ro      # services.env: which optional services are on (D191); maintenance.json while restoring
     networks: [frontend, backend]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health').status==200 else 1)"]
@@ -132,8 +133,9 @@ services:
       db:
         condition: service_healthy
     volumes:
-      - ${EAX_BACKUP_DIR:-eax-backups}:/backups
-      - ${EAX_DOCS_DIR:-eax-docs}:/mayan:ro
+      - ./work/backups:/backups
+      - ${EAX_DOCS_DIR:-eax-docs}:/mayan           # written only by a restore (D216)
+      - ${EAX_TLS_DIR:-eax-tls}:/tls               # the certificate, backed up and restored with the rest
     networks: [backend]
 
   # ---------------------------------------------------------------- data (out of the box)
@@ -152,6 +154,9 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./work:/eax-work
+      - ./work/backups:/backups   # infrastructure backups: listed, pinned, cleaned, restored (D216, D226)
+      - ./docker-compose.yml:/eax-repo/docker-compose.yml:ro   # kept in each backup with the release and image versions
+      - ./deploy:/eax-repo/deploy:ro
     networks: [backend, terminal]
 
   db:

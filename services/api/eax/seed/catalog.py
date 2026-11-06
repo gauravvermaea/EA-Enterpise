@@ -32,14 +32,14 @@ def catalog_sql() -> str:
     for i, v in enumerate(VIEWPOINTS, 1):
         out.append(
             "INSERT INTO core.viewpoints (code, name, category, purpose, concerns, stakeholders, element_types, relationship_types,"
-            " heat_attribute, audiences, is_builtin, sort_order) VALUES ("
+            " heat_attribute, audiences, is_builtin, source, sort_order) VALUES ("
             + ", ".join(_lit(x) for x in (v["code"], v["name"], v["category"], v["purpose"], v["concerns"], v["stakeholders"],
                                           v["element_types"], v["relationship_types"], v["heat_attribute"], v["audiences"],
-                                          True, i))
+                                          True, v["source"], i))
             + ") ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name, category = EXCLUDED.category, purpose = EXCLUDED.purpose,"
               " concerns = EXCLUDED.concerns, stakeholders = EXCLUDED.stakeholders, element_types = EXCLUDED.element_types,"
               " relationship_types = EXCLUDED.relationship_types, heat_attribute = EXCLUDED.heat_attribute,"
-              " audiences = EXCLUDED.audiences, is_builtin = true, sort_order = EXCLUDED.sort_order, modified_at = now();\n")
+              " audiences = EXCLUDED.audiences, is_builtin = true, source = EXCLUDED.source, sort_order = EXCLUDED.sort_order, modified_at = now();\n")
     out.append("DELETE FROM core.viewpoints WHERE is_builtin AND code NOT IN ("
                + ", ".join(_lit(v["code"]) for v in VIEWPOINTS) + ");\n")
     links = sorted({(r["code"], a) for r in REPORTS for a in r["audiences"]})

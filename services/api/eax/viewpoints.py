@@ -33,7 +33,7 @@ def _rows(conn, sql: str, **p) -> list[dict]:
 def list_viewpoints(conn, model: Any = None) -> list[dict]:
     """Every viewpoint; with a model, how many of its entities each viewpoint shows there."""
     vps = _rows(conn, """SELECT guid AS id, code, name, category, purpose, concerns, stakeholders, element_types,
-                                relationship_types, heat_attribute, audiences, is_builtin, created_by, modified_at
+                                relationship_types, heat_attribute, audiences, is_builtin, source, created_by, modified_at
                            FROM core.viewpoints ORDER BY is_builtin DESC, sort_order, code""")
     if model is not None:
         m = repo.get_model(conn, model)
@@ -49,7 +49,7 @@ def list_viewpoints(conn, model: Any = None) -> list[dict]:
 
 def get_viewpoint(conn, code: str) -> dict:
     rows = _rows(conn, """SELECT guid AS id, code, name, category, purpose, concerns, stakeholders, element_types,
-                                 relationship_types, heat_attribute, audiences, is_builtin, created_by, modified_at
+                                 relationship_types, heat_attribute, audiences, is_builtin, source, created_by, modified_at
                             FROM core.viewpoints WHERE code = :c OR guid::text = :c""", c=str(code))
     if not rows:
         raise EditError(f"No viewpoint {code}.", 404)

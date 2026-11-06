@@ -106,6 +106,7 @@ function ViewpointList({ model, m }) {
                 title={`${v.purpose}. Stakeholders: ${v.stakeholders}`}>
                 <span className="report-code">{v.code}</span>
                 <strong>{v.name}</strong>
+                {v.source && <span className="vp-source" title={v.source}>ArchiMate 4</span>}
                 <span className="quiet">{v.concerns}</span>
                 <span className="vp-count">{v.entities ? `${v.entities} entities in ${v.types_present.length} of ${v.element_types.length} types`
                   : "Nothing in this model yet"}</span>
@@ -144,6 +145,8 @@ function ViewpointPage({ model, m, code, sub }) {
       <div className="vp-head">
         <div>
           <h2>{vp.code} {vp.name} <span className="quiet vp-cat">{vp.category}</span></h2>
+          {vp.source && <p className="vp-source-line"><span className="vp-source">ArchiMate 4</span> From the {vp.source}: its name, purpose,
+            stakeholders and elements are the specification's; the concerns are described in our own words.</p>}
           <p><strong>Concerns:</strong> {vp.concerns}</p>
           <p className="quiet"><strong>Stakeholders:</strong> {vp.stakeholders} · <strong>Purpose:</strong> {vp.purpose}</p>
           <p className="quiet"><strong>Elements:</strong> {vp.element_types.map(spaced).join(", ")}

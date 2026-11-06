@@ -9,6 +9,11 @@ map $http_upgrade $connection_upgrade {
     ''      close;
 }
 
+# The maintenance page (D230): while work/proxy/maintenance exists (a restore, an upgrade, .\eax maintenance on) every
+# proxied location answers 503, and nginx answers 502 or 504 whenever an upstream is down (for example while the
+# containers start); error_page turns each into the plain "under maintenance" page (the API and MCP: a short JSON
+# answer). The page's own locations have no check, so the redirect to them always works.
+
 # Shared proxy settings
 proxy_http_version 1.1;
 proxy_set_header Host              $host:${EAX_HTTPS_PORT};
@@ -38,8 +43,15 @@ server {
     client_max_body_size 100m;   # model packages are uploaded to the API (phase 4)
     set $plain_api "${EAX_HTTP_API_MCP}";
 
+    # ---- maintenance (D230)
+    error_page 502 503 504 /eax-maintenance.html;
+    location = /eax-maintenance.html { root /etc/nginx/eax; internal; add_header Cache-Control "no-store" always; add_header Retry-After 30 always; }
+    location = /eax-maintenance.json { root /etc/nginx/eax; internal; default_type application/json; add_header Cache-Control "no-store" always; }
+
     location /api/ {
         if ($plain_api != "true") { return 301 https://$host:${EAX_HTTPS_PORT}$request_uri; }
+        if (-f /eax-proxy/maintenance) { return 503; }   # D230
+        error_page 502 503 504 /eax-maintenance.json;
         set $upstream http://api:8000;
         proxy_set_header Host              $host:${EAX_HTTP_PORT};
         proxy_set_header X-Real-IP         $remote_addr;
@@ -52,6 +64,8 @@ server {
 
     location /mcp {
         if ($plain_api != "true") { return 301 https://$host:${EAX_HTTPS_PORT}$request_uri; }
+        if (-f /eax-proxy/maintenance) { return 503; }   # D230
+        error_page 502 503 504 /eax-maintenance.json;
         set $upstream http://api:8001;
         proxy_set_header Host              $host:${EAX_HTTP_PORT};
         proxy_set_header X-Real-IP         $remote_addr;
@@ -76,6 +90,11 @@ server {
     server_name ${EAX_HOSTNAME};
     client_max_body_size 100m;
 
+    # ---- maintenance (D230)
+    error_page 502 503 504 /eax-maintenance.html;
+    location = /eax-maintenance.html { root /etc/nginx/eax; internal; add_header Cache-Control "no-store" always; add_header Retry-After 30 always; }
+    location = /eax-maintenance.json { root /etc/nginx/eax; internal; default_type application/json; add_header Cache-Control "no-store" always; }
+
     add_header X-Content-Type-Options nosniff always;
     add_header Referrer-Policy strict-origin-when-cross-origin always;
     # HSTS only where the certificate is trusted by everyone (servers). On a laptop it stays off, so
@@ -83,17 +102,22 @@ server {
     add_header Strict-Transport-Security "${EAX_HSTS}" always;
 
     location / {
+        if (-f /eax-proxy/maintenance) { return 503; }   # D230
         set $upstream http://web:8080;
         proxy_pass $upstream;
     }
 
     location /api/ {
+        if (-f /eax-proxy/maintenance) { return 503; }   # D230
+        error_page 502 503 504 /eax-maintenance.json;
         set $upstream http://api:8000;
         proxy_pass $upstream;
     }
 
     # MCP server (Streamable HTTP): no buffering, long-lived responses
     location /mcp {
+        if (-f /eax-proxy/maintenance) { return 503; }   # D230
+        error_page 502 503 504 /eax-maintenance.json;
         set $upstream http://api:8001;
         proxy_pass $upstream;
         proxy_buffering off;
@@ -102,6 +126,7 @@ server {
     }
 
     location /auth/ {
+        if (-f /eax-proxy/maintenance) { return 503; }   # D230
         set $upstream http://keycloak:8080;
         proxy_pass $upstream;
     }
@@ -118,7 +143,18 @@ server {
         proxy_send_timeout 86400s;
     }
 
+    # While a backup is restored (D227) the screens ask here, not the API (which may be stopped): whether a restore runs
+    # (for the lock page; nothing secret) and, with the token only its starter has, its status and log.
+    location /ops-restore/ {
+        set $upstream http://ops:8091;
+        rewrite ^/ops-restore/(.*)$ /restore/$1 break;
+        proxy_pass $upstream;
+        proxy_read_timeout 30s;
+        add_header Cache-Control "no-store" always;
+    }
+
     location /drawio/ {
+        if (-f /eax-proxy/maintenance) { return 503; }   # D230
         set $upstream http://drawio:8080;
         rewrite ^/drawio/(.*)$ /$1 break;
         proxy_pass $upstream;
@@ -131,7 +167,13 @@ server {
     server_name reports.${EAX_HOSTNAME};
     client_max_body_size 50m;
 
+    # ---- maintenance (D230)
+    error_page 502 503 504 /eax-maintenance.html;
+    location = /eax-maintenance.html { root /etc/nginx/eax; internal; add_header Cache-Control "no-store" always; add_header Retry-After 30 always; }
+    location = /eax-maintenance.json { root /etc/nginx/eax; internal; default_type application/json; add_header Cache-Control "no-store" always; }
+
     location / {
+        if (-f /eax-proxy/maintenance) { return 503; }   # D230
         set $upstream http://reports:8088;
         proxy_pass $upstream;
     }
@@ -143,7 +185,13 @@ server {
     server_name docs.${EAX_HOSTNAME};
     client_max_body_size 100m;
 
+    # ---- maintenance (D230)
+    error_page 502 503 504 /eax-maintenance.html;
+    location = /eax-maintenance.html { root /etc/nginx/eax; internal; add_header Cache-Control "no-store" always; add_header Retry-After 30 always; }
+    location = /eax-maintenance.json { root /etc/nginx/eax; internal; default_type application/json; add_header Cache-Control "no-store" always; }
+
     location / {
+        if (-f /eax-proxy/maintenance) { return 503; }   # D230
         set $upstream http://dms:8000;
         proxy_pass $upstream;
     }

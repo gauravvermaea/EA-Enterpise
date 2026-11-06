@@ -19,6 +19,20 @@ restarts the system from the administration console. It talks to the Docker engi
   GET  /terminal/sessions       terminal sessions open and ended (who, container, start, end, why it ended)
   POST /terminal/sessions/ack   {ids}: ended sessions recorded in the audit trail, forgotten here
   GET  /terminal/<ticket>       on port 8091 only, no token (the ticket is the key): the WebSocket of the terminal
+  GET  /backups                 the infrastructure backups, the one running (progress), maintenance
+  POST /backups/backup          {tag, by, kind, version, pinned, keep}: an infrastructure backup now, in the background
+                                (D216); then the oldest beyond `keep` go (pinned ones stay)
+  POST /backups/stop            {by}: stop the backups running (D231)
+  POST /backups/restore         {name, what, by, version}: restore one (what: full, app, app+data, db, files), in
+                                read-only maintenance, a backup of the current state first
+  POST /backups/<name>/pin      {pinned}: a pinned backup is never cleaned away
+  POST /backups/cleanup         {keep}: keep the newest `keep` and the pinned ones, remove the rest
+  GET  /backups/events          backups, restores and clean-ups since last asked (for the audit trail)
+  POST /backups/<name>/delete   delete an infrastructure backup by hand (not pinned, not being restored)
+  GET  /restores                every restore (infrastructure and application) with its status; the one running
+  GET  /restores/<id>[?tail=N]  one restore with its log;  POST /restores/<id>/delete  forget a finished one
+  GET  /restore/active          on port 8091, no token: whether a restore runs (the screens' lock page, D227)
+  GET  /restore/<id>?token=     on port 8091: a restore's status and log for whoever started it, while the API is down
   GET  /services                the optional services, on or off in the config file (D191)
   POST /services                {service, on, by}: switch one on or off: the config file is copied first (a dated copy
                                 in work/config-history), the switch written, then its containers started or stopped
@@ -718,8 +732,29 @@ class TerminalHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _json(self, code: int, body: dict) -> None:
+        data = json.dumps(body, default=str).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
     def do_GET(self):  # noqa: N802
-        m = re.match(r"^/terminal/([A-Za-z0-9_-]{20,80})$", self.path.split("?")[0])
+        from urllib.parse import parse_qs, urlparse
+        u = urlparse(self.path)
+        if u.path == "/restore/active":     # the screens ask while the API may be stopped (D227)
+            return self._json(200, active_restore())
+        m = re.match(r"^/restore/([A-Za-z0-9._-]+)$", u.path)
+        if m:
+            try:
+                return self._json(200, restore_detail(m.group(1), 3000, (parse_qs(u.query).get("token") or [""])[0]))
+            except PermissionError:
+                return self._json(403, {"message": "Not allowed: follow the restore from the screen that started it."})
+            except (OSError, FileNotFoundError, ValueError):
+                return self._json(404, {"message": "No such restore."})
+        m = re.match(r"^/terminal/([A-Za-z0-9_-]{20,80})$", u.path)
         if not m:
             return self._refuse(404, "No such request.")
         with _tlock:
@@ -843,6 +878,668 @@ def run_terminal(sock, rfile, t: dict) -> None:
         rec.update(ended=time.time(), reason=reason)
 
 
+# ---------------------------------------------------------------- infrastructure backups and restores (phase 8.4, D216)
+# One tagged folder per backup under work/backups/infrastructure: databases/ and files/ (written by backup.sh in the
+# backup container), code/ (release version, image names with their digests, the compose files), config/ (the config
+# file and services.env), SHA256SUMS and manifest.json. Backups run while people work; a restore puts the installation
+# in read-only maintenance (work/maintenance.json), takes a backup of the current state first (pinned), stops what uses
+# the parts restored, restores them in the backup container, starts them again and ends maintenance. One at a time.
+BACKUPS = os.environ.get("EAX_BACKUP_MOUNT", "/backups")
+INFRA = os.path.join(BACKUPS, "infrastructure")
+REPO = os.environ.get("EAX_REPO_MOUNT", "/eax-repo")
+MAINTENANCE = os.path.join(WORK, "maintenance.json")
+RESTORE_WHAT = {   # what a restore puts back: config file, databases (None: every one), file sets
+    "full": {"config": True, "dbs": None, "files": ["documents", "tls"],
+             "label": "Everything: the config file, every database and the files"},
+    "app": {"config": True, "dbs": [], "files": [],
+            "label": "Application: the config file (the release and image versions are shown; run eax up after)"},
+    "app+data": {"config": True, "dbs": ["mayan"], "files": ["documents"],   # and the repository database
+                 "label": "Application and data: the config file, the repository and document databases, the document files "
+                          "(people and roles in Keycloak and the reports' own settings stay as they are)"},
+    "db": {"config": False, "dbs": None, "files": [], "label": "Databases only: every database"},
+    "files": {"config": False, "dbs": [], "files": ["documents", "tls"], "label": "Files only: the document files and the certificate"},
+}
+KEEP_UP = {"db", "backup", "ops", "proxy"}   # what keeps running while a restore runs (D230); the rest stops
+# the containers that use each part (kept for reference: since D230 every container but KEEP_UP stops)
+USERS_OF = {"eaexplorer": ["api", "reports"], "keycloak": ["keycloak"], "superset": ["reports"], "mayan": ["dms"],
+            "documents": ["dms"], "tls": []}   # the proxy keeps running (the lock page and the log are reached through it); it
+#                                               is restarted at the end to take the restored certificate
+backup_state: dict = {"busy": False, "what": "", "name": "", "log": [], "error": "", "started": None, "finished": None,
+                      "result": None}
+backup_events: list[dict] = []     # finished backups and restores, for the audit trail (taken by the API's job runner)
+RESTORES = os.path.join(BACKUPS, "restores")   # one folder per restore: status.json and restore.log (D227)
+
+
+class _BackupLock:
+    """One backup or restore at a time, in this helper and in the eax command (a file lock in the backups folder)."""
+
+    def __init__(self):
+        self._t = threading.Lock()
+        self._f = None
+
+    def acquire(self, blocking: bool = True, timeout: float = -1) -> bool:
+        if not self._t.acquire(blocking, timeout):
+            return False
+        try:
+            os.makedirs(BACKUPS, exist_ok=True)
+            self._f = open(os.path.join(BACKUPS, ".lock"), "w")
+            fcntl.flock(self._f, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
+            return True
+        except OSError:
+            if self._f:
+                self._f.close()
+                self._f = None
+            self._t.release()
+            return False
+
+    def release(self) -> None:
+        if self._f:
+            try:
+                fcntl.flock(self._f, fcntl.LOCK_UN)
+            finally:
+                self._f.close()
+                self._f = None
+        self._t.release()
+
+
+_block = _BackupLock()
+
+
+def _slug(text_: str) -> str:
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", (text_ or "").strip()).strip("-.")[:60]
+
+
+def _now_iso() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _rec_path(rid: str, name: str = "status.json") -> str:
+    if not re.match(r"^[A-Za-z0-9._-]+$", rid or ""):
+        raise FileNotFoundError("No such restore.")
+    return os.path.join(RESTORES, rid, name)
+
+
+def _rec_write(rec: dict) -> None:
+    os.makedirs(os.path.dirname(_rec_path(rec["id"])), exist_ok=True)
+    tmp = _rec_path(rec["id"]) + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(rec, f, indent=2)
+    os.replace(tmp, _rec_path(rec["id"]))
+
+
+def new_restore(kind: str, backup: str, what: str, by: str) -> tuple[dict, str]:
+    """A restore record (status.json and restore.log in work/backups/restores/<id>) and the token that follows it."""
+    rid = f"{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}-{kind[:5]}-{_slug(backup)[:40] or 'restore'}"
+    token = secrets.token_urlsafe(24)
+    rec = {"id": rid, "kind": kind, "backup": backup, "what": what, "by": by, "started": _now_iso(), "finished": None,
+           "status": "running", "error": "", "warnings": [], "step": "starting",
+           "token_sha": hashlib.sha256(token.encode()).hexdigest()}
+    _rec_write(rec)
+    return rec, token
+
+
+def rlog(rec: dict | None, msg: str, step: str = "") -> None:
+    """A line in the restore's log (and the helper's own log)."""
+    _blog(msg)
+    if not rec:
+        return
+    try:
+        with open(_rec_path(rec["id"], "restore.log"), "a", encoding="utf-8") as f:
+            f.write(f"{_now_iso()} {msg}\n")
+        if step:
+            rec["step"] = step
+            _rec_write(rec)
+    except OSError:
+        pass
+
+
+def _public(rec: dict) -> dict:
+    return {k: v for k, v in rec.items() if k != "token_sha"}
+
+
+def list_restores() -> list[dict]:
+    out = []
+    try:
+        names = os.listdir(RESTORES)
+    except OSError:
+        return out
+    for n in names:
+        try:
+            with open(_rec_path(n), encoding="utf-8") as f:
+                out.append(_public(json.load(f)))
+        except (OSError, ValueError, FileNotFoundError):
+            continue
+    return sorted(out, key=lambda r: r.get("started") or "", reverse=True)
+
+
+def restore_detail(rid: str, tail: int = 5000, token: str | None = None) -> dict:
+    with open(_rec_path(rid), encoding="utf-8") as f:
+        rec = json.load(f)
+    if token is not None and not hmac.compare_digest(hashlib.sha256(token.encode()).hexdigest(), rec.get("token_sha", "")):
+        raise PermissionError("Not allowed.")
+    try:
+        with open(_rec_path(rid, "restore.log"), encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        lines = []
+    return {**_public(rec), "log": lines[-tail:], "lines": len(lines)}
+
+
+def delete_restore(rid: str) -> dict:
+    rec = restore_detail(rid, 0)
+    if rec["status"] == "running":
+        raise ValueError("This restore is still running: it can be deleted when it has finished.")
+    shutil.rmtree(os.path.dirname(_rec_path(rid)), ignore_errors=True)
+    return {"deleted": rid}
+
+
+def _someone_restoring() -> bool:
+    """Whether a backup or restore holds the lock now (here, or in an eax command)."""
+    try:
+        with open(os.path.join(BACKUPS, ".lock"), "a") as f:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(f, fcntl.LOCK_UN)
+            return False
+    except OSError:
+        return True
+
+
+def _settle_stale() -> None:
+    """A restore still marked running while nobody holds the lock was cut off (the helper or an eax command stopped):
+    it is marked interrupted and maintenance ends, so a restore can simply be run again (D227)."""
+    if _someone_restoring():
+        return
+    stale = [r for r in list_restores() if r.get("status") == "running" and r.get("kind") == "infrastructure"]
+    if stale or maintenance():
+        recover_after_restart()
+
+
+def active_restore() -> dict:
+    """What anyone may know while a restore runs (for the screens' lock page): whether one runs, what, since when."""
+    _settle_stale()
+    for r in list_restores():
+        if r.get("status") == "running" and r.get("kind") == "infrastructure":
+            return {"active": True, "id": r["id"], "backup": r["backup"], "what": r["what"], "by": r["by"],
+                    "since": r["started"], "step": r.get("step", "")}
+    m = maintenance()
+    return {"active": bool(m), **({"what": m.get("what"), "by": m.get("by"), "since": m.get("since")} if m else {})}
+
+
+def recover_after_restart() -> None:
+    """A restore that was running when this helper stopped is marked interrupted, and maintenance ends (D227)."""
+    for r in list_restores():
+        if r.get("status") == "running" and r.get("kind") == "infrastructure":
+            try:
+                with open(_rec_path(r["id"]), encoding="utf-8") as f:
+                    rec = json.load(f)
+                rec.update(status="interrupted", finished=_now_iso(),
+                           error="The operations helper stopped while restoring. The databases and files are as they were if "
+                                 "the swap had not started; check the log, and restore again or restore the backup taken before.")
+                _rec_write(rec)
+                rlog(rec, "marked interrupted: the operations helper restarted during this restore")
+            except (OSError, ValueError):
+                pass
+    if maintenance():
+        _set_maintenance(False)
+
+
+def delete_infra_backup(name: str) -> dict:
+    folder = _infra_folder(name)
+    m = _manifest_of(folder) or {}
+    if m.get("pinned"):
+        raise ValueError(f"{name} is pinned: unpin it first.")
+    if m.get("status") == "running":
+        raise ValueError(f"{name} is still being made.")
+    for r in list_restores():
+        if r.get("status") == "running" and r.get("backup") == name:
+            raise ValueError(f"{name} is being restored.")
+    shutil.rmtree(folder, ignore_errors=True)
+    backup_events.append({"kind": "delete", "name": name, "at": time.time()})
+    return {"deleted": name}
+
+
+def _blog(msg: str) -> None:
+    backup_state["log"].append(f"{time.strftime('%H:%M:%S', time.gmtime())} {msg}")
+    print(f"ops backup: {msg}", flush=True)
+
+
+def _manifest_of(folder: str) -> dict | None:
+    try:
+        with open(os.path.join(folder, "manifest.json"), encoding="utf-8") as f:
+            m = json.load(f)
+    except (OSError, ValueError):
+        return None
+    m["name"] = os.path.basename(folder)
+    m["pinned"] = os.path.exists(os.path.join(folder, "PINNED"))
+    return m
+
+
+def list_infra() -> list[dict]:
+    """Every infrastructure backup, newest first (backups made before phase 8.4 are listed as legacy)."""
+    out = []
+    for base, legacy in ((INFRA, False), (BACKUPS, True)):
+        try:
+            names = os.listdir(base)
+        except OSError:
+            continue
+        for n in names:
+            folder = os.path.join(base, n)
+            if not os.path.isdir(folder) or (legacy and n in ("infrastructure", "application")):
+                continue
+            m = _manifest_of(folder)
+            if not m:
+                continue
+            if legacy:
+                m = {"name": n, "tag": "", "kind": "legacy", "created": m.get("created"), "version": m.get("version"),
+                     "status": "ok", "legacy": True, "pinned": m.get("pinned"), "by": "", "parts": {"databases": [], "files": []}}
+            m["bytes"] = sum(os.path.getsize(os.path.join(r, f)) for r, _, fs in os.walk(folder) for f in fs)
+            out.append(m)
+    return sorted(out, key=lambda m: str(m.get("created") or ""), reverse=True)
+
+
+def resolve_backup(arg: str) -> str:
+    """The infrastructure backup a name, a tag or "latest" means (the eax command): a backup's full name; "latest" (or
+    "newest") the newest good one; a tag the newest good one with that tag."""
+    arg = (arg or "").strip()
+    good = [m for m in list_infra() if m.get("status") in (None, "ok")]        # newest first
+    if arg.lower() in ("latest", "newest"):
+        if not good:
+            raise FileNotFoundError("No infrastructure backup to restore.")
+        return good[0]["name"]
+    try:
+        _infra_folder(arg)
+        return arg
+    except (FileNotFoundError, ValueError):
+        pass
+    low = arg.lower()
+    hits = [m for m in good if str(m.get("tag") or "").lower() == low or m["name"].split("-", 1)[-1].lower() == low]
+    if hits:
+        return hits[0]["name"]
+    raise FileNotFoundError(f"No backup named or tagged '{arg}': .\\eax backups lists them.")
+
+
+def _infra_folder(name: str) -> str:
+    if not re.match(r"^[A-Za-z0-9._-]+$", name or ""):
+        raise ValueError("No such backup.")
+    for base in (INFRA, BACKUPS):
+        folder = os.path.join(base, name)
+        if os.path.isfile(os.path.join(folder, "manifest.json")):
+            return folder
+    raise FileNotFoundError(f"No backup {name}.")
+
+
+def pin_backup(name: str, pinned: bool) -> dict:
+    folder = _infra_folder(name)
+    flag = os.path.join(folder, "PINNED")
+    if pinned:
+        with open(flag, "w", encoding="utf-8") as f:
+            f.write(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+    elif os.path.exists(flag):
+        os.remove(flag)
+    return _manifest_of(folder) or {}
+
+
+def cleanup_infra(keep: int = 7, locked: bool = False) -> list[str]:
+    """Removes infrastructure backups beyond the newest `keep` (set on Administration > Backups, D222; pinned ones are
+    never removed nor counted)."""
+    gone = []
+    if not locked and not _block.acquire(timeout=60):
+        return gone
+    try:
+        unpinned = [m for m in list_infra() if not m.get("pinned") and m.get("status") != "running"]
+        for m in unpinned[max(1, int(keep)):]:
+            folder = _infra_folder(m["name"])
+            shutil.rmtree(folder, ignore_errors=True)
+            gone.append(m["name"])
+    finally:
+        if not locked:
+            _block.release()
+    if gone:
+        backup_events.append({"kind": "cleanup", "removed": gone, "at": time.time()})
+    return gone
+
+
+def _image_info() -> list[dict]:
+    out = []
+    for c in containers():
+        try:
+            d = json.loads(docker("image", "inspect", c["image"]))[0]
+        except Exception:  # noqa: BLE001
+            d = {}
+        out.append({"service": c["service"], "image": c["image"], "id": (d.get("Id") or "")[7:19],
+                    "digests": d.get("RepoDigests") or [], "created": d.get("Created")})
+    return out
+
+
+def _write_code_and_config(folder: str, version: str) -> None:
+    code, cfg = os.path.join(folder, "code"), os.path.join(folder, "config")
+    os.makedirs(code, exist_ok=True)
+    os.makedirs(cfg, exist_ok=True)
+    with open(os.path.join(code, "release.json"), "w", encoding="utf-8") as f:
+        json.dump({"version": version, "images": _image_info()}, f, indent=2)
+    for rel in ("docker-compose.yml", "deploy/compose", "deploy/proxy", "deploy/templates"):
+        src = os.path.join(REPO, rel)
+        if os.path.isdir(src):
+            shutil.copytree(src, os.path.join(code, rel), dirs_exist_ok=True)
+        elif os.path.isfile(src):
+            os.makedirs(os.path.dirname(os.path.join(code, rel)) or code, exist_ok=True)
+            shutil.copy2(src, os.path.join(code, rel))
+    for n in ("eaexplorer.env", "services.env"):
+        if os.path.isfile(os.path.join(WORK, n)):
+            shutil.copy2(os.path.join(WORK, n), os.path.join(cfg, n))
+
+
+def _parts(folder: str) -> dict:
+    dbs = sorted(f[:-5] for f in os.listdir(os.path.join(folder, "databases")) if f.endswith(".dump")) \
+        if os.path.isdir(os.path.join(folder, "databases")) else []
+    files = sorted(f.split(".")[0] for f in os.listdir(os.path.join(folder, "files"))) \
+        if os.path.isdir(os.path.join(folder, "files")) else []
+    return {"databases": dbs, "files": files, "config": os.path.isfile(os.path.join(folder, "config", "eaexplorer.env")),
+            "code": os.path.isfile(os.path.join(folder, "code", "release.json"))}
+
+
+def _do_backup(tag: str, by: str, kind: str, version: str, pinned: bool = False, keep: int = 0) -> dict:
+    """One infrastructure backup, now (the caller holds _block). Returns its manifest."""
+    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    name = f"{stamp}-{_slug(tag) or kind}"
+    folder = os.path.join(INFRA, name)
+    os.makedirs(folder, exist_ok=True)
+    manifest = {"format": "eax-infrastructure-backup/1", "tag": tag or kind, "kind": kind, "by": by, "created": stamp,
+                "version": version, "status": "running"}
+    with open(os.path.join(folder, "manifest.json"), "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2)
+    started = time.time()
+    if os.path.exists(STOP_FLAG):
+        os.remove(STOP_FLAG)
+    try:
+        _blog(f"backup {name}: release, images and config")
+        _write_code_and_config(folder, version)
+        c = _container("backup")
+        if not c or c["state"] != "running":
+            raise RuntimeError("The backup container is not running: switch Backups on in Administration > Services.")
+        _blog(f"backup {name}: databases and files")
+        r = subprocess.run(["docker", "exec", c["id"], "backup.sh", f"infrastructure/{name}"], capture_output=True, text=True,
+                           timeout=6 * 3600)
+        for line in (r.stdout + r.stderr).splitlines()[-20:]:
+            _blog(line)
+        if r.returncode:
+            raise RuntimeError((r.stderr or r.stdout).strip().splitlines()[-1] if (r.stderr or r.stdout).strip() else "backup.sh failed")
+        manifest.update(status="ok", parts=_parts(folder), seconds=round(time.time() - started))
+    except Exception as exc:  # noqa: BLE001 - recorded on the backup and shown
+        manifest.update(status="failed", error=str(exc)[:500], seconds=round(time.time() - started))
+    if manifest["status"] != "ok" and os.path.exists(STOP_FLAG):    # stopped by hand (D231): the partial folder goes
+        with open(STOP_FLAG, encoding="utf-8") as f:
+            who = f.read().strip()
+        os.remove(STOP_FLAG)
+        shutil.rmtree(folder, ignore_errors=True)
+        manifest.update(status="stopped", error=f"Stopped by {who}; the partial backup was deleted.", name=name)
+        backup_events.append({"kind": "backup", "name": name, "tag": manifest["tag"], "by": by, "reason": kind,
+                              "status": "stopped", "error": manifest["error"], "at": time.time()})
+        _blog(f"backup {name}: stopped by {who}; the partial backup was deleted")
+        return manifest
+    with open(os.path.join(folder, "manifest.json"), "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2)
+    if pinned:
+        pin_backup(name, True)
+    manifest["name"] = name
+    backup_events.append({"kind": "backup", "name": name, "tag": manifest["tag"], "by": by, "reason": kind,
+                          "status": manifest["status"], "error": manifest.get("error", ""), "at": time.time()})
+    _blog(f"backup {name}: {manifest['status']}{' - ' + manifest['error'] if manifest.get('error') else ''}")
+    if keep and manifest["status"] == "ok":   # the oldest beyond the number kept go (pinned ones stay)
+        removed = cleanup_infra(keep, locked=True)
+        if removed:
+            _blog(f"removed the oldest: {', '.join(removed)}")
+    return manifest
+
+
+STOP_FLAG = os.path.join(BACKUPS, ".stop")    # a backup asked to stop (D231): who asked
+
+
+def stop_backup(by: str) -> dict:
+    """Stops the backups running (D231): an infrastructure backup is killed in the backup container and its partial
+    folder deleted; a running application backup is asked to stop after the model it is on (the API deletes it). A
+    restore cannot be stopped (it puts things back itself when it fails)."""
+    if any(r.get("status") == "running" and r.get("kind") == "infrastructure" for r in list_restores()):
+        raise ValueError("A restore is running: it cannot be stopped (if it fails, it puts everything back itself).")
+    out: list[str] = []
+    running = [m for m in list_infra() if m.get("status") == "running" and not m.get("legacy")]
+    if running:
+        if _block.acquire(blocking=False):      # nothing holds the lock: left over from a helper that stopped
+            try:
+                for m in running:
+                    shutil.rmtree(os.path.join(INFRA, m["name"]), ignore_errors=True)
+                    out.append(f"{m['name']} (left unfinished; deleted)")
+            finally:
+                _block.release()
+        else:
+            with open(STOP_FLAG, "w", encoding="utf-8") as f:
+                f.write(by or "someone")
+            b = _container("backup")
+            if b and b["state"] == "running":
+                subprocess.run(["docker", "exec", b["id"], "sh", "-c",
+                                "pkill -f backup.sh; pkill pg_dump; pkill pg_dumpall; pkill tar; pkill gzip; true"],
+                               capture_output=True, text=True, timeout=60)
+            out += [m["name"] for m in running]
+    for r in _app_runs():
+        if r.get("status") == "running":
+            try:
+                with open(os.path.join(BACKUPS, "application", r["name"], "STOP"), "w", encoding="utf-8") as f:
+                    f.write(by or "someone")
+                out.append(f"{r['name']} (application: stops after the model it is on)")
+            except OSError:
+                pass
+    if not out:
+        raise ValueError("No backup is running.")
+    _blog(f"stop asked by {by or 'someone'}: {', '.join(out)}")
+    return {"stopping": out}
+
+
+def _vt(v: str) -> tuple:
+    return tuple(int(x) if x.isdigit() else 0 for x in re.split(r"[.-]", v or "0")[:3])
+
+
+def maintenance() -> dict | None:
+    try:
+        with open(MAINTENANCE, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+PROXY_FLAG = os.path.join(WORK, "proxy", "maintenance")   # the proxy shows its maintenance page while it exists (D230)
+
+
+def _set_maintenance(on: bool, what: str = "", by: str = "") -> None:
+    if on:
+        with open(MAINTENANCE, "w", encoding="utf-8") as f:
+            json.dump({"since": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "what": what, "by": by}, f)
+        try:
+            os.makedirs(os.path.dirname(PROXY_FLAG), exist_ok=True)
+            with open(PROXY_FLAG, "w", encoding="utf-8") as f:
+                f.write(f"{what}\n")
+        except OSError:
+            pass
+    else:
+        for p in (MAINTENANCE, PROXY_FLAG):
+            if os.path.exists(p):
+                os.remove(p)
+
+
+def _tell_everyone(rec: dict) -> None:
+    """Everyone is told that a restore starts (D229): the API writes it to every bell and sends the webhooks at once,
+    before anything is stopped (a full restore replaces its database a moment later). If the API cannot be reached, the
+    end of the restore is still announced when it is back."""
+    import urllib.request
+    url = os.environ.get("EAX_API_URL", "http://api:8000") + "/api/v1/internal/restore-started"
+    req = urllib.request.Request(url, data=json.dumps({"restore": rec["id"]}).encode(), method="POST",
+                                 headers={"Content-Type": "application/json", "X-Ops-Token": TOKEN})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:  # noqa: S310 - the API of this installation
+            told = json.loads(r.read() or b"{}").get("notified")
+        rlog(rec, "everyone is told: a notification and the webhooks" if told else "everyone had been told already")
+    except Exception as exc:  # noqa: BLE001 - the API may be down: the end is announced when it is back
+        rlog(rec, f"could not tell everyone now ({str(exc)[:120]}); they are told when the restore has ended")
+
+
+def _do_restore(name: str, what: str, by: str, version: str, force: bool = False, rec: dict | None = None) -> dict:
+    """Restores (part of) an infrastructure backup (the caller holds _block); every step goes into the restore's log."""
+    rec = rec or new_restore("infrastructure", name, what, by)[0]
+    # the very first step (D230): the proxy shows the maintenance page and the API refuses changes, at once
+    _set_maintenance(True, f"Restoring {name} ({what})", by)
+    rlog(rec, "maintenance page on: EA Explorer cannot be used until the restore has finished", "maintenance")
+    _tell_everyone(rec)
+    try:
+        out = _restore_steps(name, what, by, version, force, rec)
+    except Exception as exc:  # noqa: BLE001 - refused before it started (unknown backup, newer version, ...)
+        out = {"status": "failed", "name": name, "what": what, "error": str(exc)[:500], "warnings": []}
+        rlog(rec, f"not restored: {exc}")
+        _set_maintenance(False)
+    rec.update(status=out["status"], finished=_now_iso(), error=out.get("error", ""), warnings=out.get("warnings", []),
+               before=out.get("before", ""), step="done" if out["status"] == "ok" else "failed")
+    _rec_write(rec)
+    out["restore"] = rec["id"]
+    return out
+
+
+def _restore_steps(name: str, what: str, by: str, version: str, force: bool, rec: dict) -> dict:
+    plan = RESTORE_WHAT[what]
+    folder = _infra_folder(name)
+    m = _manifest_of(folder) or {}
+    if m.get("status") not in (None, "ok"):
+        raise ValueError(f"The backup {name} did not finish ({m.get('status')}): it cannot be restored.")
+    parts = _parts(folder) if not m.get("legacy") else {"databases": [f[:-5] for f in os.listdir(folder) if f.endswith(".dump")],
+                                                         "files": ["documents"], "config": False}
+    if plan["dbs"] != [] and version and m.get("version") and _vt(m["version"]) > _vt(version) and not force:
+        raise ValueError(f"The backup is from version {m['version']}, newer than this installation ({version}): install that "
+                         "release first, then restore.")
+    others = ("keycloak", "superset", "mayan")   # the repository database has the installation's own name (EAX_DB_NAME)
+    if plan["dbs"] is None:
+        dbs = parts["databases"]
+    elif plan["dbs"]:
+        dbs = [d for d in parts["databases"] if d not in others or d in plan["dbs"]]
+    else:
+        dbs = []
+    files = [f for f in plan["files"] if f in parts["files"]]
+    warnings = []
+    if what in ("db", "files"):
+        warnings.append("Only part of the installation was restored: documents and the records that point at them may no longer "
+                        "match (newer documents without records, or records whose files are older). Check the documents of a few "
+                        "models.")
+    if plan["config"] and not parts.get("config"):
+        warnings.append("This backup has no config file: the current one was kept.")
+    rlog(rec, f"restore of {name} ({what}) by {by}: {plan['label']}", "maintenance")
+    _set_maintenance(True, f"Restoring {name} ({what})", by)      # on already (_do_restore); kept for direct callers
+    stopped: list[dict] = []
+    rank = {n: i for i, n in enumerate(ORDER)}
+    try:
+        rlog(rec, f"restore {name} ({what}): a backup of the current state first")
+        rec["step"] = "backup of the current state"
+        _rec_write(rec)
+        before = _do_backup(f"before-restore-of-{name}", by, "before-restore", version, pinned=True)
+        rlog(rec, f"backup of the current state: {before['status']} ({before['name']})")
+        if before["status"] != "ok":
+            raise RuntimeError(f"The backup of the current state failed ({before.get('error')}): nothing was restored.")
+        # the whole environment comes down (D230): everything but the database, the backup container, this helper and
+        # the proxy (which shows its maintenance page), the last started first
+        for c in sorted(containers(), key=lambda c: -rank.get(c["service"], len(ORDER))):
+            if c["service"] not in KEEP_UP and c["state"] == "running" and not c["self"]:
+                rlog(rec, f"stopping {c['service']}")
+                docker("stop", "--time", "20", c["id"], timeout=120)
+                stopped.append(c)
+        if plan["config"] and parts.get("config"):
+            copy_config(by, f"before-restore-of-{name}")
+            shutil.copy2(os.path.join(folder, "config", "eaexplorer.env"), CONFIG)
+            rlog(rec, "config file restored (the one before is kept in config-history)")
+            try:
+                write_services_file()
+            except OSError:
+                pass
+        if dbs or files:
+            b = _container("backup")
+            if not b or b["state"] != "running":
+                raise RuntimeError("The backup container is not running.")
+            args = ["docker", "exec", b["id"], "restore.sh", os.path.relpath(folder, BACKUPS),
+                    "--dbs", ",".join(dbs) or "-", "--files", ",".join(files)]
+            rlog(rec, f"restoring databases {', '.join(dbs) or 'none'}; files {', '.join(files) or 'none'}")
+            rec["step"] = "restoring databases and files"
+            _rec_write(rec)
+            proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            last = ""
+            for line in proc.stdout:   # every line, as it comes: large restores take hours
+                line = line.rstrip()
+                if line:
+                    rlog(rec, line)
+                    last = line
+            if proc.wait() != 0:
+                raise RuntimeError(last or "restore.sh failed")
+        if "tls" in files:
+            px = _container("proxy")
+            if px and px["state"] == "running":
+                rlog(rec, "restarting the proxy for the restored certificate")
+                docker("restart", "--time", "5", px["id"], timeout=120)
+        result = {"status": "ok", "name": name, "what": what, "databases": dbs, "files": files, "config": bool(plan["config"]),
+                  "before": before["name"], "warnings": warnings}
+    except Exception as exc:  # noqa: BLE001
+        result = {"status": "failed", "name": name, "what": what, "error": str(exc)[:500], "warnings": warnings}
+    finally:
+        for c in sorted(stopped, key=lambda c: rank.get(c["service"], len(ORDER))):
+            try:
+                rlog(rec, f"starting {c['service']}")
+                docker("start", c["id"], timeout=180)
+            except Exception as exc:  # noqa: BLE001
+                rlog(rec, f"{c['service']} did not start: {exc}")
+        if "keycloak" not in {c["service"] for c in stopped}:   # everyone signs in again after a restore
+            k = _container("keycloak")
+            if k and k["state"] == "running":
+                try:
+                    docker("restart", "--time", "20", k["id"], timeout=180)
+                    rlog(rec, "restarted keycloak: everyone signs in again")
+                except Exception:  # noqa: BLE001
+                    pass
+        _set_maintenance(False)
+    backup_events.append({"kind": "restore", "by": by, "at": time.time(), **result})
+    rlog(rec, f"restore {name}: {result['status']}{' - ' + result.get('error', '') if result.get('error') else ''}")
+    return result
+
+
+def start_backup_job(action: str, **kw) -> dict:
+    """Runs a backup or a restore in the background (one at a time); its progress is in backup_state, and a restore's in
+    its own record and log (work/backups/restores/<id>)."""
+    if not _block.acquire(blocking=False):
+        raise RuntimeError(f"Busy: {backup_state['what'] or 'another backup or restore (perhaps from the eax command)'}. "
+                           "Try again when it is done.")
+    rec, token = (None, None)
+    if action == "restore":
+        try:
+            rec, token = new_restore("infrastructure", kw["name"], kw["what"], kw.get("by", ""))
+        except Exception:
+            _block.release()
+            raise
+    backup_state.update(busy=True, what=f"{action} {kw.get('tag') or kw.get('name') or ''}".strip(), log=[], error="",
+                        started=time.time(), finished=None, result=None, name=kw.get("name", ""))
+
+    def run():
+        try:
+            out = _do_backup(kw.get("tag", ""), kw.get("by", ""), kw.get("kind", "on-demand"), kw.get("version", ""),
+                             bool(kw.get("pinned")), int(kw.get("keep") or 0)) if action == "backup" else \
+                _do_restore(kw["name"], kw["what"], kw.get("by", ""), kw.get("version", ""), bool(kw.get("force")), rec)
+            backup_state.update(result=out, error=out.get("error", "") if out.get("status") != "ok" else "")
+        except Exception as exc:  # noqa: BLE001
+            backup_state.update(error=str(exc)[:500])
+            _set_maintenance(False)
+        finally:
+            backup_state.update(busy=False, finished=time.time())
+            _block.release()
+    threading.Thread(target=run, daemon=True).start()
+    return {"started": True, "what": backup_state["what"], **({"restore": rec["id"], "token": token} if rec else {})}
+
+
+def take_events() -> list[dict]:
+    out = list(backup_events)
+    del backup_events[:len(out)]
+    return out
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code: int, body: dict) -> None:
         data = json.dumps(body, default=str).encode()
@@ -907,6 +1604,20 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"copies": copies()})
         if self.path == "/terminal/sessions":
             return self._send(200, {"sessions": terminal_sessions()})
+        if self.path == "/backups":
+            return self._send(200, {"infrastructure": list_infra(), "state": backup_state,
+                                    "maintenance": maintenance(), "restore_choices": {k: v["label"] for k, v in RESTORE_WHAT.items()}})
+        if self.path == "/backups/events":
+            return self._send(200, {"events": take_events()})
+        if self.path == "/restores":
+            active = active_restore()
+            return self._send(200, {"restores": list_restores(), "active": active})
+        m = re.match(r"^/restores/([A-Za-z0-9._-]+)(?:\?tail=(\d+))?$", self.path)
+        if m:
+            try:
+                return self._send(200, restore_detail(m.group(1), int(m.group(2) or 5000)))
+            except (OSError, FileNotFoundError, ValueError):
+                return self._send(404, {"message": "No such restore."})
         if self.path == "/status":
             try:
                 return self._send(200, {"project": project(), "containers": containers(), "restart": state})
@@ -935,6 +1646,52 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(403, {"message": str(exc)})
             except ValueError as exc:
                 return self._send(400, {"message": str(exc)})
+        if self.path == "/backups/stop":
+            try:
+                return self._send(200, stop_backup(str(self._body().get("by") or "")))
+            except ValueError as exc:
+                return self._send(409, {"message": str(exc)})
+        if self.path in ("/backups/backup", "/backups/restore"):
+            b = self._body()
+            try:
+                if self.path == "/backups/backup":
+                    return self._send(202, start_backup_job("backup", tag=str(b.get("tag") or ""), by=str(b.get("by") or ""),
+                                                            kind=str(b.get("kind") or "on-demand"), version=str(b.get("version") or ""),
+                                                            pinned=bool(b.get("pinned")), keep=int(b.get("keep") or 0)))
+                what = str(b.get("what") or "")
+                if what not in RESTORE_WHAT:
+                    return self._send(400, {"message": f"Restore one of: {', '.join(RESTORE_WHAT)}."})
+                _infra_folder(str(b.get("name") or ""))
+                return self._send(202, start_backup_job("restore", name=str(b["name"]), what=what, by=str(b.get("by") or ""),
+                                                        version=str(b.get("version") or ""), force=bool(b.get("force"))))
+            except FileNotFoundError as exc:
+                return self._send(404, {"message": str(exc)})
+            except (RuntimeError, ValueError) as exc:
+                return self._send(409, {"message": str(exc)})
+        m = re.match(r"^/backups/([A-Za-z0-9._-]+)/pin$", self.path)
+        if m:
+            try:
+                return self._send(200, pin_backup(m.group(1), bool(self._body().get("pinned"))))
+            except (FileNotFoundError, ValueError) as exc:
+                return self._send(404, {"message": str(exc)})
+        m = re.match(r"^/restores/([A-Za-z0-9._-]+)/delete$", self.path)
+        if m:
+            try:
+                return self._send(200, delete_restore(m.group(1)))
+            except (OSError, FileNotFoundError) as exc:
+                return self._send(404, {"message": str(exc) or "No such restore."})
+            except ValueError as exc:
+                return self._send(409, {"message": str(exc)})
+        m = re.match(r"^/backups/([A-Za-z0-9._-]+)/delete$", self.path)
+        if m:
+            try:
+                return self._send(200, delete_infra_backup(m.group(1)))
+            except FileNotFoundError as exc:
+                return self._send(404, {"message": str(exc)})
+            except ValueError as exc:
+                return self._send(409, {"message": str(exc)})
+        if self.path == "/backups/cleanup":
+            return self._send(200, {"removed": cleanup_infra(int(self._body().get("keep") or 7))})
         if self.path == "/terminal/sessions/ack":
             return self._send(200, {"forgotten": terminal_ack([str(i) for i in self._body().get("ids") or []])})
         m = re.match(r"^/containers/([a-z0-9_-]+)/exec$", self.path)
@@ -1023,13 +1780,201 @@ class Handler(BaseHTTPRequestHandler):
         print(f"ops: {self.command} {self.path} -> {args[1] if len(args) > 1 else ''}", flush=True)
 
 
+def _app_runs() -> list[dict]:
+    base = os.path.join(BACKUPS, "application")
+    out = []
+    try:
+        names = sorted(os.listdir(base), reverse=True)
+    except OSError:
+        return out
+    for n in names:
+        try:
+            with open(os.path.join(base, n, "manifest.json"), encoding="utf-8") as f:
+                m = json.load(f)
+        except (OSError, ValueError):
+            continue
+        out.append({**m, "name": n, "pinned": os.path.exists(os.path.join(base, n, "PINNED"))})
+    return out
+
+
+def _ask(prompt: str, choices: list[str] | None = None) -> str:
+    while True:
+        try:
+            answer = input(prompt).strip()
+        except EOFError:
+            return ""
+        if not choices or answer in choices:
+            return answer
+        print(f"  Type one of: {', '.join(choices)}")
+
+
+def _print_infra(rows: list[dict]) -> None:
+    print(f"  {'#':>3}  {'name':<58} {'status':<8} {'kind':<15} {'version':<8} {'size':>9}")
+    for i, m in enumerate(rows, 1):
+        print(f"  {i:>3}  {m['name']:<58} {m.get('status', ''):<8} {m.get('kind', ''):<15} {str(m.get('version') or ''):<8} "
+              f"{m.get('bytes', 0) / 1e6:7.1f} MB{'  pinned' if m.get('pinned') else ''}")
+
+
+def _follow_print(rec_id: str) -> None:
+    d = restore_detail(rec_id)
+    print("\n".join(d["log"]))
+
+
+def _matches(m: dict, words: list[str]) -> bool:
+    """Search (D232): every word in the tag, name or who made it."""
+    hay = f"{m.get('tag', '')} {m.get('name', '')} {m.get('by', '')}".lower()
+    return all(w in hay for w in words)
+
+
+def cli(argv: list[str]) -> int:
+    """The eax command's backups and restores (they work when the console cannot, D227):
+      list [words]                           every backup (or those whose tag, name or maker has the words)
+      stop-backup                            stop the backups running (the partial backup is deleted)
+      backup [tag]                           an infrastructure backup now
+      restore                                choose a backup from a numbered list, what to restore, confirm; then restore
+      restore <name|tag|latest> [--what full|app|app+data|db|files] [--yes] [--force]
+                                             a tag or latest: the newest good backup with that tag, or of all
+      restores                               every restore with its status
+      restore-log <id>                       a restore's whole log
+      delete-backup <name>                   delete an infrastructure backup (not pinned)
+      delete-restore <id>                    forget a finished restore and its log"""
+    cmd, args = (argv[0] if argv else "help"), argv[1:]
+    version = args[args.index("--version") + 1] if "--version" in args else os.environ.get("EAX_VERSION", "")
+    if cmd == "stop-backup":
+        try:
+            print("Stopping:", ", ".join(stop_backup("eax command")["stopping"]))
+            return 0
+        except ValueError as exc:
+            print(exc)
+            return 1
+    if cmd == "list":
+        words = [a.lower() for a in args if not a.startswith("--") and a != version]
+        rows = [m for m in list_infra() if _matches(m, words)]
+        print("Infrastructure backups (work/backups/infrastructure):")
+        _print_infra(rows) if rows else print("  none yet")
+        runs = [r for r in _app_runs() if _matches(r, words)]
+        print("\nApplication backups (work/backups/application): restore them with: eax restore-model")
+        for r in runs:
+            ok = [x for x in r.get("models") or [] if x.get("status") == "ok"]
+            print(f"  {r['name']:<58} {r.get('status', ''):<8} {len(ok):>3} models{'  pinned' if r.get('pinned') else ''}")
+        if not runs:
+            print("  none yet")
+        return 0
+    if cmd == "restores":
+        rows = list_restores()
+        for r in rows:
+            print(f"  {r['id']:<62} {r.get('kind', ''):<15} {r.get('status', ''):<12} {r.get('what', ''):<9} by {r.get('by', '')}"
+                  f"{'  - ' + r['error'][:80] if r.get('error') else ''}")
+        if not rows:
+            print("  no restore yet")
+        return 0
+    if cmd == "restore-log" and args:
+        try:
+            _follow_print(args[0])
+        except (OSError, FileNotFoundError):
+            print(f"No restore {args[0]}.")
+            return 1
+        return 0
+    if cmd == "delete-restore" and args:
+        try:
+            print(delete_restore(args[0])["deleted"], "deleted")
+        except (OSError, FileNotFoundError):
+            print(f"No restore {args[0]}.")
+            return 1
+        except ValueError as exc:
+            print(exc)
+            return 1
+        return 0
+    if cmd in ("backup", "restore", "delete-backup"):
+        if not _block.acquire(blocking=False):
+            print("Busy: another backup or restore is running (in the console or another eax command).")
+            return 1
+        try:
+            if cmd == "delete-backup" and args:
+                try:
+                    print(delete_infra_backup(args[0])["deleted"], "deleted")
+                    return 0
+                except (FileNotFoundError, ValueError) as exc:
+                    print(exc)
+                    return 1
+            if cmd == "backup":
+                tag = next((a for a in args if not a.startswith("--") and a != version), "on-demand")
+                m = _do_backup(tag, "eax command", "on-demand", version)
+                return 0 if m["status"] == "ok" else 1
+            if cmd == "restore":
+                name = next((a for a in args if not a.startswith("--") and a not in (version,) and a not in RESTORE_WHAT), "")
+                what = args[args.index("--what") + 1] if "--what" in args else ""
+                if name:       # a name, a tag or latest
+                    try:
+                        name = resolve_backup(name)
+                    except (FileNotFoundError, ValueError) as exc:
+                        print(exc)
+                        return 1
+                    m = _manifest_of(_infra_folder(name)) or {}
+                    print(f"Backup: {name}  (tag {m.get('tag') or '-'}, made {m.get('created') or '?'} by {m.get('by') or '?'}, "
+                          f"version {m.get('version') or '?'}{', pinned' if m.get('pinned') else ''})")
+                else:          # choose from a list
+                    rows = [m for m in list_infra() if m.get("status") == "ok"]
+                    if not rows:
+                        print("No infrastructure backup to restore.")
+                        return 1
+                    _print_infra(rows)
+                    n = _ask(f"Which backup (1-{len(rows)}, empty to stop)? ", [""] + [str(i) for i in range(1, len(rows) + 1)])
+                    if not n:
+                        return 1
+                    name = rows[int(n) - 1]["name"]
+                if not what:
+                    keys = list(RESTORE_WHAT)
+                    for i, k in enumerate(keys, 1):
+                        print(f"  {i}  {k:<9} {RESTORE_WHAT[k]['label']}")
+                    n = _ask(f"What to restore (1-{len(keys)})? ", [str(i) for i in range(1, len(keys) + 1)])
+                    what = keys[int(n) - 1] if n else "full"
+                if what not in RESTORE_WHAT:
+                    print(f"--what is one of: {', '.join(RESTORE_WHAT)}")
+                    return 2
+                if "--yes" not in args:
+                    print(f"Restore {name} ({what}). A backup of the current state is taken first; EA Explorer is read only while "
+                          "it runs and everyone signs in again afterwards.")
+                    if _ask("Type RESTORE to go on: ") != "RESTORE":
+                        print("Nothing restored.")
+                        return 1
+                rec, _ = new_restore("infrastructure", name, what, "eax command")
+                t0 = time.time()
+                line = "=" * 78
+                print(f"\n{line}\n  RESTORE RUNNING: {name} ({what})\n"
+                      "  EA Explorer is locked for everyone until it has finished (every screen shows the lock page),\n"
+                      "  and everyone is notified. Do not close this window; if it is closed, run .\\eax restore again.\n"
+                      f"  Log: work/backups/restores/{rec['id']}/restore.log\n{line}", flush=True)
+                r = _do_restore(name, what, "eax command", version, "--force" in args, rec)
+                mins = (time.time() - t0) / 60
+                print(f"\n{line}\n  RESTORE {'FINISHED' if r['status'] == 'ok' else r['status'].upper()} after {mins:.1f} minutes: "
+                      f"{name} ({what})", flush=True)
+                for w in r.get("warnings") or []:
+                    print(f"  Warning: {w}")
+                if r.get("error"):
+                    print(f"  {r['error']}")
+                print("  Everyone is told when the API is back (within a minute); everyone signs in again.\n" + line)
+                return 0 if r["status"] == "ok" else 1
+        finally:
+            _block.release()
+    print(cli.__doc__)
+    return 2
+
+
 if __name__ == "__main__":
+    import sys
+    if len(sys.argv) > 1:
+        sys.exit(cli(sys.argv[1:]))
     if not TOKEN:
         print("ops: EAX_OPS_TOKEN is not set; every request but /health is refused", flush=True)
     try:
         write_services_file()
     except OSError as exc:
         print(f"ops: could not write services.env ({exc})", flush=True)
+    try:
+        recover_after_restart()
+    except OSError as exc:
+        print(f"ops: could not check the restores ({exc})", flush=True)
     terminals = ThreadingHTTPServer(("0.0.0.0", TERMINAL_PORT), TerminalHandler)
     terminals.daemon_threads = True
     threading.Thread(target=terminals.serve_forever, daemon=True).start()

@@ -201,14 +201,28 @@ def check_backup() -> dict:
     if (off := _off("Backup", "Backup (ours)", "backups")):
         return off
     started = time.perf_counter()
-    max_hours = float(_env("EAX_BACKUP_MAX_AGE_HOURS", "36") or 36)
+    max_hours = 36.0   # set on Administration > Backups (D222)
+    try:
+        from . import backup_schedule as bs
+        from .db import get_engine
+        with get_engine().connect() as conn:
+            sched = bs.get(conn, "infrastructure")
+        if not sched.get("enabled"):
+            return _result("Backup", "Backup (ours)", "warning", "the nightly backup is switched off (Administration > Backups)",
+                           started, str(BACKUP_DIR))
+        max_hours = float(sched.get("warn_after_hours") or 36)
+    except Exception:  # noqa: BLE001 - before the migration ran: the default
+        pass
     if not BACKUP_DIR.is_dir():
         return _result("Backup", "Backup (ours)", "warning", "backups folder not mounted in the api container", started)
     newest = None
-    for manifest in BACKUP_DIR.glob("*/manifest.json"):
+    # infrastructure backups that finished (phase 8.4, D216), and the dated folders of before
+    for manifest in [*BACKUP_DIR.glob("infrastructure/*/manifest.json"), *BACKUP_DIR.glob("*/manifest.json")]:
         try:
             created = manifest.stat().st_mtime
-        except OSError:
+            if manifest.parent.parent.name == "infrastructure" and json.loads(manifest.read_text()).get("status") != "ok":
+                continue
+        except (OSError, ValueError):
             continue
         newest = max(newest or created, created)
     if newest is None:

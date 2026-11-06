@@ -38,8 +38,9 @@ Each phase has its own notes: what it delivers, a demo, checks, how to upgrade a
 | 10 | Administration console (application and system settings applied at once, start-up settings shown, restart through the operations helper, health, licences), installation-wide formats, model Hierarchy tab, VP-26 Gap, report guides | 0.10.0 | accepted and closed | [phase-10.md](docs/phase-10.md) |
 | 10.1 | Import and export sheets: choose types, Excel (.xlsx, .xlsm) or CSV set built on the fly with data, drop-downs and provisional IDs; upload with a preview into your uncommitted changes; column mappings, undo a load | 0.10.1 | accepted and closed | [phase-10.1.md](docs/phase-10.1.md) |
 | 8.1 | Notifications (bell, page, home tile; action ones resolved once with a note), requests between people like tickets, installation-wide signed webhooks (never email), metamodel versions pushed down the hierarchy forced or offered, change documents | 0.11.0 | accepted and closed | [phase-8.1.md](docs/phase-8.1.md) |
+| 8.4 | Backups (pulled ahead, D216): tagged infrastructure backups (every database, files, certificate, config, release and image versions; nightly and on demand; pinned; restored whole or in part from the console or `eax restore`, read only while restoring) and application backups (every model as a file with an Excel workbook inside, downloadable, restorable as a new model or over itself, portable), model backups on the model page; documents and diagrams added in phase 13 | 0.12.0 | built, waiting for the owner's test | [phase-8.4.md](docs/phase-8.4.md) |
 
-Next, in order (D147, D161, D179, D181): **12** validation · **13** documents · **15 to 16.2** TOGAF projects · **16.3** guided wizards. Backup and restore (8.4) comes in operations and launch, after phases 35 and 35.1; phase 8.5 and the start page clean-up towards the end.
+Next, in order (D147, D161, D179, D181): **12** validation · **13** documents · **15 to 16.2** TOGAF projects · **16.3** guided wizards. Backup and restore (8.4) was pulled ahead (D216); its documents and diagrams come with phase 13. Phase 8.5 and the start page clean-up towards the end.
 The full plan (52 phases) is in [docs/requirements/EA_Explorer_Build_Plan.xlsx](docs/requirements/EA_Explorer_Build_Plan.xlsx).
 
 ## Quick start (laptop)
@@ -97,8 +98,28 @@ starts); `cleanup --all` empties everything first.
 
 Everything local lives in the **work** folder, which is in `.gitignore` and never committed: the config
 file (`work/eaexplorer.env`), the logs (`work/logs`) and laptop data (`work/data`: backups, imports,
-exports, certificate). `.\eax cleanup` empties it; `.\eax cleanup --all` also deletes the Docker
-volumes so the databases start empty.
+exports, certificate) and `work/backups` (every backup and restore log). `.\eax cleanup` empties it,
+**backups and restore logs included** (copy `work/backups` elsewhere first to keep them); `.\eax cleanup --all`
+also deletes the Docker volumes so the databases start empty.
+
+**Backup and restore from the command line** (they work when the screens cannot; Linux and macOS: `./eax.sh`):
+
+| Command | What it does |
+| --- | --- |
+| `.\eax backup [tag]` | An infrastructure backup now (databases, files, certificate, config) |
+| `.\eax backups [words]` | Lists every backup, infrastructure (numbered) and application; words search tags, names and makers |
+| `.\eax restore` | Choose an infrastructure backup from the list, what to restore (full, app, app+data, db, files), type RESTORE; every step is shown and logged |
+| `.\eax restore <name\|tag\|latest> --what full --yes` | The same without questions; a tag means the newest backup with it, `latest` the newest |
+| `.\eax restores` / `.\eax restore-log <id>` | Every restore with its status / one restore's whole log |
+| `.\eax delete-backup <name>` / `.\eax delete-restore <id>` | Deletes a backup / forgets a finished restore and its log |
+| `.\eax app-backup [tag]` | Backs up every model now |
+| `.\eax restore-app [run\|tag\|latest]` | Restores every model of an application backup, each over itself |
+| `.\eax stop-backup` | Stops the backups running (the partial backup is deleted) |
+| `.\eax maintenance on\|off` | Shows the maintenance page to everyone (restores and upgrades do this themselves) |
+| `.\eax restore-model` | Choose an application backup and a model, then restore it as a new model or over itself |
+
+A restore changes nothing live until everything has been restored cleanly, puts things back if it fails, and can be
+run again (see [operations.md](docs/operations.md#restore)).
 
 **When something goes wrong:** every command writes its full output to `work/logs/eax-<date-time>-<command>.log`,
 and a failed Docker step adds a diagnostics report (versions, container states, each container's last

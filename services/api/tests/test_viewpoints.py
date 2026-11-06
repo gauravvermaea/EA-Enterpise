@@ -54,3 +54,30 @@ def test_viewpoints_are_routed_in_the_web_app():
     assert '["viewpoints", "Viewpoints", null]' in meta and "<ViewpointsTab" in meta
     views = (WEB / "ModelViews.jsx").read_text(encoding="utf-8")
     assert '["valuestreams", "Value stream map"' in views and '["roadmap", "Roadmap"' in views
+
+
+def test_the_viewpoints_follow_the_archimate_4_specification():
+    """D234: names, purposes, stakeholders and element types as Appendix C of the ArchiMate 4 Specification gives them."""
+    by = {v["code"]: v for v in VIEWPOINTS}
+    assert by["VP-10"]["name"] == "Process Cooperation"
+    assert set(by["VP-24"]["element_types"]) == {"Plateau", "Deliverable", "WorkPackage", "Grouping"}
+    assert set(by["VP-22"]["element_types"]) == {"Resource", "Capability", "WorkPackage", "Grouping"}
+    assert set(by["VP-13"]["element_types"]) >= {"ApplicationComponent", "SystemSoftware", "TechnologyInterface", "Path",
+                                                 "Artifact"} and "Node" not in by["VP-13"]["element_types"]
+    assert "ApplicationComponent" in by["VP-05"]["element_types"] and "Location" not in by["VP-05"]["element_types"]
+    assert by["VP-23"]["purpose"] == "Deciding, informing" and by["VP-05"]["purpose"] == "Designing, deciding, informing"
+
+
+def test_only_the_archimate_viewpoints_say_they_come_from_the_specification():
+    """D235: VP-01 to VP-25 are marked as the ArchiMate 4 Specification's; VP-26 and an organisation's own are not."""
+    from eax.report_defs import ARCHIMATE
+    for v in VIEWPOINTS:
+        assert v["source"] == (ARCHIMATE if v["code"] <= "VP-25" else ""), v["code"]
+    assert "ArchiMate 4 Specification" in ARCHIMATE
+    vp26 = next(r for r in REPORTS if r["code"] == "VP-26")
+    assert not vp26["source"] and "EA Explorer's own" in vp26["about"]
+    assert "From the ArchiMate 4 Specification" in next(r for r in REPORTS if r["code"] == "VP-01")["about"]
+    sql = (pathlib.Path(__file__).resolve().parents[1] / "migrations" / "sql" / "0012_viewpoints.sql").read_text()
+    assert "source             text NOT NULL DEFAULT ''" in sql and "NEW.source <> ''" in sql
+    from eax.viewpoints import FIELDS
+    assert "source" not in FIELDS          # an organisation's own viewpoint (or a copy) never carries it

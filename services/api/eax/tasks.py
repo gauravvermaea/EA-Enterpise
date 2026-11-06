@@ -23,7 +23,9 @@ from . import repository as repo
 from .metamodel_edit import EditError
 
 log = logging.getLogger(__name__)
-KINDS = {"tag.create": "Tag a model", "sheet.build": "Build sheets", "load.preview": "Preview a load", "load.add": "Add a load"}
+KINDS = {"tag.create": "Tag a model", "sheet.build": "Build sheets", "load.preview": "Preview a load", "load.add": "Add a load",
+         "backup.infrastructure": "Infrastructure backup", "backup.application": "Application backup", "backup.model": "Back up a model",
+         "backup.restore": "Restore a model backup", "backup.restore_all": "Restore every model of an application backup"}
 
 
 def _rows(conn, sql: str, **p) -> list[dict]:
@@ -112,7 +114,58 @@ def _load_add(conn, t: dict, user) -> tuple[str, dict]:
     return out["message"], {"load": p["load"], **{k: v for k, v in out.items() if k != "failed"}, "failed": out["failed"][:50]}
 
 
-WORK = {"tag.create": _tag_create, "sheet.build": _sheet_build, "load.preview": _load_preview, "load.add": _load_add}
+def _params(t: dict) -> dict:
+    return t["params"] if isinstance(t["params"], dict) else json.loads(t["params"] or "{}")
+
+
+def _backup_infrastructure(conn, t: dict, user) -> tuple[str, dict]:
+    """D216: the operations helper makes the backup; this follows it until it is done (people keep working)."""
+    import time
+
+    from .api.admin import _ops_raw
+    p = _params(t)
+    _ops_raw("POST", "/backups/backup", {"tag": p.get("tag"), "by": user.username, "kind": p.get("kind") or "on-demand",
+                                         "version": p.get("version") or "", "pinned": bool(p.get("pinned")),
+                                         "keep": int(p.get("keep") or 0)}, timeout=30)
+    started = time.time()
+    while time.time() - started < 6 * 3600:
+        time.sleep(3)
+        st = _ops_raw("GET", "/backups", timeout=30).get("state") or {}
+        if not st.get("busy"):
+            res = st.get("result") or {}
+            if res.get("status") == "stopped":
+                return f"Infrastructure backup stopped: {res.get('error')}", {"name": res.get("name"), "stopped": True}
+            if res.get("status") != "ok":
+                raise EditError(f"The backup failed: {res.get('error') or st.get('error') or 'see the log on Administration > Backups'}")
+            return (f"Infrastructure backup '{res.get('tag')}' made: {res.get('name')} "
+                    f"({len((res.get('parts') or {}).get('databases') or [])} databases).", {"name": res.get("name")})
+    raise EditError("The backup took more than six hours: see Administration > Backups.")
+
+
+def _backup_application(conn, t: dict, user) -> tuple[str, dict]:
+    from . import backups as bk
+    p = _params(t)
+    return bk.application_backup(conn, user, p.get("tag") or "application", p.get("models") or None)
+
+
+def _backup_model(conn, t: dict, user) -> tuple[str, dict]:
+    from . import backups as bk
+    return bk.model_backup(conn, user, str(t["model_guid"]), _params(t).get("note") or "")
+
+
+def _backup_restore_all(conn, t: dict, user) -> tuple[str, dict]:
+    from . import backups as bk
+    return bk.restore_application(conn, user, _params(t).get("name") or "")
+
+
+def _backup_restore(conn, t: dict, user) -> tuple[str, dict]:
+    from . import backups as bk
+    return bk.restore(conn, user, _params(t))
+
+
+WORK = {"tag.create": _tag_create, "sheet.build": _sheet_build, "load.preview": _load_preview, "load.add": _load_add,
+        "backup.infrastructure": _backup_infrastructure, "backup.application": _backup_application,
+        "backup.model": _backup_model, "backup.restore": _backup_restore, "backup.restore_all": _backup_restore_all}
 
 
 def file_of(conn, user, task: Any) -> dict:

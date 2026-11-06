@@ -59,13 +59,15 @@ def _post(url: str, secret: str, body: dict, event: str, delivery: str) -> tuple
         return None, f"{exc.__class__.__name__}: {exc}"[:300]
 
 
-def deliver_due(conn, limit: int = 200) -> dict:
-    """Sends the deliveries that are due; each in the caller's transaction (commit after)."""
+def deliver_due(conn, limit: int = 200, notification_id: int | None = None) -> dict:
+    """Sends the deliveries that are due (or, with notification_id, that notification's now); each in the caller's
+    transaction (commit after)."""
     sent = failed = retried = 0
     for d in _rows(conn, """
             SELECT d.id, d.payload, d.attempts, w.url, w.secret, w.enabled FROM core.webhook_deliveries d
               JOIN core.webhooks w ON w.id = d.webhook_id
-             WHERE d.status = 'pending' AND d.next_at <= now() ORDER BY d.id LIMIT :l FOR UPDATE OF d SKIP LOCKED""", l=limit):
+             WHERE d.status = 'pending' AND (CAST(:n AS bigint) IS NULL AND d.next_at <= now() OR d.notification_id = :n)
+             ORDER BY d.id LIMIT :l FOR UPDATE OF d SKIP LOCKED""", l=limit, n=notification_id):
         body = d["payload"] if isinstance(d["payload"], dict) else json.loads(d["payload"])
         status, error = _post(d["url"], d["secret"], body, body.get("kind", ""), str(d["id"]))
         attempts = d["attempts"] + 1

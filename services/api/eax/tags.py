@@ -407,7 +407,8 @@ def restore_tag(conn, model: Any, user, tag: Any, note: str = "") -> dict:
     m = repo.get_model(conn, model)
     if not cm.uses_commits(m) or m.get("is_locked"):
         raise EditError("Only a project model is set back to a tag.", 409)
-    if (m.get("lock_level") or "none") != "none":
+    mine = m.get("lock_level") == "maintenance" and (m.get("locked_by") or "").lower() == user.username.lower()
+    if (m.get("lock_level") or "none") != "none" and not mine:   # a restore locks the model for its maker first (D236)
         raise EditError(f"{m['name']} is locked ({m['lock_level']}): unlock it to make a tag the latest.", 409)
     if not (perms.SUPER_ADMIN in user.roles or perms.MODEL_ADMIN in perms.model_roles(conn, user.username, m["id"])):
         raise EditError(f"Making a tag the latest needs the Model Admin role on {m['name']} (it overwrites the metamodel).", 403)
