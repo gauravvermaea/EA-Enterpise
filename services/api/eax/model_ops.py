@@ -109,7 +109,7 @@ def metamodel_spec(conn, model: Any) -> dict:
                              FROM core.item_attributes i JOIN core.attribute_types a ON a.id = i.attribute_type_id
                             WHERE i.model_id = :m AND NOT i.is_deleted ORDER BY i.sort_order, a.name""", m=mid)
     types = _rows(conn, """SELECT t.id AS _id, t.code, t.name, l.code AS layer, t.id_prefix, t.aspect, t.description,
-                                  t.status_code AS status, t.content_area
+                                  t.status_code AS status, t.content_area, t.repository_area
                              FROM core.entity_types t JOIN core.layers l ON l.id = t.layer_id
                             WHERE t.model_id = :m AND NOT t.is_deleted ORDER BY l.sort_order, t.sort_order, t.name""", m=mid)
     rels = _rows(conn, """SELECT id AS _id, code, name, verb, category, is_directed AS directed, description, status_code AS status
@@ -256,7 +256,7 @@ _FIELDS = {
     "layers": ("name", "colour", "description"),
     "pick_lists": ("name", "description", "values"),
     "attributes": ("name", "data_type", "pick_list", "unit", "description"),
-    "entity_types": ("name", "layer", "id_prefix", "aspect", "description", "content_area", "attributes"),
+    "entity_types": ("name", "layer", "id_prefix", "aspect", "description", "content_area", "repository_area", "attributes"),
     "relationship_types": ("name", "verb", "category", "directed", "description", "attributes"),
 }
 
@@ -384,6 +384,9 @@ def apply_spec(conn, model_id: int, spec: dict, mode: str = "new", remove_missin
         if t.get("content_area") is not None:                   # where it sits in the content framework (D299)
             from .content_framework import clean_area
             cols["content_area"] = clean_area(t.get("content_area"))
+        if t.get("repository_area") is not None:                # where it is filed in the Architecture Repository (D318)
+            from .content_framework import REPO_AREAS
+            cols["repository_area"] = t["repository_area"] if t["repository_area"] in REPO_AREAS else ""
         if mode == "new" or not have("entity_types", t["code"]):
             cols["table_name"] = free("table_name", snake_from(t["name"]) or t["code"].lower())
         tid = upsert("entity_types", t["code"], cols)
@@ -529,6 +532,20 @@ def copy_into(conn, src_id: int, dst_id: int, content: bool) -> dict:
                            FROM core.entity_types s
                           WHERE s.model_id = :s AND d.model_id = :d AND lower(d.code) = lower(s.code)
                             AND s.content_area <> '' AND d.content_area <> s.content_area"""), {"s": src_id, "d": dst_id})
+    conn.execute(text("""UPDATE core.entity_types d SET repository_area = s.repository_area
+                           FROM core.entity_types s
+                          WHERE s.model_id = :s AND d.model_id = :d AND lower(d.code) = lower(s.code)
+                            AND s.repository_area <> '' AND d.repository_area <> s.repository_area"""), {"s": src_id, "d": dst_id})
+    # and each attribute's data quality weight (D241), so a copy scores as its source does
+    conn.execute(text("""UPDATE core.attribute_types d SET quality_weight = s.quality_weight
+                           FROM core.attribute_types s
+                          WHERE s.model_id = :s AND d.model_id = :d AND lower(d.code) = lower(s.code)
+                            AND s.quality_weight IS NOT NULL AND d.quality_weight IS DISTINCT FROM s.quality_weight"""), {"s": src_id, "d": dst_id})
+    if content:     # and each entity's own place (D317): a copied or child model inherits it
+        conn.execute(text("""UPDATE core.entities d SET content_area = s.content_area
+                               FROM core.entities s
+                              WHERE s.model_id = :s AND d.model_id = :d AND d.origin_guid = s.guid AND s.content_area <> ''"""),
+                     {"s": src_id, "d": dst_id})
     refresh_typed_views(conn)
     return dict(counts or {})
 

@@ -29,6 +29,8 @@ KINDS: dict[str, tuple[str, list[str]]] = {
     "Decision": ("DEC", ["Proposed", "Accepted", "Superseded", "Rejected"]),
     "Dispensation": ("DSP", ["Requested", "Granted", "Refused", "Expired", "Withdrawn"]),
     "Compliance assessment": ("CMP", ["Planned", "In progress", "Compliant", "Compliant with conditions", "Not compliant"]),
+    # the EA capability's own maturity and capability assessments, read across projects on the repository map (D318)
+    "Capability assessment": ("CAP", ["Planned", "In progress", "Done"]),
     "Risk": ("RSK", ["Open", "Mitigated", "Accepted", "Closed"]),
     "Issue": ("ISS", ["Open", "In progress", "Resolved", "Closed"]),
 }

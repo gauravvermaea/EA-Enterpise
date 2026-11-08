@@ -234,9 +234,9 @@ def metamodel_sql(model_key: str, origin_key: str | None) -> str:
     out.append(insert("pick_list", ["id", "origin_id", "model_id", "code", "name"], rows))
     out.append(insert("pick_list_value", ["id", "origin_id", "model_id", "pick_list_id", "value", "sort_order"], vrows))
 
-    # attribute types: the Workbench business attributes, plus Repository Area (TOGAF)
-    attrs = list(A.ATTRS) + [("RepositoryArea", "Repository Area", "List", "RepositoryArea", "",
-                              "Part of the TOGAF architecture repository this element belongs to")]
+    # attribute types: the Workbench business attributes. The Repository Area is set on the entity type, not on each
+    # entity (owner, 8 Nov 2026, D318): core.entity_types.repository_area
+    attrs = list(A.ATTRS)
     rows = []
     for code, name, dtype, pick, unit, desc in attrs:
         i_d, o = ids("attribute_type", code)
@@ -249,7 +249,6 @@ def metamodel_sql(model_key: str, origin_key: str | None) -> str:
     # which attributes apply to which entity type
     rows = []
     for type_code, mapped in A.MAP.items():
-        mapped = list(mapped) + [("RepositoryArea", "N", "Repository")]
         first: dict[str, tuple] = {}
         for attr, mandatory, section in mapped:  # the Workbench map repeats a few (Product: Lifecycle)
             first.setdefault(attr, (attr, mandatory, section))
@@ -534,8 +533,6 @@ INSERT INTO core.quality_settings (model_id, weights, modified_by) VALUES ({P}, 
 INSERT INTO core.quality_exemptions (model_id, entity_id, item, reason, status, requested_by, requested_at, decided_by, decided_at) VALUES
  ({P}, {ent('Actuarial Modelling')}, 'attr:RetirementDate', 'In production with no retirement planned', 'approved', 'user_architect',
   now() - interval '9 days', 'user_model_admin', now() - interval '8 days'),
- ({P}, {ent('Complaints Tracker')}, 'attr:RepositoryArea', 'A team spreadsheet kept outside the architecture repository', 'pending', 'user_architect',
-  now() - interval '1 day', NULL, NULL),
  ({P}, {ent('Chief Executive', 'Stakeholder')}, 'attr:LandscapeLevel', 'A person is not on the landscape', 'pending', 'user_architect',
   now() - interval '2 hours', NULL, NULL);
 INSERT INTO core.quality_exemptions (model_id, entity_id, item, reason, status, requested_by, requested_at, decided_by, decided_at,

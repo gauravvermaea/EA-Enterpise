@@ -15,6 +15,7 @@ import { PendingBanner, PendingMark } from "./ModelMarks";
 import { EntityChanges, useEntityChanges, WasValue } from "./Changes";
 import { fmtDateTime } from "./fmt";
 import { toneOf } from "./Quality";
+import { AreaChips, AreaPicker } from "./CfAreaPicker";
 import { fieldClass, FieldQuality, q2, QualityBadge, QualityCell, RecheckAll, ScoreChip, useEntityQuality, useTypeQuality } from "./QualityBits";
 
 const CONTENT_ROLES = ["architect", "model-sub-admin", "model-admin"];
@@ -135,6 +136,7 @@ export function EntityFormDialog({ model, m, typeId, e, onClose, onSaved }) {
   const [description, setDescription] = useState(e?.description || "");
   const [parent, setParent] = useState(e?.parent_id ? { id: e.parent_id, name: e.parent_name } : null);
   const [tags, setTags] = useState((e?.tags || []).join(", "));
+  const [areas, setAreas] = useState(e?.content_areas || []);   // content framework, for every project (D317)
   const [values, setValues] = useState(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -193,12 +195,13 @@ export function EntityFormDialog({ model, m, typeId, e, onClose, onSaved }) {
   async function save(another = false) {
     setBusy(true); setMsg("");
     const body = { values: changedValues() };
-    if (!e) Object.assign(body, { entity_type: form.entity_type.id, name, description, parent: parent?.id || "", tags });
+    if (!e) Object.assign(body, { entity_type: form.entity_type.id, name, description, parent: parent?.id || "", tags, content_areas: areas });
     else {
       if (name !== e.name) body.name = name;
       if (description !== (e.description || "")) body.description = description;
       if ((parent?.id || null) !== (e.parent_id || null)) body.parent = parent?.id || "";
       if (tags !== (e.tags || []).join(", ")) body.tags = tags;
+      if (areas.join(",") !== (e.content_areas || []).join(",")) body.content_areas = areas;
       body.row_version = e.row_version;
     }
     try {
@@ -207,7 +210,7 @@ export function EntityFormDialog({ model, m, typeId, e, onClose, onSaved }) {
       refreshAll();
       if (out.saved_warnings?.length) { setSaved(out); setBusy(false); return; }
       if (another) {
-        setName(""); setDescription(""); setTags(""); setValues({}); setParent(null);
+        setName(""); setDescription(""); setTags(""); setAreas([]); setValues({}); setParent(null);
         setMsg(`Saved ${out.display_id} ${out.name}. Enter the next one.`); setBusy(false); return;
       }
       onSaved?.(out); onClose();
@@ -250,6 +253,12 @@ export function EntityFormDialog({ model, m, typeId, e, onClose, onSaved }) {
         <label className="ed-field"><span title="Words to group and find entities by, separated by commas">Tags <span className="tip">ⓘ</span></span>
           <input value={tags} onChange={(ev) => setTags(ev.target.value)} placeholder="for example cloud, critical" />
           <LiveCheck list={liveFor("tags")} /></label>
+        <div className="ed-field"><span title="Where it sits in the content framework, in every project using this model (a project may still change it for itself). Empty: where its type sits">Content framework <span className="tip">ⓘ</span></span>
+          <span>{areas.length ? <AreaChips codes={areas} small /> : <><AreaChips codes={e?.type_areas || []} dflt small /> <span className="quiet small">as its type</span></>}{" "}
+            <AreaPicker value={areas} dflt={e?.type_areas || []} label={areas.length ? "Change…" : "Place it on its own…"}
+              resetLabel={areas.length ? "As its type" : ""} onSave={(l) => setAreas(l)} /></span></div>
+        {e?.repository_area && <div className="ed-field"><span title="Set on the entity type (Metamodel › Change entity type), for every entity of the type">Repository area <span className="tip">ⓘ</span></span>
+          <span className="small">{e.repository_area} <span className="quiet">(from its type)</span></span></div>}
       </div>
       {sections.map((s) => (
         <fieldset key={s.name} className="form-section">

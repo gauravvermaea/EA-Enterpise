@@ -40,6 +40,7 @@ class EntityIn(Schema):
     parent = fields.String(allow_none=True, metadata={"description": "The entity this one is part of (guid, display ID or name); empty: none"})
     tags = fields.Raw(allow_none=True, metadata={"description": "A list of tags, or one text with commas"})
     display_id = fields.String(allow_none=True, metadata={"description": "Leave empty for the next number"})
+    content_areas = fields.Raw(allow_none=True, metadata={"description": "Its content framework areas (a list or codes with commas); empty: its type's"})
     values = fields.Dict(keys=fields.String(), allow_none=True, metadata={"description": "Attribute code: value; empty clears it"})
     row_version = fields.Integer(allow_none=True, metadata={"description": "The version you opened; refused if someone saved since"})
 

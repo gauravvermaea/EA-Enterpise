@@ -30,7 +30,8 @@ def test_the_default_map_only_uses_known_areas():
         assert all(v in cf.LABEL for v in m[section].values()), section
     lib = json.loads((ROOT / "eax" / "seed" / "project_library.json").read_text(encoding="utf-8"))
     names = {i["name"] for i in lib["items"]}
-    assert set(m["document_types"]) <= names                     # no stale names
+    sample_own = {"Capability Heat Map", "Sponsor brief"}            # classes of the sample projects' own (D318: all placed)
+    assert set(m["document_types"]) <= names | sample_own        # no stale names
     assert len(m["document_types"]) >= 150
 
 
@@ -41,7 +42,8 @@ def test_shipped_entity_types_are_placed():
     assert cf.area_of_type("ApplicationComponent", "Application Component") == (["app.logical_components"], False)
     assert cf.area_of_type("x", "Application Component") == (["app.logical_components"], False)      # by name too
     assert cf.area_of_type("ApplicationComponent", "", "tech.services") == (["tech.services"], True)  # its own choice wins
-    assert cf.area_of_type("Grouping", "Grouping") == ([], False)
+    assert cf.area_of_type("Grouping", "Grouping") == (["gov.specifications"], False)      # defaults for every type (D317)
+    assert cf.area_of_type("NoSuchType", "No such type") == ([], False)
 
 
 def test_document_types_by_choice_library_or_default():
@@ -143,3 +145,120 @@ def test_documents_from_templates():
     assert "From templates (one or several)" in js and "＋ again" in js and "/documents/from-templates" in js
     seed = (ROOT / "eax/seed/sample_projects.py").read_text(encoding="utf-8")
     assert "def _several_templates" in seed and "**_several_templates(conn, items)" in seed
+
+
+def test_tag_items_wiring():
+    """D317: Tag items lists the project's classes, documents, entity types and entities; places many at once, per project."""
+    assert cf.KINDS == ("classes", "documents", "types", "entities")
+    sql = (ROOT / "migrations" / "sql" / "0032_repository_tags.sql").read_text()
+    for t in ("proj.cf_type_areas", "proj.cf_entity_areas"):
+        assert f"CREATE TABLE {t}" in sql
+    assert '"cf_type_areas"' in (ROOT / "eax" / "project_backup.py").read_text()
+    api = (ROOT / "eax" / "api" / "projects.py").read_text()
+    assert '"/projects/<string:project>/cf-tags"' in api and "cf.place(" in api and "cf.tag_list(" in api
+    s = (WEB / "ContentFramework.jsx").read_text()
+    for w in ("🏷 Tag items", "＋ Add area to ticked…", "− Take area off ticked…", "＋ Tag more items here", "own_entities", "/cf-tags"):
+        assert w in s
+
+
+def test_place_checks_before_touching_anything():
+    class P(dict):
+        pass
+    import eax.projects as pj
+    calls = []
+    orig = pj.project_row, pj._need
+    pj.project_row = lambda c, p: {"id": 1, "name": "x"}
+    pj._need = lambda c, p, u, w: calls.append(w)
+    try:
+        for kind, ids, how, areas, msg in (("nope", ["a"], "add", ["prelim.principles"], "Tag deliverables"),
+                                            ("classes", ["a"], "swap", [], "Set, add"),
+                                            ("classes", [], "add", ["prelim.principles"], "Tick at least"),
+                                            ("classes", ["a"], "add", [], "Choose the area")):
+            with pytest.raises(EditError, match=msg):
+                cf.place(None, "p", None, kind, ids, how, areas)
+        with pytest.raises(EditError, match="1000"):
+            cf.place(None, "p", None, "classes", [str(i) for i in range(1001)], "reset")
+    finally:
+        pj.project_row, pj._need = orig
+    assert calls and set(calls) == {"contribute"}
+
+
+def test_defaults_set_by_admins_and_inherited():
+    """D317: built-in, then the admin's (library item, template, entity type, entity), then a parent project's, then the project's."""
+    sql = (ROOT / "migrations" / "sql" / "0032_repository_tags.sql").read_text()
+    for x in ("ALTER TABLE proj.lib_templates ADD COLUMN content_area", "ALTER TABLE core.entities ADD COLUMN content_area",
+              "ALTER TABLE proj.cf_type_areas ADD COLUMN type_code"):
+        assert x in sql
+    src = (ROOT / "eax" / "content_framework.py").read_text()
+    for x in ("def _bases(", "def _type_parent(", "def _ent_parent(", "def _entities_off_type(", "def _tpl(", "def template_setup(",
+              "def place_library_template(", "def add_template("):
+        assert x in src
+    api = (ROOT / "eax" / "api" / "projects.py").read_text()
+    for x in ('"/projects/library/template-setup"', '"/projects/library/templates/<int:template_id>/content-area"',
+              '"/projects/library/libraries/<string:library>/templates"'):
+        assert x in api
+    assert '"content_areas" in data' in (ROOT / "eax" / "content.py").read_text()
+    assert "SET content_area = s.content_area" in (ROOT / "eax" / "model_ops.py").read_text()
+    web = (WEB / "TemplateSetup.jsx").read_text()
+    assert "⬆ Upload a template…" in web and "class_areas" in web
+    assert "<TemplateSetup />" in (WEB / "Projects.jsx").read_text()
+    assert "content_areas" in (WEB / "DataEntry.jsx").read_text()
+    assert "cf-plus" in (WEB / "ContentFramework.jsx").read_text()
+
+
+def test_repository_area_is_on_the_type_and_the_class():
+    """D318: the Repository Area is set on the entity type and the document class, with built-in defaults; not on each entity."""
+    src = (ROOT / "eax" / "seed" / "build.py").read_text()
+    assert '("RepositoryArea", "N", "Repository")' not in src and "'attr:RepositoryArea'" not in src
+    sql = (ROOT / "migrations" / "sql" / "0032_repository_tags.sql").read_text()
+    assert "ALTER TABLE core.entity_types ADD COLUMN repository_area" in sql and "ALTER TABLE proj.lib_items ADD COLUMN repository_area" in sql
+    assert cf.repo_of_type("Principle", "Principle") == ("Architecture Capability", False)
+    assert cf.repo_of_type("Requirement", "Requirement")[0] == "Architecture Requirements Repository"
+    assert cf.repo_of_type("ApplicationComponent", "Application Component")[0] == "Architecture Landscape"
+    assert cf.repo_of_type("ApplicationComponent", "Application Component", "Solutions Landscape") == ("Solutions Landscape", True)
+    assert cf.repo_of_item("Architecture Contract")[0] == "Governance Log"
+    assert cf.repo_of_item("Standards Library")[0] == "Standards Information Base"
+    assert cf.repo_of_item("Requirements catalog")[0] == "Architecture Requirements Repository"
+    assert cf.repo_of_item("Architecture Principles")[0] == "Architecture Capability"
+    with pytest.raises(EditError):
+        cf.clean_repo("Somewhere")
+    m = json.loads((ROOT / "eax" / "seed" / "repository_area_map.json").read_text())
+    assert set(m["document_types"].values()) | set(m["entity_types"].values()) <= set(cf.REPO_AREAS)
+
+
+def test_org_repository_views():
+    """D318: the organisation's map opens existing screens; decisions, assessments and people are read only across the
+    projects a person is on."""
+    from eax import governance
+    from eax import org_repository as orp
+    assert "Capability assessment" in governance.KINDS
+    assert set(orp.GOV_KINDS) == {"decisions", "compliance", "capability"}
+    api = (ROOT / "eax" / "api" / "projects.py").read_text()
+    for x in ('"/repository/governance/<string:kind>"', '"/repository/people"', '"/repository/model-levels"', '"/repository/summary"'):
+        assert x in api
+    web = (WEB / "ArchitectureRepository.jsx").read_text()
+    for x in ("#/repository/decisions", "#/library?kind=reference", "#/admin/users", "view=tiles&level=strategic", "choose:"):
+        assert x in web
+    assert "ModelsByLevel" in (WEB / "Areas.jsx").read_text()
+
+
+def test_org_charter_seeded():
+    """D319: the organisation-wide charter in the Organisation base, filled in by the seed; the TOGAF 10 project keeps the guidance."""
+    b = json.loads((ROOT / "eax" / "seed" / "project_bases.json").read_text(encoding="utf-8"))
+    assert [c["key"] for c in b["org_charter"]] == [c["key"] for c in b["charter"]]
+    assert all(len(c["html"]) > 200 for c in b["org_charter"])
+    assert '(ORG_GUID, "org_charter")' in (ROOT / "eax" / "project_bases.py").read_text()
+    assert "OrgCharterCard" in (WEB / "Projects.jsx").read_text()
+
+
+def test_admins_see_everything_outside_a_project():
+    """D320: outside a project admins see every project and every user; inside a project, the project."""
+    from eax import org_repository as orp
+
+    class U:
+        def __init__(self, roles):
+            self.roles, self.username = roles, "x"
+    assert orp.may_see_all_users(U(["super-admin"])) and orp.may_see_all_users(U(["user-admin"]))
+    assert not orp.may_see_all_users(U(["user"]))
+    web = (WEB / "ArchitectureRepository.jsx").read_text()
+    assert "function AllUsers" in web and "/api/v1/people" in web and "archrepo" in web

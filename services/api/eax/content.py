@@ -248,9 +248,11 @@ def create_entity(conn, model: Any, data: dict, actor: str, light: bool = False)
         raise EditError("Give the entity a name.")
     parent = _entity_id(conn, m, data.get("parent"), "parent entity")
     plan = _plan_values(conn, m, et["_id"], data.get("values") or {})   # every value checked before anything is saved
-    row = _exec(conn, """INSERT INTO core.entities (guid, model_id, entity_type_id, name, description, parent_entity_id, tags, display_id)
+    from .content_framework import clean_area
+    row = _exec(conn, """INSERT INTO core.entities (guid, model_id, entity_type_id, name, description, parent_entity_id, tags, display_id,
+                                                    content_area)
                          VALUES (coalesce(CAST(:g AS uuid), gen_random_uuid()), :m, :t, :n, :d, :p, CAST(:tags AS text[]),
-                                 coalesce(:did, '')) RETURNING id""",
+                                 coalesce(:did, ''), :ca) RETURNING id""", ca=clean_area(data.get("content_areas")),
                 g=str(repo._as_guid(data["guid"])) if data.get("guid") else None,   # set when the change was recorded (phase 8)
                 m=m["_id"], t=et["_id"], n=name, d=(data.get("description") or "").strip(), p=parent,
                 tags=_tags(data.get("tags")), did=(data.get("display_id") or "").strip() or None)
@@ -268,7 +270,7 @@ def _tags(value: Any) -> list[str]:
 
 
 def update_entity(conn, model: Any, entity: Any, data: dict, actor: str, light: bool = False) -> dict:
-    """Changes the given fields (name, description, parent, tags, display_id) and values. When
+    """Changes the given fields (name, description, parent, tags, display_id, content_areas) and values. When
     row_version is given and the entity changed since, the save is refused (someone else saved first)."""
     m = _model(conn, model)
     e = _entity_row(conn, m, entity)
@@ -294,6 +296,9 @@ def update_entity(conn, model: Any, entity: Any, data: dict, actor: str, light: 
         sets.append("parent_entity_id = :p"), params.update(p=p)
     if "tags" in data:
         sets.append("tags = CAST(:tags AS text[])"), params.update(tags=_tags(data["tags"]))
+    if "content_areas" in data:             # where it sits in the content framework, for every project (D317)
+        from .content_framework import clean_area
+        sets.append("content_area = :ca"), params.update(ca=clean_area(data["content_areas"]))
     if (data.get("display_id") or "").strip():
         sets.append("display_id = :did"), params.update(did=data["display_id"].strip())
     if sets:

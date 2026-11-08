@@ -795,3 +795,54 @@ export function QualityAdmin() {
     </div>
   );
 }
+
+// A project's Quality tab (owner, 8 Nov 2026, D319): the data quality of the project's own models only, each with its
+// score, trend and "Measure now"; a model opens on its own Quality tab for the drill-down
+export function ProjectQuality({ p }) {
+  const { data, error } = useApi("/api/v1/quality");
+  const [msg, setMsg] = useState("");
+  const ids = new Set((p.models || []).map((m) => String(m.id)));
+  const mine = (data?.models || []).filter((m) => ids.has(String(m.id)));
+  const queued = mine.filter((x) => x.job).length;
+  useEffect(() => {
+    if (!queued) return undefined;
+    const tm = setInterval(refreshAll, 3000);
+    return () => clearInterval(tm);
+  }, [queued]);
+  if (error) return <p className="status bad">{error}</p>;
+  if (!data) return <p>Loading...</p>;
+  const running = Object.fromEntries(mine.filter((x) => x.job).map((x) => [x.id, x.job.status]));
+  async function measure(m) {
+    setMsg("");
+    try { await apiFetch(`/api/v1/models/${m.id}/quality/run`, { method: "POST" }); refreshAll(); } catch (e) { setMsg(`${m.name}: ${e.message}`); }
+  }
+  const scored = mine.filter((m) => m.score != null);
+  const avg = scored.length ? scored.reduce((n, m) => n + m.score * Math.max(1, m.entities || 0), 0) / scored.reduce((n, m) => n + Math.max(1, m.entities || 0), 0) : null;
+  const notListed = (p.models || []).filter((m) => !(data.models || []).some((x) => String(x.id) === String(m.id)));
+  return (
+    <div className="quality">
+      <Bands.Provider value={data.bands || DEFAULT_BANDS}>
+        <div className="row-gap"><ScoreRing value={avg} size={110} label="project" />
+          <p className="quiet">The data quality of this project's models ({mine.length} measured of {(p.models || []).length}), weighted by their entities.
+            Click a model for its own Quality tab and the drill-down; <b>Measure now</b> measures it and keeps the measurement.</p></div>
+      </Bands.Provider>
+      {msg && <p className="status bad">{msg}</p>}
+      <div className="q-models">
+        {mine.map((m) => (
+          <Bands.Provider key={m.id} value={m.summary?.bands || data.bands || DEFAULT_BANDS}><div className="q-model">
+            <a href={`#/metamodel/${m.id}/quality`} className="q-model-ring" aria-label={`${m.name}: Quality tab`}><ScoreRing value={m.score} size={86} label="score" /></a>
+            <span className="q-model-text"><a href={`#/metamodel/${m.id}/quality`}><ModelIcon m={m} size={16} /> <b>{m.name}</b></a>
+              <span className="small">{m.entities} entities · completeness {pct(m.completeness)}{m.summary ? ` · ${m.summary.stale} stale · ${m.summary.failing} failing` : ""}</span>
+              <span className="small quiet">{m.measured_at ? `measured ${fmtDateTime(m.measured_at)}` : "not measured yet"}</span>
+              <Trend points={m.trend} small />
+              <span><button className="small" onClick={() => measure(m)} disabled={!!running[m.id]}>
+                {running[m.id] === "running" ? "Measuring..." : running[m.id] ? "Queued..." : "Measure now"}</button></span></span>
+          </div></Bands.Provider>
+        ))}
+        {!mine.length && <p className="quiet">None of the project's models is measured for data quality yet.</p>}
+      </div>
+      {notListed.length > 0 && <p className="small quiet">Not measured here (library or reference models, or models you have no role on):{" "}
+        {notListed.map((m) => m.name).join(", ")}.</p>}
+    </div>
+  );
+}

@@ -4,7 +4,8 @@
 //   Documents  > the document types placed here > their documents (every state, the latest version)
 // An entity opens on its model's page; an entity type on the metamodel; a document type or document on Home's
 // Documents, highlighted. Where an entity type sits is part of its definition (the metamodel editor); contributors
-// place the project's document types and documents here. Any of them may sit in several areas (D309).
+// place the project's document types and documents here. Any of them may sit in several areas (D309). Tag items (D317)
+// lists every deliverable and artifact, document, entity type and entity with its areas, to change one or many.
 import { useMemo, useState } from "react";
 import { apiFetch } from "./auth";
 import { refreshAll, useApi } from "./ModelViews";
@@ -26,8 +27,165 @@ const colourOf = (code) => {
 const phaseLink = (ph) => (ph === "C-D" || ph === "C-A" ? "C" : ph || "X");
 
 export function ContentFrameworkTab({ p }) {
-  const area = new URLSearchParams(window.location.hash.split("?")[1] || "").get("area");
-  return area ? <AreaTree p={p} code={area} /> : <FrameworkMap p={p} />;
+  const qs = new URLSearchParams(window.location.hash.split("?")[1] || "");
+  const area = qs.get("area");
+  const tag = qs.get("view") === "tag";
+  const view = (v) => { window.location.hash = `#/projects/${p.id}/content${v === "tag" ? "?view=tag" : ""}`; };
+  return (
+    <div>
+      {!area && <div className="cf-views" role="tablist">
+        <button role="tab" aria-selected={!tag} className={`cf-view${tag ? "" : " on"}`} onClick={() => view("map")}>▦ Map</button>
+        <button role="tab" aria-selected={tag} className={`cf-view${tag ? " on" : ""}`} onClick={() => view("tag")}>🏷 Tag items</button>
+      </div>}
+      {area ? <AreaTree p={p} code={area} /> : tag ? <TagItems p={p} to={qs.get("to") || ""} /> : <FrameworkMap p={p} />}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- Tag items (owner, 8 Nov 2026, D317)
+// Another way to reach the project's things: every deliverable and artifact, document, entity type and entity with the
+// areas where it sits; one by one or many at once. Dashed chips: the default; solid: chosen in this project.
+const TAG_KINDS = [
+  ["classes", "Deliverables and artifacts"], ["documents", "Documents"], ["types", "Metamodel entity types"], ["entities", "Entities"]];
+
+function TagItems({ p, to }) {
+  const [kind, setKind] = useState("classes");
+  const [q, setQ] = useState("");
+  const [find, setFind] = useState("");
+  const [phase, setPhase] = useState("");
+  const [area, setArea] = useState(to || "");
+  const [offset, setOffset] = useState(0);
+  const [ticked, setTicked] = useState(() => new Set());
+  const [msg, setMsg] = useState({ ok: true, text: "" });
+  const args = new URLSearchParams({ kind, q: find, phase, area, offset: String(offset) });
+  const { data, error } = useApi(`/api/v1/projects/${p.id}/cf-tags?${args}`);
+  const rows = data?.rows || [];
+  const can = !!data?.may_place;
+  const reset = () => { setTicked(new Set()); setOffset(0); };
+  async function place(ids, how, areas) {
+    try {
+      const r = await apiFetch(`/api/v1/projects/${p.id}/cf-tags`, { method: "PUT", body: JSON.stringify({ kind, ids, how, areas }) });
+      setMsg({ ok: true, text: r.message }); refreshAll();
+    } catch (e) { setMsg({ ok: false, text: e.message }); throw e; }
+  }
+  const tick = (id) => { const n = new Set(ticked); if (n.has(id)) n.delete(id); else n.add(id); setTicked(n); };
+  const allOn = rows.length > 0 && rows.every((r) => ticked.has(r.id));
+  const tickAll = () => setTicked(allOn ? new Set() : new Set(rows.map((r) => r.id)));
+  const ids = [...ticked];
+  const what = { classes: "Deliverable / artifact", documents: "Document", types: "Entity type", entities: "Entity" }[kind];
+  const onPhase = kind === "classes" || kind === "documents";
+  return (
+    <div className="cf-tag">
+      <p className="quiet small">Where each of the project's things sits in the content framework: another way to reach it. Dashed: where it
+        sits by default; solid: chosen in this project. One thing may sit in several areas. {kind === "types" || kind === "entities"
+        ? "Entity types and entities are placed for this project only; the model's metamodel keeps its own." : ""}
+        {kind === "documents" ? " A document sits where its deliverable or artifact does, and in any areas of its own." : ""}</p>
+      <div className="cf-views sub" role="tablist">
+        {TAG_KINDS.map(([k, l]) => <button key={k} role="tab" aria-selected={kind === k} className={`cf-view${kind === k ? " on" : ""}`}
+          onClick={() => { setKind(k); setPhase(""); reset(); }}>{l}{kind === k && data ? <span className="quiet small"> {data.total}</span> : null}</button>)}
+      </div>
+      {to && <p className="status ok small">Tagging items for <b>{CF_LABEL[to]}</b>: change the area filter to "Any area" or "Not placed", tick
+        rows, then "＋ Add area to ticked…". <a href={`#/projects/${p.id}/content?area=${to}`}>Back to the area</a></p>}
+      <div className="row-gap cf-tag-tools">
+        <form onSubmit={(e) => { e.preventDefault(); setFind(q); reset(); }} className="row-gap">
+          <input type="search" value={q} onChange={(e) => { setQ(e.target.value); if (!e.target.value) { setFind(""); reset(); } }}
+            placeholder={`Find ${kind === "entities" ? "an entity (name or id)" : "by name"}`} aria-label="Find" />
+          <button type="submit">Find</button>
+        </form>
+        {onPhase && <select value={phase} onChange={(e) => { setPhase(e.target.value); reset(); }} aria-label="Phase">
+          <option value="">Every phase</option>
+          {(data?.phases || []).map((ph) => <option key={ph} value={ph}>Phase {ph}</option>)}
+        </select>}
+        <select value={area} onChange={(e) => { setArea(e.target.value); reset(); }} aria-label="Area">
+          <option value="">Any area</option>
+          <option value="_none">Not placed</option>
+          <option value="_changed">Changed from the default</option>
+          {CF_AREAS.map(([c, l, , g]) => <option key={c} value={c}>In {g}: {l}</option>)}
+        </select>
+      </div>
+      {can && <div className="cf-tag-bulk cf-tag-tools">
+        <>
+          <span className="small"><b>{ids.length}</b> ticked{ids.length ? "" : ": tick rows to change many at once"}</span>
+          <AreaPicker value={to ? [to] : []} label="＋ Add area to ticked…" disabled={!ids.length}
+            onSave={(list) => place(ids, "add", list).then(() => setTicked(new Set()))} />
+          <AreaPicker value={[]} label="− Take area off ticked…" disabled={!ids.length}
+            onSave={(list) => place(ids, "remove", list).then(() => setTicked(new Set()))} />
+          <button className="linkish small" disabled={!ids.length} onClick={() => place(ids, "reset").then(() => setTicked(new Set())).catch(() => {})}>↺ Ticked back to default</button>
+        </>
+      </div>}
+      {msg.text && <p className={`status ${msg.ok ? "ok" : "bad"}`}>{msg.text}</p>}
+      {error && <p className="status bad">{error}</p>}
+      {!data ? <p className="quiet">Loading...</p> : (
+        <div className="table-wrap">
+          <table className="cf-tag-table">
+            <thead><tr>
+              {can && <th style={{ width: 24 }}><input type="checkbox" checked={allOn} onChange={tickAll} aria-label="Tick every row shown" /></th>}
+              <th>{what}</th>
+              {kind === "classes" && <><th>D/A</th><th>Phase</th></>}
+              {kind === "documents" && <><th>Deliverable / artifact</th><th>Phase</th></>}
+              {(kind === "types" || kind === "entities") && <th>{kind === "entities" ? "Type · model" : "Model"}</th>}
+              <th>Content framework areas</th>
+              <th title="The part of the Architecture Repository it is filed in: set on the document class or the entity type">Repository area</th>
+              {can && <th />}
+            </tr></thead>
+            <tbody>
+              {!rows.length && <tr><td colSpan={7} className="quiet">Nothing{find || area || phase ? " matches" : " yet"}.</td></tr>}
+              {rows.map((r) => <TagRow key={r.id} p={p} r={r} kind={kind} can={can} on={ticked.has(r.id)} tick={() => tick(r.id)} place={place} />)}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {data && data.total > data.page && (
+        <div className="row-gap small">
+          <button disabled={!offset} onClick={() => { setOffset(Math.max(0, offset - data.page)); setTicked(new Set()); }}>‹ Previous</button>
+          <span className="quiet">{offset + 1}–{Math.min(data.total, offset + data.page)} of {data.total}</span>
+          <button disabled={offset + data.page >= data.total} onClick={() => { setOffset(offset + data.page); setTicked(new Set()); }}>Next ›</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const shortDate = (s) => (s ? new Date(s).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "");
+
+function TagRow({ p, r, kind, can, on, tick, place }) {
+  const ph = phaseLink(r.phase);
+  const name = kind === "classes" ? <a href={`#/projects/${p.id}/phases?phase=${ph}&item=${r.id}`}>{r.name}</a>
+    : kind === "documents" ? <a href={`#/projects/${p.id}/phases?phase=${ph}&doc=${r.id}`}>📄 {r.name}</a>
+      : kind === "types" ? <a href={`#/metamodel/${r.model_id}/type/${r.id}`} title="Open the entity type">{r.name}</a>
+        : <a href={`#/metamodel/${r.model_id}/entity/${r.id}`} title="Open the entity">{r.name}</a>;
+  // chips: what it gets by default (dashed) and what was chosen here (solid)
+  const own = kind === "documents" ? r.own || [] : r.chosen ? r.areas : [];
+  const dflt = kind === "documents" ? r.default : r.chosen ? [] : r.default;
+  return (
+    <tr className={on ? "ticked" : ""}>
+      {can && <td><input type="checkbox" checked={on} onChange={tick} aria-label={`Tick ${r.name}`} /></td>}
+      <td>{name}
+        <div className="quiet small">
+          {kind === "classes" && `${r.type || r.kind || ""} · ${r.documents} document${r.documents === 1 ? "" : "s"}`}
+          {kind === "documents" && r.file_name !== r.name ? r.file_name : ""}
+          {kind === "types" && `${r.layer || ""} · ${r.entities} entit${r.entities === 1 ? "y" : "ies"}`}
+          {kind === "entities" && (r.display_id || "")}
+        </div></td>
+      {kind === "classes" && <><td><span className={`kind-toggle ${r.kind === "Deliverable" ? "del" : "art"}`} title={r.kind}>{r.kind === "Deliverable" ? "D" : "A"}</span></td><td>{r.phase}</td></>}
+      {kind === "documents" && <><td>{r.class}</td><td>{r.phase}</td></>}
+      {kind === "types" && <td>{r.model}</td>}
+      {kind === "entities" && <td>{r.type}<div className="quiet small">{r.model}</div></td>}
+      <td>
+        {!r.areas.length ? <span className="quiet small">not placed</span> : <>
+          {dflt.length > 0 && <AreaChips codes={dflt} dflt small />} {own.length > 0 && <AreaChips codes={own} small />}</>}
+        {r.chosen ? <div className="quiet small">{kind === "documents" ? "own areas" : "chosen here"}{r.set_by ? ` by ${r.set_by}` : ""}{r.set_at ? ` · ${shortDate(r.set_at)}` : ""}</div>
+          : r.source && <div className="quiet small">from {r.source}</div>}
+      </td>
+      <td className="small">{r.repository}</td>
+      {can && <td className="nowrap">
+        <AreaPicker value={kind === "documents" ? r.own || [] : r.chosen ? r.areas : []} dflt={kind === "documents" ? [] : r.default}
+          label={kind === "documents" ? "Also in…" : r.areas.length ? "Change…" : "Place…"}
+          onSave={(list) => place([r.id], kind === "documents" || list.length ? "set" : "reset", list)} />
+        {r.chosen && <button className="linkish small" onClick={() => place([r.id], "reset").catch(() => {})}>↺ {kind === "documents" ? "Class's areas only" : "Back to default"}</button>}
+      </td>}
+    </tr>
+  );
 }
 
 function FrameworkMap({ p }) {
@@ -42,6 +200,9 @@ function FrameworkMap({ p }) {
       <a className={`cf-tile${has ? "" : " empty"}${tall ? " tall" : ""}`} style={{ background: colourOf(code) }}
         href={`#/projects/${p.id}/content?area=${code}`} title={`${CF_LABEL[code]}: open what sits here`}>
         <span className="cf-name">{CF_LABEL[code]}</span>
+        <span className="cf-plus" role="button" tabIndex={0} title={`Tag more items into ${CF_LABEL[code]}`}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); window.location.hash = `#/projects/${p.id}/content?view=tag&to=${code}`; }}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); window.location.hash = `#/projects/${p.id}/content?view=tag&to=${code}`; } }}>＋</span>
         <span className="cf-count">
           {a.types ? `${a.types} type${a.types === 1 ? "" : "s"} · ${a.entities} entit${a.entities === 1 ? "y" : "ies"}` : ""}
           {a.types && (a.doc_types || a.documents) ? <br /> : null}
@@ -136,6 +297,7 @@ function AreaTree({ p, code }) {
           <option value="_unplaced">Not placed yet</option>
         </select>
         <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by name" aria-label="Filter by name" />
+        {!unplaced && <a className="small" href={`#/projects/${p.id}/content?view=tag&to=${code}`} title="Put more deliverables, documents, entity types or entities in this area">＋ Tag more items here</a>}
       </div>
       <h3 className="cf-area-title" style={{ background: unplaced ? "#eee" : colourOf(code) }}>
         {unplaced ? "Not placed in the content framework yet" : <>{data.area.group} › {data.area.label}</>}
@@ -150,7 +312,15 @@ function AreaTree({ p, code }) {
           {data.models.map((m) => (
             <details key={m.id} open className="cf-node">
               <summary>🧭 <a href={`#/metamodel/${m.id}`}>{m.name}</a> <span className="quiet small">{m.types.length} type{m.types.length === 1 ? "" : "s"}</span></summary>
-              {!m.types.length && <p className="quiet small cf-leaf">No entity type of this model sits here.</p>}
+              {!m.types.length && !(m.own_entities || []).length && <p className="quiet small cf-leaf">No entity type of this model sits here.</p>}
+              {(m.own_entities || []).length > 0 && (
+                <details className="cf-node" open>
+                  <summary><b>Entities placed here on their own</b> <span className="quiet small">{m.own_entities.length}</span></summary>
+                  <ul className="cf-leaves">{m.own_entities.filter((e) => match(e.name) || match(e.display_id)).map((e) => (
+                    <li key={e.id}><a href={`#/metamodel/${m.id}/entity/${e.id}`}>{e.name}</a>
+                      <span className="quiet small"> {e.type}{e.display_id ? ` · ${e.display_id}` : ""}</span></li>))}</ul>
+                </details>
+              )}
               {m.types.map((t) => {
                 const ents = t.entities.filter((e) => match(e.name) || match(e.display_id));
                 if (q && !ents.length && !match(t.name)) return null;

@@ -180,6 +180,10 @@ class EntityTypeSummary(Schema):
     status = fields.String()
     attribute_count = fields.Integer()
     entity_count = fields.Integer()
+    content_area = fields.String(metadata={"description": "Its content framework areas, codes with commas (D309); empty: built in"})
+    content_default = fields.String(metadata={"description": "Its built-in content framework areas"})
+    repository_area = fields.String(metadata={"description": "The part of the Architecture Repository it is filed in (D318); empty: built in"})
+    repository_default = fields.String(metadata={"description": "Its built-in Repository Area"})
 
 
 class LayerOut(Schema):
@@ -263,6 +267,10 @@ class EntityTypeDetail(Schema):
     table_name = fields.String()
     layer = fields.String()
     colour = fields.String()
+    content_area = fields.String(metadata={"description": "Its content framework areas, codes with commas (D309); empty: built in"})
+    content_default = fields.String(metadata={"description": "Its built-in content framework areas"})
+    repository_area = fields.String(metadata={"description": "The part of the Architecture Repository it is filed in (D318); empty: built in"})
+    repository_default = fields.String(metadata={"description": "Its built-in Repository Area"})
     attributes = fields.List(fields.Nested(AttributeOut))
     rules = fields.List(fields.Nested(RuleOut))
     outgoing = fields.List(fields.Nested(AllowedOut), metadata={"description": "this type -> other type"})
@@ -443,6 +451,10 @@ class EntityDetailOut(Schema):
     entity_type_code = fields.String()
     created_mm_version = fields.Integer(allow_none=True)
     modified_mm_version = fields.Integer(allow_none=True)
+    tags = fields.List(fields.String())
+    content_areas = fields.List(fields.String(), metadata={"description": "Its own content framework areas (D317); empty: its type's"})
+    type_areas = fields.List(fields.String(), metadata={"description": "Its type's content framework areas"})
+    repository_area = fields.String(metadata={"description": "Its type's Repository Area (D318)"})
     model = fields.Nested(LineageModelOut, metadata={"description": "The model the entity is part of"})
     lineage = fields.Nested(LineageOut)
     attributes = fields.List(fields.Nested(EntityAttributeValueOut))

@@ -10,7 +10,7 @@ import PinButton from "./PinButton";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import AdmWheel from "./AdmWheel";
 import { apiDownload, apiFetch, apiUpload, roles } from "./auth";
-import { fmtDateTime } from "./fmt";
+import { fmtDate, fmtDateTime } from "./fmt";
 import { refreshAll, useApi } from "./ModelViews";
 import RichText from "./RichText";
 import { Field, Modal } from "./ModelOps";
@@ -25,6 +25,8 @@ import { RepositoryMap } from "./ArchitectureRepository";
 import { ProjectOrgTab } from "./ProjectOrg";
 import { BaseBanner, BaseTab, BasesTree, CharterTab, GovernanceTab, StandardsTab } from "./ProjectGovernance";
 import { LinkDialog, LinkName, ReferenceStep, ReferenceTab } from "./References";
+import { TemplateSetup } from "./TemplateSetup";
+import { ProjectQuality } from "./Quality";
 import { TemplateBrowserDialog } from "./TemplateBrowser";
 import { ProjectBackupPanel, ProjectCompare, ProjectGaps, ProjectReports, RestoreProjectFile, ViewpointsByPhase } from "./ProjectTabs";
 
@@ -53,7 +55,7 @@ const subPhases = (code) => (code === "C" ? ["C", "C-D", "C-A"] : [code]);
 export function ProjectAdmin({ route }) {
   const parts = route.replace(/^#\/project-admin\/?/, "").split("?")[0].split("/").filter(Boolean);
   const tab = parts[0] === "library" ? "library" : parts[0] === "templates" ? "templates" : parts[0] === "libprojects" ? "libprojects"
-    : parts[0] === "list" ? "projects" : parts[0] === "bases" ? "bases" : parts[0] ? "one" : "wizards";
+    : parts[0] === "list" ? "projects" : parts[0] === "bases" ? "bases" : parts[0] === "template-setup" ? "tsetup" : parts[0] ? "one" : "wizards";
   return (
     <div className="page">
       <h1>Project admin</h1>
@@ -64,6 +66,7 @@ export function ProjectAdmin({ route }) {
         <a href="#/project-admin/libprojects" className={`tab${tab === "libprojects" ? " on" : ""}`}>Project library</a>
         <a href="#/project-admin/templates" className={`tab${tab === "templates" ? " on" : ""}`}>Project templates</a>
         <a href="#/project-admin/library" className={`tab${tab === "library" ? " on" : ""}`}>Project content template library</a>
+        <a href="#/project-admin/template-setup" className={`tab${tab === "tsetup" ? " on" : ""}`}>Template setup</a>
       </div>}
       <div className="tab-panel">
         {tab === "wizards" && <ProjectWizards />}
@@ -72,6 +75,7 @@ export function ProjectAdmin({ route }) {
         {tab === "templates" && <TemplatesTab />}
         {tab === "libprojects" && <LibraryProjects />}
         {tab === "bases" && <BasesTree />}
+        {tab === "tsetup" && <TemplateSetup />}
         {tab === "one" && <AdminProject id={parts[0]} />}
       </div>
     </div>
@@ -89,6 +93,25 @@ const PROJECT_WIZARDS = [
   { k: "as-template", title: "Save a project as a template", text: "Its decisions as a new kind of project in the gallery (Super Admins)", to: (id) => `#/project-admin/${id}?template=1`, sup: true },
   { k: "repo", title: "Build a project's repository now", text: "Make its folders and copy its templates in Documents again (missing ones only); see why it is not built", to: (id) => `#/project-admin/${id}`, runs: true },
 ];
+
+// the organisation-wide architecture charter (owner, 8 Nov 2026, D319): in the Organisation base, filled in from the seed,
+// a draft until a Super Admin approves it; each project keeps its own charter page, started from it
+function OrgCharterCard() {
+  const { data } = useApi("/api/v1/repository/summary");
+  if (!data?.org_base) return null;
+  const ch = data.charter || {};
+  const approved = ch.state === "Approved";
+  return (
+    <div className={`wiz-card${approved ? "" : " wiz-next"}`}>
+      <h4>The organisation's architecture charter</h4>
+      <p className="small">One charter for the whole organisation, kept in the Organisation base by Super Admins: purpose, scope, mandate, the
+        Architecture Board, principles, roles, method, compliance. Every new project's charter starts from it.</p>
+      <p className="small">{approved ? <>✓ Approved by {ch.approved_by}</> : <>{ch.state || "Draft"}: filled in with a starting text to review and approve</>}</p>
+      <a className={`button${approved || !data.may_change ? "" : " primary"}`} href={`#/projects/${data.org_base.id}/charter`}>
+        {data.may_change ? (approved ? "Open…" : "Review and approve…") : "Read…"}</a>
+    </div>
+  );
+}
 
 function ProjectWizards() {
   const { data: lib, error } = useApi("/api/v1/projects/library");
@@ -117,6 +140,7 @@ function ProjectWizards() {
               : lib.may_manage ? <a className="button primary" href="#/project-admin/library">Start…</a>
               : <p className="small menu-why" style={{ margin: 0 }}>Ask a Super Admin to do it</p>}
           </div>
+          <OrgCharterCard />
           <div className="wiz-card">
             <h4>A new model for projects</h4>
             <p className="small">A project works on models: make the current-state and target-state models first if you like, or make them inside the project wizard.</p>
@@ -1736,7 +1760,7 @@ function Review({ d, lib, purpose, problems }) {
 // phase 13.1 (D303 to D307): Base, Charter, Standards, Governance log
 const TABS = [["home", "Home"], ["phases", "Phases"], ["report", "Project report"], ["base", "Base"], ["charter", "Charter"], ["archrepo", "Enterprise Repository (Project Scope)"], ["content", "Content framework"],
   ["tasks", "Tasks"], ["models", "Models"], ["organisation", "Organisation"], ["stakeholders", "Stakeholders"], ["principles", "Principles"],
-  ["standards", "Standards"], ["governance", "Governance log"], ["reference", "Reference"], ["viewpoints", "Viewpoints"], ["reports", "Model reports"],
+  ["standards", "Standards"], ["governance", "Governance log"], ["reference", "Reference"], ["viewpoints", "Viewpoints"], ["reports", "Model reports"], ["quality", "Quality"],
   ["analysis", "Gaps and comparison"], ["signoff", "Sign-off"]];
 
 function ProjectPage({ id, tab }) {
@@ -1798,6 +1822,7 @@ function ProjectPage({ id, tab }) {
         {tab === "charter" && <CharterTab p={p} />}
         {tab === "standards" && <StandardsTab p={p} />}
         {tab === "governance" && <GovernanceTab p={p} />}
+        {tab === "quality" && <ProjectQuality p={p} />}
         {tab === "models" && <ProjectModels p={p} />}
         {["analysis", "gaps", "compare"].includes(tab) && <AnalysisTab p={p} start={tab} />}
       </div>
@@ -2935,7 +2960,9 @@ function StepList({ p, list, phase }) {
               {!x.removed && <input type="checkbox" checked={!!x.done_at} disabled={!can} title={x.done_at ? "Mark not done (the last completion is taken back)" : "Mark done"}
                 onChange={(e) => mark(x, e.target.checked)} aria-label={`${x.name}: done`} />}
               <span className="step-name">{x.name}</span>{x.own && <span className="chip">own</span>}
-              {x.done_at && <span className="small quiet"> done by {x.done_by}, {fmtDateTime(x.done_at)}</span>}
+              <span className="small quiet"> opened {fmtDate(x.added_at)}</span>
+              {x.done_at && <span className="small quiet"> · closed {fmtDate(x.done_at)} by {x.done_by}</span>}
+              <StepHistory events={x.events} />
               {subs.length > 1 && <span className="small quiet"> · done {subs.filter((y) => y.done_at).length} times</span>}
               {open.length > 0 && <span className="rag amber small"> {open.length} open</span>}
               {x.due_date && !x.done_at && <span className="small quiet"> · due {x.due_date}</span>}
@@ -2948,8 +2975,10 @@ function StepList({ p, list, phase }) {
                     <li key={y.id} className={y.done_at ? "done" : "open"}>
                       <input type="checkbox" checked={!!y.done_at} disabled={!can} onChange={(e) => mark(y, e.target.checked)} aria-label={`${y.name} (${y.seq}): done`} />
                       <span>{y.name} <span className="quiet">#{y.seq}</span></span>
-                      {y.done_at ? <span className="small quiet"> done by {y.done_by}, {fmtDateTime(y.done_at)}</span>
-                        : <span className="small quiet"> open{y.due_date ? `, due ${y.due_date}` : ""} (opened by {y.added_by})</span>}
+                      <span className="small quiet"> opened {fmtDate(y.added_at)}{y.added_by ? ` by ${y.added_by}` : ""}</span>
+                      {y.done_at ? <span className="small quiet"> · closed {fmtDate(y.done_at)} by {y.done_by}</span>
+                        : <span className="small quiet"> · open{y.due_date ? `, due ${y.due_date}` : ""}</span>}
+                      <StepHistory events={y.events} />
                       {y.done_note && <span className="small"> · {y.done_note}</span>}
                       {can && !y.done_at && <button className="linkish small" onClick={() => call(`/api/v1/projects/${p.id}/steps/${y.id}/sub`, null, "DELETE")}>Take away</button>}
                     </li>
@@ -2967,14 +2996,26 @@ function StepList({ p, list, phase }) {
   );
 }
 
+// a step's history (owner, 8 Nov 2026): when it was opened, closed and reopened, and by whom
+function StepHistory({ events }) {
+  const list = typeof events === "string" ? JSON.parse(events || "[]") : events || [];
+  if (!list.length) return null;
+  return (
+    <details className="step-history small"><summary title="When it was opened, closed and reopened">🕘 {list.length}</summary>
+      <ul>{list.map((e, i) => <li key={i}>{fmtDateTime(e.at)} · {e.action} by {e.by}{e.note ? `: ${e.note}` : ""}</li>)}</ul>
+    </details>
+  );
+}
+
 function StepDialog({ p, phase, parent, onClose, call }) {
   const [name, setName] = useState("");
   const [due, setDue] = useState("");
+  const [opened, setOpened] = useState(() => new Date().toISOString().slice(0, 10));   // a sub step's open date (owner, 8 Nov 2026)
   const [note, setNote] = useState("");
   const [ph, setPh] = useState(phase || p.phases[0]?.code);
   async function save() {
     const ok = parent
-      ? await call(`/api/v1/projects/${p.id}/steps/${parent.id}/sub`, { due_date: due || null, note })
+      ? await call(`/api/v1/projects/${p.id}/steps/${parent.id}/sub`, { open_date: opened || null, due_date: due || null, note })
       : await call(`/api/v1/projects/${p.id}/steps`, { phase: ph, name, due_date: due || null });
     if (ok) onClose();
   }
@@ -2987,7 +3028,8 @@ function StepDialog({ p, phase, parent, onClose, call }) {
           <Field label="Phase"><select value={ph} onChange={(e) => setPh(e.target.value)}>{p.phases.map((x) => <option key={x.code} value={x.code}>{x.name}</option>)}</select></Field>
           <Field label="Step"><input value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="e.g. Review the target with the Executive Committee" /></Field>
         </>}
-        <Field label="Due by" hint="(optional)"><input type="date" value={due} onChange={(e) => setDue(e.target.value)} /></Field>
+        {parent && <Field label="Opened on"><input type="date" value={opened} onChange={(e) => setOpened(e.target.value)} /></Field>}
+        <Field label="Due by" hint="(optional)"><input type="date" value={due} min={parent ? opened : undefined} onChange={(e) => setDue(e.target.value)} /></Field>
         {parent && <Field label="Note" hint="(optional)"><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. quarterly review" /></Field>}
       </div>
     </Modal>
@@ -3436,6 +3478,8 @@ export function ProjectLibraryAdmin() {
       <AddLibrary />
       {browse && <TemplateBrowserDialog libraries={lib.libraries} start={browse} onClose={() => setBrowse(null)} />}
       <p className="small quiet">The kinds of project (project templates) are on their own tab: <a href="#/project-admin/templates">Project templates →</a></p>
+      <p className="small quiet">Where each deliverable, artifact and template sits in the content framework (the defaults every project starts from):
+        <a href="#/project-admin/template-setup"> Template setup →</a></p>
       <h3>TOGAF 10 template deliverables</h3>
       {missing > 0 && (
         <div className="notice-box">

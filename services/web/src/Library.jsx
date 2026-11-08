@@ -54,7 +54,7 @@ function groupsOf(models) {
 
 function Browser({ models, current, onPick }) {
   const [q, setQ] = useState("");
-  const [kind, setKind] = useState("all");
+  const [kind, setKind] = useState(() => (/[?&]kind=reference/.test(window.location.hash) ? "reference" : "all"));   // the repository map's link (D318)
   const shown = models.filter((m) => (kind === "all" || m.kind === kind)
     && `${m.name} ${m.industry || ""} ${m.built_on || ""} ${m.description || ""}`.toLowerCase().includes(q.toLowerCase()));
   const groups = groupsOf(shown);

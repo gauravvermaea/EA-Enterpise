@@ -131,7 +131,7 @@ def get_metamodel(conn, model: Any) -> dict:
         SELECT guid AS id, code, name, description, colour FROM core.layers
          WHERE model_id = :m AND NOT is_deleted ORDER BY sort_order, name""", m=mid)
     types = _rows(conn, """
-        SELECT et.guid AS id, l.guid AS layer_id, et.code, et.name, et.description, et.aspect, et.content_area, et.id_prefix,
+        SELECT et.guid AS id, l.guid AS layer_id, et.code, et.name, et.description, et.aspect, et.content_area, et.repository_area, et.id_prefix,
                et.table_name, et.status_code AS status,
                (SELECT count(*) FROM core.item_attributes ia
                  WHERE ia.entity_type_id = et.id AND NOT ia.is_deleted) AS attribute_count,
@@ -144,9 +144,20 @@ def get_metamodel(conn, model: Any) -> dict:
         SELECT guid AS id, code, name, verb, category, is_directed, description, status_code AS status
           FROM core.relationship_types
          WHERE model_id = :m AND NOT is_deleted ORDER BY sort_order, name""", m=mid)
+    for t in types:
+        _cf_defaults(t)
     for layer in layers:
         layer["entity_types"] = [t for t in types if t["layer_id"] == layer["id"]]
     return {"model": m, "layers": layers, "relationship_types": rel_types}
+
+
+def _cf_defaults(t: dict) -> dict:
+    """Where an entity type sits by default (D317, D318): its content framework areas and Repository Area as built in."""
+    from .content_framework import area_of_type, repo_of_type
+    dflt = area_of_type(t["code"], t["name"])[0]
+    t["content_default"] = ",".join(dflt)
+    t["repository_default"] = repo_of_type(t["code"], t["name"], "", area_of_type(t["code"], t["name"], t.get("content_area") or "")[0])[0]
+    return t
 
 
 def _find_type(conn, model_id: int, entity_type: Any) -> dict:
@@ -154,7 +165,7 @@ def _find_type(conn, model_id: int, entity_type: Any) -> dict:
     guid = _as_guid(entity_type)
     where = "et.guid = :t" if guid else "lower(:t) IN (lower(et.code), lower(et.name), lower(et.table_name))"
     rows = _rows(conn, f"""
-        SELECT et.id AS _id, et.guid AS id, et.code, et.name, et.description, et.aspect, et.content_area, et.id_prefix,
+        SELECT et.id AS _id, et.guid AS id, et.code, et.name, et.description, et.aspect, et.content_area, et.repository_area, et.id_prefix,
                et.table_name, l.name AS layer, l.guid AS layer_id, l.colour, et.status_code AS status
           FROM core.entity_types et JOIN core.layers l ON l.id = et.layer_id
          WHERE {where} AND et.model_id = :m AND NOT et.is_deleted""", t=guid or str(entity_type), m=model_id)
@@ -176,7 +187,7 @@ _ALLOWED_SQL = """
 def get_entity_type(conn, model: Any, entity_type: Any) -> dict:
     """One entity type with its attributes, validation rules and allowed relationships."""
     mid = get_model(conn, model)["_id"]
-    et = _find_type(conn, mid, entity_type)
+    et = _cf_defaults(_find_type(conn, mid, entity_type))
     tid = et["_id"]
     et["attributes"] = _rows(conn, """
         SELECT ia.guid AS item_id, at.guid AS attribute_id, at.code, at.name, at.description, at.column_name,
@@ -573,7 +584,7 @@ def _find_entity(conn, m: dict, entity: Any) -> dict:
     where = "e.guid = :e" if guid else "(lower(e.name) = lower(:e) OR lower(e.display_id) = lower(:e))"
     found = _rows(conn, f"""
         SELECT e.id AS _id, e.entity_type_id AS _type, e.guid AS id, e.display_id, e.name, e.description,
-               e.status_code AS status, e.tags, et.name AS entity_type, et.code AS entity_type_code,
+               e.status_code AS status, e.tags, e.content_area, et.content_area AS _type_area, et.repository_area AS _type_repo, et.name AS entity_type, et.code AS entity_type_code,
                et.guid AS entity_type_id, l.name AS layer, l.colour, et.status_code AS entity_type_status,
                pe.guid AS parent_id, pe.name AS parent_name,
                e.created_at, e.created_by, e.modified_at, e.modified_by, e.row_version,
@@ -588,6 +599,14 @@ def _find_entity(conn, m: dict, entity: Any) -> dict:
     if not found:
         raise NotFound(f"No entity {entity!r} in model {m['name']!r}.")
     e = found[0]
+    from .content_framework import (  # where it sits in the content framework (D317)
+        area_of_type,
+        areas_of,
+    )
+    e["content_areas"] = areas_of(e.pop("content_area", ""))
+    e["type_areas"] = area_of_type(e["entity_type_code"], e["entity_type"], e.pop("_type_area", ""))[0]
+    from .content_framework import repo_of_type
+    e["repository_area"] = repo_of_type(e["entity_type_code"], e["entity_type"], e.pop("_type_repo", ""), e["type_areas"])[0]
     e["model"] = {k: m[k] for k in ("id", "name", "kind", "kind_name", "version_label", "is_locked",
                                      "source_model_id", "source_model_name", "parent_model_id", "parent_model_name")}
     return e

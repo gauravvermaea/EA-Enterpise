@@ -1,5 +1,5 @@
 {
- "_note": "Seed of the project bases (phase 13.1, D303 to D307). Principle names follow TOGAF 10's example principles plus security ones; all wording is EA Explorer's own.",
+ "_note": "Seed of the project bases (phase 13.1, D303 to D307). Principle names follow TOGAF 10's example principles plus security ones; all wording is EA Explorer's own. org_charter: the Organisation base's charter, the organisation-wide one (owner, 8 Nov 2026, D319); charter: the TOGAF 10 project's guidance.",
  "principles": [
   {
    "area": "Business",
@@ -429,6 +429,48 @@
    "key": "compliance",
    "title": "Compliance and review",
    "html": "<p>How solutions are checked against the architecture and how the charter itself is reviewed.</p>"
+  }
+ ],
+ "org_charter": [
+  {
+   "key": "purpose",
+   "title": "Purpose",
+   "html": "<p>Enterprise architecture exists so that change across the organisation is deliberate, joined up and traceable to what the business is trying to achieve. The architecture function:</p><ul><li>keeps a shared, current picture of the business, its information, applications and technology;</li><li>shows the gap between today and the agreed target, and the steps to close it;</li><li>helps leaders choose between options with the cost, risk and benefit of each made clear;</li><li>keeps investment and delivery aligned with the strategy, the principles and the standards below.</li></ul>"
+  },
+  {
+   "key": "scope",
+   "title": "Scope",
+   "html": "<p>The charter covers the whole organisation: every business unit, the business, data, application, technology and security domains, and every project that changes how the organisation works or what it runs on.</p><ul><li><b>Breadth:</b> the enterprise, segments (business units, portfolios) and individual capabilities.</li><li><b>Time:</b> a three-year target view, refreshed every year, with transition states in between.</li><li><b>Out of scope:</b> day-to-day operations and support, unless they change the architecture.</li></ul>"
+  },
+  {
+   "key": "authority",
+   "title": "Authority and mandate",
+   "html": "<p>The architecture function's mandate comes from the executive committee, through the Chief Information Officer, who sponsors this charter.</p><ul><li>The Architecture Board may approve, approve with conditions, or refuse an architecture, and grant or refuse dispensations from principles and standards.</li><li>Projects in scope do not pass their design or investment gates without the Board's architecture sign-off.</li><li>Decisions the Board cannot settle go to the executive committee.</li></ul>"
+  },
+  {
+   "key": "board",
+   "title": "Governance and the Architecture Board",
+   "html": "<p>The Architecture Board steers the architecture and enforces this charter.</p><ul><li><b>Members:</b> the Chief Architect (chair), the domain lead architects (business, data, application, technology, security), a representative of risk and compliance, and business representatives as needed.</li><li><b>Meetings:</b> monthly, and when a project gate needs a decision; a quorum is the chair and two domain leads.</li><li><b>Inputs:</b> requests for architecture work, architecture definitions, compliance assessments, dispensation requests.</li><li><b>Records:</b> every decision, dispensation and compliance assessment goes in the governance log.</li><li><b>Escalation:</b> to the CIO, then the executive committee.</li></ul>"
+  },
+  {
+   "key": "principles",
+   "title": "Principles and standards applied",
+   "html": "<p>Every project follows the organisation's architecture principles and standards (the Principles and Standards tabs of the Organisation base). They are mandatory: a project adds its own, never removes these.</p><p>A project that cannot follow one asks for a <b>dispensation</b> in its governance log, saying why, the risk, and when it will comply; the Board grants it with an expiry date or refuses it.</p>"
+  },
+  {
+   "key": "roles",
+   "title": "Roles and responsibilities",
+   "html": "<ul><li><b>Sponsor (CIO):</b> owns the charter and the mandate; resolves escalations.</li><li><b>Chief Architect:</b> leads the function, chairs the Board, owns the principles and the target architecture.</li><li><b>Domain lead architects:</b> own their domain's standards, reference models and landscape.</li><li><b>Lead architect (per project):</b> runs the ADM on the project and produces its deliverables.</li><li><b>Solution architects:</b> design solutions that comply with the architecture.</li><li><b>Stakeholders:</b> state their concerns and sign off the deliverables that answer them.</li></ul><p>Who holds each role on a project is on that project's Organisation tab.</p>"
+  },
+  {
+   "key": "process",
+   "title": "Method and deliverables",
+   "html": "<p>Architecture work follows the TOGAF Architecture Development Method as tailored in the Organisation base: its phases, steps and deliverables are the starting point of every project, which may add its own.</p><ul><li>Each project starts with a Request for Architecture Work and a Statement of Architecture Work.</li><li>Each phase ends when its deliverables are accepted or approved by the sign-off people for that phase.</li><li>Models, documents and decisions are kept in EA Explorer, the organisation's architecture repository.</li></ul>"
+  },
+  {
+   "key": "compliance",
+   "title": "Compliance and review",
+   "html": "<ul><li>Solutions are checked against the architecture at design and before go-live; each check is a compliance assessment in the governance log (compliant, compliant with conditions, not compliant).</li><li>Conditions and dispensations are followed up until closed or expired.</li><li>The Architecture Board reviews this charter every year, or sooner when the strategy or the organisation changes; changes are approved by the sponsor.</li><li>The architecture capability's maturity is assessed every year (capability assessments in the governance log).</li></ul>"
   }
  ]
 }

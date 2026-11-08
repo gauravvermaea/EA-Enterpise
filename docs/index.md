@@ -77,3 +77,4 @@ Each phase has its own notes: what it delivers, a demo, checks, how to upgrade a
 | 13.5 | [A console app: an interactive session with EA Explorer](phase-13.5.md) | requested for later |
 | 13.6 | [Load balancing: servers go up and down with the load](phase-13.6.md) | requested for later |
 | 13.7 | [Real-time mirrors of PostgreSQL and the other servers](phase-13.7.md) | requested for later |
+| 13.8 | [More sample projects and models that show how to use EA Explorer](phase-13.8.md) | requested for later |

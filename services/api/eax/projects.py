@@ -322,7 +322,9 @@ def detail(conn, project: Any, user) -> dict:
                                     | {r["area"] for r in out["principles"] if r["area"]})
     out["phases"] = _rows(conn, "SELECT code, name, workspace FROM proj.lib_phases ORDER BY sort_order")
     out["steps"] = _rows(conn, """SELECT id, phase, seq, name, library_id, library_id IS NULL AS own, removed, removed_reason, done_at, done_by,
-                                         done_note, parent_step_id AS parent, added_by, added_at, due_date
+                                         done_note, parent_step_id AS parent, added_by, added_at, due_date,
+                                         (SELECT coalesce(json_agg(json_build_object('at', e.at, 'by', e.by_user, 'action', e.action, 'note', e.note)
+                                                                   ORDER BY e.at, e.id), '[]') FROM proj.step_events e WHERE e.step_id = proj.steps.id) AS events
                                     FROM proj.steps WHERE project_id = :p AND cycle = :c
                                    ORDER BY phase, coalesce(parent_step_id, id), parent_step_id NULLS FIRST, seq, id""", p=p["id"], c=p["cycle"])
     out["items"] = _rows(conn, """SELECT i.guid::text AS id, i.phase, i.name, i.kind, i.type, i.library_id, i.chosen, i.folder,
@@ -1460,6 +1462,13 @@ def _step(conn, p: dict, step_id: int) -> dict:
     return s
 
 
+def _step_event(conn, step_id: int, user, action: str, note: str = "", at: Any = None) -> None:
+    """A step's history (owner, 8 Nov 2026): when it was opened, closed and reopened, and by whom."""
+    conn.execute(text("""INSERT INTO proj.step_events (step_id, by_user, action, note, at)
+                         VALUES (:s, :u, :a, :n, coalesce(CAST(:at AS timestamptz), now()))"""),
+                 {"s": step_id, "u": getattr(user, "username", "system"), "a": action, "n": (note or "")[:1000], "at": at})
+
+
 def mark_step(conn, project: Any, user, step_id: int, done: bool, note: str = "") -> dict:
     """A step is marked done, or not done again, by anyone who contributes (D275). Marking a step done records who did it
     and when as a sub step of the same name under it (owner, 7 Nov 2026). A sub step ("+ sub step", work to do again) is
@@ -1473,6 +1482,8 @@ def mark_step(conn, project: Any, user, step_id: int, done: bool, note: str = ""
         conn.execute(text("""UPDATE proj.steps SET done_at = CASE WHEN :d THEN now() END, done_by = CASE WHEN :d THEN :u END,
                                     done_note = CASE WHEN :d AND :n <> '' THEN :n ELSE done_note END WHERE id = :s"""),
                      {"d": done, "u": user.username, "s": step_id, "n": note})
+        if bool(s["done_at"]) != done:
+            _step_event(conn, step_id, user, "closed" if done else "reopened", note)
         return {"step": step_id, "done": done, "message": f"{'Done' if done else 'Open again'}: {s['name']} (sub step; the step itself is marked done on its own)"}
     if done:
         if s["done_at"]:                        # ticked twice (two people, a double click): nothing more to record
@@ -1490,6 +1501,8 @@ def mark_step(conn, project: Any, user, step_id: int, done: bool, note: str = ""
     conn.execute(text("""UPDATE proj.steps SET done_at = CASE WHEN :d THEN now() END, done_by = CASE WHEN :d THEN :u END,
                                 done_note = CASE WHEN :d AND :n <> '' THEN :n ELSE done_note END WHERE id = :s"""),
                  {"d": done, "u": user.username, "s": step_id, "n": note})
+    if bool(s["done_at"]) != done:
+        _step_event(conn, step_id, user, "closed" if done else "reopened", note)
     still = (_one(conn, "SELECT count(*) AS n FROM proj.steps WHERE parent_step_id = :s AND done_at IS NULL", s=step_id) or {"n": 0})["n"]
     return {"step": step_id, "done": done, "message": f"{'Done' if done else 'Reopened'}: {s['name']}"
             + (f" ({still} sub step{'s' if still != 1 else ''} still open)" if done and still else "")}
@@ -1512,6 +1525,7 @@ def add_step(conn, project: Any, user, d: dict) -> dict:
     r = _one(conn, """INSERT INTO proj.steps (project_id, cycle, phase, seq, name, added_by, added_at, due_date)
                       VALUES (:p, :c, :ph, :q, :n, :u, now(), :due) RETURNING id""",
              p=p["id"], c=p["cycle"], ph=phase, q=seq, n=name, u=user.username, due=d.get("due_date") or None)
+    _step_event(conn, r["id"], user, "opened")
     return {"step": r["id"], "message": f"Step added to phase {phase}: {name}."}
 
 
@@ -1532,12 +1546,21 @@ def add_substep(conn, project: Any, user, step_id: int, d: dict) -> dict:
                       "b": s["done_by"], "n": s["done_note"] or ""})
         n = 1
     name = (d.get("name") or "").strip() or s["name"]
+    # its open date (owner, 8 Nov 2026): today unless given; not after the date it is due by
+    opened = str(d.get("open_date") or "").strip() or None
+    if opened and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", opened):
+        raise EditError("The open date is a date, for example 2026-11-08.")
+    if opened and d.get("due_date") and str(d["due_date"]) < opened:
+        raise EditError("It is due before it opens: choose a due date on or after the open date.")
     r = _one(conn, """INSERT INTO proj.steps (project_id, cycle, phase, seq, name, parent_step_id, added_by, added_at, due_date, done_note)
-                      VALUES (:p, :c, :ph, :q, :n, :s, :u, now(), :due, :note) RETURNING id""",
-             p=p["id"], c=s["cycle"], ph=s["phase"], q=n + 1, n=name[:300], s=step_id, u=user.username,
+                      VALUES (:p, :c, :ph, :q, :n, :s, :u, coalesce(CAST(:op AS date)::timestamptz, now()), :due, :note) RETURNING id""",
+             p=p["id"], c=s["cycle"], ph=s["phase"], q=n + 1, n=name[:300], s=step_id, u=user.username, op=opened,
              due=d.get("due_date") or None, note=(d.get("note") or "").strip()[:1000])
+    _step_event(conn, r["id"], user, "opened", "", opened)
     # to be done again: the step is open until someone marks it done (completing the sub step does not)
     conn.execute(text("UPDATE proj.steps SET done_at = NULL, done_by = NULL WHERE id = :s"), {"s": step_id})
+    if s["done_at"]:
+        _step_event(conn, step_id, user, "reopened", "a sub step was opened")
     return {"step": r["id"], "message": f"{s['name']}: opened again, to complete{(' by ' + str(d['due_date'])) if d.get('due_date') else ''}."}
 
 

@@ -42,6 +42,9 @@ POST   /projects/<p>/as-template                   {name, description}: save a p
 
 The content framework (D299):
 GET    /projects/<p>/content-framework             the areas and their numbers; GET .../<area> one area as a tree
+GET    /repository/summary|governance/<kind>|people|model-levels   the organisation's repository views (D318)
+GET    /projects/library/template-setup            the defaults: deliverables and artifacts, templates, their areas (D317)
+GET    /projects/<p>/cf-tags                       tag items: rows of one kind with their areas; PUT places several at once
 PUT    /projects/<p>/items/<i>/content-area        {area}: where a document type sits; .../documents/<d>/content-area: a document
 PUT    /projects/library/items/<n>/content-area    {area}: a library document type (Super and Library Admins)
 
@@ -221,6 +224,104 @@ class TemplateFile(MethodView):
         name, data = _file()
         return _run(lambda c: pj.upload_template(c, g.user, template_id, name, data), write=True,
                     action="project.library.template", obj=template_id)
+
+
+@blp.route("/repository/summary")
+class OrgRepository(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def get(self):
+        """The organisation's Architecture Repository map (D318): the Organisation base its links open"""
+        from .. import org_repository as orp
+        return _run(lambda c: orp.summary(c, g.user))
+
+
+@blp.route("/repository/governance/<string:kind>")
+class OrgGovernance(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def get(self, kind):
+        """Read only, across the projects you are on: decisions, compliance or capability assessments (changed in each project)"""
+        from .. import org_repository as orp
+        return _run(lambda c: orp.governance(c, g.user, kind))
+
+
+@blp.route("/repository/people")
+class OrgPeople(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def get(self):
+        """Read only, across the projects you are on: who works on them, their roles and skills"""
+        from .. import org_repository as orp
+        return _run(lambda c: orp.people(c, g.user))
+
+
+@blp.route("/repository/model-levels")
+class OrgModelLevels(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def get(self):
+        """Each model's landscape level from its project's depth (Strategic, Segment, Capability) and its role there"""
+        from .. import org_repository as orp
+        return _run(lambda c: orp.model_levels(c, g.user))
+
+
+@blp.route("/projects/library/template-setup")
+class TemplateSetup(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def get(self):
+        """Project admin › Template setup (D317): the deliverables and artifacts with their content framework areas, and one
+        library's templates with their own areas (?library=guid). Super Admins and Library Admins"""
+        from .. import content_framework as cf
+        return _run(lambda c: cf.template_setup(c, g.user, request.args.get("library") or ""))
+
+
+@blp.route("/projects/library/items/<int:item>/repository-area")
+class LibraryItemRepositoryArea(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth()
+    def put(self, data, item):
+        """A deliverable's or artifact's Repository Area: {repository_area} ('' = built in; Super and Library Admins)"""
+        from .. import content_framework as cf
+        return _run(lambda c: cf.place_library_repo(c, g.user, item, (data or {}).get("repository_area") or ""), write=True,
+                    action="project.library.repository_area", obj=str(item))
+
+
+@blp.route("/projects/library/templates/<int:template_id>/content-area")
+class TemplateContentArea(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth()
+    def put(self, data, template_id):
+        """A template's own content framework areas, over its deliverable's or artifact's: {areas} (Super and Library Admins)"""
+        from .. import content_framework as cf
+        return _run(lambda c: cf.place_library_template(c, g.user, template_id, _areas_in(data)), write=True,
+                    action="project.library.content_area", obj=str(template_id))
+
+
+@blp.route("/projects/library/libraries/<string:library>/templates")
+class LibraryTemplateAdd(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def post(self, library):
+        """Upload a new template into a library, tagged as it is uploaded: multipart file, item (the deliverable or artifact),
+        areas (its own, codes with commas), class_areas (the deliverable's or artifact's, for every project; optional)"""
+        from .. import content_framework as cf
+        name, data = _file()
+        f = request.form
+        return _run(lambda c: cf.add_template(c, g.user, library, f.get("item") or None, name, data, f.get("areas") or "",
+                                              f.get("class_areas") if "class_areas" in f else None),
+                    write=True, action="project.library.template", obj=library)
 
 
 @blp.route("/projects/library/templates/load")
@@ -1013,6 +1114,35 @@ class ContentFrameworkArea(MethodView):
         placed here and their documents. area _unplaced: what is not placed anywhere"""
         from .. import content_framework as cf
         return _run(lambda c: cf.area(c, project, g.user, area))
+
+
+@blp.route("/projects/<string:project>/cf-tags")
+class ContentFrameworkTags(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def get(self, project):
+        """Tag items: the project's deliverables and artifacts (kind=classes), documents, entity types (types) or entities with
+        their content framework areas. q finds, phase and area (_none = not placed, _changed = changed from the default) filter"""
+        from .. import content_framework as cf
+        a = request.args
+        try:
+            off = max(0, int(a.get("offset") or 0))
+        except ValueError:
+            off = 0
+        return _run(lambda c: cf.tag_list(c, project, g.user, a.get("kind") or "classes", a.get("q") or "", a.get("phase") or "",
+                                          a.get("area") or "", off))
+
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth()
+    def put(self, data, project):
+        """Areas for several rows at once: {kind, ids, how: set|add|remove|reset, areas}"""
+        from .. import content_framework as cf
+        d = data or {}
+        return _run(lambda c: cf.place(c, project, g.user, d.get("kind") or "", d.get("ids") or [], d.get("how") or "", d.get("areas")),
+                    write=True, action="project.content_area", obj=project)
 
 
 def _areas_in(data) -> object:

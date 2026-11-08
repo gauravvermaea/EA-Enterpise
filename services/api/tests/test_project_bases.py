@@ -74,7 +74,7 @@ def test_base_rules():
 
 
 def test_governance_kinds():
-    assert list(gv.KINDS) == ["Decision", "Dispensation", "Compliance assessment", "Risk", "Issue"]
+    assert list(gv.KINDS) == ["Decision", "Dispensation", "Compliance assessment", "Capability assessment", "Risk", "Issue"]   # D318
     assert all(len(v[0]) == 3 and v[1] for v in gv.KINDS.values())
 
 

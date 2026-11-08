@@ -183,7 +183,8 @@ function StandardDialog({ url, data, s, onClose }) {
 export function GovernanceTab({ p }) {
   const url = `/api/v1/projects/${p.id}/governance`;
   const { data, error } = useApi(url);
-  const [kind, setKind] = useState("*");
+  // opened on one kind from the repository map (D318): #/projects/<p>/governance?kind=Decision
+  const [kind, setKind] = useState(() => decodeURIComponent((window.location.hash.match(/[?&]kind=([^&]+)/) || [])[1] || "*"));
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
   const [dlg, setDlg] = useState(null);

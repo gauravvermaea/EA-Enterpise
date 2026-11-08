@@ -99,8 +99,10 @@ SELECT {pid(TOGAF_GUID)}, {_lit(p['name'])}, {_lit(p['area'])}, {_lit(p['stateme
 SELECT {pid(TOGAF_GUID)}, {_lit(x['area'])}, {_lit(x['name'])}, {_lit(x['description'])}, {_lit(x['status'])}, {_lit(x['source'])},
        true, {n}, md5('togaf-standard-' || {_lit(x['name'])})::uuid, 'system'
  WHERE NOT EXISTS (SELECT 1 FROM proj.standards y WHERE y.guid = md5('togaf-standard-' || {_lit(x['name'])})::uuid);\n""")
-    sections = json.dumps({c["key"]: c["html"] for c in s["charter"]})
-    for g in (TOGAF_GUID, ORG_GUID):
+    # the TOGAF 10 project: what each section is for; the Organisation base: the organisation-wide charter, filled in
+    # (owner, 8 Nov 2026, D319), a draft until a Super Admin approves it (Project admin › Wizards, or later)
+    for g, key in ((TOGAF_GUID, "charter"), (ORG_GUID, "org_charter")):
+        sections = json.dumps({c["key"]: c["html"] for c in s.get(key) or s["charter"]})
         out.append(f"""INSERT INTO proj.charters (project_id, sections, modified_by) SELECT {pid(g)}, {_lit(sections)}::jsonb, 'system'
 ON CONFLICT (project_id) DO NOTHING;\n""")
     # the Organisation base takes the TOGAF 10 project's steps, principles and standards once (then Super Admins own it)

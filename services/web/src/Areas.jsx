@@ -84,12 +84,16 @@ export function ArchitectureWork() {
   // two tabs, a list or tiles, filters and pins (owner, 8 Nov 2026); the pins are favourites, kept per person on the server
   const route = window.location.hash;
   const [tab, setTab] = useState(() => (/[?&]tab=models/.test(route) ? "models" : "projects"));
-  const [view, setView] = useState(() => { try { return localStorage.getItem("eax-work-view") || "tiles"; } catch { return "tiles"; } });
+  const [view, setView] = useState(() => (route.match(/[?&]view=(tiles|list|tree|levels)/) || [])[1]
+    || (() => { try { return localStorage.getItem("eax-work-view") || "tiles"; } catch { return "tiles"; } })());
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
   const [purpose, setPurpose] = useState("");
   const [kind, setKind] = useState("");
   const [onlyPinned, setOnlyPinned] = useState(false);
+  // the landscape level of a model comes from its project's depth (owner, 8 Nov 2026, D318); transition: its role there
+  const [level, setLevel] = useState(() => (route.match(/[?&]level=(strategic|segment|capability|transition)/) || [])[1] || "");
+  const { data: lv } = useApi(tab === "models" ? "/api/v1/repository/model-levels" : null);
   const { data: pd, error: pe } = useApi("/api/v1/projects");
   const { data: models, error: me } = useApi("/api/v1/models?archived=false");
   const { data: favs } = useApi("/api/v1/favourites");
@@ -104,7 +108,8 @@ export function ArchitectureWork() {
     .sort((a, b) => byPin("project")(a, b) || (a.status === "active" ? 0 : 1) - (b.status === "active" ? 0 : 1)
       || String(b.modified_at || b.created_at || "").localeCompare(String(a.modified_at || a.created_at || "")));
   const allModels = (models || []).filter((m) => super_ || mine.has(String(m.id)));
-  const ms = allModels.filter((m) => text(m) && (!kind || (kind === "project" ? m.kind === "project" : m.kind !== "project"))
+  const inLevel = (m, l) => (lv?.models || []).some((x) => x.model_id === String(m.id) && (l === "transition" ? x.role === "transition" : x.level === l));
+  const ms = allModels.filter((m) => (!level || inLevel(m, level)) && text(m) && (!kind || (kind === "project" ? m.kind === "project" : m.kind !== "project"))
       && (!status || (status === "frozen" ? m.frozen_at : !m.frozen_at)) && (!onlyPinned || pinned.has(`model:${m.id}`)))
     .sort((a, b) => byPin("model")(a, b) || (a.kind === "project" ? 0 : 1) - (b.kind === "project" ? 0 : 1)
       || String(b.modified_at || "").localeCompare(String(a.modified_at || "")));
@@ -133,6 +138,8 @@ export function ArchitectureWork() {
             <option value="project">Project models</option><option value="other">Library and root models</option></select>
           <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status"><option value="">Any state</option>
             <option value="open">Open</option><option value="frozen">Frozen</option></select>
+          <select value={level} onChange={(e) => setLevel(e.target.value)} aria-label="Landscape level" title="From the depth of the project the model is in">
+            <option value="">Any level</option>{Object.entries(LEVEL_NAMES).map(([k, n]) => <option key={k} value={k}>{n}</option>)}</select>
         </>}
         <label className="small"><input type="checkbox" checked={onlyPinned} onChange={(e) => setOnlyPinned(e.target.checked)} /> pinned only</label>
         <span className="push-right view-toggle" role="group" aria-label="View">
@@ -140,6 +147,7 @@ export function ArchitectureWork() {
           <button className={view === "list" ? "on" : ""} onClick={() => setV("list")} title="List">☰ List</button>
           <button className={view === "tree" ? "on" : ""} onClick={() => setV("tree")} title="Hierarchy">🌳 Hierarchy</button>
           {tab === "projects" && <button className={view === "repo" ? "on" : ""} onClick={() => setV("repo")} title="Repository">🏛 Repository</button>}
+          {tab === "models" && <button className={view === "levels" ? "on" : ""} onClick={() => setV("levels")} title="By landscape level">🗺 By level</button>}
         </span>
       </div>
       {tab === "projects" && <>
@@ -149,7 +157,7 @@ export function ArchitectureWork() {
         {view === "tree" ? <ProjectHierarchy projects={ps} Pin={Pin} />
           : view === "repo" ? <div className="repo-placeholder"><h3>Repository view</h3>
             <p className="quiet">The projects seen through the Architecture Repository: designed in phase 13.0.9. Empty for now.</p></div>
-          : view === "tiles" ? <div className="work-tiles">
+          : view === "tiles" || view === "levels" ? <div className="work-tiles">
           {ps.map((p) => (
             <a key={p.id} className="work-tile" href={`#/projects/${p.id}`}>
               <div className="tile-head"><b>{p.name}</b><Pin k="project" x={p} /></div>
@@ -173,7 +181,8 @@ export function ArchitectureWork() {
       {tab === "models" && <>
         {me && <p className="status bad">{me}</p>}
         {models && !ms.length && <p className="quiet">{allModels.length ? "No model matches." : "You have no role on a model yet. A model's Model Admin gives you one."}</p>}
-        {view === "tree" ? <ModelHierarchy models={models || []} shown={ms} Pin={Pin} />
+        {view === "levels" ? <ModelsByLevel models={ms} lv={lv} Pin={Pin} only={level} />
+          : view === "tree" ? <ModelHierarchy models={models || []} shown={ms} Pin={Pin} />
           : view === "tiles" || view === "repo" ? <div className="work-tiles">
           {ms.map((m) => (
             <a key={m.id} className="work-tile" href={`#/metamodel/${m.id}`}>
@@ -196,6 +205,48 @@ export function ArchitectureWork() {
         <p className="small"><a href="#/metamodel">All the models you may open</a> · <a href="#/compare">Compare and gap analysis</a></p>
       </>}
     </section>
+  );
+}
+
+// Models by landscape level (owner, 8 Nov 2026, D318): Strategic, Segment and Capability architectures from the depth of
+// each project a model is in, and Transition architectures from its role; a model in several projects shows in each
+const LEVEL_NAMES = { strategic: "Strategic", segment: "Segment", capability: "Capability", transition: "Transition" };
+function ModelsByLevel({ models, lv, Pin, only }) {
+  if (!lv) return <p className="quiet">Loading...</p>;
+  const byId = Object.fromEntries(models.map((m) => [String(m.id), m]));
+  const col = (l) => {
+    const seen = new Map();
+    for (const x of lv.models) {
+      if (!byId[x.model_id] || (l === "transition" ? x.role !== "transition" : x.level !== l)) continue;
+      if (!seen.has(x.model_id)) seen.set(x.model_id, []);
+      seen.get(x.model_id).push(x);
+    }
+    return [...seen.entries()];
+  };
+  const none = models.filter((m) => !lv.models.some((x) => x.model_id === String(m.id) && x.level));
+  return (
+    <div>
+      <p className="small quiet">A model's level comes from the depth of the project it is in (the project wizard's Scope step); Transition from its
+        role in a project. A model in several projects shows under each.</p>
+      <div className="level-cols">
+        {Object.entries(LEVEL_NAMES).filter(([l]) => !only || l === only).map(([l, n]) => {
+          const rows = col(l);
+          return (
+            <div key={l} className="level-col">
+              <h3>{n} <span className="small quiet">{rows.length}</span></h3>
+              {!rows.length && <p className="small quiet">None.</p>}
+              {rows.map(([id, xs]) => (
+                <div key={id} className="level-item">
+                  <span><KindMark m={byId[id]} /> <a href={`#/metamodel/${id}`}><b>{byId[id].name}</b></a> <Pin k="model" x={byId[id]} /></span>
+                  <div className="small quiet">{xs.map((x) => <span key={x.project_id}><a href={`#/projects/${x.project_id}/models`}>{x.project}</a>{x.role ? ` (${x.role})` : ""} </span>)}</div>
+                </div>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+      {none.length > 0 && <p className="small quiet">Not in a project with a depth: {none.map((m) => m.name).join(", ")}.</p>}
+    </div>
   );
 }
 

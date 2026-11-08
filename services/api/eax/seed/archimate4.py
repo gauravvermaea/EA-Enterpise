@@ -198,9 +198,6 @@ allow("*", "Association", "*", "Association is always allowed")
 LISTS = {
     "Status": ["Active", "Retired"],
     "Lifecycle": ["Plan", "Phase In", "Production", "Phase Out", "Retiring", "Retired"],
-    "RepositoryArea": ["Architecture Metamodel", "Architecture Capability", "Architecture Landscape",
-                       "Standards Information Base", "Reference Library", "Governance Log",
-                       "Architecture Requirements Repository", "Solutions Landscape"],
     "LandscapeLevel": ["Strategic", "Segment", "Capability"],
     "ArchitectureState": ["Baseline", "Transition", "Target"],
     "Hosting": ["On-premises", "SaaS", "IaaS", "PaaS", "Hybrid"],
@@ -229,14 +226,13 @@ SYSTEM_ATTRS = [
     ("Name", "Name", "Text", ""),
     ("Description", "Description", "LongText", ""),
     ("Status", "Status", "List", "Status"),
-    ("RepositoryArea", "Repository Area", "List", "RepositoryArea"),
     ("Created", "Created", "Text", ""),
     ("CreatedBy", "Created By", "Text", ""),
     ("Modified", "Modified", "Text", ""),
     ("ModifiedBy", "Modified By", "Text", ""),
     ("RowHash", "Row Hash", "Text", ""),
 ]
-SYSTEM_EDITABLE = {"Name", "Description", "Status", "RepositoryArea"}
+SYSTEM_EDITABLE = {"Name", "Description", "Status"}   # the Repository Area is on the entity type now (D318)
 
 # Business attributes: code, name, datatype, list, unit, description
 ATTRS = [

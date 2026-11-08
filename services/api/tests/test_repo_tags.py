@@ -68,3 +68,13 @@ def test_review_fixes():
     assert "ADD COLUMN template_id bigint" in (ROOT / "migrations/sql/0032_repository_tags.sql").read_text(encoding="utf-8")
     js = (ROOT.parent / "web/src/PinButton.jsx").read_text(encoding="utf-8")
     assert "☆ Pin" in js
+
+
+def test_step_dates():
+    """Steps and sub steps keep when they were opened and closed, and their history (owner, 8 Nov 2026)."""
+    sql = (ROOT / "migrations/sql/0032_repository_tags.sql").read_text(encoding="utf-8")
+    assert "CREATE TABLE proj.step_events" in sql and "ALTER COLUMN added_at SET DEFAULT now()" in sql
+    src = (ROOT / "eax/projects.py").read_text(encoding="utf-8")
+    assert "def _step_event" in src and '"open_date"' in src
+    js = (ROOT.parent / "web/src/Projects.jsx").read_text(encoding="utf-8")
+    assert "function StepHistory" in js and "Opened on" in js

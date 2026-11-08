@@ -6,6 +6,7 @@
 //   LockControl        model locks: metamodel, metamodel and content, maintenance (D67)
 // The server decides (and the database enforces) what may be changed; the screens only offer it.
 import { AreaChecks, areaList, areaText } from "./CfAreaPicker";
+import { REPO_AREAS } from "./cfAreas";
 import { RowActions } from "./DataEntry";
 import { useEffect, useMemo, useState } from "react";
 import { apiFetch, can, currentUser, canOn, myRolesOn, needsRole } from "./auth";
@@ -267,8 +268,11 @@ export function entityTypeSpec(layers, t = null) {
         { name: "layer", label: "Layer", type: "select", options: layerOptions, initial: t.layer_id, blank: false },
         { name: "id_prefix", label: "Display ID prefix", initial: t.id_prefix, help: "New entities get IDs like PREFIX-0001" },
         { name: "aspect", label: "Aspect", initial: t.aspect },
-        { name: "content_area", label: "Content framework areas", type: "areas", initial: t.content_area || "", sendEmpty: true,
+        { name: "content_area", label: "Content framework areas", type: "areas", initial: t.content_area || t.content_default || "", sendEmpty: true,
           help: "Where this type sits on a project's Content framework tab: one area or several. None ticked: where it sits by default." },
+        { name: "repository_area", label: "Repository area", type: "select", initial: t.repository_area || "", sendEmpty: true,
+          blank: `Built in: ${t.repository_default || "Architecture Landscape"}`, options: REPO_AREAS.map((r) => [r, r]),
+          help: "The part of the Architecture Repository every entity of this type is filed in (set on the type, not on each entity)." },
         { name: "description", label: "Description", type: "textarea", initial: t.description, sendEmpty: true },
       ],
     };
@@ -283,6 +287,8 @@ export function entityTypeSpec(layers, t = null) {
       { name: "aspect", label: "Aspect", placeholder: "for example Active Structure" },
       { name: "content_area", label: "Content framework areas", type: "areas",
         help: "Where this type sits on a project's Content framework tab: one area or several. None ticked: where it sits by default." },
+      { name: "repository_area", label: "Repository area", type: "select", blank: "Built in (from its content framework area)", options: REPO_AREAS.map((r) => [r, r]),
+        help: "The part of the Architecture Repository every entity of this type is filed in." },
       { name: "description", label: "Description", type: "textarea" },
     ],
   };

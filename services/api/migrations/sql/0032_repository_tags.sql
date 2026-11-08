@@ -4,6 +4,8 @@
 --     were, or to bring the repository back to the tag (a tag "before application of tag <name>" is made first)
 --   * templates added to a document class to download (apart from the ones its documents were made from)
 --   * the template a document was copied from
+--   * the dates each step was opened and closed, and its history
+--   * the project's own placement of entity types and entities in the content framework
 -- Rows only: the rules are in eax/repo_tags.py and eax/projects.py (D248).
 -- =====================================================================================
 
@@ -39,6 +41,53 @@ ALTER TABLE proj.items ADD COLUMN offered_templates bigint[] NOT NULL DEFAULT '{
 -- the template a document was copied from: the repository build copies each template once, whatever the copy's file is
 -- called after a check-in (review, 8 Nov 2026)
 ALTER TABLE proj.documents ADD COLUMN template_id bigint;
+
+-- steps: when each was opened and closed (owner, 8 Nov 2026). A step made with the project opened when the project was
+-- made; every closing, reopening and opening is kept in the step's history
+ALTER TABLE proj.steps ALTER COLUMN added_at SET DEFAULT now();
+UPDATE proj.steps s SET added_at = p.created_at FROM proj.projects p WHERE p.id = s.project_id AND s.added_at IS NULL;
+CREATE TABLE proj.step_events (
+    id       bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    step_id  bigint NOT NULL REFERENCES proj.steps (id) ON DELETE CASCADE,
+    at       timestamptz NOT NULL DEFAULT now(),
+    by_user  text NOT NULL,
+    action   text NOT NULL CHECK (action IN ('opened', 'closed', 'reopened')),
+    note     text NOT NULL DEFAULT ''
+);
+CREATE INDEX step_events_step ON proj.step_events (step_id, at);
+
+-- tagging in the content framework, per project (owner, 8 Nov 2026): who placed a document class or a document, and
+-- the project's own placement of its models' entity types and entities (over the metamodel's default; other projects
+-- are not affected). Areas are content framework codes joined by commas, as everywhere (D309)
+ALTER TABLE proj.items ADD COLUMN area_set_by text, ADD COLUMN area_set_at timestamptz;
+ALTER TABLE proj.documents ADD COLUMN area_set_by text, ADD COLUMN area_set_at timestamptz;
+CREATE TABLE proj.cf_type_areas (
+    project_id  bigint NOT NULL REFERENCES proj.projects (id) ON DELETE CASCADE,
+    type_guid   uuid NOT NULL,                  -- core.entity_types.guid of one of the project's models
+    areas       text NOT NULL,
+    set_by      text NOT NULL,
+    set_at      timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (project_id, type_guid)
+);
+CREATE TABLE proj.cf_entity_areas (
+    project_id  bigint NOT NULL REFERENCES proj.projects (id) ON DELETE CASCADE,
+    entity_guid uuid NOT NULL,                  -- core.entities.guid
+    areas       text NOT NULL,
+    set_by      text NOT NULL,
+    set_at      timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (project_id, entity_guid)
+);
+-- defaults set by admins (owner, 8 Nov 2026, D317): built-in, then the admin's (a deliverable or artifact in the project
+-- library, a template's own areas over its class's, an entity type in its metamodel, an entity in its model), then a
+-- parent project's, then the project's own. The project's placement of an entity type keeps the type's code too, so a
+-- project based on it inherits the placement for the same type in its own models.
+ALTER TABLE proj.lib_templates ADD COLUMN content_area text NOT NULL DEFAULT '';
+ALTER TABLE core.entities ADD COLUMN content_area text NOT NULL DEFAULT '';
+ALTER TABLE proj.cf_type_areas ADD COLUMN type_code text NOT NULL DEFAULT '';
+-- the Repository Area (D318): the part of the Architecture Repository an entity type or a document class is filed in,
+-- one value on the type or the class (not on each entity or document); empty: the built-in default
+ALTER TABLE core.entity_types ADD COLUMN repository_area text NOT NULL DEFAULT '';
+ALTER TABLE proj.lib_items ADD COLUMN repository_area text NOT NULL DEFAULT '';
 
 DO $$
 BEGIN

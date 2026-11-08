@@ -46,3 +46,17 @@ outside parties it deals with. The parts (in our words):
    Capability), set when it joins a project and changeable; its role (current, target, transition) shows within it.
 The other questions (standards register, governance log across projects, calendar, performance measures, capability,
 the board, external models and standards, who reads and changes) wait for the build.
+4. Where each link of the organisation's map goes (8 Nov 2026, D318): each opens an **existing screen**; see D318 for the
+   full list. Read-only views across projects (decisions, compliance and capability assessments, people, skills) show the
+   projects the person is on. Within a project every link stays in the project, except the reference library and model
+   library ones, which offer the project's and the organisation's.
+5. A model's landscape level is **taken from its project's depth** (the wizard's Scope step); Architecture work › Models
+   has a level filter and a **By level** view.
+6. The **Repository Area** is set on the entity type and the document class (not each entity), with built-in defaults.
+
+## To discuss when the reference library is built (owner, 8 Nov 2026)
+- Where Foundation, Common systems, Industry and the Organisation's own architectures sit in the reference library's
+  structure, and how the model library's root and reference models relate to them (for now all four open the Reference
+  library).
+- The Standards Information Base: business, data, application and technology standards (for now the Reference library).
+- An External standards folder, and how an external standard or reference model is adopted.

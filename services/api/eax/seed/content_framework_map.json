@@ -72,7 +72,10 @@
   "architecturecontract": "real.contracts",
   "standard": "gov.standards",
   "guideline": "gov.guidelines",
-  "specification": "gov.specifications"
+  "specification": "gov.specifications",
+  "Control": "gov.standards",
+  "Grouping": "gov.specifications",
+  "Meaning": "vision.principles_drivers"
  },
  "document_types": {
   "Actor Role Catalogue": "business.roles_actors",
@@ -236,6 +239,17 @@
   "Value Stream Definition": "business.value_streams",
   "Value chain diagram": "vision.business_strategy",
   "Wave assignment matrix": "real.work_packages",
-  "Work Packages": "real.work_packages"
+  "Work Packages": "real.work_packages",
+  "Architecture Comparison Tool": "gov.guidelines",
+  "Comparison Tool How To Use": "gov.guidelines",
+  "Metamodel How To Use": "gov.guidelines",
+  "Phase Closure Record": "real.contracts",
+  "Repository How To Use": "gov.guidelines",
+  "Template Architecture Definition Document": "gov.specifications",
+  "Template Catalogue Matrix Diagram": "gov.guidelines",
+  "Template Checks Sheet": "gov.standards",
+  "TOGAF Metamodel": "gov.standards",
+  "Capability Heat Map": "business.capabilities",
+  "Sponsor brief": "vision.stakeholders"
  }
 }

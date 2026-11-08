@@ -42,3 +42,6 @@ export const CF_AREAS = [
 export const CF_LABEL = Object.fromEntries(CF_AREAS.map(([c, l]) => [c, l]));
 // for a select: [code, "group: label"]
 export const CF_OPTIONS = CF_AREAS.map(([c, l, , g]) => [c, `${g}: ${l}`]);
+// the parts of the TOGAF Architecture Repository a document class or an entity type is filed in (D318)
+export const REPO_AREAS = ["Architecture Metamodel", "Architecture Capability", "Architecture Landscape", "Standards Information Base",
+  "Reference Library", "Governance Log", "Architecture Requirements Repository", "Solutions Landscape"];
