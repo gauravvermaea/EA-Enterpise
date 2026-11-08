@@ -10,7 +10,7 @@ circle, deliverables are signed off, and a finished project is frozen or merged 
   "changing a running project".
 - The approvals workflow and the dashboard stay in 13.1. Email alerts get a phase of their own.
 
-## Status: built, waiting for the owner's test
+## Status: accepted and closed by the owner (8 Nov 2026, D323)
 
 ## What it delivers
 

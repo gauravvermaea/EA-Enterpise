@@ -60,3 +60,15 @@ the board, external models and standards, who reads and changes) wait for the bu
   library).
 - The Standards Information Base: business, data, application and technology standards (for now the Reference library).
 - An External standards folder, and how an external standard or reference model is adopted.
+
+## Answers, 8 Nov 2026 (continued)
+7. **Calendar**: simple and static. A project calendar kept by the project's members, and an organisation calendar kept
+   by Super Admins. An event is a date, a time and a topic, once or recurring. All project members are taken as invited
+   to a project event, everyone in the organisation to an organisation event. Views by month, week and day; each calendar
+   can be downloaded and subscribed to over https from any calendar application (iCalendar).
+8. **Architecture Board**: the owner said "anything": members, its meetings (on the organisation calendar), and agendas
+   of records waiting for approval with each item's outcome. To confirm when this phase is built.
+9. **Performance measurement**: the organisation's view gets a tab for each of project completion, governance health
+   (records waiting for approval and for how long, dispensations expiring or overdue, non-compliant assessments),
+   sign-off turnaround (how long documents and records wait, by project and by person) and repository coverage (how
+   much of the content framework each project has filled), beside the models' data quality.

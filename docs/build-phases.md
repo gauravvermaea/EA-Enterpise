@@ -1,0 +1,73 @@
+# Build phases in detail
+
+Every phase with what it delivers, its version and its state; each has its own notes page. The short list is on the
+[README](../README.md#build-phases).
+
+
+Each phase has its own notes: what it delivers, a demo, checks, how to upgrade and what is not in it.
+
+| Phase | Name | Version | State | Notes |
+| --- | --- | --- | --- | --- |
+| 0 | Foundations: the platform, sign-in, health, jobs, backups | 0.0.x | closed | [phase-0.md](phase-0.md) |
+| 1 | Metamodel store and the ArchiMate 4 seed (read only) | 0.1.0 | closed | [phase-1.md](phase-1.md) |
+| 2 | Insurance reference model, locked models, library page and versions | 0.2.1 | closed | [phase-2.md](phase-2.md) |
+| 3 | Metamodel editing, metamodel versions and history, failing checks, model locks | 0.3.0 | accepted | [phase-3.md](phase-3.md) |
+| 3.1 | Roles and permissions | 0.3.1 | accepted | [phase-3.1.md](phase-3.1.md) |
+| 4 | Creating and copying models, library models and packages | 0.4.0 | accepted and closed | [phase-4.md](phase-4.md) |
+| 5 | Report views and the thirty standard reports | 0.5.0 | accepted and closed; each report checked in phase 36.1 | [phase-5.md](phase-5.md) |
+| 6 | Data entry in forms | 0.6.0 | accepted and closed | [phase-6.md](phase-6.md) |
+| 7 | Grids, search and saved views | 0.7.0 | accepted and closed | [phase-7.md](phase-7.md) |
+| 8.2 | Reports and views: viewpoints VP-01 to VP-25, TOGAF catalogues and matrices, dependency reports, audience dashboards, value stream map, roadmap (pulled ahead of 8) | 0.8.2 | accepted and closed; each report checked in phase 36.1 | [phase-8.2.md](phase-8.2.md) |
+| 8 | Commits of content (private until committed), Committer and History Viewer roles, conflicts at commit, roll back, draft model rejection, merging a model into a model, live updates | 0.8.3 | accepted and closed | [phase-8.md](phase-8.md) |
+| 8.3 | Model tags (frozen snapshots, a page per tag, make a tag the latest), Compare and Gap analyses as top-menu screens (any models and their tags; gaps stored in a chosen model), a filter screen, shared profiles and side-by-side details, TOGAF gap analyses with Gap entities (tagged by result), two gap results compared, gap reports GR-01 to GR-05 | 0.8.4 | accepted and closed | [phase-8.3.md](phase-8.3.md) |
+| 9 | The change log: one row per action, in its own database (EAX_CHANGELOG_DB_URL), everyone their own changes, Model Admins their models, Super Admins all; export and delete for Super Admins | 0.9.0 | accepted and closed | [phase-9.md](phase-9.md) |
+| 10 | Administration console (application and system settings applied at once, start-up settings shown, restart through the operations helper, health, licences), installation-wide formats, model Hierarchy tab, VP-26 Gap, report guides | 0.10.0 | accepted and closed | [phase-10.md](phase-10.md) |
+| 10.1 | Import and export sheets: choose types, Excel (.xlsx, .xlsm) or CSV set built on the fly with data, drop-downs and provisional IDs; upload with a preview into your uncommitted changes; column mappings, undo a load | 0.10.1 | accepted and closed | [phase-10.1.md](phase-10.1.md) |
+| 8.1 | Notifications (bell, page, home tile; action ones resolved once with a note), requests between people like tickets, installation-wide signed webhooks (never email), metamodel versions pushed down the hierarchy forced or offered, change documents | 0.11.0 | accepted and closed | [phase-8.1.md](phase-8.1.md) |
+| 8.4 | Backups (pulled ahead, D216): tagged infrastructure backups (every database, files, certificate, config, release and image versions; nightly and on demand; pinned; restored whole or in part from the console or `eax restore`, read only while restoring) and application backups (every model as a file with an Excel workbook inside, downloadable, restorable as a new model or over itself, portable), model backups on the model page; restores run on their own with a log, a Restores tab and a maintenance page, idempotent, everyone notified, models locked while restored; backups searchable, stoppable and restorable whole from the console or the command line; documents and diagrams added in phase 13 | 0.12.0 | accepted and closed | [phase-8.4.md](phase-8.4.md) |
+| 12 | Validation and data quality (D239, D241, D242): a Quality tab on every project model (score, completeness, rules passed, fresh, orphans, seals, charts, everything drilling down to the entities with actions), rules of four kinds without SQL (errors block a commit, warnings do not), who is responsible for each entity, a stale period with one-click "still current", seals, settings and weights inherited (a Model Admin's change waits for a Super Admin), weights set in the metamodel and shown while typing, notifications as it happens and a weekly digest, the estate on Administration > Quality with the choice of which models are measured (archived never), PDF and Excel downloads with drill-downs, reports QR-01 to QR-04, MCP tools; calculated in the background and stored (only one entity checked at once), highlights and reasons on the entity page, form and grids, entity type scores, not applicable and leave out with approvals in bulk, model icons, several API and job servers (`eax servers`) | 0.13.0 | accepted and closed |  [phase-12.md](phase-12.md) |
+| 12.1 | Start-up in two tiers (D255): the core (sign-in, the API, the screens) first, then Reports, Documents, draw.io, backups and the sample data in the background; `--wait-all` to wait for everything; the start-up status for everyone in the header (red, amber, green: down, starting, up) and per container for admins. Pictures open in the platform's draw.io in a new tab instead of downloading a file (D256). The grid's commit is one icon on the left of a saved row (D257) | 0.13.1 | accepted and closed | [phase-12.1.md](phase-12.1.md) |
+| 13 | Architecture projects (D258-D266, phases 13 and 15 merged): the project library (TOGAF 10, the sample repository and the phase-wise deliverables: 13 phases, 116 steps, 171 deliverables and artifacts, 51 folders; Super Admins only); template libraries (EA Explorer's own with a file for every item, TOGAF 10 loaded once, your own uploaded as a zip) and the setup a Super Admin finishes before the first project; its own connection string (EAX_PROJECTS_DB_URL) so it can move to its own database; an eight-step wizard (purpose, template libraries, models added, derived or created, viewpoints, principles, steps and deliverables phase by phase with not_for_use, people and sign-off); project roles (Project Admin, Lead Architect, Architects, Model Admin, Model Sub Admin, Stakeholders); the repository in Documents (Mayan cabinets, versions, check-out and check-in for editing in Office, undo check-out); the TOGAF templates loaded once by a Super Admin, never in git; Mayan's memory fixed | 0.14.0 | accepted and closed | [phase-13.md](phase-13.md) |
+| 13.0.1 | Setting up and running a project (D274-D279): the wizard starts with the models (referred to, added, derived or created; one is the project's model) and adds scope (breadth, depth, time, domains), goals and outcomes as Goal and Outcome entities in the project's model, the sponsor and their asks, rich-text notes and files; derive a project from another; ✎ Edit reopens the wizard on a live project; templates chosen per item from several libraries, or a placeholder to build later; project viewpoints, ready or to build; deliverables raised for sign-off, approved or rejected with comments, self approved or recorded with evidence; a landing page with the ADM crop circle; finishing: freeze, or merge into another project with models kept or merged into their parent | 0.14.2 | accepted and closed | [phase-13.0.1.md](phase-13.0.1.md) |
+| 13.0.3 | Model roles and project templates (D281, D282): each model in a project is current state, target state, transition state, scenario, reference or working copy; + New project opens a gallery of 14 project templates (transformation, document the as-is, new product, copy for reports, copy-update-merge back, scenario planning, regulatory change, cloud migration, application rationalisation, operating model, capability-based planning, health check, solution architecture, due diligence) and a blank project, each a wizard with its decisions taken and all of them editable; templates kept as data by Super Admins, and a project can be saved as one | 0.14.3 | accepted and closed | [phase-13.0.3.md](phase-13.0.3.md) |
+| 13.0.4 | Admin by wizards, architecture on screens (D283-D285): five areas (System admin, Model admin, Project admin, Architecture work, Everything else) on the start page and the top menu; every model admin task a wizard (copy and derive, split, merge into the parent and freeze, propagate, extend or upgrade the metamodel, lock, freeze, tag, promote, hand over, detach or reparent, packages), merges choosing what goes in by type then by item; the model and project pages carry architecture work only; Quality > Duplicates; System admin wizards for access, backups and restores | 0.14.4 | accepted and closed | [phase-13.0.4.md](phase-13.0.4.md) |
+| 13.0.5 | Common analysis (D286): what two or more models (now or tags) have in common, all chosen by the person: threshold (in all or in at least N), types and fields, values and relationships; matched like a comparison (display ID only when asked), close names suggested to confirm or reject; stored in a model with runs, notes and decisions; tag the common elements, make a model of them, Excel and Word | 0.14.5 | accepted and closed | [phase-13.0.5.md](phase-13.0.5.md) |
+| 13.0.2 | Every slow button as a background task (D273): merges, packages, comparisons and gap analyses, tags, framework moves, promotions, metamodel drafts, push-down, quality rechecks, the change log export, project creation and template library downloads answer at once and run in the background; a task drawer on the right of every page with progress, completed or failed, the link back and the file (kept 24 hours, downloaded at once if the page is open); a Background tasks tab in Notifications | 0.14.1 | accepted and closed | [phase-13.0.2.md](phase-13.0.2.md) |
+| 13.0.6 | The project repository as a table: versions, tags, accept or approve, archive and delete (D290-D293) | 0.14.6 | accepted and closed | [phase-13.0.6.md](phase-13.0.6.md) |
+| 13.0.7 | Content framework, tagging to it (defaults by admins, inherited, changed per project), the architecture repository's links, the Repository Area, project organisation, tasks (D299, D302, D317-D320) | 0.15.1 | accepted and closed | [phase-13.0.7.md](phase-13.0.7.md) |
+| 13.0.8 | The organisation's reference library (D300) | 0.14.8 | accepted and closed | [phase-13.0.8.md](phase-13.0.8.md) |
+| 13.0.9 | The Architecture Repository structure: calendar, board, performance measures, standards (D301) | | planned: design session under way | [phase-13.0.9.md](phase-13.0.9.md) |
+| 13.1 | Project bases, the TOGAF 10 content metamodel, standards, governance log (with approval, D321), charter (organisation-wide in the Organisation base, D319); the documents table, repository tags, the Phases tab (D303-D316) | 0.15.1 | accepted and closed | [phase-13.1.md](phase-13.1.md) |
+| 13.2 | Tracking sheets | | requested for later | [phase-13.2.md](phase-13.2.md) |
+| 13.3 | Turn Projects, Repository and References on or off | | requested for later | [phase-13.3.md](phase-13.3.md) |
+| 13.4 | Reference library with wiki pages | | requested for later | [phase-13.4.md](phase-13.4.md) |
+| 13.5 | A console app | | requested for later | [phase-13.5.md](phase-13.5.md) |
+| 13.6 | Load balancing | | requested for later | [phase-13.6.md](phase-13.6.md) |
+| 13.7 | Real-time mirrors of PostgreSQL and the other servers | | requested for later | [phase-13.7.md](phase-13.7.md) |
+| 13.8 | More sample projects and models | | requested for later | [phase-13.8.md](phase-13.8.md) |
+
+
+## Planned phases (from the build plan)
+| Phase | Name |
+| --- | --- |
+| 15.1 | Organisation-wide repository |
+| 16.3 | Guided wizards |
+| 19, 20 | Work copies and merge back, parts 1 and 2 |
+| 21 | Dedupe within a model |
+| 22 | Ownership and collaboration |
+| 23 | Portfolio, lifecycle and impact |
+| 24 | Report trends, schedules, feeds and the report designer |
+| 25 | Security hardening |
+| 26, 27 | MCP server: read tools; proposals into staging |
+| 28, 29 | draw.io integration, parts 1 and 2 (with the standard ArchiMate notation, D288) |
+| 30, 31 | Standard views, parts 1 and 2 |
+| 33, 33.1 | ArchiMate exchange and migration; conformance check |
+| 34, 34.1 | Integrations: collection, CMDB, reconciliation; ETL, more sources and outbound |
+| 35, 35.1 | Operations insight; maintenance and optimisation |
+| 36 to 36.3, 8.5 | Deployment kinds and scripts; upgrades, releases and tests; test automation; security, scale and continuity; scaling out |
+| 37 | Hardening and release candidate |
+| 38, 38.1 | Pilot and version 1.0; surveys |
+| 39 | Industry models, reports and product documentation |
+| 40 | Organisation maturity (to be discussed first) |
+
+The full plan is in [requirements/EA_Explorer_Build_Plan.xlsx](requirements/EA_Explorer_Build_Plan.xlsx); decisions in [decisions.md](decisions.md).

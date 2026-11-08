@@ -109,3 +109,14 @@ More to test (D313, D314):
 ## Not in this phase
 - The Architecture Repository's own design (13.0.9): where each part points is to be discussed (owner, 8 Nov 2026).
 - The organisation's reference library screens (13.0.8).
+
+## Added after closing: governance approval (D321, 8 Nov 2026; migration 0032)
+Test steps:
+1. A project › Governance log › ＋ Log a decision: it shows **Draft**.
+2. Open it › Send for approval… › Send: it shows **Waiting for approval**; the sign-off people get a notification and see
+   "Waiting for your approval" on the Governance log; each approves or rejects (a rejection needs a comment). Approved
+   when the project's quorum approves; one rejection rejects it.
+3. Another record › Approve with evidence…: give a reason or attach a file (or both) › Mark approved. The file is in
+   Documents › Sign-off evidence.
+4. Change an approved record: it is a Draft again; 🕘 History shows every step and the record as it was.
+5. Repository (top menu) › Decision log: the Approval column and filter, across your projects (admins: all).

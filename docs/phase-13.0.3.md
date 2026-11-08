@@ -8,7 +8,7 @@ taken, or from a blank project; either way every decision can still be changed.
 - Decisions **D281** (model roles) and **D282** (project templates), agreed with the owner on 7 Nov 2026.
 - Built on 13.0.1 (D274 to D280).
 
-## Status: built, waiting for the owner's test
+## Status: accepted and closed by the owner (8 Nov 2026, D323)
 
 ## What it delivers
 

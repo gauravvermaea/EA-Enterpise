@@ -50,7 +50,7 @@ def governance(conn, user, kind: str) -> dict:
     ids, _names = _ids(conn, user)
     rows = []
     if ids:
-        rows = _rows(conn, """SELECT g.guid::text AS id, g.ref, g.title, g.status, g.owner, g.raised_on, g.expires_on,
+        rows = _rows(conn, """SELECT g.guid::text AS id, g.ref, g.title, g.status, g.owner, g.raised_on, g.expires_on, g.approval, g.approved_by,
                                      coalesce(g.modified_at, g.created_at) AS modified_at, p.guid::text AS project_id, p.name AS project
                                 FROM proj.gov_records g JOIN proj.projects p ON p.id = g.project_id
                                WHERE g.kind = :k AND p.guid = ANY (CAST(:ids AS uuid[]))

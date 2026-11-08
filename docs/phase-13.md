@@ -11,7 +11,7 @@ Phases 13 (documents) and 15 (TOGAF projects) are merged and built in four parts
 steps and the dashboard, **13.2** the registers, **13.3** ADM cycles, child projects, merging back, generating
 artifacts from the reports, and library projects (D265).
 
-## Status: built, waiting for the owner's test
+## Status: accepted and closed by the owner (8 Nov 2026, D323)
 
 ## What phase 13 delivers
 

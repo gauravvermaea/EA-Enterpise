@@ -9,7 +9,7 @@ Goal: the counterpart of gap analysis. It finds what two or more models have in 
 - Decision **D286**, from the owner's answers of 7 Nov 2026.
 - It is architecture work, so it is a screen (D284): **Architecture work › Compare › Common analyses** (`#/compare/common`).
 
-## Status: built, waiting for the owner's test
+## Status: accepted and closed by the owner (8 Nov 2026, D323)
 
 ## Setting one up (everything is the person's choice)
 

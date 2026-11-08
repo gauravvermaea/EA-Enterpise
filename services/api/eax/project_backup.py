@@ -59,7 +59,11 @@ TABLES = [
     ("standards", "project_id = :p", {}),
     ("base_skips", "project_id = :p", {}),
     ("gov_kinds", "project_id = :p", {}),
-    ("gov_records", "project_id = :p", {}),
+    ("gov_records", "project_id = :p", {"evidence_mayan_id": None}),
+    ("gov_approvals", "record_id IN (SELECT id FROM proj.gov_records WHERE project_id = :p)", {"record_id": "gov_records"}),
+    ("gov_decisions", """approval_id IN (SELECT a.id FROM proj.gov_approvals a JOIN proj.gov_records r ON r.id = a.record_id
+                                          WHERE r.project_id = :p)""", {"approval_id": "gov_approvals"}),
+    ("gov_history", "record_id IN (SELECT id FROM proj.gov_records WHERE project_id = :p)", {"record_id": "gov_records"}),
     ("charters", "project_id = :p", {}),
     ("phase_states", "project_id = :p", {}),
     ("task_statuses", "project_id = :p", {}),
@@ -72,7 +76,7 @@ TABLES = [
     ("signoff_decisions", """request_id IN (SELECT r.id FROM proj.signoff_requests r JOIN proj.documents d ON d.id = r.document_id
                                              WHERE d.project_id = :p)""", {"request_id": "signoff_requests"}),
 ]
-NEW_GUID = {"projects", "items", "documents", "signoff_requests", "steps", "stakeholders", "stakeholder_notes", "tasks", "org_people", "standards", "gov_records", "repo_tags"}   # tables whose guid is made new (when they have one)
+NEW_GUID = {"projects", "items", "documents", "signoff_requests", "steps", "stakeholders", "stakeholder_notes", "tasks", "org_people", "standards", "gov_records", "gov_approvals", "repo_tags"}   # tables whose guid is made new (when they have one)
 
 
 def folder() -> Path:

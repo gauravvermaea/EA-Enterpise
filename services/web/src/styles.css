@@ -1670,3 +1670,5 @@ table.repo-docs tr.repo-versions-row > td { background: #fafbfc; padding: 2px 6p
 .ar-choose a { display: block; padding: 6px 8px; border-radius: 6px; }
 .ar-choose a:hover { background: #eef3fb; }
 .ar-item { position: relative; }
+.gov-approval { border-top: 1px solid var(--line, #d9dee5); margin-top: 12px; padding-top: 8px; }
+.gov-approval h4 { margin: 0 0 6px; }

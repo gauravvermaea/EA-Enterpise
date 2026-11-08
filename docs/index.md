@@ -41,6 +41,8 @@ Each phase has its own notes: what it delivers, a demo, checks, how to upgrade a
 
 | Phase | Notes | State |
 | --- | --- | --- |
+Every phase in detail, with versions and the planned ones: [build-phases.md](build-phases.md).
+
 | 0 | [Foundations](phase-0.md) | closed |
 | 1 | [Metamodel store and the ArchiMate 4 seed](phase-1.md) | closed |
 | 2 | [Insurance reference model, locked models, library page and versions](phase-2.md) | closed |
@@ -59,16 +61,16 @@ Each phase has its own notes: what it delivers, a demo, checks, how to upgrade a
 | 10 | [Administration console and application settings](phase-10.md) | closed |
 | 10.1 | [Import and export sheets](phase-10.1.md) | closed |
 | 12 | [Validation and data quality](phase-12.md) | closed |
-| 12.1 | [Start-up in two tiers, open pictures in draw.io](phase-12.1.md) | built, waiting for the owner's test |
-| 13 | [Architecture projects, the project library and the repository in Documents](phase-13.md) | built, waiting for the owner's test |
-| 13.0.1 | [Setting up and running a project: scope, goals and outcomes, sponsor, editing, sign-off, the ADM landing page, finishing](phase-13.0.1.md) | built, waiting for the owner's test |
-| 13.0.3 | [Model roles and project templates as wizards](phase-13.0.3.md) | built, waiting for the owner's test |
-| 13.0.4 | [Admin by wizards, architecture on screens, five areas](phase-13.0.4.md) | built, waiting for the owner's test |
-| 13.0.5 | [Common analysis](phase-13.0.5.md) | built, waiting for the owner's test |
-| 13.0.6 | [The project repository as a table: versions, tags, accept or approve, archive and delete](phase-13.0.6.md) | built, waiting for the owner's test |
-| 13.0.2 | [Every slow button as a background task, the task drawer](phase-13.0.2.md) | built, waiting for the owner's test |
-| 13.0.7 | [Content framework, architecture repository link, project organisation, tasks](phase-13.0.7.md) | built, waiting for the owner's test |
-| 13.0.8 | [The organisation's reference library](phase-13.0.8.md) | built, waiting for the owner's test |
+| 12.1 | [Start-up in two tiers, open pictures in draw.io](phase-12.1.md) | closed |
+| 13 | [Architecture projects, the project library and the repository in Documents](phase-13.md) | closed |
+| 13.0.1 | [Setting up and running a project: scope, goals and outcomes, sponsor, editing, sign-off, the ADM landing page, finishing](phase-13.0.1.md) | closed |
+| 13.0.3 | [Model roles and project templates as wizards](phase-13.0.3.md) | closed |
+| 13.0.4 | [Admin by wizards, architecture on screens, five areas](phase-13.0.4.md) | closed |
+| 13.0.5 | [Common analysis](phase-13.0.5.md) | closed |
+| 13.0.6 | [The project repository as a table: versions, tags, accept or approve, archive and delete](phase-13.0.6.md) | closed |
+| 13.0.2 | [Every slow button as a background task, the task drawer](phase-13.0.2.md) | closed |
+| 13.0.7 | [Content framework, tagging, architecture repository links, project organisation, tasks](phase-13.0.7.md) | closed |
+| 13.0.8 | [The organisation's reference library](phase-13.0.8.md) | closed |
 | 13.0.9 | [The Architecture Repository structure](phase-13.0.9.md) | planned: its own design session first |
 | 13.1 | [Project bases, TOGAF 10 metamodel, standards, governance log, charter; the documents table, repository tags, the Phases tab](phase-13.1.md) | closed |
 | 13.2 | [Tracking sheets: light sheets at project and organisation level, Excel in and out](phase-13.2.md) | requested for later |

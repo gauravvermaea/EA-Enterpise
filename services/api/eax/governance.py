@@ -5,6 +5,13 @@ Issues, and any kind a project makes up (with its own statuses). A record has a 
 an owner, a status, rich-text detail, an end or review date, what it relates to, and (a dispensation) the principle or
 standard it is about. Everyone on the project reads it; contributors write it.
 
+Approval (owner, 8 Nov 2026, D321): every record has an approval state beside its own status: Draft, Waiting for
+approval, Approved, Rejected. Sent for approval to the project's sign-off people (every phase's, once each): approved
+when the project's quorum approves, any rejection rejects it (a rejection needs a reason). Or approved directly by
+anyone who contributes, with evidence (a file, kept in Sign-off evidence) or a reason. A change to an approved or
+waiting record makes it a draft again (an open request is withdrawn); its history keeps every step and the record as it
+was each time.
+
 Architecture charter: a structured page of rich-text sections (purpose, scope, authority, governance and the board,
 principles and standards applied, roles, method, compliance and review), taken from the project's base when the
 project is made. A Project Admin or Lead Architect changes and approves it; a change after approval makes it a draft.
@@ -55,6 +62,7 @@ def listing(conn, project: Any, user) -> dict:
     p = pj.project_row(conn, project)
     pj._need(conn, p, user, "read")
     rows = _rows(conn, """SELECT g.guid::text AS id, g.kind, g.ref, g.title, g.html, g.status, g.owner, g.raised_on, g.expires_on,
+                                 g.approval, g.approved_by, g.approved_at, g.approval_note, g.evidence_name,
                                  g.principle::text AS principle, g.standard::text AS standard, g.related, g.created_by,
                                  coalesce(g.modified_by, g.created_by) AS modified_by, coalesce(g.modified_at, g.created_at) AS modified_at,
                                  pr.name AS principle_name, st.name AS standard_name
@@ -62,11 +70,21 @@ def listing(conn, project: Any, user) -> dict:
                             LEFT JOIN proj.principles pr ON pr.guid = g.principle AND pr.project_id = g.project_id
                             LEFT JOIN proj.standards st ON st.guid = g.standard AND st.project_id = g.project_id
                            WHERE g.project_id = :p ORDER BY g.raised_on DESC, g.id DESC""", p=p["id"])
+    reqs = _open_requests(conn, p)
+    me = user.username.lower()
     for r in rows:
         for k in ("raised_on", "expires_on"):
             r[k] = str(r[k])[:10] if r[k] else ""
         r["overdue"] = bool(r["expires_on"] and r["expires_on"] < date.today().isoformat())
-    return {"records": rows, "kinds": kinds(conn, p), "may_edit": _may(conn, p, user),
+        r["approved_at"] = r["approved_at"].isoformat() if hasattr(r.get("approved_at"), "isoformat") else r.get("approved_at")
+        q = reqs.get(r["id"])
+        if q:
+            done = {x["signer"].lower(): x for x in q["decisions"]}
+            q["waiting_for"] = [s for s in q["signers"] if s.lower() not in done]
+            q["mine"] = me in [s.lower() for s in q["signers"]] and me not in done
+        r["request"] = q
+    return {"records": rows, "kinds": kinds(conn, p), "may_edit": _may(conn, p, user), "signers": _signers(conn, p),
+            "quorum": pj_work().quorum_of(p, len(_signers(conn, p))) if _signers(conn, p) else 0,
             "principles": _rows(conn, "SELECT guid::text AS id, name, area FROM proj.principles WHERE project_id = :p ORDER BY area, name", p=p["id"]),
             "standards": _rows(conn, "SELECT guid::text AS id, name, area FROM proj.standards WHERE project_id = :p ORDER BY area, name", p=p["id"])}
 
@@ -114,7 +132,8 @@ def add(conn, project: Any, user, d: dict) -> dict:
                              VALUES (:p, :kind, :ref, :title, :html, :status, :owner, :raised_on, :expires_on,
                                      CAST(:principle AS uuid), CAST(:standard AS uuid), :related, :u) RETURNING guid::text"""),
                      {**v, "p": p["id"], "ref": ref, "u": user.username}).scalar()
-    return {"id": g, "ref": ref, "message": f"{ref} {v['title']} logged."}
+    _history(conn, _row(conn, p, g), user, "logged")
+    return {"id": g, "ref": ref, "message": f"{ref} {v['title']} logged, a draft: send it for approval, or approve it with evidence."}
 
 
 def _row(conn, p: dict, rid: str) -> dict:
@@ -136,7 +155,14 @@ def update(conn, project: Any, user, rid: str, d: dict) -> dict:
                                 expires_on = :expires_on, principle = CAST(:principle AS uuid), standard = CAST(:standard AS uuid),
                                 related = :related, modified_by = :u, modified_at = now() WHERE id = :i"""),
                  {**v, "u": user.username, "i": r["id"]})
-    return {"id": rid, "message": f"{r['ref']} saved."}
+    again = ""
+    if r["approval"] in ("Approved", "Waiting for approval", "Rejected"):
+        _withdraw(conn, r, user, "the record changed")
+        conn.execute(text("""UPDATE proj.gov_records SET approval = 'Draft', approved_by = NULL, approved_at = NULL, approval_note = '',
+                                    evidence_name = NULL, evidence_mayan_id = NULL WHERE id = :i"""), {"i": r["id"]})
+        again = f" It was {r['approval'].lower()}: it is a draft again (the earlier version is kept in its history)."
+    _history(conn, r, user, "changed", "", snapshot=True)
+    return {"id": rid, "message": f"{r['ref']} saved.{again}"}
 
 
 def delete(conn, project: Any, user, rid: str) -> dict:
@@ -248,3 +274,152 @@ def save_charter(conn, project: Any, user, d: dict) -> dict:
     if approve:
         return {"message": "The architecture charter is approved."}
     return {"message": "Charter saved" + (" (it is a draft again: approve it once more)." if changed and (r or {}).get("state") == "Approved" else ".")}
+
+
+# ---------------------------------------------------------------- approval (owner, 8 Nov 2026, D321)
+APPROVAL = ("Draft", "Waiting for approval", "Approved", "Rejected")
+
+
+def pj_work():
+    from . import project_work as pw
+    return pw
+
+
+def _signers(conn, p: dict) -> list[str]:
+    """The project's sign-off people: every phase's and the whole project's, once each."""
+    return [r["u"] for r in _rows(conn, "SELECT DISTINCT lower(username) AS u FROM proj.signoff WHERE project_id = :p ORDER BY 1", p=p["id"])]
+
+
+def _snap(r: dict) -> dict:
+    keep = ("kind", "ref", "title", "html", "status", "owner", "raised_on", "expires_on", "related", "approval", "approved_by",
+            "approved_at", "approval_note", "evidence_name")
+    return {k: (str(r[k]) if r.get(k) is not None and not isinstance(r[k], (str, int)) else r.get(k)) for k in keep}
+
+
+def _history(conn, r: dict, user, action: str, note: str = "", snapshot: bool = False) -> None:
+    conn.execute(text("""INSERT INTO proj.gov_history (record_id, by_user, action, note, snapshot)
+                         VALUES (:r, :u, :a, :n, CAST(:s AS jsonb))"""),
+                 {"r": r["id"], "u": user.username, "a": action, "n": note or "", "s": json.dumps(_snap(r)) if snapshot else None})
+
+
+def _open_requests(conn, p: dict) -> dict:
+    """guid of a record -> its open request: signers, quorum, note, who raised it, decisions so far."""
+    out = {}
+    for a in _rows(conn, """SELECT a.id AS _id, a.guid::text AS id, g.guid::text AS rec, a.signers, a.quorum, a.note, a.raised_by, a.raised_at
+                              FROM proj.gov_approvals a JOIN proj.gov_records g ON g.id = a.record_id
+                             WHERE g.project_id = :p AND a.state = 'open'""", p=p["id"]):
+        a["raised_at"] = a["raised_at"].isoformat() if hasattr(a["raised_at"], "isoformat") else a["raised_at"]
+        a["signers"] = list(a["signers"])
+        a["decisions"] = [{**x, "at": x["at"].isoformat() if hasattr(x["at"], "isoformat") else x["at"]} for x in
+                          _rows(conn, "SELECT signer, decision, comment, at FROM proj.gov_decisions WHERE approval_id = :a ORDER BY at", a=a.pop("_id"))]
+        out[a.pop("rec")] = a
+    return out
+
+
+def _withdraw(conn, r: dict, user, why: str) -> None:
+    a = _one(conn, "UPDATE proj.gov_approvals SET state = 'withdrawn', closed_at = now() WHERE record_id = :r AND state = 'open' RETURNING id",
+             r=r["id"])
+    if a:
+        _history(conn, r, user, "approval request withdrawn", why)
+
+
+def send_for_approval(conn, project: Any, user, rid: str, note: str = "") -> dict:
+    """Asks the project's sign-off people to approve the record; each is told in the application."""
+    from . import notify
+    p = pj.project_row(conn, project)
+    pj._need(conn, p, user, "contribute")
+    r = _row(conn, p, rid)
+    conn.execute(text("SELECT 1 FROM proj.gov_records WHERE id = :i FOR UPDATE"), {"i": r["id"]})
+    if r["approval"] == "Approved":
+        raise EditError(f"{r['ref']} is approved already: change it first to ask again.", 409)
+    if _one(conn, "SELECT 1 AS x FROM proj.gov_approvals WHERE record_id = :r AND state = 'open'", r=r["id"]):
+        raise EditError(f"{r['ref']} is already waiting for approval.", 409)
+    signers = _signers(conn, p)
+    if not signers:
+        raise EditError("Nobody signs off in this project yet: set who signs off (Edit › People and sign-off), or approve it with evidence.", 409)
+    q = pj_work().quorum_of(p, len(signers))
+    conn.execute(text("""INSERT INTO proj.gov_approvals (record_id, signers, quorum, note, raised_by)
+                         VALUES (:r, CAST(:s AS text[]), :q, :n, :u)"""), {"r": r["id"], "s": signers, "q": q, "n": (note or "").strip(), "u": user.username})
+    conn.execute(text("UPDATE proj.gov_records SET approval = 'Waiting for approval' WHERE id = :i"), {"i": r["id"]})
+    _history(conn, r, user, "sent for approval", note, snapshot=True)
+    notify.create(pj.core(conn), kind="project.governance_approval", category="request", actor=user.username,
+                  title=f"Approve {r['ref']} {r['title']}",
+                  body=f"Project {p['name']}: {user.username} asks you to approve or reject this {r['kind'].lower()}.{(' ' + note) if note else ''}",
+                  link=f"#/projects/{p['guid']}/governance?kind={r['kind']}", recipients=signers, include_actor=True)
+    return {"message": f"Asked {', '.join(signers)} to approve {r['ref']}: approved when {q} of {len(signers)} approve; any rejection rejects it."}
+
+
+def decide(conn, project: Any, user, rid: str, decision: str, comment: str = "") -> dict:
+    """A sign-off person approves or rejects (a rejection needs a reason)."""
+    from . import notify
+    p = pj.project_row(conn, project)
+    pj._need(conn, p, user, "read")
+    if p.get("status") in pj_work().FROZEN:
+        raise EditError(f"{p['name']} is {p['status']}: it is read only.", 409)
+    r = _row(conn, p, rid)
+    a = _one(conn, "SELECT * FROM proj.gov_approvals WHERE record_id = :r AND state = 'open' FOR UPDATE", r=r["id"])
+    if not a:
+        raise EditError(f"{r['ref']} is not waiting for approval.", 409)
+    me = user.username.lower()
+    if me not in [s.lower() for s in a["signers"]]:
+        raise EditError("You are not one of its sign-off people.", 403)
+    if decision not in ("approved", "rejected"):
+        raise EditError("Approve or reject.")
+    if decision == "rejected" and not (comment or "").strip():
+        raise EditError("Say why it is rejected.")
+    if _one(conn, "SELECT 1 AS x FROM proj.gov_decisions WHERE approval_id = :a AND lower(signer) = :u", a=a["id"], u=me):
+        raise EditError("You have decided already.", 409)
+    conn.execute(text("INSERT INTO proj.gov_decisions (approval_id, signer, decision, comment) VALUES (:a, :s, :d, :c)"),
+                 {"a": a["id"], "s": me, "d": decision, "c": (comment or "").strip()})
+    _history(conn, r, user, decision, comment)
+    decs = [x["decision"] for x in _rows(conn, "SELECT decision FROM proj.gov_decisions WHERE approval_id = :a", a=a["id"])]
+    state = pj_work().settle_state(decs, a["quorum"])
+    if state == "open":
+        return {"message": f"{'Approved' if decision == 'approved' else 'Rejected'}: {decs.count('approved')} of the {a['quorum']} approvals needed."}
+    conn.execute(text("UPDATE proj.gov_approvals SET state = :s, closed_at = now() WHERE id = :a"), {"s": state, "a": a["id"]})
+    word = "Approved" if state == "approved" else "Rejected"
+    conn.execute(text("""UPDATE proj.gov_records SET approval = :w, approved_by = CASE WHEN :w = 'Approved' THEN :by ELSE NULL END,
+                                approved_at = CASE WHEN :w = 'Approved' THEN now() ELSE NULL END, approval_note = :n WHERE id = :i"""),
+                 {"w": word, "by": ", ".join(x["signer"] for x in _rows(conn, "SELECT signer FROM proj.gov_decisions WHERE approval_id = :a AND decision = 'approved'", a=a["id"])),
+                  "n": (comment or "").strip(), "i": r["id"]})
+    _history(conn, {**r, "approval": word}, user, f"approval {state}", "", snapshot=True)
+    notify.create(pj.core(conn), kind=f"project.governance_{state}", category="request", actor=user.username,
+                  title=f"{r['ref']} {r['title']} is {state}", body=f"Project {p['name']}: the approval you asked for is {state}.",
+                  link=f"#/projects/{p['guid']}/governance?kind={r['kind']}", recipients=[a["raised_by"]], include_actor=True)
+    return {"message": f"{r['ref']} is {state}."}
+
+
+def approve_with_evidence(conn, project: Any, user, rid: str, reason: str = "", evidence_name: str = "", evidence: bytes = b"") -> dict:
+    """Anyone who contributes marks the record approved, with evidence (a file: minutes, an email) or a reason; an open
+    request for approval is withdrawn."""
+    p = pj.project_row(conn, project)
+    pj._need(conn, p, user, "contribute")
+    r = _row(conn, p, rid)
+    reason = (reason or "").strip()
+    if not reason and not evidence:
+        raise EditError("Give the reason it is approved, or attach the evidence (minutes, an email, a signed page).")
+    if r["approval"] == "Approved":
+        raise EditError(f"{r['ref']} is approved already.", 409)
+    _withdraw(conn, r, user, "approved with evidence")
+    mid = None
+    if evidence:
+        stored = pj_work()._store(conn, p, user, pj_work().EVIDENCE, f"{r['ref']} - {evidence_name or 'evidence'}", evidence,
+                                  origin="evidence", kind="Artifact")
+        mid = stored["mayan_id"]
+    conn.execute(text("""UPDATE proj.gov_records SET approval = 'Approved', approved_by = :u, approved_at = now(), approval_note = :n,
+                                evidence_name = :e, evidence_mayan_id = :m WHERE id = :i"""),
+                 {"u": user.username, "n": reason, "e": evidence_name or None if evidence else None, "m": mid, "i": r["id"]})
+    _history(conn, {**r, "approval": "Approved"}, user, "approved with evidence", reason + (f" (file: {evidence_name})" if evidence else ""), snapshot=True)
+    return {"message": f"{r['ref']} approved{' with ' + evidence_name if evidence else ''}."}
+
+
+def history(conn, project: Any, user, rid: str) -> dict:
+    p = pj.project_row(conn, project)
+    pj._need(conn, p, user, "read")
+    r = _row(conn, p, rid)
+    rows = _rows(conn, "SELECT at, by_user, action, note, snapshot FROM proj.gov_history WHERE record_id = :r ORDER BY at DESC, id DESC", r=r["id"])
+    for x in rows:
+        x["at"] = x["at"].isoformat() if hasattr(x["at"], "isoformat") else x["at"]
+        if isinstance(x["snapshot"], str):
+            x["snapshot"] = json.loads(x["snapshot"])
+    return {"ref": r["ref"], "title": r["title"], "history": rows}

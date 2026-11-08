@@ -53,6 +53,7 @@ GET    /projects/bases                             the project hierarchy (bases,
 GET    /projects/<p>/base                          its bases and what its base offers; POST {kind, id, take} | {base}
 GET    /projects/<p>/standards                     standards by area; POST adds; PUT/DELETE /standards/<s>
 GET    /projects/<p>/governance                    the governance log; POST a record | {new_kind} | {remove_kind}; PUT/DELETE /governance/<r>
+POST   /projects/<p>/governance/<r>/approval|evidence   send for approval, decide; approve with evidence (D321); GET .../history
 GET    /projects/<p>/charter                       the architecture charter; PUT {sections, approve}
 
 The project's organisation (D302): flat, no hierarchy
@@ -1362,6 +1363,52 @@ class ProjectGovernanceRecord(MethodView):
         """Take a record out (Project Admin, Lead Architect)"""
         from .. import governance as gv
         return _run(lambda c: gv.delete(c, project, g.user, rid), write=True, action="project.governance.removed", obj=project)
+
+
+@blp.route("/projects/<string:project>/governance/<string:rid>/approval")
+class ProjectGovernanceApproval(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth()
+    def post(self, data, project, rid):
+        """Approval of a record (D321): {action: send, note} asks the project's sign-off people; {action: approve|reject,
+        comment} is a sign-off person's decision (a rejection needs a comment)"""
+        from .. import governance as gv
+        d = data or {}
+        if d.get("action") == "send":
+            return _run(lambda c: gv.send_for_approval(c, project, g.user, rid, d.get("note") or ""), write=True,
+                        action="project.governance.approval_asked", obj=project)
+        if d.get("action") in ("approve", "reject"):
+            return _run(lambda c: gv.decide(c, project, g.user, rid, "approved" if d["action"] == "approve" else "rejected", d.get("comment") or ""),
+                        write=True, action="project.governance.approval_decided", obj=project)
+        abort(400, message="action is send, approve or reject.")
+
+
+@blp.route("/projects/<string:project>/governance/<string:rid>/evidence")
+class ProjectGovernanceEvidence(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def post(self, project, rid):
+        """Approve a record with evidence (anyone who contributes): multipart reason and/or file"""
+        from .. import governance as gv
+        f = request.files.get("file")
+        name, data = (_file() if f else ("", b""))
+        reason = request.form.get("reason") or ""
+        return _run(lambda c: gv.approve_with_evidence(c, project, g.user, rid, reason, name, data), write=True,
+                    action="project.governance.approved_evidence", obj=project)
+
+
+@blp.route("/projects/<string:project>/governance/<string:rid>/history")
+class ProjectGovernanceHistory(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def get(self, project, rid):
+        """A record's history: logged, changed, sent for approval, decisions, approved; the record as it was each time"""
+        from .. import governance as gv
+        return _run(lambda c: gv.history(c, project, g.user, rid))
 
 
 @blp.route("/projects/<string:project>/charter")

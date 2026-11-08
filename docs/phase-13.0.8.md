@@ -1,6 +1,6 @@
 # Phase 13.0.8: the organisation's reference library (version 0.14.8, D300)
 
-**State:** built (8 Nov 2026), waiting for the owner's test. Migration 0030; `eax/reference_library.py`,
+**State:** accepted and closed by the owner (8 Nov 2026, D322). Migration 0030; `eax/reference_library.py`,
 `eax/text_extract.py` (PDF through pypdf, added to requirements), `ReferenceLibrary.jsx`; routes `/api/v1/reference-library...`.
 
 ## What it is

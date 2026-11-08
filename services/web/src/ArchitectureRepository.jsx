@@ -199,9 +199,10 @@ function GovAcross({ kind }) {
   const { data, error } = useApi(`/api/v1/repository/governance/${kind}`);
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
+  const [appr, setAppr] = useState("");
   if (error) return <p className="status bad">{error}</p>;
   if (!data) return <p className="quiet">Loading...</p>;
-  const rows = data.records.filter((r) => (!status || r.status === status)
+  const rows = data.records.filter((r) => (!status || r.status === status) && (!appr || r.approval === appr)
     && (!q.trim() || `${r.ref} ${r.title} ${r.owner} ${r.project}`.toLowerCase().includes(q.trim().toLowerCase())));
   const statuses = [...new Set(data.records.map((r) => r.status))];
   return (
@@ -212,18 +213,22 @@ function GovAcross({ kind }) {
         <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find" aria-label="Find" />
         <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status"><option value="">Any status</option>
           {statuses.map((s) => <option key={s} value={s}>{s}</option>)}</select>
+        <select value={appr} onChange={(e) => setAppr(e.target.value)} aria-label="Approval"><option value="">Any approval</option>
+          {["Draft", "Waiting for approval", "Approved", "Rejected"].map((s) => <option key={s} value={s}>{s}</option>)}</select>
         <span className="small quiet">{rows.length} of {data.records.length}</span>
       </div>
       <table className="grid-table">
-        <thead><tr><th>Ref</th><th>Title</th><th>Project</th><th>Status</th><th>Owner</th><th>Raised</th><th>Changed</th></tr></thead>
+        <thead><tr><th>Ref</th><th>Title</th><th>Project</th><th>Status</th><th>Approval</th><th>Owner</th><th>Raised</th><th>Changed</th></tr></thead>
         <tbody>
           {rows.map((r) => (
             <tr key={r.id}><td>{r.ref}</td>
               <td><a href={`#/projects/${r.project_id}/governance?kind=${encodeURIComponent(data.kind)}`}>{r.title}</a></td>
-              <td>{r.project}</td><td>{r.status}</td><td>{r.owner}</td><td className="small">{r.raised_on}</td>
+              <td>{r.project}</td><td>{r.status}</td>
+              <td><span className={`rag ${{ Approved: "green", Rejected: "red", "Waiting for approval": "amber" }[r.approval] || "off"} small`}
+                title={r.approved_by ? `by ${r.approved_by}` : ""}>{r.approval}</span></td><td>{r.owner}</td><td className="small">{r.raised_on}</td>
               <td className="small">{r.modified_at ? fmtDateTime(r.modified_at) : ""}</td></tr>
           ))}
-          {!rows.length && <tr><td colSpan={7} className="quiet">{data.records.length ? "Nothing matches." : "None yet."}</td></tr>}
+          {!rows.length && <tr><td colSpan={8} className="quiet">{data.records.length ? "Nothing matches." : "None yet."}</td></tr>}
         </tbody>
       </table>
     </div>

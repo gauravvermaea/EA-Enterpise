@@ -7,7 +7,7 @@ architect's daily work stays on the model and project pages. The application is 
 - Decisions **D283** (model wizards), **D284** (admin by wizards, architecture on screens) and **D285** (five areas), from the
   owner's answers of 7 Nov 2026.
 
-## Status: built, waiting for the owner's test
+## Status: accepted and closed by the owner (8 Nov 2026, D323)
 
 ## The five areas (D285)
 

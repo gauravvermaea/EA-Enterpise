@@ -3,7 +3,7 @@
 // own), Architecture charter (sections, approve); and Project admin's hierarchy of project bases.
 import { Suspense, useMemo, useState } from "react";
 import ProjectTree, { flatten } from "./ProjectTree";
-import { apiFetch } from "./auth";
+import { apiFetch, apiUpload } from "./auth";
 import { refreshAll, useApi } from "./ModelViews";
 import RichText from "./RichText";
 import { Field, Modal } from "./ModelOps";
@@ -200,7 +200,10 @@ export function GovernanceTab({ p }) {
   return (
     <div>
       <p className="quiet">The project's governance log: decisions, dispensations, compliance assessments, risks and issues, and any kind of record
-        the project adds. Each kind has its own tab.</p>
+        the project adds. Each kind has its own tab. Every record needs approval: send it to the project's sign-off people
+        ({(data.signers || []).join(", ") || "none set yet"}{data.quorum ? `; ${data.quorum} must approve` : ""}), or approve it with evidence or a reason.</p>
+      {data.records.some((r) => r.request?.mine) && <p className="status warn">Waiting for your approval: {data.records.filter((r) => r.request?.mine).map((r) =>
+        <button key={r.id} className="linkish" onClick={() => setDlg(r)}>{r.ref} </button>)}</p>}
       <Msg m={msg} />
       <div className="tabs sub" role="tablist">
         <button className={`tab${kind === "*" ? " on" : ""}`} onClick={() => { setKind("*"); setStatus(""); }}>All <span className="quiet small">{data.records.length}</span></button>
@@ -219,13 +222,14 @@ export function GovernanceTab({ p }) {
       </div>
       {!recs.length ? <p className="quiet">Nothing logged{kind === "*" ? "" : ` as ${kind.toLowerCase()}`} yet.</p> : (
         <table className="grid-table">
-          <thead><tr><th>Ref</th><th>Title</th>{kind === "*" && <th>Kind</th>}<th>Status</th><th>Owner</th><th>Date</th><th>Ends / review</th><th>About</th></tr></thead>
+          <thead><tr><th>Ref</th><th>Title</th>{kind === "*" && <th>Kind</th>}<th>Status</th><th>Approval</th><th>Owner</th><th>Date</th><th>Ends / review</th><th>About</th></tr></thead>
           <tbody>{recs.map((r) => (
             <tr key={r.id}>
               <td className="nowrap"><button className="linkish" onClick={() => setDlg(r)}>{r.ref}</button></td>
               <td><button className="linkish task-title" onClick={() => setDlg(r)}>{r.title}</button></td>
               {kind === "*" && <td className="small">{r.kind}</td>}
-              <td><span className="chip small">{r.status}</span></td><td className="small">{r.owner}</td><td className="small nowrap">{r.raised_on}</td>
+              <td><span className="chip small">{r.status}</span></td>
+              <td><ApprovalChip r={r} /></td><td className="small">{r.owner}</td><td className="small nowrap">{r.raised_on}</td>
               <td className={`small nowrap${r.overdue ? " status bad" : ""}`}>{r.expires_on}</td>
               <td className="small">{[r.principle_name && `principle ${r.principle_name}`, r.standard_name && `standard ${r.standard_name}`, r.related].filter(Boolean).join("; ")}</td>
             </tr>
@@ -286,6 +290,7 @@ function GovDialog({ url, data, r, can, onClose, onDelete }) {
         <Field label="Detail">{can ? <RichText value={f.html} onChange={(v) => set("html", v)} placeholder="Context, options, reasons, conditions, actions" /> : rich(f.html)}</Field>
         {r.id && <p className="small quiet">Logged by {r.created_by}; last changed by {r.modified_by}, {fmtDateTime(r.modified_at)}.</p>}
       </div>
+      {r.id && <ApprovalBox url={url} r={r} can={can} onDone={(m) => onClose(m)} />}
     </Modal>
   );
 }
@@ -410,6 +415,68 @@ function BaseDetail({ id }) {
             {!(tpl[i.library_id] || []).length && <span className="quiet">blank</span>}</td></tr>)}</tbody></table>}
       {part === "charter" && (ch ? <div>{ch.sections.map((s2) => <section key={s2.key} className="charter-section"><h4>{s2.title}</h4>{rich(s2.html)}</section>)}</div>
         : <p className="quiet">Loading...</p>)}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- approval of a record (owner, 8 Nov 2026, D321)
+const APPROVAL_TONE = { Draft: "off", "Waiting for approval": "amber", Approved: "green", Rejected: "red" };
+export function ApprovalChip({ r }) {
+  const tip = r.approval === "Approved" ? `by ${r.approved_by || ""}${r.approval_note ? `: ${r.approval_note}` : ""}${r.evidence_name ? ` (evidence: ${r.evidence_name})` : ""}`
+    : r.request ? `waiting for ${r.request.waiting_for.join(", ")}` : "";
+  return <span className={`rag ${APPROVAL_TONE[r.approval] || "off"} small`} title={tip}>{r.approval || "Draft"}</span>;
+}
+
+function ApprovalBox({ url, r, can, onDone }) {
+  const [mode, setMode] = useState("");
+  const [text, setText] = useState("");
+  const [file, setFile] = useState(null);
+  const [err, setErr] = useState("");
+  const [hist, setHist] = useState(null);
+  const base = `${url}/${r.id}`;
+  async function run(fn) {
+    setErr("");
+    try { const out = await fn(); refreshAll(); onDone(out.message); } catch (e) { setErr(e.message); }
+  }
+  const post = (body) => apiFetch(`${base}/approval`, { method: "POST", body: JSON.stringify(body) });
+  async function evidence() {
+    const fd = new FormData();
+    fd.append("reason", text);
+    if (file) fd.append("file", file);
+    return apiUpload(`${base}/evidence`, fd);
+  }
+  const q = r.request;
+  return (
+    <div className="gov-approval">
+      <h4>Approval: <ApprovalChip r={r} /></h4>
+      {r.approval === "Approved" && <p className="small">Approved by {r.approved_by}{r.approved_at ? `, ${fmtDateTime(r.approved_at)}` : ""}
+        {r.approval_note ? <>: {r.approval_note}</> : null}{r.evidence_name ? <> · evidence <b>{r.evidence_name}</b> (Sign-off evidence)</> : null}</p>}
+      {r.approval === "Rejected" && <p className="small status bad">Rejected{r.approval_note ? `: ${r.approval_note}` : ""}. Change it and send it again, or approve it with evidence.</p>}
+      {q && <p className="small">Sent by {q.raised_by} to {q.signers.join(", ")}: {q.quorum} must approve, any rejection rejects it.
+        {q.decisions.length ? <> So far: {q.decisions.map((d) => `${d.signer} ${d.decision}${d.comment ? ` (${d.comment})` : ""}`).join("; ")}.</> : null}
+        {q.waiting_for.length ? <> Waiting for {q.waiting_for.join(", ")}.</> : null}</p>}
+      {err && <p className="status bad small">{err}</p>}
+      <div className="row-gap">
+        {q?.mine && <>
+          <button className="primary" onClick={() => run(() => post({ action: "approve", comment: text }))}>✓ Approve</button>
+          <button className="danger" onClick={() => (text.trim() ? run(() => post({ action: "reject", comment: text })) : setErr("Say why it is rejected (in the box below)."))}>✗ Reject</button>
+        </>}
+        {can && r.approval !== "Approved" && !q && <button onClick={() => setMode(mode === "send" ? "" : "send")}>Send for approval…</button>}
+        {can && r.approval !== "Approved" && <button onClick={() => setMode(mode === "evidence" ? "" : "evidence")}>Approve with evidence…</button>}
+        <button className="linkish small" onClick={() => apiFetch(`${base}/history`).then((h) => setHist(h.history)).catch((e) => setErr(e.message))}>🕘 History</button>
+      </div>
+      {(q?.mine || mode) && <textarea rows={2} value={text} onChange={(e) => setText(e.target.value)} style={{ width: "100%", marginTop: 6 }}
+        placeholder={mode === "evidence" ? "Why it is approved (e.g. Architecture Board, 8 Nov: approved)" : mode === "send" ? "A note for the approvers (optional)" : "Your comment (needed to reject)"} />}
+      {mode === "send" && <button className="primary" onClick={() => run(() => post({ action: "send", note: text }))}>Send to the sign-off people</button>}
+      {mode === "evidence" && <div className="row-gap">
+        <input type="file" onChange={(e) => setFile(e.target.files[0] || null)} aria-label="Evidence file" />
+        <button className="primary" disabled={!text.trim() && !file} onClick={() => run(evidence)}>Mark approved</button>
+        <span className="small quiet">A reason, a file (minutes, an email, a signed page), or both.</span></div>}
+      {hist && <table className="grid-table small" style={{ marginTop: 8 }}>
+        <thead><tr><th>When</th><th>Who</th><th>What</th><th>Note</th></tr></thead>
+        <tbody>{hist.map((h, i) => <tr key={i}><td className="nowrap">{fmtDateTime(h.at)}</td><td>{h.by_user}</td><td>{h.action}
+          {h.snapshot && <span className="quiet" title={`${h.snapshot.title} · ${h.snapshot.status} · ${h.snapshot.approval}`}> (as it was ⓘ)</span>}</td><td>{h.note}</td></tr>)}</tbody>
+      </table>}
     </div>
   );
 }

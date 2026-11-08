@@ -123,3 +123,20 @@ def test_documents_named_planned_and_kinds_and_phase_completion():
     assert "neither (no approval)" in s and "function PhaseDone" in s and '["report", "Project report"]' in s and "Add the file…" in s
     m = (WEB / "Metamodel.jsx").read_text()
     assert "function EntityFinder" in m and "entities (grid)" in m
+
+
+def test_governance_approval():
+    """D321: an approval state beside the status; sent to the sign-off people or approved with evidence or a reason."""
+    sql = (ROOT / "migrations" / "sql" / "0032_repository_tags.sql").read_text()
+    for x in ("ADD COLUMN approval text NOT NULL DEFAULT 'Draft'", "CREATE TABLE proj.gov_approvals", "CREATE TABLE proj.gov_decisions",
+              "CREATE TABLE proj.gov_history"):
+        assert x in sql
+    assert gv.APPROVAL == ("Draft", "Waiting for approval", "Approved", "Rejected")
+    for f in ("send_for_approval", "decide", "approve_with_evidence", "history"):
+        assert callable(getattr(gv, f))
+    api = (ROOT / "eax" / "api" / "projects.py").read_text()
+    assert '"/projects/<string:project>/governance/<string:rid>/approval"' in api and '/evidence"' in api and '/history"' in api
+    bk = (ROOT / "eax" / "project_backup.py").read_text()
+    assert '("gov_approvals"' in bk and '("gov_history"' in bk
+    web = (ROOT.parent / "web" / "src" / "ProjectGovernance.jsx").read_text()
+    assert "function ApprovalBox" in web and "Approve with evidence…" in web and "Send for approval…" in web

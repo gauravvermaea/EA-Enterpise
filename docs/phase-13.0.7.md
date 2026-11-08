@@ -1,5 +1,7 @@
 # Phase 13.0.7: content framework, architecture repository link, project organisation (version 0.14.7, D299, D301, D302)
 
+## Status: accepted and closed by the owner (8 Nov 2026, D322)
+
 Migration `0029_content_framework`. Rebuild with `.\eax clean-restart`.
 
 ## What it delivers

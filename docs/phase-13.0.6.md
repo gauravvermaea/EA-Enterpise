@@ -9,7 +9,7 @@ Goal: the project repository becomes a table, opened on the phase you came from.
 - Version **0.14.6**, migration `0028_repository_table`.
 - Decision **D290**, from the owner's requests and answers of 7 Nov 2026.
 
-## Status: built, waiting for the owner's test
+## Status: accepted and closed by the owner (8 Nov 2026, D323)
 
 ## The table
 

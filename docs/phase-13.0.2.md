@@ -5,7 +5,7 @@ the gateway (a merge on a large model gave a 500). The work runs in the backgrou
 any page. Version **0.14.1**, migration `0023_background`. Decision **D273**, agreed with the owner on 6 Nov 2026
 before building. It extends D192, under which tagging, sheets and backups already ran in the background.
 
-## Status: built, waiting for the owner's test
+## Status: accepted and closed by the owner (8 Nov 2026, D323)
 
 ## What it delivers
 

@@ -4,7 +4,7 @@ Goal: sign in within a minute or two of starting instead of five to seven, see w
 pictures straight in the platform's draw.io. Version **0.13.1**, migration `0021_startup`. Decisions D255 (start-up in
 two tiers), D256 (open in draw.io) and D257 (the grid's commit icon), agreed with the owner on 6 Nov 2026 before building.
 
-## Status: built, waiting for the owner's test
+## Status: accepted and closed by the owner (8 Nov 2026, D323)
 
 ## What phase 12.1 delivers
 

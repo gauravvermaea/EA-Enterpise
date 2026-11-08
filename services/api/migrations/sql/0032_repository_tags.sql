@@ -88,6 +88,46 @@ ALTER TABLE proj.cf_type_areas ADD COLUMN type_code text NOT NULL DEFAULT '';
 -- one value on the type or the class (not on each entity or document); empty: the built-in default
 ALTER TABLE core.entity_types ADD COLUMN repository_area text NOT NULL DEFAULT '';
 ALTER TABLE proj.lib_items ADD COLUMN repository_area text NOT NULL DEFAULT '';
+-- approval of governance records (owner, 8 Nov 2026, D321): every record has an approval state beside its own status.
+-- Sent for approval to the project's sign-off people (approved when the project's quorum approves; any rejection
+-- rejects it), or approved directly by anyone who contributes with evidence (a file) or a reason. A change to an
+-- approved record makes it a draft again; each approval, rejection and change is kept in its history.
+ALTER TABLE proj.gov_records ADD COLUMN approval text NOT NULL DEFAULT 'Draft'
+        CHECK (approval IN ('Draft', 'Waiting for approval', 'Approved', 'Rejected')),
+    ADD COLUMN approved_by text, ADD COLUMN approved_at timestamptz, ADD COLUMN approval_note text NOT NULL DEFAULT '',
+    ADD COLUMN evidence_name text, ADD COLUMN evidence_mayan_id integer;
+CREATE TABLE proj.gov_approvals (
+    id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    guid        uuid NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+    record_id   bigint NOT NULL REFERENCES proj.gov_records (id) ON DELETE CASCADE,
+    signers     text[] NOT NULL,
+    quorum      integer NOT NULL,
+    note        text NOT NULL DEFAULT '',
+    state       text NOT NULL DEFAULT 'open' CHECK (state IN ('open', 'approved', 'rejected', 'withdrawn')),
+    raised_by   text NOT NULL,
+    raised_at   timestamptz NOT NULL DEFAULT now(),
+    closed_at   timestamptz
+);
+CREATE INDEX gov_approvals_record ON proj.gov_approvals (record_id, state);
+CREATE TABLE proj.gov_decisions (
+    id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    approval_id bigint NOT NULL REFERENCES proj.gov_approvals (id) ON DELETE CASCADE,
+    signer      text NOT NULL,
+    decision    text NOT NULL CHECK (decision IN ('approved', 'rejected')),
+    comment     text NOT NULL DEFAULT '',
+    at          timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (approval_id, signer)
+);
+CREATE TABLE proj.gov_history (
+    id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    record_id   bigint NOT NULL REFERENCES proj.gov_records (id) ON DELETE CASCADE,
+    at          timestamptz NOT NULL DEFAULT now(),
+    by_user     text NOT NULL,
+    action      text NOT NULL,                  -- logged, changed, sent for approval, approved, rejected, approved with evidence...
+    note        text NOT NULL DEFAULT '',
+    snapshot    jsonb                           -- the record as it was (the approved version is kept when it changes)
+);
+CREATE INDEX gov_history_record ON proj.gov_history (record_id, at);
 
 DO $$
 BEGIN
