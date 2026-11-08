@@ -97,6 +97,20 @@ class Backups(MethodView):
                 "time_zone": tz, "folder": "work/backups", "version": __version__}
 
 
+@blp.route("/admin/backups/projects")
+class ProjectBackupsAll(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def get(self):
+        """Every project with its own backups (made on its page or here), newest first; each holds the project, its models
+        and the latest version of each document"""
+        from .. import project_backup as pb
+        from ..db import get_projects_engine
+        with get_projects_engine().connect() as pc:
+            return {"projects": pb.list_all(pc)}
+
+
 @blp.route("/admin/backups/schedules/<kind>")
 class Schedule(MethodView):
     @blp.doc(security=SECURITY)

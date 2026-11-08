@@ -6,7 +6,8 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { apiDownload, apiFetch, apiUpload, can, roles } from "./auth";
 import { keepToken } from "./Restores";
-import { fmtDateTime } from "./fmt";
+import { fmtDateTime, fmtStamp } from "./fmt";
+import { RestoreDialog, RestoreProjectFile } from "./ProjectTabs";
 import { Modal } from "./ModelOps";
 import { refreshAll, useApi } from "./ModelViews";
 import { trackTask } from "./tasks";
@@ -23,10 +24,7 @@ function stopBackups(act) {
 
 const size = (b) => (b == null ? "" : b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : b >= 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1e3))} KB`);
 // 20261106T010000Z -> a date and time to read
-function when(stamp) {
-  const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z/.exec(stamp || "");
-  return m ? fmtDateTime(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}Z`) : stamp || "";
-}
+export const when = fmtStamp;
 const KIND = { "on-demand": "On demand", scheduled: "Scheduled", "before-restore": "Before a restore", "before-upgrade": "Before an upgrade", legacy: "Older format" };
 
 export default function AdminBackups() {
@@ -50,10 +48,13 @@ export default function AdminBackups() {
   }
   return (
     <div className="backups">
-      <p className="quiet">Two kinds of backup (D216). The <b>infrastructure backup</b> keeps everything needed to put this installation back:
-        every database, the document files, the certificate, the config file, the release and image versions. The <b>application
-        backup</b> keeps every model as a file you can download, restore as a new model, or take to another installation. Both run in
-        the background while people work; when they run and how many are kept is set under Schedules (pinned ones are always kept). Folder: <code>{data.folder}</code>.
+      <p className="quiet">Three kinds of backup. The <b>infrastructure backup</b> keeps everything needed to put this installation back:
+        every database, <b>Documents</b> (its database and every version of every document file), the certificate, the config file, the
+        release and image versions; restoring it here or with <code>.\eax restore</code> puts Documents back too. The <b>application
+        backup</b> keeps every model, and every project with its documents, as files you can download, restore, or take to another
+        installation; restoring it here or with <code>.\eax restore-app</code> puts the projects and their documents back too. A <b>project
+        backup</b> keeps one project with its models and documents. They run in the background while people work; when they run and how
+        many are kept is set under Schedules (pinned ones are always kept). Folder: <code>{data.folder}</code>.
         {!data.on && <strong className="status bad"> Backups are switched off (Administration &gt; Services).</strong>}</p>
       {msg && <p className="status ok">{msg}</p>}
       {err && <p className="status bad">{err}</p>}
@@ -61,6 +62,7 @@ export default function AdminBackups() {
       <Schedules data={data} act={act} />
       <InfraSection data={data} onRestore={setRestoring} act={act} />
       <AppSection data={data} act={act} onRestore={setRestoreModel} />
+      <ProjectSection act={act} />
       {restoring && <RestoreInfra b={restoring} choices={infra.restore_choices || {}} onClose={() => { setRestoring(null); refreshAll(); }} />}
       {restoreModel && <RestoreModel b={restoreModel} onClose={() => setRestoreModel(null)} />}
     </div>
@@ -159,7 +161,10 @@ function InfraSection({ data, onRestore, act }) {
                 <td className="small">{KIND[b.kind] || b.kind}</td>
                 <td className="small">{b.by}</td>
                 <td className="small">{b.version}</td>
-                <td className="small">{b.parts ? <>{(b.parts.databases || []).length} databases{(b.parts.files || []).length ? `, ${b.parts.files.join(" and ")} files` : ""}{b.parts.config ? ", config" : ""}{b.parts.code ? ", versions" : ""}</> : ""}</td>
+                <td className="small">{b.parts ? <>{(b.parts.databases || []).length} databases{(b.parts.files || []).length ? `, ${b.parts.files.join(" and ")} files` : ""}{b.parts.config ? ", config" : ""}{b.parts.code ? ", versions" : ""}
+                  <div>{(b.parts.databases || []).includes("mayan") && (b.parts.files || []).includes("documents")
+                    ? <span className="ok-text" title="The document store's database and every version of every file">✓ Documents</span>
+                    : <span className="bad-text" title="This backup does not hold all of Documents">✗ Documents not complete</span>}</div></> : ""}</td>
                 <td className="small nowrap">{size(b.bytes)}</td>
                 <td className={b.status === "ok" ? "ok-text small" : b.status === "failed" ? "bad-text small" : "small"} title={b.error || ""}>{b.status}{b.error ? `: ${b.error}` : ""}</td>
                 <td className="nowrap">
@@ -192,7 +197,7 @@ function AppSection({ data, act, onRestore }) {
   const superAdmin = roles().includes("super-admin");
   async function backupNow() {
     await act(async () => { const t = await apiFetch("/api/v1/admin/backups/application", { method: "POST", body: JSON.stringify({ tag }) }); trackTask(t, "#/admin/backups"); setTag(""); return t; },
-      () => "Backing up every model in the background: it is listed here when done.");
+      () => "Backing up every model and every project (with its documents) in the background: it is listed here when done.");
   }
   async function upload(e) {
     const f = e.target.files?.[0];
@@ -200,19 +205,20 @@ function AppSection({ data, act, onRestore }) {
     const form = new FormData();
     form.append("file", f);
     await act(() => apiUpload("/api/v1/admin/backups/upload", form), (out) => (out.run
-      ? `The application backup '${out.tag}' (${out.models} models) is uploaded: it is listed below.`
+      ? `The application backup '${out.tag}' (${out.models} models, ${out.projects || 0} projects) is uploaded: it is listed below.`
       : `${out.model.name} is uploaded: restore it as a new model below.`));
     e.target.value = "";
   }
   return (
     <div className="merge-step">
       <h3>Application backups</h3>
-      <p className="quiet small">Every model as a file: its metamodel, entities, relationships, history and tags, with an Excel workbook inside to read
-        (documents and diagrams are added with document management, phase 13). Restore one as a new model, put a model back over itself,
+      <p className="quiet small">Every model as a file: its metamodel, entities, relationships, history and tags, with an Excel workbook inside to read.
+        And every project as a file: its rows, steps, people, sign-off and the latest version of each of its documents (from Documents).
+        Restore one model as a new model, put a model back over itself, restore all (models, then projects with their documents),
         or take the file to another installation and upload it there.</p>
       <div className="row-gap filters">
         <input value={tag} maxLength={60} onChange={(e) => setTag(e.target.value)} placeholder="Tag, e.g. end-of-quarter" />
-        <button className="primary" onClick={backupNow}>Back up every model now</button>
+        <button className="primary" onClick={backupNow}>Back up every model and project now</button>
         <button onClick={() => file.current?.click()} title="A model (.eaxbackup.zip) or a whole application backup (.eaxapp.zip)">Upload a backup file...</button>
         <input ref={file} type="file" accept=".zip" hidden onChange={upload} />
         {(app.runs || []).some((r) => r.status === "running") && <button className="danger" onClick={() => stopBackups(act)}>Stop</button>}
@@ -220,7 +226,7 @@ function AppSection({ data, act, onRestore }) {
       </div>
       <div className="table-scroll">
         <table className="grid-table">
-          <thead><tr><th>Tag</th><th>When</th><th>By</th><th>Models</th><th>Size</th><th>Status</th><th /></tr></thead>
+          <thead><tr><th>Tag</th><th>When</th><th>By</th><th>Models · projects</th><th>Size</th><th>Status</th><th /></tr></thead>
           <tbody>
             {runs.map((r) => (
               <Fragment key={r.name}>
@@ -229,7 +235,8 @@ function AppSection({ data, act, onRestore }) {
                     {r.pinned && <span className="badge pin-badge">📌 pinned</span>}</td>
                   <td className="small nowrap">{when(r.created)}</td>
                   <td className="small">{r.by}</td>
-                  <td className="small">{(r.models || []).filter((m) => m.status === "ok").length}{(r.models || []).some((m) => m.status !== "ok") ? ` (${r.models.filter((m) => m.status !== "ok").length} failed)` : ""}</td>
+                  <td className="small">{(r.models || []).filter((m) => m.status === "ok").length}{(r.models || []).some((m) => m.status !== "ok") ? ` (${r.models.filter((m) => m.status !== "ok").length} failed)` : ""}
+                    {" · "}{(r.projects || []).filter((p) => p.status === "ok").length}{(r.projects || []).some((p) => p.status !== "ok") ? ` (${r.projects.filter((p) => p.status !== "ok").length} failed)` : ""}</td>
                   <td className="small nowrap">{size(r.bytes)}</td>
                   <td className="small">{r.status}{r.uploaded && <span className="quiet"> (uploaded)</span>}</td>
                   <td className="nowrap">{r.status !== "running" && <>
@@ -249,6 +256,15 @@ function AppSection({ data, act, onRestore }) {
                     <td colSpan="3" className="small nowrap">{m.status === "ok" && <>
                       <button className="linkish" onClick={() => apiDownload(`/api/v1/admin/backups/application/${r.name}/${m.file}`, m.file).catch((e) => act(() => Promise.reject(e)))}>Download</button>
                       {" · "}<button className="linkish" onClick={() => onRestore({ where: "application", name: r.name, file: m.file, model: m.id, modelName: m.name, kind: m.kind })}>Restore...</button></>}</td>
+                  </tr>
+                ))}
+                {open === r.name && (r.projects || []).map((p) => (
+                  <tr key={`${r.name}/p/${p.id}`} className="sub-row">
+                    <td colSpan="3" className="small">↳ 📁 {p.name} <span className="quiet">(project)</span>{p.status !== "ok" && <span className="bad-text"> failed: {p.error}</span>}</td>
+                    <td className="small">{p.status === "ok" ? `${p.documents} documents${p.missing ? ` (${p.missing} could not be read from Documents)` : ""}` : ""}</td>
+                    <td colSpan="3" className="small nowrap">{p.status === "ok" &&
+                      <button className="linkish" title="Restore it on its own with Project backups below (Upload), or on Project admin › Wizards"
+                        onClick={() => apiDownload(`/api/v1/admin/backups/application/${r.name}/${p.file}`, p.file).catch((e) => act(() => Promise.reject(e)))}>Download</button>}</td>
                   </tr>
                 ))}
               </Fragment>
@@ -274,11 +290,12 @@ function AppSection({ data, act, onRestore }) {
 }
 
 // Every model of an application backup put back over itself (D233; Super Admins)
-function RestoreAll({ r, onClose }) {
+export function RestoreAll({ r, onClose }) {
   const [word, setWord] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const n = (r.models || []).filter((m) => m.status === "ok").length;
+  const np = (r.projects || []).filter((p) => p.status === "ok").length;
   async function go() {
     setErr(""); setBusy(true);
     try {
@@ -291,12 +308,15 @@ function RestoreAll({ r, onClose }) {
   return (
     <Modal title={`Restore every model of ${r.tag}`} onClose={onClose}
       actions={<><button onClick={onClose}>Cancel</button><button className="danger" disabled={word !== "RESTORE" || busy} onClick={go}>{busy ? "Starting..." : "Restore all"}</button></>}>
-      <p>Backup of {when(r.created)} by {r.by}: {n} model{n === 1 ? "" : "s"}.</p>
+      <p>Backup of {when(r.created)} by {r.by}: {n} model{n === 1 ? "" : "s"}{np ? `, ${np} project${np === 1 ? "" : "s"} with their documents` : ""}.</p>
       <ul className="small">
         <li>Every model in it goes back to how it was in this backup, as one commit of kind restore. What each is now is kept first, as a model backup and a tag.</li>
         <li>A model that no longer exists is made again, with its name.</li>
         <li>Models made after this backup stay as they are, and so do root metamodels and library models (only project models are put back).</li>
         <li>It can be run again: a model made again by an earlier run is kept as it is.</li>
+        {np > 0 && <li>Then every project in it goes back as it was (its steps, people, sign-off, document classes and documents), over itself, or made again when it is gone.
+          Its repository is built again in Documents within a few minutes: a document still there gets the backed-up file as its newest version when it differs
+          (its history kept); one that is gone is put back. Projects made after this backup stay as they are.</li>}
         <li>A model that cannot be restored is listed with why; the others go on. Everyone is notified; the log is on the Restores tab.</li>
       </ul>
       <label className="ed-field"><span>Type RESTORE to confirm</span><input value={word} onChange={(e) => setWord(e.target.value)} autoFocus /></label>
@@ -306,7 +326,7 @@ function RestoreAll({ r, onClose }) {
 }
 
 // Restore an infrastructure backup: choose what, type RESTORE, then follow it (the API may stop and come back)
-function RestoreInfra({ b, choices, onClose }) {
+export function RestoreInfra({ b, choices, onClose }) {
   const [what, setWhat] = useState("full");
   const [word, setWord] = useState("");
   const [err, setErr] = useState("");
@@ -456,3 +476,72 @@ export function ModelBackupsTab({ model }) {
     </div>
   );
 }
+
+// Project backups (owner, 7 Nov 2026): every project's own backups, each with its models and documents
+function ProjectSection({ act }) {
+  const { data, error } = useApi("/api/v1/admin/backups/projects");
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState("");
+  const [why, setWhy] = useState("");
+  const [restore, setRestore] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const superAdmin = roles().includes("super-admin");
+  const list = (data?.projects || []).filter((p) => !q.trim() || p.name.toLowerCase().includes(q.toLowerCase()));
+  async function backup(p) {
+    await act(async () => { const t = await apiFetch(`/api/v1/projects/${p.id}/backups`, { method: "POST", body: JSON.stringify({ why: why || "Administration › Backups" }) }); trackTask(t, "#/admin/backups"); return t; },
+      () => `Backing up ${p.name} with its models and documents in the background: it is listed here when done.`);
+  }
+  return (
+    <div className="merge-step">
+      <h3>Project backups</h3>
+      <p className="quiet small">One project in one file (<code>.eaxproject.zip</code>): its rows, steps and sub steps, people and sign-off, document classes,
+        the models it works on and the latest version of each of its documents. Project Admins make them on the project's About tab too.
+        Restore one as a new project, or (Super Admins) put the project back over itself: its own models go back as they were too, and its documents
+        go back into Documents as their newest version.</p>
+      <div className="row-gap filters">
+        <input value={why} maxLength={60} onChange={(e) => setWhy(e.target.value)} placeholder="Why, e.g. before phase C" />
+        <button onClick={() => setUploading(true)} title="A project backup file (.eaxproject.zip), from here or another installation">Upload and restore as a new project...</button>
+        <input type="search" className="push-right" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search projects" />
+      </div>
+      {error && <p className="status bad">{error}</p>}
+      {!data && !error && <p>Loading...</p>}
+      {data && <div className="table-scroll">
+        <table className="grid-table">
+          <thead><tr><th>Project</th><th>Status</th><th>Backups</th><th>Latest</th><th /></tr></thead>
+          <tbody>
+            {list.map((p) => (
+              <Fragment key={p.id}>
+                <tr>
+                  <td><button className="linkish" disabled={!p.backups.length} onClick={() => setOpen(open === p.id ? "" : p.id)}>{p.backups.length ? (open === p.id ? "▾ " : "▸ ") : ""}<b>{p.name}</b></button></td>
+                  <td className="small">{p.status}</td>
+                  <td className="small">{p.backups.length}</td>
+                  <td className="small nowrap">{p.backups[0] ? when(p.backups[0].created) : <span className="quiet">none</span>}</td>
+                  <td className="nowrap"><button className="linkish" onClick={() => backup(p)}>Back up now</button>{" · "}<a href={`#/projects/${p.id}/about`}>Open</a></td>
+                </tr>
+                {open === p.id && p.backups.map((b) => (
+                  <tr key={b.file} className="sub-row">
+                    <td colSpan="2" className="small">↳ {when(b.created)} by {b.by}{b.why ? <span className="quiet"> · {b.why}</span> : ""}</td>
+                    <td className="small">{b.counts.documents || 0} documents, {b.models} models, {b.counts.steps || 0} steps{b.documents_missing ? <span className="bad-text"> ({b.documents_missing} files could not be read)</span> : ""}</td>
+                    <td className="small nowrap">{size(b.size)}</td>
+                    <td className="small nowrap">
+                      <button className="linkish" onClick={() => apiDownload(`/api/v1/projects/${p.id}/backups/${b.file}`, b.file).catch((e) => act(() => Promise.reject(e)))}>Download</button>
+                      {" · "}<button className="linkish" onClick={() => setRestore({ p, b, over: false })}>Restore as a new project...</button>
+                      {superAdmin && <>{" · "}<button className="linkish" onClick={() => setRestore({ p, b, over: true })}>Put back over itself...</button></>}
+                      {" · "}<button className="linkish" onClick={() => {
+                        // eslint-disable-next-line no-alert
+                        if (window.confirm(`Delete this backup of ${p.name}? This cannot be undone.`)) act(() => apiFetch(`/api/v1/projects/${p.id}/backups/${b.file}`, { method: "DELETE" }), () => "Deleted.");
+                      }}>Delete</button></td>
+                  </tr>
+                ))}
+              </Fragment>
+            ))}
+            {!list.length && <tr><td colSpan="5" className="quiet">{(data.projects || []).length ? `No project matches "${q}".` : "No project yet."}</td></tr>}
+          </tbody>
+        </table>
+      </div>}
+      {restore && <RestoreDialog {...restore} onClose={() => { setRestore(null); refreshAll(); }} />}
+      {uploading && <RestoreProjectFile onClose={() => setUploading(false)} />}
+    </div>
+  );
+}
+

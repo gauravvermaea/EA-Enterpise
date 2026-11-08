@@ -30,7 +30,7 @@ the `eax` commands (backups and restores included) and the phase table.
 | Document | What it covers |
 | --- | --- |
 | [Requirements](requirements/EA_Explorer_Requirements.xlsx) | Every requirement with its acceptance criteria, priority and phase |
-| [Build plan](requirements/EA_Explorer_Build_Plan.xlsx) | The 54 phases, their order, demos and requirements, and the timeline |
+| [Build plan](requirements/EA_Explorer_Build_Plan.xlsx) | The 57 phases, their order, demos and requirements, and the timeline |
 | [High-level requirements](requirements/EA_Explorer_High_Level_Requirements.docx) | The product's purpose, scope and main requirements |
 | [Technical architecture](requirements/EA_Explorer_Technical_Architecture.docx) | The technical architecture document |
 | [Master template repository](requirements/EA_Explorer_Master_Template_Repository.xlsx) | The project library as reviewed: phases, steps, the master list of deliverables and artifacts, folders and templates |
@@ -61,3 +61,19 @@ Each phase has its own notes: what it delivers, a demo, checks, how to upgrade a
 | 12 | [Validation and data quality](phase-12.md) | closed |
 | 12.1 | [Start-up in two tiers, open pictures in draw.io](phase-12.1.md) | built, waiting for the owner's test |
 | 13 | [Architecture projects, the project library and the repository in Documents](phase-13.md) | built, waiting for the owner's test |
+| 13.0.1 | [Setting up and running a project: scope, goals and outcomes, sponsor, editing, sign-off, the ADM landing page, finishing](phase-13.0.1.md) | built, waiting for the owner's test |
+| 13.0.3 | [Model roles and project templates as wizards](phase-13.0.3.md) | built, waiting for the owner's test |
+| 13.0.4 | [Admin by wizards, architecture on screens, five areas](phase-13.0.4.md) | built, waiting for the owner's test |
+| 13.0.5 | [Common analysis](phase-13.0.5.md) | built, waiting for the owner's test |
+| 13.0.6 | [The project repository as a table: versions, tags, accept or approve, archive and delete](phase-13.0.6.md) | built, waiting for the owner's test |
+| 13.0.2 | [Every slow button as a background task, the task drawer](phase-13.0.2.md) | built, waiting for the owner's test |
+| 13.0.7 | [Content framework, architecture repository link, project organisation, tasks](phase-13.0.7.md) | built, waiting for the owner's test |
+| 13.0.8 | [The organisation's reference library](phase-13.0.8.md) | built, waiting for the owner's test |
+| 13.0.9 | [The Architecture Repository structure](phase-13.0.9.md) | planned: its own design session first |
+| 13.1 | [Project bases, TOGAF 10 metamodel, standards, governance log, charter; the documents table, repository tags, the Phases tab](phase-13.1.md) | closed |
+| 13.2 | [Tracking sheets: light sheets at project and organisation level, Excel in and out](phase-13.2.md) | requested for later |
+| 13.3 | [Turn Projects, Repository and References on or off: a lighter, metamodel-only application](phase-13.3.md) | requested for later |
+| 13.4 | [Reference library with pages: an open-source wiki beside links and documents](phase-13.4.md) | requested for later |
+| 13.5 | [A console app: an interactive session with EA Explorer](phase-13.5.md) | requested for later |
+| 13.6 | [Load balancing: servers go up and down with the load](phase-13.6.md) | requested for later |
+| 13.7 | [Real-time mirrors of PostgreSQL and the other servers](phase-13.7.md) | requested for later |

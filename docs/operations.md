@@ -95,6 +95,8 @@ Explorer ships only their names; a Super Admin loads the licensed files once, af
    downloaded it; or unzip it into the folder above and press **Load templates from the folder**. Each file that
    matches a TOGAF template is stored in Documents unchanged. A single template can be uploaded on its own line.
 
+Once the files are in the folder, each start loads any TOGAF template without its file automatically (in the
+background, as soon as Documents is up), so a clean restart, which empties Documents, needs no hand work.
 `eax up` shows these steps until the folder holds the files. Documents must be up (green in the header) to load them.
 
 **Then finish the template library setup** (D264), on the same page: tick the template libraries to offer to projects
@@ -110,7 +112,7 @@ which `cleanup --all` deletes. Passwords and secrets are masked in diagnostics a
 
 ## Backups (phase 8.4, D216)
 
-Two kinds, both in **`work/backups`** on every installation (not configurable; to keep them on a file server or other
+Three kinds (the project backup added on 7 Nov 2026), all in **`work/backups`** on every installation (not configurable; to keep them on a file server or other
 disk, mount it at `work/backups`, D226), both listed on **Administration > Backups**:
 
 ```
@@ -120,9 +122,10 @@ infrastructure/20261106T010000Z-nightly/          one infrastructure backup (tag
   config/eaexplorer.env  services.env             the config file as it was
   code/release.json  docker-compose.yml  deploy/  the release version, image names and digests, the compose files
   SHA256SUMS  manifest.json  [PINNED]
-application/20261106T093000Z-end-of-quarter/      one application backup: every model as a model backup file
-  manifest.json  models/<model>.eaxbackup.zip
+application/20261106T093000Z-end-of-quarter/      one application backup: every model and every project
+  manifest.json  models/<model>.eaxbackup.zip  projects/<project>.eaxproject.zip
 application/models/<model guid>/...               a model's own backups (made on its Backups tab)
+application/projects/<project guid>/...           a project's own backups (its About tab, or Administration > Backups)
 application/uploaded/...                          files brought from another installation
 ```
 
@@ -130,10 +133,21 @@ application/uploaded/...                          files brought from another ins
   the config file, D222): on or off, when (in the installation's time zone), the tag, how many to keep, when the health
   check warns. Defaults: infrastructure every day at 01:00, application every Sunday at 02:00; both on.
 * **Infrastructure**: on its schedule and on demand (`.\eax backup <tag>` or Back up now). The operations helper runs
-  it; people keep working.
+  it; people keep working. It holds **all of Documents**: Mayan's database (`databases/mayan.dump`) and every version
+  of every document file (`files/documents.tar.gz`); the Holds column shows **✓ Documents**. Restoring it with
+  *full* or *app+data* (on the screen, or `.\eax restore <name> --what full|app+data`), or *files* (Documents' files with its own database, and the certificate),
+  puts Documents back as it was.
 * **Application**: on demand (Back up every model now). A **model backup file** (`.eaxbackup.zip`) holds the deep model
   package (metamodel, content, history), the model as an Excel workbook, and what is needed to put the model back over
-  itself. Model Admins back up their own model on its **Backups** tab. Documents and diagrams join them in phase 13.
+  itself. Model Admins back up their own model on its **Backups** tab. A full application backup also holds **every
+  project** as a project backup file (without its models, which are beside it) with the latest version of each of its
+  documents. **Restore all** (on the screen, or `.\eax restore-app`) puts the models back, then every project over itself
+  (or made again when it is gone): its rows go back as they were, its repository is built again in Documents, and each
+  document still there gets the backed-up file as its newest version when it differs; one that is gone is uploaded again.
+* **Project**: one project with its models and documents (`.eaxproject.zip`), made on the project's About tab by its
+  Project Admins or on Administration > Backups > Project backups. Restored as a **new project**, or by a Super Admin
+  **over itself** (its own models put back as they were too). Project Admins, Lead Architects, IT and Super Admins back
+  projects up and restore them as new ones. The newest of each project's are kept as for models.
 * **Kept**: the newest of each kind as set in its schedule (and the same number of each model's own); the oldest go
   after each backup. **Pinned** backups are never removed (the backup taken before a restore or an upgrade is pinned).
 * `.\eax backups` lists the infrastructure backups.
@@ -152,12 +166,12 @@ Linux and macOS: `./eax.sh ...`.
 | `eax restore <name\|tag\|latest> --what full [--yes]` | The same without questions (for scripts); a tag picks the newest good backup with it, `latest` the newest good one; it says which it chose |
 | `eax restores` | Every restore (infrastructure and model) with its status |
 | `eax stop-backup` | Stops the backups running (infrastructure at once, application after the model it is on); the partial backup is deleted. A restore cannot be stopped |
-| `eax restore-app [run\|tag\|latest] [--yes]` | Every model of an application backup put back over itself; models no longer there made again; newer ones left as they are (the api container must run) |
+| `eax restore-app [run\|tag\|latest] [--yes]` | Every model of an application backup put back over itself; models no longer there made again; newer ones left as they are; then every project in it over itself with its documents (the api container must run) |
 | `eax maintenance on\|off` | Shows the maintenance page to everyone (or stops showing it) |
 | `eax restore-log <id>` | A restore's whole log |
 | `eax delete-backup <name>` | Deletes an infrastructure backup (unpin it first) |
 | `eax delete-restore <id>` | Forgets a finished restore and its log |
-| `eax app-backup [tag]` | Backs up every model now (an application backup) |
+| `eax app-backup [tag]` | Backs up every model and every project with its documents now (an application backup) |
 | `eax restore-model` | Lists the application backups and their models to choose from, then restores one as a new model or over itself (the api container must run) |
 
 ## Restore

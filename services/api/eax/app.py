@@ -54,6 +54,7 @@ def create_app(testing: bool = False) -> Flask:
     from .api.break_glass import blp as break_glass_blp
     from .api.change_log import blp as change_log_blp
     from .api.commits import blp as commits_blp
+    from .api.commons import blp as commons_blp
     from .api.content import blp as content_blp
     from .api.grids import blp as grids_blp
     from .api.heartbeat import blp as heartbeat_blp
@@ -62,6 +63,7 @@ def create_app(testing: bool = False) -> Flask:
     from .api.me import blp as me_blp
     from .api.metamodel import blp as metamodel_blp
     from .api.metamodel_edit import blp as metamodel_edit_blp
+    from .api.model_wizards import blp as model_wizards_blp
     from .api.models import blp as models_blp
     from .api.notifications import blp as notifications_blp
     from .api.projects import blp as projects_blp
@@ -77,7 +79,7 @@ def create_app(testing: bool = False) -> Flask:
     for blp in (heartbeat_blp, me_blp, access_blp, break_glass_blp, jobs_blp, audit_blp, metamodel_blp,
                 metamodel_edit_blp, models_blp, content_blp, grids_blp, viewpoints_blp, commits_blp,
                 versions_blp, change_log_blp, admin_blp, sql_blp, tasks_blp, sheets_blp, notifications_blp, backups_blp,
-                quality_blp, icons_blp, trees_blp, startup_blp, projects_blp):
+                quality_blp, icons_blp, trees_blp, startup_blp, projects_blp, model_wizards_blp, commons_blp):
         api.register_blueprint(blp)
 
     @app.before_request

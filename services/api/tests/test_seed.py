@@ -1,5 +1,7 @@
 """The ArchiMate 4 seed builder (no database needed)."""
 
+from pathlib import Path
+
 from eax.seed import archimate4 as A
 from eax.seed import build
 
@@ -38,7 +40,7 @@ def test_every_sample_attribute_applies_to_its_type():
 
 def test_seed_sql_shape():
     sql = build.seed_sql(with_template=True, with_sample=True)
-    assert sql.count("INSERT INTO core.models") == 4  # Root, ArchiMate 4, insurance reference model, sample
+    assert sql.count("INSERT INTO core.models") == 6  # Root, ArchiMate 4, root-principle-model, TOGAF 10, insurance reference model, sample
     assert "INSERT INTO core.allowed_relationships" in sql
     assert "origin_guid" in sql
     assert "'sample-insurance'" not in sql  # keys are guids, never raw names
@@ -69,3 +71,20 @@ def test_history_demo_has_four_steps_by_different_people():
         assert f"set_config('eax.actor', '{actor}', true)" in sql
         assert "Laptop history demo" in sql
     assert "is_deleted = true" in steps[2][1]   # a relationship removed
+
+
+def test_root_principle_model():
+    """D270, D271: a model of principles only, created from ArchiMate 4; names and categories, the text filled in later."""
+    sql = build.principles_sql()
+    assert "'root-principle-model'" in sql and "'Principles 1.0'" in sql and "'reference'" in sql
+    names = [n for _c, ns in build.PRINCIPLES for n in ns]
+    assert len(names) == 20 and len(set(names)) == 20
+    assert sql.count("INSERT INTO core.entity_types") == 1 and "'Principle'" in sql
+    for attr in ("PrincipleStatement", "PrincipleRationale", "PrincipleImplications", "PrincipleCategory", "PrincipleSource"):
+        assert attr in sql
+    assert build.seed_sql(with_template=False, with_insurance=False, with_sample=True, with_principles=False).count("root-principle-model") == 0
+    # the sample model's step at start-up loads only the sample model: not the TOGAF 10 metamodel again (duplicate guid)
+    src = (Path(build.__file__).parent / "later.py").read_text(encoding="utf-8")
+    assert "with_sample=True, with_togaf10=False," in src
+    only = build.seed_sql(with_template=False, with_insurance=False, with_sample=True, with_principles=False, with_togaf10=False)
+    assert build.TOGAF10_ID not in only and build.SAMPLE_ID in only

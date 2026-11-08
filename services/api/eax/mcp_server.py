@@ -46,7 +46,10 @@ Start with list_models, then get_metamodel or list_entities for a model. Models,
 entities can be given by guid or by name. check_entities shows what breaks the validation rules;
 get_entity_history shows who changed what. You see only the models your roles and model
 assignments allow. You may draft metamodels, read your notifications and requests, and send requests
-to other people (list_my_notifications, list_my_requests, send_request)."""
+to other people (list_my_notifications, list_my_requests, send_request).
+You can also BUILD: make models (empty, a copy, a copy at a tag, a child), add entities and relationships, and set up
+and run architecture projects (TOGAF ADM: steps, document classes, approvals). Call how_to_build first, and always
+get the person's yes before creating models or projects."""
 
 mcp = MCPServer(name="EA Explorer", instructions=INSTRUCTIONS, version=__version__)
 
@@ -657,3 +660,7 @@ def _transport_security() -> TransportSecuritySettings:
 app = BearerAuth(mcp.streamable_http_app(stateless_http=True, json_response=True,
                                          transport_security=_transport_security()))
 log.info("EA Explorer MCP server %s ready at /mcp", __version__)
+
+
+# the tools to build with (projects, models, content) and their prompts (owner, 7 Nov 2026)
+from . import mcp_build  # noqa: E402,F401

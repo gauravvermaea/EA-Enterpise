@@ -20,6 +20,7 @@ from datetime import date
 from . import archimate4 as A
 from . import demo_estate as DEMO
 from . import insurance as INS
+from . import togaf10 as T10
 
 NAMESPACE = uuid.UUID("6f4c2a52-2b0e-4b5e-9d63-6b0c0e7a1000")
 TEMPLATE_KEY = "archimate4-template"
@@ -27,6 +28,19 @@ SAMPLE_KEY = "sample-insurance"
 # Reference models: the key includes the version, so a new version is a new model beside the old one
 INSURANCE_KEY = "insurance-reference-1.0"
 INSURANCE_VERSION = "1.0"
+# The principles model (D270): under Root and ArchiMate 4, a metamodel of principles only
+PRINCIPLE_KEY = "root-principle-model-1.0"
+PRINCIPLE_SOURCE = "The Open Group Architecture Principles: A Case Study (Y082, October 2008)"
+# Names and categories only; the statement, rationale and implications are filled in on the platform (see D271)
+PRINCIPLES = [
+    ("Business", ["Primacy of Principles", "Maximize Benefit to the Enterprise", "Compliance with Law",
+                  "Available Anytime from Anywhere", "Business Continuity", "Citizenship", "De-Customization",
+                  "Painless User Experience", "Self-Service", "Sharing of Information"]),
+    ("Data", ["One Source", "Content Management", "Custodianship"]),
+    ("Application", ["De-Skill", "Re-Use, not Re-Invent"]),
+    ("Technology", ["Boundaryless Information Flow"]),
+    ("Governance", ["Standardization", "Stability", "Discovery", "Separation of Development, Maintenance, and Operations"]),
+]
 
 
 def gid(*parts: str) -> str:
@@ -65,6 +79,8 @@ EMPTY_ID = gid("model", EMPTY_KEY)
 TEMPLATE_ID = gid("model", TEMPLATE_KEY)
 SAMPLE_ID = gid("model", SAMPLE_KEY)
 INSURANCE_ID = gid("model", INSURANCE_KEY)
+PRINCIPLE_ID = gid("model", PRINCIPLE_KEY)
+TOGAF10_ID = gid("model", T10.KEY)
 
 # Workbench data type names -> core.data_types codes
 DATA_TYPES = {
@@ -771,7 +787,65 @@ def lean_sql() -> str:
     ])
 
 
-def seed_sql(with_template: bool = True, with_sample: bool = True, with_insurance: bool = True) -> str:
+def principles_sql() -> str:
+    """root-principle-model (owner, 6 Nov 2026, D270, D271): a reference model created from ArchiMate 4 (so under Root and
+    ArchiMate 4) whose metamodel holds principles only: the Principle type (from ArchiMate 4's), its statement,
+    rationale, implications, category and source, and principles associated with principles. Its content: The Open
+    Group's architecture principles (Y082), by name and category; the text is filled in on the platform. Projects take
+    their principles from it (D270). Read-only, like the other built-in models."""
+    k, o = PRINCIPLE_KEY, TEMPLATE_KEY
+    m = gid("model", k)
+    cats = [c for c, _n in PRINCIPLES]
+    attrs = [("PrincipleStatement", "Statement", "long_text", None, "What the principle says, briefly and unambiguously"),
+             ("PrincipleRationale", "Rationale", "long_text", None, "The business benefits of adhering to the principle"),
+             ("PrincipleImplications", "Implications", "long_text", None, "What following the principle requires of the business and IT"),
+             ("PrincipleCategory", "Category", "list", "PrincipleCategory", "Business, Data, Application, Technology or Governance"),
+             ("PrincipleSource", "Source", "text", None, "Where the principle comes from")]
+    ent, vals = [], []
+    for cat, names in PRINCIPLES:
+        for n in names:
+            e = gid(k, "entity", n)
+            ent.append([e, m, gid(k, "entity_type", "Principle"), n, ""])
+            vals.append([gid(k, "attribute_value", n, "PrincipleCategory"), m, gid(k, "attribute_type", "PrincipleCategory"), e, cat])
+            vals.append([gid(k, "attribute_value", n, "PrincipleSource"), m, gid(k, "attribute_type", "PrincipleSource"), e, PRINCIPLE_SOURCE])
+    return "".join([
+        "SELECT set_config('eax.history_label', 'root-principle-model: principles', true);\n",
+        insert("model", ["id", "origin_id", "name", "description", "kind_code", "source_model_id", "metamodel_name", "is_locked",
+                         "owner", "version_label"], [[
+            m, TEMPLATE_ID, "root-principle-model",
+            "The architecture principles every project starts from: a metamodel of principles only (statement, rationale, "
+            "implications, category, source). Created from ArchiMate 4. Read-only: projects take their principles from it "
+            "and add their own in their own models.",
+            "reference", TEMPLATE_ID, "Principles 1.0", True, "EA Explorer", "1.0"]]),
+        insert("layer", ["id", "origin_id", "model_id", "code", "name", "colour", "sort_order"],
+               [[gid(k, "layer", "Motivation"), gid(o, "layer", "Motivation"), m, "motivation", "Motivation", A.DOMAIN_COLOURS["Motivation"], 10]]),
+        insert("entity_type", ["id", "origin_id", "model_id", "layer_id", "code", "name", "aspect", "id_prefix", "table_name", "sort_order"],
+               [[gid(k, "entity_type", "Principle"), gid(o, "entity_type", "Principle"), m, gid(k, "layer", "Motivation"), "Principle",
+                 "Principle", "Motivation", "PRI", "principle", 10]]),
+        insert("relationship_type", ["id", "origin_id", "model_id", "code", "name", "verb", "category", "is_directed", "sort_order"],
+               [[gid(k, "relationship_type", "Association"), gid(o, "relationship_type", "Association"), m, "Association", "Association",
+                 "associated with", "Dependency", False, 10]]),
+        insert("pick_list", ["id", "origin_id", "model_id", "code", "name"],
+               [[gid(k, "pick_list", "PrincipleCategory"), None, m, "PrincipleCategory", "Principle Category"]]),
+        insert("pick_list_value", ["id", "origin_id", "model_id", "pick_list_id", "value", "sort_order"],
+               [[gid(k, "pick_list_value", "PrincipleCategory", c), None, m, gid(k, "pick_list", "PrincipleCategory"), c, i * 10]
+                for i, c in enumerate(cats, 1)]),
+        insert("attribute_type", ["id", "origin_id", "model_id", "code", "name", "description", "data_type_code", "pick_list_id", "column_name"],
+               [[gid(k, "attribute_type", c), None, m, c, n, d, dt, gid(k, "pick_list", pl) if pl else None, snake(c)]
+                for c, n, dt, pl, d in attrs]),
+        insert("item_attribute", ["id", "origin_id", "model_id", "attribute_type_id", "entity_type_id", "is_required", "section", "sort_order"],
+               [[gid(k, "item_attribute", "Principle", c), None, m, gid(k, "attribute_type", c), gid(k, "entity_type", "Principle"),
+                 False, "Principle", i * 10] for i, (c, *_r) in enumerate(attrs, 1)]),
+        insert("allowed_relationship", ["id", "origin_id", "model_id", "relationship_type_id", "source_type_id", "target_type_id"],
+               [[gid(k, "allowed_relationship", "Principle", "Association", "Principle"), None, m, gid(k, "relationship_type", "Association"),
+                 gid(k, "entity_type", "Principle"), gid(k, "entity_type", "Principle")]]),
+        insert("entity", ["id", "model_id", "entity_type_id", "name", "description"], ent),
+        insert("attribute_value", ["id", "model_id", "attribute_type_id", "entity_id", "value_text"], vals),
+    ])
+
+
+def seed_sql(with_template: bool = True, with_sample: bool = True, with_insurance: bool = True,
+             with_principles: bool = True, with_togaf10: bool = True) -> str:
     """What to load, as one script (run in one transaction, by the installer's login eax_migrator,
     because templates and reference models are locked). The others need the template."""
     parts = ["SELECT set_config('eax.actor', 'system:seed', true);\n"]
@@ -792,6 +866,10 @@ def seed_sql(with_template: bool = True, with_sample: bool = True, with_insuranc
                 "template", EMPTY_ID, "ArchiMate 4", True, "EA Explorer"]]),
             metamodel_sql(TEMPLATE_KEY, None),
         ]
+    if with_principles:
+        parts.append(principles_sql())
+    if with_togaf10:                    # the TOGAF 10 content metamodel (phase 13.1, D303)
+        parts.append(T10.sql(gid, insert, snake, EMPTY_ID))
     if with_insurance:
         parts += [
             "SELECT set_config('eax.history_label', 'Insurance reference model', true);\n",

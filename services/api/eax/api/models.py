@@ -48,6 +48,22 @@ def _plain(v):
     return v
 
 
+# api/tasks.py imports Free from here, so the task helpers are looked up when called, not at import (a cycle)
+def start(*a, **k):
+    from .tasks import start as _start
+    return _start(*a, **k)
+
+
+def upload(*a, **k):
+    from .tasks import upload as _upload
+    return _upload(*a, **k)
+
+
+def waiting(*a, **k):
+    from .tasks import waiting as _waiting
+    return _waiting(*a, **k)
+
+
 class Free(Schema):
     """A response whose shape varies (counts, findings, drafts): passed through as JSON. flask-smorest
     needs a Schema here; a bare marshmallow field has no dump() and every call would end in a 500."""
@@ -379,7 +395,7 @@ class Restore(MethodView):
 class Promote(MethodView):
     @blp.doc(security=SECURITY)
     @blp.arguments(PromoteIn)
-    @blp.response(201, CreateOut)
+    @blp.response(201, Free)
     @require_auth("library.curate")
     def post(self, data, model_id):
         """Promote a model into the library (Library Admins, D118)
@@ -387,6 +403,9 @@ class Promote(MethodView):
         A copy of it (metamodel and content) becomes a published library model; a root makes a root.
         The model itself carries on as it is.
         """
+        if not waiting():   # D273: the promotion and its copy in the background
+            return start("library.promoted", model_id, f"Promote into the library as '{data.get('name') or 'a library model'}'",
+                         data, "#/library")
         out = _write(lambda conn: mo.promote(conn, model_id, data, g.user.username), "library.promoted", model_id, data)
         return _start_copy(out, False)
 
@@ -400,6 +419,9 @@ class Package(MethodView):
         """Download a model as a package (D116): a zip (manifest.json, metamodel.json, one CSV per entity type,
         relationships.csv) or one Excel workbook. Change it and upload it again, here or elsewhere."""
         fmt = "xlsx" if query["format"] == "xlsx" else "zip"
+        if request.args.get("background") == "true":   # D273: made in the background, downloaded from the task
+            return start("model.downloaded", model_id, f"Download the model package ({fmt}, {query['content']})",
+                         {"format": fmt, "content": query["content"]}, f"#/metamodel/{model_id}")
         try:
             with get_engine().connect() as conn:
                 data, filename, ctype = mo.export_package(conn, model_id, fmt, g.user.username, query["content"])
@@ -446,7 +468,10 @@ class Analyse(MethodView):
     def post(self):
         """Look at a package before uploading it (D108): what it holds, its checks, and where it can go:
         under its root metamodel (found by name and version, and matching it completely) or under Root
-        as a root of its own"""
+        as a root of its own. In the background (D273): the answer is a task; ?wait=true checks it in the request"""
+        if not waiting():
+            f = upload()
+            return start("package.analyse", None, f"Check the package {f[0]}", {}, "#/metamodel", [f])
         pkg = _uploaded()
         with get_engine().connect() as conn:
             return mo.analyse_package(conn, pkg)
@@ -475,6 +500,12 @@ class Import(MethodView):
             abort(403, message="Uploading into the library needs the Library Admin role (D118); upload it as a project model.")
         if not wants_library and not (_user_can("models.create") or _user_can("library.curate")):
             abort(403, message="Uploading a model needs the Model Creator role.")
+        if not waiting():   # D273: loaded in the background
+            f = upload()
+            return start("package.uploaded", None, f"Upload the package {f[0]}",
+                         {"placement": placement, "as_kind": as_kind, "name": request.form.get("name") or None,
+                          "root": request.form.get("root") or None, "content": request.form.get("content") or None},
+                         "#/metamodel", [f])
         out = _write(lambda conn: mo.import_package(conn, pkg, placement, g.user.username, request.form.get("name") or None,
                                                     as_kind, request.form.get("root") or None, request.form.get("content") or None),
                      "package.uploaded", None,
@@ -513,7 +544,10 @@ class Move(MethodView):
     @require_auth()
     def post(self, data, model_id):
         """Move the model to another root metamodel (D121): copy (a new model, the content mapped across) or
-        in_place (the model takes the new metamodel as one version; its Model Admin)"""
+        in_place (the model takes the new metamodel as one version; its Model Admin). In the background (D273)"""
+        if not waiting():
+            return start("model.framework_moved", model_id, f"Move the model to another framework ({data['mode']})", data,
+                         f"#/metamodel/{model_id}")
         out = _write(lambda conn: mo.framework_move(conn, model_id, data["target"], data["mode"], g.user.username, data.get("map"),
                                                     data.get("name"), data.get("with_data", True)), "model.framework_moved", model_id, data)
         out["model"] = repo_model_out(out["model"])
@@ -580,7 +614,10 @@ class DraftApply(MethodView):
     @require_auth()
     def post(self, data, draft_id):
         """Apply a reviewed draft (D115): a new root metamodel (and optionally a model from it), or one new
-        metamodel version of the model it changes"""
+        metamodel version of the model it changes. In the background (D273)"""
+        if not waiting():
+            return start("draft.applied", None, "Apply a metamodel draft", {"draft": str(draft_id), "data": data},
+                         "#/metamodel/drafts")
         out = _write(lambda conn: mo.draft_apply(conn, g.user, draft_id, g.user.username, data), "draft.applied", draft_id, data)
         out["model"] = repo_model_out(out["model"])
         if out.get("created"):

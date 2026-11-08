@@ -54,7 +54,8 @@ Finding problems
   diag                  Saves a diagnostics report into this run's log: Docker versions, memory and
                         disk, image settings, every container's state, the last 300 log lines of
                         each container, and the compose configuration (passwords masked).
-  status                Lists every container with its state and health, including stopped ones.
+  status                Lists every container with its state and health, including stopped ones, then the file
+                        systems: Docker's disk, the work and backups folders, and this machine's disk.
   logs [service]        Follows the logs of every container, or of one (for example: logs api).
                         Ctrl+C to stop.
 
@@ -203,6 +204,19 @@ diagnostics() {
 }
 
 # Runs compose; on failure, adds diagnostics to the log and stops
+# the file systems after the containers (owner, 8 Nov 2026): read by the operations helper, and this machine's disk here
+show_filesystems() {
+  echo
+  if [ -n "$(compose ps --status running -q ops 2>/dev/null)" ]; then
+    compose exec -T ops python3 /app/ops.py filesystems 2>/dev/null || true
+  else
+    echo "File systems: the operations helper is not running, so Docker's disk is not read (docker system df below)."
+    docker system df 2>/dev/null | sed 's/^/  /' || true
+  fi
+  echo "  This machine's disk for the project folder:"
+  df -h "$(dirname "$0")" 2>/dev/null | sed 's/^/    /' || true
+}
+
 run_compose() {
   if ! compose "$@"; then
     echo "docker compose failed. Collecting diagnostics..."
@@ -633,7 +647,7 @@ case "$CMD" in
     watch_containers "$@"
     ;;
   diag)    diagnostics ;;
-  status)  run_compose ps -a ;;
+  status)  run_compose ps -a; show_filesystems ;;
   logs)    shift; compose logs -f --tail=100 "$@" || true ;;
   down)    run_compose down ;;
   backup)  service_on backups || { echo "ERROR: backups are switched off: ./eax.sh service backups on"; exit 1; }

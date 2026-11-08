@@ -843,6 +843,11 @@ def to_docx(data: dict) -> bytes:
                                  i["note"] if status != "changed" else "; ".join(f"{c['label']}: {c.get('left')} -> {c.get('right')}"
                                                                                  for c in i["changes"][:12])]
                                 for i in items]))
+    return docx_from(body)
+
+
+def docx_from(body: list[str]) -> bytes:
+    """A Word document from paragraphs and tables made with _p and _table (gap and common analyses)."""
     doc = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
            '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>'
            + "".join(body) + '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" '

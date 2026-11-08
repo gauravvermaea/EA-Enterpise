@@ -278,6 +278,28 @@ function Invoke-Later {
     }
     Write-Log "Everything is started."
 }
+# the file systems after the containers (owner, 8 Nov 2026): Docker's disk and the work and backups folders, read by
+# the operations helper; and this computer's drive the project sits on, read here (so it shows with the helper down too)
+function Show-FileSystems {
+    Write-Log ""
+    $ops = @(& docker @(Get-ComposeArgs @("ps", "--status", "running", "-q", "ops")) 2>$null | Where-Object { $_ })
+    if ($ops.Count -gt 0) {
+        & docker @(Get-ComposeArgs @("exec", "-T", "ops", "python3", "/app/ops.py", "filesystems")) 2>$null | ForEach-Object { Write-Log $_ }
+    } else {
+        Write-Log "File systems: the operations helper is not running, so Docker's disk is not read (docker system df below)." "Yellow"
+        & docker system df 2>$null | ForEach-Object { Write-Log "  $_" }
+    }
+    try {
+        $drive = Get-PSDrive -Name ((Split-Path -Qualifier $PSScriptRoot).TrimEnd(":")) -ErrorAction Stop
+        $total = $drive.Used + $drive.Free
+        if ($total -gt 0) {
+            $pct = [math]::Round($drive.Used / $total * 100, 1)
+            $color = if ($pct -ge 90) { "Red" } elseif ($pct -ge 80) { "Yellow" } else { "" }
+            Write-Log ("  This computer's drive {0}: {1:N1} GB, {2:N1} GB used, {3:N1} GB free ({4}% used)" -f $drive.Name, ($total / 1e9), ($drive.Used / 1e9), ($drive.Free / 1e9), $pct) $color
+        }
+    } catch { }
+}
+
 function Show-Services {
     foreach ($n in $Services.Keys) {
         $state = if (Test-ServiceOn $n) { "on " } else { "off" }
@@ -506,7 +528,8 @@ Finding problems
   diag                  Saves a diagnostics report into this run's log: Docker versions, memory and
                         disk, image settings, every container's state, the last 300 log lines of
                         each container, and the compose configuration (passwords masked).
-  status                Lists every container with its state and health, including stopped ones.
+  status                Lists every container with its state and health, including stopped ones, then the file
+                        systems: Docker's disk, the work and backups folders, and this computer's drive (size, used, free).
   logs [service]        Follows the logs of every container, or of one (for example: logs api).
                         Ctrl+C to stop.
 
@@ -741,7 +764,7 @@ try {
             Watch-Containers $RestArgs
         }
         "diag"    { Save-Diagnostics }
-        "status"  { Invoke-Compose @("ps", "-a") | Out-Null }
+        "status"  { Invoke-Compose @("ps", "-a") | Out-Null; Show-FileSystems }
         "logs"    { Invoke-Compose (@("logs", "-f", "--tail=100") + $RestArgs) -NoThrow | Out-Null }
         "down"    { Invoke-Compose @("down") | Out-Null }
         "backup"  { if (-not (Test-ServiceOn "backups")) { throw "Backups are switched off: .\eax service backups on" }

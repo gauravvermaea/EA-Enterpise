@@ -26,7 +26,7 @@ import psycopg
 from ..config import get_settings
 from ..permissions import TEST_USERS
 from . import project_library
-from .build import INSURANCE_ID, TEMPLATE_ID, history_demo_steps, seed_sql
+from .build import INSURANCE_ID, PRINCIPLE_ID, TEMPLATE_ID, TOGAF10_ID, history_demo_steps, seed_sql
 from .catalog import catalog_sql
 
 
@@ -37,13 +37,16 @@ def main() -> int:
         return 1
     with psycopg.connect(settings.migrator_conninfo) as conn:
         present = {str(r[0]) for r in conn.execute(
-            "SELECT guid FROM core.models WHERE guid IN (%s, %s)", (TEMPLATE_ID, INSURANCE_ID)).fetchall()}
-        need = {"ArchiMate 4 template": TEMPLATE_ID not in present, "insurance reference model": INSURANCE_ID not in present}
+            "SELECT guid FROM core.models WHERE guid IN (%s, %s, %s, %s)", (TEMPLATE_ID, INSURANCE_ID, PRINCIPLE_ID, TOGAF10_ID)).fetchall()}
+        need = {"ArchiMate 4 template": TEMPLATE_ID not in present, "insurance reference model": INSURANCE_ID not in present,
+                "root-principle-model": PRINCIPLE_ID not in present, "TOGAF 10 content metamodel": TOGAF10_ID not in present}
         if not any(need.values()):
             print("EA Explorer: built-in models already present")
         else:
             conn.execute(seed_sql(with_template=need["ArchiMate 4 template"],
-                                  with_insurance=need["insurance reference model"], with_sample=False))
+                                  with_insurance=need["insurance reference model"], with_sample=False,
+                                  with_principles=need["root-principle-model"],
+                                  with_togaf10=need["TOGAF 10 content metamodel"]))
             loaded = ", ".join(name for name, n in need.items() if n)
             print(f"EA Explorer: loaded the {loaded}")
         if settings.deployment == "laptop":
@@ -57,6 +60,9 @@ def main() -> int:
     # in the projects' database (EAX_PROJECTS_DB_URL when proj has been moved to its own, D266)
     with (psycopg.connect(settings.projects_db_url) if settings.projects_db_url else psycopg.connect(settings.migrator_conninfo)) as pconn:
         pconn.execute(project_library.library_sql())
+        # the project bases: Empty project, TOGAF 10 project, Organisation base (phase 13.1, D303)
+        from .. import project_bases
+        pconn.execute(project_bases.bases_sql(TOGAF10_ID))
         if os.environ.get("EAX_SEED_SAMPLE", "false").strip().lower() in ("1", "true", "yes"):
             pconn.execute(project_library.sample_principles_sql())
     print("EA Explorer: project library brought up to date")

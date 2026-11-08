@@ -30,6 +30,7 @@ from .config import get_settings
 BASE = os.environ.get("EAX_MAYAN_URL", "http://dms:8000").rstrip("/")
 API = BASE + "/api/v4"
 TIMEOUT = 60
+PAGE = 100             # results per page when listing
 _lock = threading.Lock()
 _token: dict = {"key": None}
 
@@ -97,7 +98,9 @@ def _request(method: str, path: str, *, data: bytes | None = None, ctype: str | 
         text = exc.read()[:500].decode(errors="replace")
         if exc.code == 401:
             _token["key"] = None   # read the token again next time
-        raise MayanError(f"Mayan refused {method} {path.split('?')[0]}: HTTP {exc.code} {text}", 502) from exc
+        err = MayanError(f"Mayan refused {method} {path.split('?')[0]}: HTTP {exc.code} {text}", 502)
+        err.http = exc.code          # 404: the document is gone
+        raise err from exc
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         raise MayanError(f"Documents (Mayan) cannot be reached: {exc}") from exc
 
@@ -107,13 +110,14 @@ def _json(method: str, path: str, body: dict | None = None):
                     ctype="application/json" if body is not None else None)
 
 
-def _multipart(fields: dict, file_name: str, content: bytes, ctype: str = "application/octet-stream") -> tuple[bytes, str]:
+def _multipart(fields: dict, file_name: str, content: bytes, ctype: str = "application/octet-stream",
+               file_field: str = "file") -> tuple[bytes, str]:
     boundary = uuid.uuid4().hex
     out = bytearray()
     for k, v in fields.items():
         out += f'--{boundary}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode()
     safe = file_name.replace('"', "'")
-    out += (f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{safe}"\r\n'
+    out += (f'--{boundary}\r\nContent-Disposition: form-data; name="{file_field}"; filename="{safe}"\r\n'
             f"Content-Type: {ctype}\r\n\r\n").encode() + content + b"\r\n"
     out += f"--{boundary}--\r\n".encode()
     return bytes(out), f"multipart/form-data; boundary={boundary}"
@@ -128,20 +132,45 @@ def ping() -> bool:
 
 
 # ---------------------------------------------------------------- cabinets (folders)
+_cabinets: dict[tuple, int] = {}      # (parent, label) -> id, for this process
+
+
+def _top_cabinets() -> list[dict]:
+    """Every cabinet at the top (no parent), page by page: Mayan's cabinet list does not filter by label."""
+    out, page = [], f"/cabinets/?page_size={PAGE}"
+    while page:
+        body = _json("GET", page)
+        out += [c for c in body.get("results", []) if c.get("parent_id") is None and not isinstance(c.get("parent"), int)]
+        page = body.get("next")
+    return out
+
+
 def cabinet(label: str, parent: int | None = None) -> int:
-    """The cabinet with this label under `parent` (made when missing); returns its id."""
+    """The cabinet with this label under `parent` (made when missing); returns its id. A cabinet's children come with it
+    (GET /cabinets/<id>/), so the one wanted is found however many cabinets there are."""
     label = label[:128]
-    page = f"/cabinets/?page_size=500&label={urllib.parse.quote(label)}"
-    for c in _json("GET", page).get("results", []):
-        pid = c.get("parent_id")
-        if pid is None and isinstance(c.get("parent"), int):
-            pid = c["parent"]
-        if c.get("label") == label and pid == parent:
-            return c["id"]
-    body = {"label": label}
-    if parent:
-        body["parent"] = parent
-    return _json("POST", "/cabinets/", body)["id"]
+    key = (parent, label)
+    if key in _cabinets:
+        return _cabinets[key]
+    found = _top_cabinets() if parent is None else (_json("GET", f"/cabinets/{parent}/").get("children") or [])
+    for c in found:
+        _cabinets[(parent, c.get("label"))] = c["id"]
+    if key in _cabinets:
+        return _cabinets[key]
+    # Mayan asks for "parent" on every cabinet: null for a cabinet at the top (it answered HTTP 400 "parent: This field
+    # is required" when it was left out, owner's laptop, 7 Nov 2026)
+    body = {"label": label, "parent": parent or None}
+    cid = _json("POST", "/cabinets/", body)["id"]
+    _cabinets[key] = cid
+    return cid
+
+
+def rename_cabinet(cabinet_id: int, label: str) -> None:
+    """A cabinet's label changed (an item brought back into use loses its "(not_for_use)" suffix, and the other way)."""
+    _json("PATCH", f"/cabinets/{cabinet_id}/", {"label": label[:128]})
+    for k, v in list(_cabinets.items()):
+        if v == cabinet_id:
+            del _cabinets[k]
 
 
 def cabinet_path(path: str, root: int) -> int:
@@ -174,37 +203,68 @@ def document_type() -> int:
 
 
 def upload(file_name: str, content: bytes, ctype: str = "application/octet-stream", label: str | None = None) -> dict:
-    """A new document; returns {id, file_id}."""
+    """A new document; returns {id, file_id}. Mayan stores the file in the background (a task), so file_id is often
+    None at first: the latest file is read when it is downloaded."""
     body, ct = _multipart({"document_type_id": document_type(), "label": label or file_name}, file_name, content, ctype)
     doc = _request("POST", "/documents/upload/", data=body, ctype=ct, timeout=300)
     return {"id": doc.get("id"), "file_id": (doc.get("file_latest") or {}).get("id")}
 
 
 def new_version(document_id: int, file_name: str, content: bytes, comment: str, ctype: str = "application/octet-stream") -> None:
-    """A new file (version) of a document; the latest is the current one."""
-    body, ct = _multipart({"action_name": "replace", "comment": comment[:250]}, file_name, content, ctype)
+    """A new file (version) of a document; the latest is the current one. Mayan 4: POST /documents/<id>/files/ with
+    the file as `file_new` and `action` 1 (replace: a new version made of the new file's pages)."""
+    # Mayan 4 asks for action_name ('replace'); older 4.x took the number: both are sent
+    body, ct = _multipart({"action": 1, "action_name": "replace", "comment": comment[:250]}, file_name, content, ctype, file_field="file_new")
     _request("POST", f"/documents/{document_id}/files/", data=body, ctype=ct, timeout=300)
 
 
 def latest(document_id: int) -> dict:
     d = _json("GET", f"/documents/{document_id}/")
     f = d.get("file_latest") or {}
-    return {"file_id": f.get("id"), "file_name": f.get("filename") or d.get("label"), "label": d.get("label")}
+    return {"file_id": f.get("id"), "file_name": f.get("filename") or d.get("label"), "label": d.get("label"),
+            "checksum": f.get("checksum")}
+
+
+def trash(document_id: int) -> None:
+    """To Mayan's trash (DELETE /documents/<id>/): a document uploaded by work that then failed."""
+    _request("DELETE", f"/documents/{document_id}/")
 
 
 def download(document_id: int) -> tuple[bytes, str, str]:
     """The latest version's bytes, content type and file name."""
     f = latest(document_id)
     if not f["file_id"]:
-        raise MayanError("The document has no file in Mayan.", 404)
+        raise MayanError("Documents is still storing this file (it does so in the background): try again in a moment.", 409)
     content, ctype = _request("GET", f"/documents/{document_id}/files/{f['file_id']}/download/", raw=True, timeout=300)
     return content, ctype, f["file_name"] or "document"
 
 
+def files(document_id: int) -> list[dict]:
+    """Every file (version) of a document, oldest first: [{id, filename, timestamp}] (Mayan 4: /documents/<id>/files/)."""
+    out, page = [], f"/documents/{document_id}/files/?page_size={PAGE}"
+    while page:
+        body = _json("GET", page)
+        out += body.get("results", [])
+        page = body.get("next")
+    return sorted(out, key=lambda f: (f.get("timestamp") or "", f.get("id") or 0))
+
+
+def download_version(document_id: int, version: int) -> tuple[bytes, str, str]:
+    """The bytes, content type and file name of one version (1 = the first file)."""
+    fs = files(document_id)
+    if not 1 <= version <= len(fs):
+        raise MayanError(f"Documents has {len(fs)} version(s) of this document, not {version}.", 404)
+    f = fs[version - 1]
+    content, ctype = _request("GET", f"/documents/{document_id}/files/{f['id']}/download/", raw=True, timeout=300)
+    return content, ctype, f.get("filename") or "document"
+
+
 def check_out(document_id: int, hours: int = 24 * 30) -> None:
+    """Mayan 4: POST /checkouts/ with the document's id (document_pk); /documents/<id>/checkout/ only reads (GET) and
+    checks in (DELETE)."""
     from datetime import UTC, datetime, timedelta
     until = (datetime.now(UTC) + timedelta(hours=hours)).isoformat()
-    _json("POST", f"/documents/{document_id}/checkout/", {"expiration_datetime": until, "block_new_file": True})
+    _json("POST", "/checkouts/", {"document_pk": document_id, "expiration_datetime": until, "block_new_file": True})
 
 
 def check_in(document_id: int) -> None:
@@ -217,7 +277,12 @@ def check_in(document_id: int) -> None:
 
 def tag(document_id: int, label: str, color: str = "#999999") -> None:
     tid = None
-    for t in _json("GET", f"/tags/?page_size=200&label={urllib.parse.quote(label)}").get("results", []):
+    page, found = f"/tags/?page_size={PAGE}", []          # Mayan's tag list does not filter by label: page through it
+    while page:
+        body = _json("GET", page)
+        found += body.get("results", [])
+        page = body.get("next")
+    for t in found:
         if t.get("label") == label:
             tid = t["id"]
     if not tid:

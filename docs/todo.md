@@ -39,7 +39,13 @@ Tick an item (`[x]`) when it is done; remove it at the next tidy-up.
 - [x] **Test phase 8** (accepted 5 Nov 2026, D171; end-to-end test in 36.1) (0.8.3): `.\eax clean-restart`, the demo and checks in [phase-8.md](phase-8.md). New test users `user_committer` and `user_history_viewer` (same password as the others).
 - [x] **Phase 12 accepted and closed** (6 Nov 2026, D254): validation and data quality (0.13.0).
 - [ ] **Test phase 12.1** (0.13.1): `.\eax clean-restart` (and once with `--wait-all`), the demo and checks in [phase-12.1.md](phase-12.1.md).
+- [ ] **After the phase 13 test: map an uploaded template library zip (D269).** A zip in the organisation's own folder
+  structure (any depth) goes to a mapping screen before it is stored: every folder with a suggested phase (by name),
+  accepted or changed, sub-folders following their parent; then each file to a deliverable or artifact of the phase, a
+  new item of the library in that phase, or a phase-level document. Every zip upload is mapped separately (nothing remembered), the TOGAF 10 zip included (its template names
+  give the suggestions; the person confirms).
 - [ ] **Test phase 13** (0.14.0): `.\eax clean-restart`, the one-time TOGAF template task (D262) and the template library setup (D264), then the demo and checks in [phase-13.md](phase-13.md). The Mayan API calls (cabinets, upload, versions, check-out) are untested against a running Mayan until then.
+- [ ] **Test phase 13.0.2** (0.14.1): every slow button as a background task, the task drawer and the Background tasks tab (D273): the checks in [phase-13.0.2.md](phase-13.0.2.md); first the merge that gave a 500.
 - [ ] **Fix later (owner, 6 Nov 2026): `dms` and `reports-init` show a problem** on Administration > Containers after the phase 12.1 start. Looked at on 6 Nov 2026 (container logs, docker inspect, docker stats); not caused by the new start-up order:
   - **`dms` (Mayan) runs out of memory.** *Changed in phase 13 (D263): 2 web workers, one task per queue, 3 GB; check it stays up.* Its laptop limit is 2 GB (deploy/compose/docker-compose.laptop.yml); about 40 s after it starts its web server and Celery workers run together, and Docker kills processes (`Worker was sent SIGKILL! Perhaps out of memory?`, `mayan-edms-worker_b/e terminated by SIGKILL`; inspect: `OOMKilled=true`). Supervisor restarts them, so it keeps running, at about 1.66 GB of 2 GB (83%). Fix: fewer Mayan workers on a laptop (its gunicorn and Celery worker counts) or a higher limit, or both; the same 98% was seen before.
   - **`reports-init` finished well but shows unhealthy.** It exited 0 (*report datasets ready (104 datasets, 47 added)*, *Superset ready*), but it uses the Superset image, whose built-in health check expects the Superset server on port 8088, which the set-up container never runs, so Docker marks it unhealthy and the Containers summary shows Problem. Fix: `healthcheck: disable: true` on reports-init, and treat a set-up container that exited 0 as done (green) in the Containers summary.
@@ -194,17 +200,51 @@ Tick an item (`[x]`) when it is done; remove it at the next tidy-up.
   settled in that phase's design session.
 - [ ] **Kinds of notification and request (8.1, D83)**: to agree in that phase's design session.
 
-## Design session before phase 13.1 (owner, 6 Nov 2026, D267; phase 13.0.1 in the plan)
+## Principles, still to settle (D267, D270; was part of the 13.0.1 design session)
 
-- **Principles**: as TOGAF defines them (name, statement, rationale, implications); a screen of their own where a principle
-  of a project can be clicked and edited for that project (the project's copy, the library's stays); the library's
-  principles reworked to the TOGAF format; how a principle's versions reach the projects that follow it (15.1).
+Phase 13.0.1 was built on 7 Nov 2026 from the owner's 22 points (D274 to D279): the project's scope, goals and outcomes,
+sponsor, notes and files, editing a running project, placeholders, viewpoints, sign-off, the landing page and finishing.
+Projects are created and changed in the background (D273). What is left from that design session:
+
+- **root-principle-model (D271, seeded in phase 13)**: the 20 principles by name and category; enter their statement,
+  rationale and implications from the owner's copy (by hand, or with an import sheet, 10.1, once the model is
+  unlocked for it); more principle sets to come from the owner.
+- **Principles, agreed (D270), not built yet**: a principle is a model entity of type Principle (name, statement,
+  rationale, implications); a project's principles are derived from the model(s) it selects; added ones go into the
+  project's model as new Principle entities, committed like any change; the separate principles library goes. Still
+  to settle: the screen, and how a project refines a principle without changing the model it came from.
 - **An execution phase of a project**: what happens after the ADM phases are set up (delivery, Phase G implementation
-  governance, tracking), and how the project shows it.
-- **Changing a project while it runs**: add or remove steps, deliverables and artifacts, viewpoints, principles,
-  template libraries and models after creation, and who may.
-- **Creating a project in the background**: the wizard returns at once and the project shows its set-up progress
-  (models, repository) instead of waiting.
+  governance, tracking), and how the project shows it. (Steps ticked, sign-off and the landing page are in 13.0.1.)
+
+- [ ] **Test phase 13.0.1** (0.14.2): the checks in [phase-13.0.1.md](phase-13.0.1.md).
+- [ ] **Test phase 13.0.3** (0.14.3): model roles and the 14 project templates: the checks in [phase-13.0.3.md](phase-13.0.3.md).
+- [ ] **Test phase 13.0.4** (0.14.4): the five areas, the model wizards, Duplicates and the system wizards: the checks in [phase-13.0.4.md](phase-13.0.4.md).
+- [ ] **Test phase 13.0.5** (0.14.5): common analysis: the checks in [phase-13.0.5.md](phase-13.0.5.md).
+- [ ] **Test phase 13.0.6** (0.14.6): the repository as a table: the checks in [phase-13.0.6.md](phase-13.0.6.md).
+- [ ] Common analysis later: compare two of its results side by side, and save its settings as a named profile (as comparison profiles).
+- [ ] **Check the tool for conformance (owner, 7 Nov 2026; D287, build phase 33.1)**, after the XML exchange format (phase 33): ArchiMate 4 (language, relationships and derivation rules, viewpoints, notation), the Model Exchange File Format (our files validate against the schemas; other tools' files import and export again without loss) and TOGAF 10 (content framework, ADM deliverables). Also (owner, same day): the **rules for what can go in what** (allowed relationships between each pair of element types, what may be nested in or composed of what), checked against the specification's tables and enforced on entry, import and exchange; and **every entity type has its layer** (list any without one and set it). A conformance report: met, partly met, not met, with evidence; gaps to the backlog.
+- [ ] **Story DIA-023: standard ArchiMate notation everywhere (owner, 7 Nov 2026; D288).** The views and viewpoints do not use the standard iconography yet. Every element type (shape, type icon, layer colours) and relationship type (line, ends, dashing, junctions) drawn with the standard notation in viewpoints, the draw.io stencil, the ER diagram, graphs and maps, legends, pickers and exports; one shared set of shapes; afterwards every existing viewpoint, report, view and map is moved onto it. Built with draw.io, phase 28 (owner, 7 Nov 2026).
+- [ ] **Example content (phase to think through, owner 7 Nov 2026)**: every installation has example content to learn and test with, and production work. Two ways to weigh: **marked examples** in one realm (an EXAMPLE badge, an Examples area; a System admin switches examples on or off, admins give people access or take it away, each person shows or hides them; reset or remove by a wizard), or **two realms** (Example and Production) in one installation. Design session first.
+- [ ] **Later (owner: "much later")**: sign-in through **LDAP** (Keycloak LDAP federation, users and groups synced, groups to roles; no Active Directory) and **Entra ID** (how users work with Entra: sign-in, groups to roles, guests). Stories in the requirements.
+- [ ] **Principles: discuss with the owner (7 Nov 2026: "what we have are useless")** before changing them: what a project's principles are for, where they come from, how they are written and used. Owner's points so far: open a principle and see its details; in admin, principles that are **mandatory for every project** or **optional**; projects add principles of their own.
+  Owner, 8 Nov 2026 ("currently they look messy"):
+  - the project's Principles screen is a **grid, grouped by area** (Business, Security, Data and so on), showing each principle's name, statement, **rationale and implications**, not just the name;
+  - principles **forced by a Super Admin** are ticked in every project and cannot be unticked;
+  - **add a principle**: the name is plain text, everything else (statement, rationale, implications) is rich text;
+  - **add a top-level area** (Business, Security, Data...);
+  - **link a higher-level principle to the lower-level ones** that refine it;
+  - an **Administration screen to configure principles** (areas, the principles, which are forced).
+- [ ] **New-viewpoint wizard** and **new-report wizard** (owner, 7 Nov 2026; D284): later.
+- [ ] **Design the architecture screens** with the owner (D284): data entry, catalogs, matrices, diagrams, gap analysis, reports around the model and project pages.
+- [ ] **Email for alerts (owner, 7 Nov 2026)**: sign-off requests and decisions, and other alerts, also by email (and
+  to other external systems). Needs its own phase: the mail server, the addresses (Keycloak), what is sent, opting
+  out. Until then everything is in the application (D276).
+
+## Design session for phase 40, organisation maturity (owner, 6 Nov 2026, D272)
+
+- Find the organisation's maturity. To discuss: what is measured (the EA capability, business capabilities, processes,
+  data, technology, the whole organisation); the maturity model; who assesses and how (surveys, 38.1; workshops;
+  evidence from the repository and data quality); scores, targets and gaps; reports; how it feeds roadmaps and projects.
 
 ## Design session for phase 13.4, business architecture artifacts (owner, 6 Nov 2026, D268)
 
@@ -220,7 +260,12 @@ Tick an item (`[x]`) when it is done; remove it at the next tidy-up.
   Revenue Stream, Cost Item...) each mapped to its ArchiMate 4 type, so a model uses either.
 - **Scope**: the Business Model Canvas, the value proposition canvas, the capability map (with heat) and value streams,
   motivation and strategy (drivers, goals, objectives, outcomes, SWOT), the customer journey and the stakeholder map.
-- **When 13.4 starts: ask the owner to upload documents to study first.**
+- **When 13.4 starts: ask the owner to upload documents to study first.** Documents that forbid AI use (such as The Open
+  Group's TOGAF Business Architecture guides, marked "NOT FOR AI USE OR AUTOMATED PROCESSING") are not read; only their
+  titles are used. The artifact list comes from the owner and from openly licensed sources (the Business Model Canvas is
+  published under CC BY-SA).
+- **Candidate artifacts, from the guide titles only**: business model (Business Model Canvas), business capabilities and
+  capability planning, value streams, information map, organization map, business scenarios.
 
 **Still to discuss:**
 - **Which artifacts** (beyond the agreed scope): candidates are the Business Model Canvas, value proposition canvas, business capability map,
@@ -513,6 +558,14 @@ Noted 4 Nov 2026 (D99). To discuss and settle when we build the final deployment
     and greyed-out controls of phase 4 (D123, D125).
   To settle: the documentation tool (kept in the repository and built with the product), whether the
   help is per version, and how the industry guides of phase 39 fit in.
+
+- **Upgrading a project backup when it is restored** (owner, 7 Nov 2026). Today a project backup from an older version
+  restores with the columns it has and the defaults for the new ones (D293). Later: each project backup format version
+  gets upgrade steps run on restore, as migrations do for the database:
+  - fill new fields from old ones where they can be worked out, not only with defaults;
+  - turn renamed or reshaped data into the new form (for example sign-off, steps or document states that change shape);
+  - say on the restore which version the file is from, what was upgraded, and refuse a file newer than this installation;
+  - the same for the model backups inside an application backup.
 
 ## Later (already in the requirements)
 

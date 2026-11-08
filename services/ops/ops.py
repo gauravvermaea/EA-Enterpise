@@ -7,7 +7,9 @@ restarts the system from the administration console. It talks to the Docker engi
   POST /restart                 restart every container of this installation (the database first, this helper last)
   POST /restart/<service>       restart one service (api, web, proxy, keycloak, reports, dms...)
   GET  /stats                   per container: CPU, memory, network and disk input/output, processes, Docker health,
-                                restarts, started at, disk (its own layer and its volumes); cached a few seconds
+                                restarts, started at, disk (its own layer and its volumes); cached a few seconds;
+                                and the file systems: size, used and free of the disks Docker and the work and backup
+                                folders sit on, and what Docker keeps (images, containers, volumes, build cache)
   GET  /containers/<service>    one container: state, health with its last checks, image, mounts, ports, networks,
                                 environment, restart policy, limits, and what it uses now
   GET  /containers/<service>/logs?tail=N   its last log lines (standard output and error)
@@ -592,6 +594,38 @@ def _num(v) -> float | None:
         return None
 
 
+# the file systems the status shows (owner, 8 Nov 2026): the disk under Docker (images, containers and volumes: this
+# helper's own / is on it), the work folder and the backups folder on the host (a share when mounted there)
+FILESYSTEMS = [("/", "Docker's disk", "images, containers and volumes (the databases and Documents' files among them)"),
+               ("/eax-work", "Work folder", "work/: the config file, logs, imports and exports"),
+               ("/backups", "Backups folder", "work/backups: every backup (a share when one is mounted there)")]
+
+
+def filesystems() -> list[dict]:
+    """Size, used and free of each file system (os.statvfs); two paths on the same disk are shown once, the second
+    saying so. Above 80% used: amber; above 90%: red."""
+    out, seen = [], {}
+    for path, label, holds in FILESYSTEMS:
+        try:
+            st = os.statvfs(path)
+        except OSError as exc:
+            out.append({"path": path, "label": label, "holds": holds, "error": str(exc)})
+            continue
+        total = st.f_blocks * st.f_frsize
+        free = st.f_bavail * st.f_frsize
+        used = total - st.f_bfree * st.f_frsize
+        pct = round(used / (used + free) * 100, 1) if used + free else 0.0     # as df counts it (space kept for root aside)
+        key = (st.f_fsid, total) if st.f_fsid else (total, st.f_blocks)
+        row = {"path": path, "label": label, "holds": holds, "total_bytes": total, "used_bytes": used, "free_bytes": free,
+               "used_percent": pct, "inodes_used_percent": round((1 - st.f_ffree / st.f_files) * 100, 1) if st.f_files else None,
+               "level": "red" if pct >= 90 else "amber" if pct >= 80 else "green"}
+        if key in seen:
+            row["same_as"] = seen[key]
+        seen.setdefault(key, label)
+        out.append(row)
+    return out
+
+
 def _volume_sizes() -> dict:
     """Volume sizes: slow on Docker, so refreshed in the background at most every five minutes; the last known
     sizes are answered meanwhile (none the very first time)."""
@@ -602,6 +636,13 @@ def _volume_sizes() -> dict:
             try:
                 out = json.loads(docker("system", "df", "-v", "--format", "{{json .}}", timeout=120) or "{}")
                 _disk_cache["data"] = {v.get("Name"): _size(v.get("Size", "")) for v in out.get("Volumes") or []}
+                # what Docker keeps on its disk, by kind, and how much could be freed
+                kinds = []
+                for line in docker("system", "df", "--format", "{{json .}}", timeout=120).splitlines():
+                    k = json.loads(line)
+                    kinds.append({"kind": k.get("Type", ""), "count": k.get("TotalCount", ""), "active": k.get("Active", ""),
+                                  "bytes": _size(k.get("Size", "")), "reclaimable": k.get("Reclaimable", "")})
+                _disk_cache["docker"] = kinds
             except Exception:  # noqa: BLE001 - disk sizes are a nicety
                 pass
             finally:
@@ -659,7 +700,12 @@ def stats(fresh: bool = False) -> dict:
     vols = _volume_sizes()
     for r in rows.values():
         r["volume_bytes"] = sum(vols.get(v, 0) for v in r.get("volumes", []))
-    out = {"containers": list(rows.values()), "at": time.time(), "volumes_at": _disk_cache["at"], "problems": problems}
+    try:
+        fs = filesystems()
+    except Exception as exc:  # noqa: BLE001
+        fs, _ = [], problems.append(f"file systems: {exc}")
+    out = {"containers": list(rows.values()), "at": time.time(), "volumes_at": _disk_cache["at"], "problems": problems,
+           "filesystems": fs, "docker_disk": _disk_cache.get("docker", [])}
     _stats_cache.update(at=time.time(), data=out)
     return out
 
@@ -1040,7 +1086,8 @@ RESTORE_WHAT = {   # what a restore puts back: config file, databases (None: eve
                  "label": "Application and data: the config file, the repository and document databases, the document files "
                           "(people and roles in Keycloak and the reports' own settings stay as they are)"},
     "db": {"config": False, "dbs": None, "files": [], "label": "Databases only: every database"},
-    "files": {"config": False, "dbs": [], "files": ["documents", "tls"], "label": "Files only: the document files and the certificate"},
+    "files": {"config": False, "dbs": ["mayan"], "only": True, "files": ["documents", "tls"],   # Documents' files and its database together
+              "label": "Files only: Documents (its files with its own database) and the certificate"},
 }
 KEEP_UP = {"db", "backup", "ops", "proxy"}   # what keeps running while a restore runs (D230); the rest stops
 # the containers that use each part (kept for reference: since D230 every container but KEEP_UP stops)
@@ -1558,13 +1605,15 @@ def _restore_steps(name: str, what: str, by: str, version: str, force: bool, rec
     others = ("keycloak", "superset", "mayan")   # the repository database has the installation's own name (EAX_DB_NAME)
     if plan["dbs"] is None:
         dbs = parts["databases"]
+    elif plan.get("only"):
+        dbs = [d for d in parts["databases"] if d in plan["dbs"]]
     elif plan["dbs"]:
         dbs = [d for d in parts["databases"] if d not in others or d in plan["dbs"]]
     else:
         dbs = []
     files = [f for f in plan["files"] if f in parts["files"]]
     warnings = []
-    if what in ("db", "files"):
+    if what == "db":
         warnings.append("Only part of the installation was restored: documents and the records that point at them may no longer "
                         "match (newer documents without records, or records whose files are older). Check the documents of a few "
                         "models.")
@@ -2015,9 +2064,24 @@ def cli(argv: list[str]) -> int:
       restores                               every restore with its status
       restore-log <id>                       a restore's whole log
       delete-backup <name>                   delete an infrastructure backup (not pinned)
-      delete-restore <id>                    forget a finished restore and its log"""
+      delete-restore <id>                    forget a finished restore and its log
+      filesystems                            size, used and free of Docker's disk and the work and backups folders"""
     cmd, args = (argv[0] if argv else "help"), argv[1:]
     version = args[args.index("--version") + 1] if "--version" in args else os.environ.get("EAX_VERSION", "")
+    if cmd == "filesystems":              # .\eax status shows these after the containers (owner, 8 Nov 2026)
+        g = lambda b: f"{b / 1e9:,.1f} GB"  # noqa: E731
+        print("File systems:")
+        print(f"  {'':2}{'File system':<16}{'Size':>12}{'Used':>12}{'Free':>12}{'Used %':>9}   Holds")
+        for f in filesystems():
+            if f.get("error"):
+                print(f"  !! {f['label']:<16} not readable: {f['error']}")
+                continue
+            mark = {"red": "!!", "amber": "! "}.get(f["level"], "  ")
+            same = f"  (same disk as {f['same_as']})" if f.get("same_as") else ""
+            print(f"  {mark}{f['label']:<16}{g(f['total_bytes']):>12}{g(f['used_bytes']):>12}{g(f['free_bytes']):>12}"
+                  f"{f['used_percent']:>8.1f}%   {f['holds']}{same}")
+        print("  (! over 80% used, !! over 90%)")
+        return 0
     if cmd == "stop-backup":
         try:
             print("Stopping:", ", ".join(stop_backup("eax command")["stopping"]))

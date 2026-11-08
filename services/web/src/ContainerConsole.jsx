@@ -58,6 +58,39 @@ function verdict(c) {
   return ["green", "Healthy"];
 }
 
+// the file systems (owner, 8 Nov 2026): the disk under Docker, the work folder and the backups folder: size, used, free;
+// and what Docker keeps on its disk. Over 80% used: amber; over 90%: red.
+const gb = (b) => (b == null ? "" : b >= 1e12 ? `${(b / 1e12).toFixed(2)} TB` : `${(b / 1e9).toFixed(1)} GB`);
+function FileSystems({ h }) {
+  const fs = h.filesystems || [];
+  if (!fs.length) return null;
+  return (
+    <div className="fs-wrap">
+      <h3>File systems</h3>
+      <table className="grid-table fs-table">
+        <thead><tr><th>File system</th><th>Holds</th><th className="num">Size</th><th className="num">Used</th><th className="num">Free</th><th style={{ width: "28%" }}>Used</th></tr></thead>
+        <tbody>{fs.map((f) => (
+          <tr key={f.path}>
+            <td><b>{f.label}</b><div className="small quiet mono">{f.path}</div></td>
+            <td className="small">{f.holds}{f.same_as && <div className="quiet">on the same disk as {f.same_as}</div>}</td>
+            {f.error ? <td colSpan={4} className="bad-text small">Not readable: {f.error}</td> : <>
+              <td className="num">{gb(f.total_bytes)}</td><td className="num">{gb(f.used_bytes)}</td><td className="num">{gb(f.free_bytes)}</td>
+              <td><div className={`fs-bar ${f.level}`} title={`${f.used_percent}% used${f.inodes_used_percent != null ? ` · ${f.inodes_used_percent}% of its file entries used` : ""}`}>
+                <span style={{ width: `${Math.min(100, f.used_percent)}%` }} /></div>
+                <span className={`small rag ${f.level}`}>{f.used_percent}%</span></td></>}
+          </tr>
+        ))}</tbody>
+      </table>
+      {(h.docker_disk || []).length > 0 && (
+        <details className="small"><summary>What Docker keeps on its disk</summary>
+          <table className="grid-table small"><thead><tr><th>Kind</th><th className="num">How many</th><th className="num">In use</th><th className="num">Size</th><th>Could be freed</th></tr></thead>
+            <tbody>{h.docker_disk.map((k) => <tr key={k.kind}><td>{k.kind}</td><td className="num">{k.count}</td><td className="num">{k.active}</td><td className="num">{gb(k.bytes)}</td><td>{k.reclaimable}</td></tr>)}</tbody></table>
+        </details>
+      )}
+    </div>
+  );
+}
+
 function Summary({ onPick }) {
   const [h, setH] = useState(null);
   const [err, setErr] = useState("");
@@ -74,20 +107,24 @@ function Summary({ onPick }) {
   const limit = Math.max(0, ...run.map((c) => c.memory_limit_bytes || 0));   // without limits each one shows the machine's memory
   const n = { green: 0, amber: 0, red: 0, off: 0 };
   cs.forEach((c) => { n[verdict(c)[0]] += 1; });
+  const fsBad = (h?.filesystems || []).filter((f) => !f.same_as && (f.level === "red" || f.level === "amber"));
   return (
     <div>
       <div className="row-gap filters">
-        <h3 style={{ margin: 0 }}>All containers</h3>
+        <h3 style={{ margin: 0 }}>Containers and file systems</h3>
         <button onClick={load} disabled={busy}>{busy ? "Reading..." : "↻ Check again"}</button>
         {h && <span className="quiet small">Checked {new Date(h.checked_at * 1000).toLocaleTimeString()}</span>}
         {["red", "amber", "green", "off"].filter((k) => n[k]).map((k) => <span key={k} className={`rag ${k}`}>{n[k]} {k === "off" ? "not running" : k === "green" ? "healthy" : k === "amber" ? "warning" : "problem"}</span>)}
+        {fsBad.map((f) => <span key={f.path} className={`rag ${f.level}`}>{f.label} {f.used_percent}% full</span>)}
       </div>
       {err && <p className="status bad">{err}</p>}
       {h?.helper && <p className="status bad small">{h.helper}</p>}
       {h?.problems?.length > 0 && <p className="status warn small">Not everything could be read: {h.problems.join("; ")}</p>}
       {!h && !err && <p className="quiet">Reading...</p>}
+      {h && <FileSystems h={h} />}
       {h && (
         <div className="table-scroll">
+          <h3>Containers</h3>
           <table className="grid-table ct-sum">
             <thead><tr><th>Container</th><th title="Start-up (D255): up, starting or down; 1st: starts first (needed to sign in), 2nd: after it, in the background">Start-up</th><th>Health</th><th>State</th><th>Docker health</th><th className="num">CPU</th>
               <th className="num">Memory</th><th className="num">% of limit</th><th className="num">Processes</th>

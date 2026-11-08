@@ -1,0 +1,434 @@
+{
+ "_note": "Seed of the project bases (phase 13.1, D303 to D307). Principle names follow TOGAF 10's example principles plus security ones; all wording is EA Explorer's own.",
+ "principles": [
+  {
+   "area": "Business",
+   "name": "Primacy of Principles",
+   "statement": "<p>These principles apply to every organisation in the enterprise and to every architecture decision.</p>",
+   "rationale": "<p>Consistent decisions across the enterprise need one set of rules that everyone follows.</p>",
+   "implications": "<p>Exceptions go through the governance log as dispensations; projects state how they follow each principle.</p>"
+  },
+  {
+   "area": "Business",
+   "name": "Maximise Benefit to the Enterprise",
+   "statement": "<p>Decisions about information and technology aim at the greatest benefit to the enterprise as a whole.</p>",
+   "rationale": "<p>Local optimisation often costs the enterprise more than it saves one area.</p>",
+   "implications": "<p>Some areas give up preferences for the common good; priorities are set at enterprise level.</p>"
+  },
+  {
+   "area": "Business",
+   "name": "Information Management is Everybody's Business",
+   "statement": "<p>Everyone in the enterprise takes part in decisions about information management.</p>",
+   "rationale": "<p>Information serves the business, so the business must own what it needs from it.</p>",
+   "implications": "<p>Business people join architecture work and make time for it.</p>"
+  },
+  {
+   "area": "Business",
+   "name": "Business Continuity",
+   "statement": "<p>Business operations carry on despite failures of systems or services.</p>",
+   "rationale": "<p>Interruptions cost money, trust and regulatory standing.</p>",
+   "implications": "<p>Critical services have tested recovery; resilience is designed in, not added later.</p>"
+  },
+  {
+   "area": "Business",
+   "name": "Common Use Applications",
+   "statement": "<p>Applications used across the enterprise are preferred over ones built for a single area.</p>",
+   "rationale": "<p>Duplicate solutions cost more and give conflicting data.</p>",
+   "implications": "<p>Areas adopt shared applications unless a dispensation is granted.</p>"
+  },
+  {
+   "area": "Business",
+   "name": "Service Orientation",
+   "statement": "<p>The architecture is built from services that model real business activities.</p>",
+   "rationale": "<p>Services can be combined, reused and changed with less effort.</p>",
+   "implications": "<p>Business and application capabilities are exposed as services with clear contracts.</p>"
+  },
+  {
+   "area": "Business",
+   "name": "Compliance with Law",
+   "statement": "<p>Information management and its processes comply with all relevant laws, regulations and policies.</p>",
+   "rationale": "<p>Non-compliance brings penalties, harm and loss of trust.</p>",
+   "implications": "<p>Regulatory obligations are traced to requirements; changes in law are watched for.</p>"
+  },
+  {
+   "area": "Business",
+   "name": "IT Responsibility",
+   "statement": "<p>The IT organisation is responsible for owning and implementing IT processes and infrastructure that meet agreed needs.</p>",
+   "rationale": "<p>Clear ownership keeps cost, quality and timing under control.</p>",
+   "implications": "<p>IT delivers to agreed service levels; requests go through one intake and prioritisation.</p>"
+  },
+  {
+   "area": "Business",
+   "name": "Protection of Intellectual Property",
+   "statement": "<p>The enterprise's intellectual property is protected in the architecture, its solutions and its processes.</p>",
+   "rationale": "<p>Intellectual property is a source of advantage and value.</p>",
+   "implications": "<p>Policies and controls guard designs, data and code; third parties sign protective terms.</p>"
+  },
+  {
+   "area": "Data",
+   "name": "Data is an Asset",
+   "statement": "<p>Data is an asset that has value to the enterprise and is managed as such.</p>",
+   "rationale": "<p>Accurate, timely data underpins decisions; poor data costs money.</p>",
+   "implications": "<p>Data has owners, quality measures and investment like other assets.</p>"
+  },
+  {
+   "area": "Data",
+   "name": "Data is Shared",
+   "statement": "<p>Users can reach the data they need to do their work; data is shared across functions.</p>",
+   "rationale": "<p>One shared source is cheaper and more consistent than many copies.</p>",
+   "implications": "<p>Shared data stores and interfaces replace private copies; sharing rules are agreed.</p>"
+  },
+  {
+   "area": "Data",
+   "name": "Data is Accessible",
+   "statement": "<p>Data is accessible for users to perform their functions.</p>",
+   "rationale": "<p>Wide access makes the enterprise more efficient and responsive.</p>",
+   "implications": "<p>Data is easy to find and use, through tools and interfaces people understand.</p>"
+  },
+  {
+   "area": "Data",
+   "name": "Data Trustee",
+   "statement": "<p>Each data element has a trustee accountable for its quality.</p>",
+   "rationale": "<p>Someone must answer for whether data can be relied on.</p>",
+   "implications": "<p>Trustees are named; quality issues are routed to them and fixed at source.</p>"
+  },
+  {
+   "area": "Data",
+   "name": "Common Vocabulary and Data Definitions",
+   "statement": "<p>Data is defined consistently across the enterprise, in terms everyone understands.</p>",
+   "rationale": "<p>Shared definitions make data exchange and reporting reliable.</p>",
+   "implications": "<p>A business glossary and data dictionary are kept and used in every design.</p>"
+  },
+  {
+   "area": "Data",
+   "name": "Data Security",
+   "statement": "<p>Data is protected from unauthorised use and disclosure, by classification.</p>",
+   "rationale": "<p>Breaches harm people, the enterprise and its standing.</p>",
+   "implications": "<p>Data is classified; access, encryption and monitoring follow the classification.</p>"
+  },
+  {
+   "area": "Application",
+   "name": "Technology Independence",
+   "statement": "<p>Applications are independent of specific technology choices and so can run on several platforms.</p>",
+   "rationale": "<p>Independence keeps options open and lowers the cost of change.</p>",
+   "implications": "<p>Applications use standard interfaces and avoid proprietary lock-in where practical.</p>"
+  },
+  {
+   "area": "Application",
+   "name": "Ease-of-Use",
+   "statement": "<p>Applications are easy to use; the technology is transparent to the user.</p>",
+   "rationale": "<p>Usable systems need less training and fewer workarounds.</p>",
+   "implications": "<p>Common look and behaviour; usability is tested with real users.</p>"
+  },
+  {
+   "area": "Technology",
+   "name": "Requirements-Based Change",
+   "statement": "<p>Changes to applications and technology are made only in response to business needs.</p>",
+   "rationale": "<p>Change driven by need keeps cost and risk down.</p>",
+   "implications": "<p>Every change traces to a requirement; technology refresh is justified by business value or risk.</p>"
+  },
+  {
+   "area": "Technology",
+   "name": "Responsive Change Management",
+   "statement": "<p>Changes to the enterprise environment are made in a timely way.</p>",
+   "rationale": "<p>People need change fast enough to stay effective.</p>",
+   "implications": "<p>Change processes are quick and predictable; small changes go through a lighter path.</p>"
+  },
+  {
+   "area": "Technology",
+   "name": "Control Technical Diversity",
+   "statement": "<p>Technical diversity is controlled to reduce the cost of maintaining many platforms.</p>",
+   "rationale": "<p>Each extra platform adds skills, support and integration cost.</p>",
+   "implications": "<p>A list of approved technologies is kept; new ones need a dispensation and a retirement plan.</p>"
+  },
+  {
+   "area": "Technology",
+   "name": "Interoperability",
+   "statement": "<p>Software and hardware follow established standards that promote interoperability.</p>",
+   "rationale": "<p>Standards make components fit together and reduce integration effort.</p>",
+   "implications": "<p>Interfaces follow the standards information base; exceptions are logged.</p>"
+  },
+  {
+   "area": "Technology",
+   "name": "Cloud First",
+   "statement": "<p>New platforms use cloud services unless there is a reason not to.</p>",
+   "rationale": "<p>Cloud services scale with demand and shorten delivery.</p>",
+   "implications": "<p>Each solution records its hosting choice and the reason for any on-premises exception.</p>"
+  },
+  {
+   "area": "Security",
+   "name": "Secure by Design",
+   "statement": "<p>Security is designed into solutions from the start, not added at the end.</p>",
+   "rationale": "<p>Fixing security late costs far more and leaves gaps.</p>",
+   "implications": "<p>Threat modelling and security requirements are part of every design; security reviews gate releases.</p>"
+  },
+  {
+   "area": "Security",
+   "name": "Least Privilege",
+   "statement": "<p>People and systems get only the access they need, for only as long as they need it.</p>",
+   "rationale": "<p>Limited access limits the damage of mistakes and attacks.</p>",
+   "implications": "<p>Role-based access, regular access reviews, and time-bound elevated rights.</p>"
+  },
+  {
+   "area": "Security",
+   "name": "Defence in Depth",
+   "statement": "<p>Several independent layers of control protect each important asset.</p>",
+   "rationale": "<p>One failed control should not expose the asset.</p>",
+   "implications": "<p>Network, identity, application and data controls all apply; no single control is relied on.</p>"
+  },
+  {
+   "area": "Security",
+   "name": "Zero Trust",
+   "statement": "<p>No user, device or network is trusted by default; every access is verified.</p>",
+   "rationale": "<p>Attackers inside the perimeter are a real and common risk.</p>",
+   "implications": "<p>Strong authentication everywhere, segmented networks, continuous checks on access.</p>"
+  },
+  {
+   "area": "Security",
+   "name": "Privacy by Design",
+   "statement": "<p>Personal information is protected by default across its life.</p>",
+   "rationale": "<p>Privacy laws and customers' trust require it.</p>",
+   "implications": "<p>Collect only what is needed, keep it only as long as needed, and record the lawful basis.</p>"
+  },
+  {
+   "area": "Security",
+   "name": "Security Monitoring",
+   "statement": "<p>Security events are logged, monitored and acted on.</p>",
+   "rationale": "<p>Attacks that are not seen cannot be stopped.</p>",
+   "implications": "<p>Central logging, alerting and an incident response that is practised.</p>"
+  }
+ ],
+ "standards": [
+  {
+   "area": "Business",
+   "name": "ArchiMate 4 for architecture models",
+   "source": "The Open Group",
+   "description": "<p>Architecture models use ArchiMate notation and concepts.</p>",
+   "status": "Active"
+  },
+  {
+   "area": "Business",
+   "name": "BPMN 2.0 for process models",
+   "source": "OMG",
+   "description": "<p>Business processes are modelled in BPMN 2.0.</p>",
+   "status": "Active"
+  },
+  {
+   "area": "Business",
+   "name": "Business capability modelling convention",
+   "source": "Organisation",
+   "description": "<p>Capabilities are named as nouns, levelled to three levels and owned by a business area.</p>",
+   "status": "Active"
+  },
+  {
+   "area": "Business",
+   "name": "Value stream mapping convention",
+   "source": "Organisation",
+   "description": "<p>Value streams are described as stages from a stakeholder's trigger to the value delivered.</p>",
+   "status": "Active"
+  },
+  {
+   "area": "Business",
+   "name": "Decision records",
+   "source": "Organisation",
+   "description": "<p>Architecture decisions are recorded in the governance log with context, options and consequences.</p>",
+   "status": "Active"
+  },
+  {
+   "area": "Data",
+   "name": "Business glossary and data dictionary",
+   "source": "Organisation",
+   "description": "<p>Every shared data entity has an agreed definition, owner and trustee.</p>",
+   "status": "Active"
+  },
+  {
+   "area": "Data",
+   "name": "Data classification scheme",
+   "source": "Organisation",
+   "description": "<p>Data is classified as Public, Internal, Confidential or Restricted; handling follows the class.</p>",
+   "status": "Active"
+  },
+  {
+   "area": "Data",
+   "name": "ISO 8000 data quality",
+   "source": "ISO",
+   "description": "<p>Data quality is defined and measured along ISO 8000 lines (accuracy, completeness, timeliness).</p>",
+   "status": "Active"
+  },
+  {
+   "area": "Data",
+   "name": "ISO/IEC 11179 metadata registries",
+   "source": "ISO/IEC",
+   "description": "<p>Data elements are described with consistent metadata.</p>",
+   "status": "Active"
+  },
+  {
+   "area": "Data",
+   "name": "ISO 8601 dates and times",
+   "source": "ISO",
+   "description": "<p>Dates and times are exchanged in ISO 8601 format, with time zones.</p>",
+   "status": "Active"
+  },
+  {
+   "area": "Data",
+   "name": "UTF-8 character encoding",
+   "source": "Unicode / IETF",
+   "description": "<p>Text is stored and exchanged as UTF-8.</p>",
+   "status": "Active"
+  },
+  {
+   "area": "Application",
+   "name": "OpenAPI 3 for REST interfaces",
+   "source": "OpenAPI Initiative",
+   "description": "<p>Synchronous interfaces are REST over HTTPS, described in OpenAPI 3.</p>",
+   "status": "Active"
+  },
+  {
+   "area": "Application",
+   "name": "JSON for data exchange",
+   "source": "IETF RFC 8259",
+   "description": "<p>Interfaces exchange JSON unless a domain standard says otherwise.</p>",
+   "status": "Active"
+  },
+  {
+   "area": "Application",
+   "name": "OAuth 2.0 and OpenID Connect",
+   "source": "IETF / OpenID Foundation",
+   "description": "<p>Applications authenticate users and services with OpenID Connect and OAuth 2.0.</p>",
+   "status": "Active"
+  },
+  {
+   "area": "Application",
+   "name": "Event-driven integration with a message broker",
+   "source": "Organisation",
+   "description": "<p>Asynchronous integration uses events on the enterprise broker, with schemas registered.</p>",
+   "status": "Active"
+  },
+  {
+   "area": "Application",
+   "name": "Semantic versioning of interfaces",
+   "source": "semver.org",
+   "description": "<p>Interfaces and packages carry semantic versions; breaking changes raise the major version.</p>",
+   "status": "Active"
+  },
+  {
+   "area": "Technology",
+   "name": "Containers to the OCI standard",
+   "source": "Open Container Initiative",
+   "description": "<p>Applications are packaged as OCI containers and run on the approved orchestration platform.</p>",
+   "status": "Active"
+  },
+  {
+   "area": "Technology",
+   "name": "Infrastructure as code",
+   "source": "Organisation",
+   "description": "<p>Environments are defined as code, reviewed and versioned.</p>",
+   "status": "Active"
+  },
+  {
+   "area": "Technology",
+   "name": "Supported operating systems: long-term support releases only",
+   "source": "Organisation",
+   "description": "<p>Servers run long-term support releases still in vendor support.</p>",
+   "status": "Active"
+  },
+  {
+   "area": "Technology",
+   "name": "TLS 1.2 or later",
+   "source": "IETF",
+   "description": "<p>All network traffic is encrypted with TLS 1.2 or later.</p>",
+   "status": "Active"
+  },
+  {
+   "area": "Technology",
+   "name": "Approved cloud services catalogue",
+   "source": "Organisation",
+   "description": "<p>Cloud services are chosen from the approved catalogue; others need a dispensation.</p>",
+   "status": "Active"
+  },
+  {
+   "area": "Security",
+   "name": "ISO/IEC 27001 information security management",
+   "source": "ISO/IEC",
+   "description": "<p>The information security management system follows ISO/IEC 27001.</p>",
+   "status": "Active"
+  },
+  {
+   "area": "Security",
+   "name": "NIST Cybersecurity Framework 2.0",
+   "source": "NIST",
+   "description": "<p>Security capabilities are organised by the CSF functions: govern, identify, protect, detect, respond, recover.</p>",
+   "status": "Active"
+  },
+  {
+   "area": "Security",
+   "name": "OWASP ASVS for application security",
+   "source": "OWASP",
+   "description": "<p>Applications are verified against the OWASP Application Security Verification Standard.</p>",
+   "status": "Active"
+  },
+  {
+   "area": "Security",
+   "name": "CIS Benchmarks for hardening",
+   "source": "Center for Internet Security",
+   "description": "<p>Platforms are hardened to the CIS Benchmarks.</p>",
+   "status": "Active"
+  },
+  {
+   "area": "Security",
+   "name": "Encryption at rest: AES-256",
+   "source": "NIST FIPS 197",
+   "description": "<p>Confidential and restricted data is encrypted at rest with AES-256 and managed keys.</p>",
+   "status": "Active"
+  },
+  {
+   "area": "Security",
+   "name": "Multi-factor authentication",
+   "source": "Organisation",
+   "description": "<p>Access to systems holding confidential data needs multi-factor authentication.</p>",
+   "status": "Active"
+  }
+ ],
+ "charter": [
+  {
+   "key": "purpose",
+   "title": "Purpose",
+   "html": "<p>Why the enterprise practises architecture and what the architecture function is for.</p>"
+  },
+  {
+   "key": "scope",
+   "title": "Scope",
+   "html": "<p>The parts of the enterprise, the domains and the time horizon the architecture covers.</p>"
+  },
+  {
+   "key": "authority",
+   "title": "Authority and mandate",
+   "html": "<p>Who gives the architecture function its mandate and what decisions it may take.</p>"
+  },
+  {
+   "key": "board",
+   "title": "Governance and the Architecture Board",
+   "html": "<p>How the Architecture Board is made up, how often it meets and how escalations reach it.</p>"
+  },
+  {
+   "key": "principles",
+   "title": "Principles and standards applied",
+   "html": "<p>The principles and standards every project follows (see the Principles and Standards tabs); dispensations go through the governance log.</p>"
+  },
+  {
+   "key": "roles",
+   "title": "Roles and responsibilities",
+   "html": "<p>The roles in architecture work and what each is responsible for (see the Organisation tab).</p>"
+  },
+  {
+   "key": "process",
+   "title": "Method and deliverables",
+   "html": "<p>The method followed (the TOGAF ADM as tailored here) and the deliverables expected at each phase.</p>"
+  },
+  {
+   "key": "compliance",
+   "title": "Compliance and review",
+   "html": "<p>How solutions are checked against the architecture and how the charter itself is reviewed.</p>"
+  }
+ ]
+}

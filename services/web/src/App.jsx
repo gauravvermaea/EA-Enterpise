@@ -2,22 +2,26 @@ import { useEffect, useState } from "react";
 import { apiFetch, can, currentUser, isBreakGlass, keycloak, keycloakReachable, myInfo, roleName, roles, signedIn as isSignedIn, signOut } from "./auth";
 import BreakGlass from "./BreakGlass";
 import { config } from "./config";
-import StartPage from "./StartPage";
+import StartPage, { EverythingElse } from "./StartPage";
+import { AreaMenu, ArchitectureWork } from "./Areas";
+import ArchitectureRepositoryPage from "./ArchitectureRepository";
+import ReferenceLibraryPage from "./ReferenceLibrary";
+import ModelAdmin from "./ModelAdmin";
 import Metamodel from "./Metamodel";
 import Mcp from "./Mcp";
 import Library from "./Library";
 import CompareScreen from "./Versions";
 import ChangeLog from "./ChangeLog";
-import { TaskBar } from "./TaskBar";
+import { TaskDrawer } from "./TaskDrawer";
 import NotificationsPage, { Bell, ChangeDocumentPage } from "./Notifications";
 import Admin from "./Admin";
 import { serviceOn, setAppSettings } from "./fmt";
 import { refreshAll } from "./ModelViews";
-import ModelSwitcher from "./ModelSwitcher";
+import ModelSwitcher, { ProjectSwitcher } from "./ModelSwitcher";
 import { SearchPage, TopSearch } from "./GridPages";
 import { RestoreLock, useRestoreLock } from "./Restores";
 import StartupStatus from "./StartupStatus";
-import Projects from "./Projects";
+import Projects, { ProjectAdmin } from "./Projects";
 
 function useHashRoute() {
   const [route, setRoute] = useState(window.location.hash || "#/");
@@ -79,21 +83,16 @@ export default function App() {
       <header className="topbar">
         <a href="#/" className="brand">EA Explorer</a>
         <nav>
-          <a href="#/">Start</a>
-          <a href="#/metamodel">Models</a>
-          <a href="#/projects">Projects</a>
-          <a href="#/library">Model library</a>
-          <a href="#/compare">Compare</a>
-          <a href="#/change-log">Change log</a>
-          {serviceOn("mcp") ? <a href="#/mcp">MCP</a> : <span className="nav-off" title="The MCP server is switched off (Administration > System settings > Services)">MCP</span>}
-          <a href="#/admin">Administration</a>
-          <a href="/api/docs">API</a>
+          <AreaMenu route={route} />
         </nav>
         <TopSearch />
-        <StartupStatus />
         <Bell route={route} />
-        <ModelSwitcher route={route} />
+        <div className="switchers">
+          <ModelSwitcher route={route} />
+          <ProjectSwitcher route={route} />
+        </div>
         <div className="user">
+          <div className="user-row">
           {signedIn ? (
             <>
               <span className={isBreakGlass() ? "break-glass-user" : ""}
@@ -106,7 +105,27 @@ export default function App() {
           ) : (
             <button className="primary" onClick={() => keycloak.login()}>Sign in</button>
           )}
+          </div>
+          {/* what is still starting, under the sign-out so it never pushes the menu about */}
+          <StartupStatus />
         </div>
+        {/* every menu there was before the five areas, kept for those who use them (owner, 7 Nov 2026: nothing is taken away, D289) */}
+        <nav className="subnav" aria-label="Menus">
+          <a href="#/" className={route === "#/" || route === "#" ? "on" : ""}>Start</a>
+          <a href="#/metamodel" className={route.startsWith("#/metamodel") ? "on" : ""}>Models</a>
+          <a href="#/work" className={/^#\/(projects|work|project-admin)/.test(route) ? "on" : ""}>Projects</a>
+          <a href="#/repository" className={route.startsWith("#/repository") ? "on" : ""}>Repository</a>
+          <a href="#/library" className={route.startsWith("#/library") ? "on" : ""}>Library</a>
+          <a href="#/reference-library" className={route.startsWith("#/reference-library") ? "on" : ""}>Reference library</a>
+          <a href="#/compare" className={route === "#/compare" || route.startsWith("#/compare?") ? "on" : ""}>Compare</a>
+          <a href="#/compare/gaps" className={route.startsWith("#/compare/gaps") ? "on" : ""}>Gap analysis</a>
+          <a href="#/compare/common" className={route.startsWith("#/compare/common") ? "on" : ""}>Common analysis</a>
+          <a href="#/change-log" className={route.startsWith("#/change-log") ? "on" : ""}>Change log</a>
+          {serviceOn("mcp") ? <a href="#/mcp" className={route.startsWith("#/mcp") ? "on" : ""}>MCP</a>
+            : <span className="nav-off" title="The MCP server is switched off (System admin > System settings > Services)">MCP</span>}
+          <a href="#/admin" className={route.startsWith("#/admin") ? "on" : ""}>Administration</a>
+          <a href="/api/docs">API</a>
+        </nav>
       </header>
       {isBreakGlass() && <div className="break-glass-banner">Break-glass session: everything you do is audited and the IT and Super Admins are alerted. Change the break-glass password afterwards.</div>}
       {signedIn && !isBreakGlass() && !roles().length && !(info?.models || []).length && (
@@ -115,9 +134,15 @@ export default function App() {
       )}
       {maintenance && <div className="break-glass-banner">EA Explorer is read only: {maintenance.what || "a restore is running"} (started by {maintenance.by}).
         Nothing can be changed until it is done; you will be asked to sign in again.</div>}
-      {signedIn && <TaskBar />}
+      {signedIn && <TaskDrawer />}
       <main>
         {route.startsWith("#/search") ? <SearchPage key={route} route={route} />
+          : route.startsWith("#/work") ? <ArchitectureWork />
+          : route.startsWith("#/repository") ? <ArchitectureRepositoryPage />
+          : route.startsWith("#/reference-library") ? <ReferenceLibraryPage route={route} />
+          : route.startsWith("#/more") ? <EverythingElse />
+          : route.startsWith("#/model-admin") ? <ModelAdmin route={route} />
+          : route.startsWith("#/project-admin") ? <ProjectAdmin route={route} />
           : route.startsWith("#/metamodel") ? <Metamodel route={route} />
           : route.startsWith("#/projects") ? <Projects route={route} />
           : route.startsWith("#/mcp") ? <Mcp />

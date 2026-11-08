@@ -66,3 +66,46 @@ class SqlDatabases(MethodView):
         if not sqlconsole.enabled():
             abort(404, message="The SQL window is turned off on this installation (EAX_SQL_CONSOLE_ENABLED=false).")
         return {"databases": sqlconsole.databases()}
+
+
+@blp.route("/schema")
+class SqlSchema(MethodView):
+    @blp.doc(security=[{"bearerAuth": []}])
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def get(self):
+        """The tables of a schema with their columns and the joins between them, for the SQL window's database diagram:
+        ?schema=core (models: the repository) or proj (architecture projects) (owner, 8 Nov 2026)"""
+        from flask import request
+        from sqlalchemy import text
+
+        from ..db import get_projects_engine
+        schema = request.args.get("schema") or "core"
+        if schema not in ("core", "proj"):
+            abort(400, message="The schema is core (models) or proj (projects).")
+        eng = get_projects_engine() if schema == "proj" else get_engine()
+        with eng.connect() as conn:
+            cols = conn.execute(text("""SELECT c.table_name AS t, c.column_name AS c, c.data_type AS type, c.is_nullable = 'YES' AS nullable
+                                          FROM information_schema.columns c JOIN information_schema.tables t
+                                            ON t.table_schema = c.table_schema AND t.table_name = c.table_name AND t.table_type = 'BASE TABLE'
+                                         WHERE c.table_schema = :s ORDER BY c.table_name, c.ordinal_position"""), {"s": schema}).mappings().all()
+            pks = conn.execute(text("""SELECT tc.table_name AS t, kcu.column_name AS c FROM information_schema.table_constraints tc
+                                         JOIN information_schema.key_column_usage kcu ON kcu.constraint_name = tc.constraint_name
+                                          AND kcu.table_schema = tc.table_schema
+                                        WHERE tc.table_schema = :s AND tc.constraint_type = 'PRIMARY KEY'"""), {"s": schema}).mappings().all()
+            fks = conn.execute(text("""SELECT cl.relname AS t, a.attname AS c, rn.nspname AS to_schema, rt.relname AS to_t, ra.attname AS to_c
+                                         FROM pg_constraint k JOIN pg_class cl ON cl.oid = k.conrelid JOIN pg_namespace n ON n.oid = cl.relnamespace
+                                         JOIN pg_class rt ON rt.oid = k.confrelid JOIN pg_namespace rn ON rn.oid = rt.relnamespace
+                                         JOIN LATERAL unnest(k.conkey, k.confkey) AS u(a1, a2) ON true
+                                         JOIN pg_attribute a ON a.attrelid = k.conrelid AND a.attnum = u.a1
+                                         JOIN pg_attribute ra ON ra.attrelid = k.confrelid AND ra.attnum = u.a2
+                                        WHERE k.contype = 'f' AND n.nspname = :s"""), {"s": schema}).mappings().all()
+        pk = {(r["t"], r["c"]) for r in pks}
+        fk = {(r["t"], r["c"]): f"{'' if r['to_schema'] == schema else r['to_schema'] + '.'}{r['to_t']}.{r['to_c']}" for r in fks}
+        tables: dict[str, list] = {}
+        for r in cols:
+            tables.setdefault(r["t"], []).append({"name": r["c"], "type": r["type"], "nullable": r["nullable"],
+                                                  "pk": (r["t"], r["c"]) in pk, "fk": fk.get((r["t"], r["c"]))})
+        return {"schema": schema, "tables": [{"name": t, "columns": c} for t, c in tables.items()],
+                "joins": [{"from": r["t"], "column": r["c"], "to": r["to_t"], "to_column": r["to_c"],
+                           "outside": r["to_schema"] != schema} for r in fks]}

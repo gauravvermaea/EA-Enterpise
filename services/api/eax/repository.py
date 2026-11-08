@@ -36,10 +36,10 @@ def _as_guid(value) -> uuid.UUID | None:
 _MODEL_SQL = """
     SELECT m.id AS _id, m.guid AS id, m.name, m.description, m.kind_code AS kind, k.name AS kind_name,
            p.guid AS parent_model_id, p.name AS parent_model_name,
-           s.guid AS source_model_id, s.name AS source_model_name, m.metamodel_name,
+           s.guid AS source_model_id, s.name AS source_model_name, s.kind_code AS source_model_kind, m.source_tag_name, m.metamodel_name,
            m.metamodel_version, m.is_locked, m.status_code AS status,
            m.owner, m.lifecycle, m.industry, m.version_label,
-           m.lock_level, m.lock_reason, m.locked_at, m.locked_by,
+           m.lock_level, m.lock_reason, m.locked_at, m.locked_by, m.frozen_at, m.frozen_by, m.frozen_note,
            m.library_state, m.copy_state, m.copy_note, m.history_from_source, m.is_draft, m.approval_state, m.published_at, m.published_by,
            m.created_at, m.created_by, m.modified_at, m.modified_by,
            CASE WHEN ic.library IS NOT NULL THEN 'lib:' || ic.library WHEN ic.data IS NOT NULL THEN 'upload' END AS icon,
@@ -131,7 +131,7 @@ def get_metamodel(conn, model: Any) -> dict:
         SELECT guid AS id, code, name, description, colour FROM core.layers
          WHERE model_id = :m AND NOT is_deleted ORDER BY sort_order, name""", m=mid)
     types = _rows(conn, """
-        SELECT et.guid AS id, l.guid AS layer_id, et.code, et.name, et.description, et.aspect, et.id_prefix,
+        SELECT et.guid AS id, l.guid AS layer_id, et.code, et.name, et.description, et.aspect, et.content_area, et.id_prefix,
                et.table_name, et.status_code AS status,
                (SELECT count(*) FROM core.item_attributes ia
                  WHERE ia.entity_type_id = et.id AND NOT ia.is_deleted) AS attribute_count,
@@ -154,7 +154,7 @@ def _find_type(conn, model_id: int, entity_type: Any) -> dict:
     guid = _as_guid(entity_type)
     where = "et.guid = :t" if guid else "lower(:t) IN (lower(et.code), lower(et.name), lower(et.table_name))"
     rows = _rows(conn, f"""
-        SELECT et.id AS _id, et.guid AS id, et.code, et.name, et.description, et.aspect, et.id_prefix,
+        SELECT et.id AS _id, et.guid AS id, et.code, et.name, et.description, et.aspect, et.content_area, et.id_prefix,
                et.table_name, l.name AS layer, l.guid AS layer_id, l.colour, et.status_code AS status
           FROM core.entity_types et JOIN core.layers l ON l.id = et.layer_id
          WHERE {where} AND et.model_id = :m AND NOT et.is_deleted""", t=guid or str(entity_type), m=model_id)

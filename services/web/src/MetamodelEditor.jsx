@@ -5,6 +5,7 @@
 //   FailingChecks      every entity failing a check, with filters, CSV and links to fix them
 //   LockControl        model locks: metamodel, metamodel and content, maintenance (D67)
 // The server decides (and the database enforces) what may be changed; the screens only offer it.
+import { AreaChecks, areaList, areaText } from "./CfAreaPicker";
 import { RowActions } from "./DataEntry";
 import { useEffect, useMemo, useState } from "react";
 import { apiFetch, can, currentUser, canOn, myRolesOn, needsRole } from "./auth";
@@ -108,6 +109,8 @@ function Field({ f: field, value, set, values }) {
         {f.options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
       </select>
     );
+  } else if (f.type === "areas") {          // content framework areas, several allowed (D309): "a,b"
+    input = <AreaChecks value={areaList(value)} onChange={(list) => set(f.name, areaText(list))} />;
   } else if (f.type === "check") {
     input = <input type="checkbox" checked={!!value} onChange={(e) => set(f.name, e.target.checked)} />;
   } else if (f.type === "lines") {
@@ -117,12 +120,13 @@ function Field({ f: field, value, set, values }) {
   } else {
     input = <input type="text" {...common} placeholder={f.placeholder} />;
   }
+  const Wrap = f.type === "areas" ? "div" : "label";      // the areas hold labels of their own
   return (
-    <label className={`ed-field${f.type === "check" ? " check" : ""}`} htmlFor={`f-${f.name}`}>
+    <Wrap className={`ed-field${f.type === "check" ? " check" : ""}`} {...(f.type === "areas" ? {} : { htmlFor: `f-${f.name}` })}>
       <span>{f.label}{f.required && <span className="req">*</span>}</span>
       {input}
       {f.help && <small className="quiet">{f.help}</small>}
-    </label>
+    </Wrap>
   );
 }
 
@@ -263,6 +267,8 @@ export function entityTypeSpec(layers, t = null) {
         { name: "layer", label: "Layer", type: "select", options: layerOptions, initial: t.layer_id, blank: false },
         { name: "id_prefix", label: "Display ID prefix", initial: t.id_prefix, help: "New entities get IDs like PREFIX-0001" },
         { name: "aspect", label: "Aspect", initial: t.aspect },
+        { name: "content_area", label: "Content framework areas", type: "areas", initial: t.content_area || "", sendEmpty: true,
+          help: "Where this type sits on a project's Content framework tab: one area or several. None ticked: where it sits by default." },
         { name: "description", label: "Description", type: "textarea", initial: t.description, sendEmpty: true },
       ],
     };
@@ -275,6 +281,8 @@ export function entityTypeSpec(layers, t = null) {
       { name: "layer", label: "Layer", type: "select", options: layerOptions, required: true },
       { name: "id_prefix", label: "Display ID prefix", placeholder: "3 letters, for example INT", help: "Made from the name when left empty" },
       { name: "aspect", label: "Aspect", placeholder: "for example Active Structure" },
+      { name: "content_area", label: "Content framework areas", type: "areas",
+        help: "Where this type sits on a project's Content framework tab: one area or several. None ticked: where it sits by default." },
       { name: "description", label: "Description", type: "textarea" },
     ],
   };

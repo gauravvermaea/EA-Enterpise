@@ -85,7 +85,7 @@ def test_tagging_runs_in_the_background():
     assert 'tk.create(conn, "tag.create"' in src and "run_task.defer" in src
     web = (WEB / "ModelOps.jsx").read_text(encoding="utf-8")
     assert "trackTask(out.task" in web and "useTask(taskId)" in web
-    assert "TaskBar" in (WEB / "App.jsx").read_text(encoding="utf-8")
+    assert "TaskDrawer" in (WEB / "App.jsx").read_text(encoding="utf-8")   # the task drawer replaced the top bar (D273)
     assert os.path.exists(WEB / "tasks.js")
 
 

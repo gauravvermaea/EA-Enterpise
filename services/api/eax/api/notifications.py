@@ -116,6 +116,16 @@ class NotificationsRead(MethodView):
         return _write(lambda c: {"marked": notify.mark_read(c, g.user.username, (data or {}).get("ids"))})
 
 
+@blp.route("/notifications/dismiss-all")
+class NotificationDismissAll(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def post(self):
+        """Put away every information notification of mine, ?category= one kind only (those needing action stay open)"""
+        return _write(lambda c: notify.dismiss_all(c, g.user.username, request.args.get("category", "")))
+
+
 @blp.route("/notifications/<uuid:nid>/dismiss")
 class NotificationDismiss(MethodView):
     @blp.doc(security=SECURITY)
@@ -147,8 +157,23 @@ class Requests(MethodView):
     def get(self):
         """Requests sent to me (box=received) or by me (box=sent): status active, closed, all or one status"""
         a = request.args
-        return _read(lambda c: tickets.listing(c, g.user.username, a.get("box", "received"), a.get("status", "active"),
-                                               a.get("q", "")))
+        out = _read(lambda c: tickets.listing(c, g.user.username, a.get("box", "received"), a.get("status", "active"),
+                                              a.get("q", "")))
+        # the sign-off requests of architecture projects come with them (owner, 8 Nov 2026)
+        try:
+            from .. import project_work as pw
+            from .. import projects as pj
+            with pj.connections() as pc:
+                so = pw.signoff_box(pc, g.user.username, a.get("box", "received"), a.get("status", "active"), a.get("q", ""))
+        except Exception:  # noqa: BLE001 - the requests still show without them
+            so = []
+        out["items"] = sorted(out["items"] + so, key=lambda r: str(r.get("updated_at") or ""), reverse=True)
+        key = "received_active" if a.get("box", "received") == "received" else "sent_active"
+        out["counts"] = {**(out.get("counts") or {}), f"signoff_{key}": sum(1 for r in so if r["status"] == "open"
+                                                                            or (r["status"] == "in_progress" and key == "sent_active"))}
+        if out["counts"].get(key) is not None:
+            out["counts"][key] = (out["counts"][key] or 0) + out["counts"][f"signoff_{key}"]
+        return out
 
     @blp.doc(security=SECURITY)
     @blp.arguments(FreeIn)
@@ -226,6 +251,10 @@ class PushDown(MethodView):
         """Push the metamodel versions made since the last push to the models directly below {mode: forced|offered,
         fill_defaults, note}: forced makes them at once, offered asks each model's Model Admin (D84)"""
         d = data or {}
+        from .tasks import start, waiting
+        if not waiting():   # D273: in the background
+            return start("pushdown.push", model_id, f"Push the metamodel down ({d.get('mode') or 'offered'})", d,
+                         f"#/metamodel/{model_id}/metamodel")
         fn = pushdown.pass_on if d.get("pass_on") else pushdown.push
         return _write(lambda c: fn(c, model_id, g.user.username, d.get("mode", ""), d.get("fill_defaults", True), d.get("note", "")),
                       "pushdown.push", "model", str(model_id),
@@ -239,8 +268,13 @@ class PushDecide(MethodView):
     @blp.response(200, Free)
     @require_auth("model.metamodel")
     def post(self, data, model_id, target_id):
-        """Accept (made at once) or reject (the model diverges from its parent; a note is needed) an offered package"""
+        """Accept (made at once) or reject (the model diverges from its parent; a note is needed) an offered package.
+        In the background (D273)"""
         d = data or {}
+        from .tasks import start, waiting
+        if not waiting():
+            return start("pushdown.decide", model_id, "Accept a push-down" if d.get("accept") else "Reject a push-down",
+                         {**d, "target": target_id}, f"#/metamodel/{model_id}/metamodel")
         return _write(lambda c: pushdown.decide(c, model_id, target_id, g.user.username, bool(d.get("accept")), d.get("note", "")),
                       "pushdown.accepted" if d.get("accept") else "pushdown.rejected", "model", str(model_id),
                       {"note": d.get("note", ""), "package": target_id})

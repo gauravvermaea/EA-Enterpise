@@ -16,7 +16,7 @@ from typing import Any
 
 from sqlalchemy import text
 
-CATEGORIES = ("commit", "metamodel", "request", "model", "system")
+CATEGORIES = ("commit", "metamodel", "request", "model", "system", "task")
 
 # audit action -> (kind, category, needs action, title template); {actor} {model} {detail}
 FROM_AUDIT: dict[str, tuple[str, str, bool, str]] = {
@@ -192,8 +192,11 @@ def listing(conn, username: str, *, show: str = "open", category: str = "", mode
     rows = _rows(conn, f"""
         SELECT n.guid AS id, n.kind, n.category, n.needs_action, n.title, n.body, n.link, n.actor, n.created_at,
                n.resolved_at, n.resolved_by, n.resolution, m.guid AS model_id, m.name AS model_name,
-               r.read_at, r.dismissed_at
+               r.read_at, r.dismissed_at, tt.guid AS task_id,
+               (SELECT f.name FROM core.task_files f WHERE f.task_id = tt.id AND f.role = 'result'
+                   AND f.created_at > now() - interval '24 hours' ORDER BY f.id DESC LIMIT 1) AS task_file
           FROM core.notifications n LEFT JOIN core.models m ON m.id = n.model_id
+          LEFT JOIN core.tasks tt ON n.ref_kind = 'task' AND tt.id = n.ref_id
           JOIN core.notification_recipients r ON r.notification_id = n.id AND r.username = lower(:u)
          WHERE {w} ORDER BY (n.needs_action AND n.resolved_at IS NULL) DESC, n.id DESC LIMIT :lim OFFSET :off""", **p)
     total = _one(conn, f"""SELECT count(*) AS n FROM core.notifications n LEFT JOIN core.models m ON m.id = n.model_id
@@ -230,6 +233,17 @@ def dismiss(conn, username: str, guid) -> dict:
     conn.execute(text("""UPDATE core.notification_recipients SET dismissed_at = now(), read_at = coalesce(read_at, now())
                           WHERE notification_id = :n AND username = lower(:u)"""), {"n": n["id"], "u": username})
     return {"dismissed": True}
+
+
+def dismiss_all(conn, username: str, category: str = "") -> dict:
+    """Every information notification of mine (of one kind, or all) put away and read at once, so the bell and the lists
+    stop showing them (owner, 8 Nov 2026); those needing action stay open until resolved."""
+    r = conn.execute(text("""UPDATE core.notification_recipients nr SET dismissed_at = now(), read_at = coalesce(read_at, now())
+                               FROM core.notifications n
+                              WHERE n.id = nr.notification_id AND nr.username = lower(:u) AND nr.dismissed_at IS NULL
+                                AND NOT (n.needs_action AND n.resolved_at IS NULL) AND (:c = '' OR n.category = :c)"""),
+                     {"u": username, "c": category or ""})
+    return {"dismissed": r.rowcount}
 
 
 def resolve(conn, username: str, guid, note: str) -> dict:

@@ -1,0 +1,1601 @@
+{
+  "templates": [
+    {
+      "code": "transformation",
+      "name": "Transformation",
+      "icon": "🔁",
+      "description": "From today's architecture to a target, through one or more intermediate states, with gaps and a migration roadmap.",
+      "purpose": "strategy",
+      "depth": "segment",
+      "domains": [
+        "business",
+        "data",
+        "application",
+        "technology"
+      ],
+      "phases": null,
+      "viewpoints": [
+        "VP-05",
+        "VP-15",
+        "VP-19",
+        "VP-24",
+        "VP-25",
+        "VP-26"
+      ],
+      "goals": true,
+      "primary": "target",
+      "skip": [],
+      "slots": [
+        {
+          "role": "current",
+          "label": "Current state",
+          "help": "The model of how things are today.",
+          "starts": [
+            "existing",
+            "empty",
+            "copy"
+          ],
+          "default_start": "existing",
+          "min": 1,
+          "many": false,
+          "how": "added"
+        },
+        {
+          "role": "target",
+          "label": "Target state",
+          "help": "The model of how things should be: usually derived from the current state and kept linked so it can merge back.",
+          "starts": [
+            "child",
+            "copy",
+            "empty"
+          ],
+          "default_start": "child",
+          "min": 1,
+          "many": false,
+          "how": "added"
+        },
+        {
+          "role": "transition",
+          "label": "Transition states",
+          "help": "Intermediate states between current and target (TOGAF transition architectures), numbered in order. Optional.",
+          "starts": [
+            "child",
+            "copy"
+          ],
+          "default_start": "child",
+          "min": 0,
+          "many": true,
+          "how": "added"
+        },
+        {
+          "role": "reference",
+          "label": "Reference models",
+          "help": "Models read for context only (read only for everyone on the project).",
+          "starts": [
+            "existing"
+          ],
+          "default_start": "existing",
+          "min": 0,
+          "many": true,
+          "how": "referred"
+        }
+      ],
+      "finish": "Merge the target state into the current state when it is reached (Finish › merge into its parent).",
+      "sort": 10,
+      "stakeholders": [
+        {
+          "name": "Chief Executive",
+          "category": "corporate",
+          "power": "H",
+          "interest": "M",
+          "concerns": "Business outcomes, cost and risk of the change",
+          "role_title": "CEO"
+        },
+        {
+          "name": "Chief Information Officer",
+          "category": "corporate",
+          "power": "H",
+          "interest": "H",
+          "concerns": "IT strategy, investment, delivery risk",
+          "role_title": "CIO"
+        },
+        {
+          "name": "Chief Financial Officer",
+          "category": "corporate",
+          "power": "H",
+          "interest": "L",
+          "concerns": "Cost, benefits and business case",
+          "role_title": "CFO"
+        },
+        {
+          "name": "Architecture board",
+          "category": "corporate",
+          "power": "H",
+          "interest": "H",
+          "concerns": "Compliance with principles and standards; reuse"
+        },
+        {
+          "name": "Programme management office",
+          "category": "corporate",
+          "power": "M",
+          "interest": "H",
+          "concerns": "Plan, dependencies, resources and reporting"
+        },
+        {
+          "name": "Business unit executives",
+          "category": "end-user",
+          "power": "H",
+          "interest": "M",
+          "concerns": "Impact on their operations, people and targets"
+        },
+        {
+          "name": "Business domain experts",
+          "category": "end-user",
+          "power": "L",
+          "interest": "H",
+          "concerns": "How their processes, information and systems change"
+        },
+        {
+          "name": "IT operations",
+          "category": "operations",
+          "power": "M",
+          "interest": "M",
+          "concerns": "Running and supporting what changes; service levels"
+        },
+        {
+          "name": "Enterprise security",
+          "category": "corporate",
+          "power": "M",
+          "interest": "M",
+          "concerns": "Security, privacy and risk of the change"
+        },
+        {
+          "name": "Suppliers and partners",
+          "category": "outside",
+          "power": "L",
+          "interest": "M",
+          "concerns": "What is asked of them; contracts and timing"
+        }
+      ]
+    },
+    {
+      "code": "document-as-is",
+      "name": "Document the as-is",
+      "icon": "📘",
+      "description": "Capture how the enterprise works today: catalogues, matrices and diagrams of the current state. No target, no goals.",
+      "purpose": "portfolio",
+      "depth": "segment",
+      "domains": [
+        "business",
+        "data",
+        "application",
+        "technology"
+      ],
+      "phases": [
+        "P",
+        "A",
+        "B",
+        "C",
+        "C-D",
+        "C-A",
+        "D",
+        "X"
+      ],
+      "viewpoints": [
+        "VP-01",
+        "VP-02",
+        "VP-03",
+        "VP-04",
+        "VP-05",
+        "VP-19"
+      ],
+      "goals": false,
+      "primary": null,
+      "skip": [
+        "Goals and outcomes"
+      ],
+      "slots": [
+        {
+          "role": "current",
+          "label": "Current state",
+          "help": "The model the current state is documented in: an existing one, or a new empty one.",
+          "starts": [
+            "existing",
+            "empty",
+            "copy"
+          ],
+          "default_start": "existing",
+          "min": 1,
+          "many": false,
+          "how": "added"
+        },
+        {
+          "role": "reference",
+          "label": "Reference models",
+          "help": "Models read for context only (read only for everyone on the project).",
+          "starts": [
+            "existing"
+          ],
+          "default_start": "existing",
+          "min": 0,
+          "many": true,
+          "how": "referred"
+        }
+      ],
+      "finish": "Freeze it when the documentation is signed off.",
+      "sort": 20,
+      "stakeholders": [
+        {
+          "name": "Chief Information Officer",
+          "category": "corporate",
+          "power": "H",
+          "interest": "H",
+          "concerns": "IT strategy, investment, delivery risk",
+          "role_title": "CIO"
+        },
+        {
+          "name": "Architecture board",
+          "category": "corporate",
+          "power": "H",
+          "interest": "H",
+          "concerns": "Compliance with principles and standards; reuse"
+        },
+        {
+          "name": "Business unit executives",
+          "category": "end-user",
+          "power": "H",
+          "interest": "M",
+          "concerns": "Impact on their operations, people and targets"
+        },
+        {
+          "name": "Business domain experts",
+          "category": "end-user",
+          "power": "L",
+          "interest": "H",
+          "concerns": "How their processes, information and systems change"
+        },
+        {
+          "name": "IT operations",
+          "category": "operations",
+          "power": "M",
+          "interest": "M",
+          "concerns": "Running and supporting what changes; service levels"
+        },
+        {
+          "name": "Enterprise security",
+          "category": "corporate",
+          "power": "M",
+          "interest": "M",
+          "concerns": "Security, privacy and risk of the change"
+        }
+      ]
+    },
+    {
+      "code": "new-product",
+      "name": "Create a new product",
+      "icon": "🚀",
+      "description": "Design a new product or service: business model, value proposition, capabilities, and the architecture to deliver it.",
+      "purpose": "project",
+      "depth": "capability",
+      "domains": [
+        "business",
+        "application"
+      ],
+      "phases": [
+        "P",
+        "A",
+        "B",
+        "C",
+        "C-A",
+        "E",
+        "F",
+        "RM"
+      ],
+      "viewpoints": [
+        "VP-07",
+        "VP-15",
+        "VP-18",
+        "VP-19",
+        "VP-20",
+        "VP-21"
+      ],
+      "goals": true,
+      "primary": "target",
+      "skip": [],
+      "slots": [
+        {
+          "role": "reference",
+          "label": "Reference models",
+          "help": "Today's enterprise models, read for context.",
+          "starts": [
+            "existing"
+          ],
+          "default_start": "existing",
+          "min": 0,
+          "many": true,
+          "how": "referred"
+        },
+        {
+          "role": "target",
+          "label": "The new product's model",
+          "help": "Usually a new empty model from ArchiMate 4.",
+          "starts": [
+            "empty",
+            "copy",
+            "child"
+          ],
+          "default_start": "empty",
+          "min": 1,
+          "many": false,
+          "how": "added"
+        }
+      ],
+      "finish": "Freeze it, or merge its model into the enterprise model.",
+      "sort": 30,
+      "stakeholders": [
+        {
+          "name": "Product owner",
+          "category": "project",
+          "power": "H",
+          "interest": "H",
+          "concerns": "Scope, features and launch date of the product"
+        },
+        {
+          "name": "Chief Information Officer",
+          "category": "corporate",
+          "power": "H",
+          "interest": "H",
+          "concerns": "IT strategy, investment, delivery risk",
+          "role_title": "CIO"
+        },
+        {
+          "name": "Business unit executives",
+          "category": "end-user",
+          "power": "H",
+          "interest": "M",
+          "concerns": "Impact on their operations, people and targets"
+        },
+        {
+          "name": "Marketing and sales",
+          "category": "end-user",
+          "power": "M",
+          "interest": "H",
+          "concerns": "Customer proposition and channels"
+        },
+        {
+          "name": "Business domain experts",
+          "category": "end-user",
+          "power": "L",
+          "interest": "H",
+          "concerns": "How their processes, information and systems change"
+        },
+        {
+          "name": "Solution delivery team",
+          "category": "project",
+          "power": "M",
+          "interest": "H",
+          "concerns": "Design decisions, standards, build and test"
+        },
+        {
+          "name": "IT operations",
+          "category": "operations",
+          "power": "M",
+          "interest": "M",
+          "concerns": "Running and supporting what changes; service levels"
+        },
+        {
+          "name": "Enterprise security",
+          "category": "corporate",
+          "power": "M",
+          "interest": "M",
+          "concerns": "Security, privacy and risk of the change"
+        }
+      ]
+    },
+    {
+      "code": "copy-for-reports",
+      "name": "Copy a model for new reports",
+      "icon": "📊",
+      "description": "A copy of an existing model to build new views and reports on, without touching the original.",
+      "purpose": "project",
+      "depth": "segment",
+      "domains": [],
+      "phases": [
+        "P",
+        "A",
+        "X"
+      ],
+      "viewpoints": [
+        "VP-05"
+      ],
+      "goals": false,
+      "primary": null,
+      "skip": [
+        "Goals and outcomes",
+        "Sponsor",
+        "Principles"
+      ],
+      "slots": [
+        {
+          "role": "working-copy",
+          "label": "The copy",
+          "help": "A separate copy of the model (metamodel and content); it does not merge back.",
+          "starts": [
+            "copy"
+          ],
+          "default_start": "copy",
+          "min": 1,
+          "many": false,
+          "how": "added"
+        }
+      ],
+      "finish": "Freeze it when the reports are done.",
+      "sort": 40,
+      "stakeholders": [
+        {
+          "name": "Chief Information Officer",
+          "category": "corporate",
+          "power": "H",
+          "interest": "H",
+          "concerns": "IT strategy, investment, delivery risk",
+          "role_title": "CIO"
+        },
+        {
+          "name": "Report users",
+          "category": "end-user",
+          "power": "L",
+          "interest": "H",
+          "concerns": "The reports and the questions they answer"
+        },
+        {
+          "name": "Business domain experts",
+          "category": "end-user",
+          "power": "L",
+          "interest": "H",
+          "concerns": "How their processes, information and systems change"
+        }
+      ]
+    },
+    {
+      "code": "update-and-merge",
+      "name": "Copy, update and merge back",
+      "icon": "🔀",
+      "description": "Take a working copy of a model, update its content, and merge it back when done.",
+      "purpose": "project",
+      "depth": "capability",
+      "domains": [],
+      "phases": [
+        "P",
+        "A",
+        "X",
+        "H"
+      ],
+      "viewpoints": [
+        "VP-05"
+      ],
+      "goals": false,
+      "primary": "working-copy",
+      "skip": [
+        "Goals and outcomes"
+      ],
+      "slots": [
+        {
+          "role": "working-copy",
+          "label": "The working copy",
+          "help": "A child of the model to update, kept linked so it merges back.",
+          "starts": [
+            "child"
+          ],
+          "default_start": "child",
+          "min": 1,
+          "many": false,
+          "how": "added"
+        }
+      ],
+      "finish": "Finish › merge the working copy into its parent.",
+      "sort": 50,
+      "stakeholders": [
+        {
+          "name": "Chief Information Officer",
+          "category": "corporate",
+          "power": "H",
+          "interest": "H",
+          "concerns": "IT strategy, investment, delivery risk",
+          "role_title": "CIO"
+        },
+        {
+          "name": "Architecture board",
+          "category": "corporate",
+          "power": "H",
+          "interest": "H",
+          "concerns": "Compliance with principles and standards; reuse"
+        },
+        {
+          "name": "Model owners",
+          "category": "project",
+          "power": "M",
+          "interest": "H",
+          "concerns": "Changes to their model and merging them back"
+        },
+        {
+          "name": "Business domain experts",
+          "category": "end-user",
+          "power": "L",
+          "interest": "H",
+          "concerns": "How their processes, information and systems change"
+        }
+      ]
+    },
+    {
+      "code": "scenario-planning",
+      "name": "Scenario planning",
+      "icon": "🧭",
+      "description": "Explore two or more possible target states from the same current state and compare them (what-if).",
+      "purpose": "strategy",
+      "depth": "strategic",
+      "domains": [
+        "business",
+        "application"
+      ],
+      "phases": [
+        "P",
+        "A",
+        "B",
+        "E",
+        "RM"
+      ],
+      "viewpoints": [
+        "VP-15",
+        "VP-18",
+        "VP-19",
+        "VP-26"
+      ],
+      "goals": true,
+      "primary": "current",
+      "skip": [],
+      "slots": [
+        {
+          "role": "current",
+          "label": "Current state",
+          "help": "The model of how things are today.",
+          "starts": [
+            "existing",
+            "empty",
+            "copy"
+          ],
+          "default_start": "existing",
+          "min": 1,
+          "many": false,
+          "how": "added"
+        },
+        {
+          "role": "scenario",
+          "label": "Scenarios",
+          "help": "Each an alternative target, copied from the current state; compare them on the gap screen.",
+          "starts": [
+            "copy",
+            "child",
+            "empty"
+          ],
+          "default_start": "copy",
+          "min": 2,
+          "many": true,
+          "how": "added"
+        },
+        {
+          "role": "reference",
+          "label": "Reference models",
+          "help": "Models read for context only (read only for everyone on the project).",
+          "starts": [
+            "existing"
+          ],
+          "default_start": "existing",
+          "min": 0,
+          "many": true,
+          "how": "referred"
+        }
+      ],
+      "finish": "Keep the chosen scenario (merge it into its parent, or carry it into a Transformation project); freeze the others.",
+      "sort": 60,
+      "stakeholders": [
+        {
+          "name": "Chief Executive",
+          "category": "corporate",
+          "power": "H",
+          "interest": "M",
+          "concerns": "Business outcomes, cost and risk of the change",
+          "role_title": "CEO"
+        },
+        {
+          "name": "Chief Information Officer",
+          "category": "corporate",
+          "power": "H",
+          "interest": "H",
+          "concerns": "IT strategy, investment, delivery risk",
+          "role_title": "CIO"
+        },
+        {
+          "name": "Chief Financial Officer",
+          "category": "corporate",
+          "power": "H",
+          "interest": "L",
+          "concerns": "Cost, benefits and business case",
+          "role_title": "CFO"
+        },
+        {
+          "name": "Strategy office",
+          "category": "corporate",
+          "power": "H",
+          "interest": "H",
+          "concerns": "Fit with strategy, priorities and investment"
+        },
+        {
+          "name": "Business unit executives",
+          "category": "end-user",
+          "power": "H",
+          "interest": "M",
+          "concerns": "Impact on their operations, people and targets"
+        },
+        {
+          "name": "Architecture board",
+          "category": "corporate",
+          "power": "H",
+          "interest": "H",
+          "concerns": "Compliance with principles and standards; reuse"
+        }
+      ]
+    },
+    {
+      "code": "regulatory-change",
+      "name": "Regulatory or compliance change",
+      "icon": "⚖️",
+      "description": "Respond to a regulation: obligations as requirements, gaps against controls, and sign-off-heavy deliverables.",
+      "purpose": "project",
+      "depth": "segment",
+      "domains": [
+        "business",
+        "data",
+        "application"
+      ],
+      "phases": null,
+      "viewpoints": [
+        "VP-14",
+        "VP-16",
+        "VP-17",
+        "VP-26"
+      ],
+      "goals": true,
+      "primary": "target",
+      "skip": [],
+      "slots": [
+        {
+          "role": "current",
+          "label": "Current state",
+          "help": "The model of how things are today.",
+          "starts": [
+            "existing",
+            "empty",
+            "copy"
+          ],
+          "default_start": "existing",
+          "min": 1,
+          "many": false,
+          "how": "added"
+        },
+        {
+          "role": "target",
+          "label": "Target state",
+          "help": "The model of how things should be: usually derived from the current state and kept linked so it can merge back.",
+          "starts": [
+            "child",
+            "copy",
+            "empty"
+          ],
+          "default_start": "child",
+          "min": 1,
+          "many": false,
+          "how": "added"
+        },
+        {
+          "role": "reference",
+          "label": "Reference models",
+          "help": "Regulatory or reference models, read for context.",
+          "starts": [
+            "existing"
+          ],
+          "default_start": "existing",
+          "min": 0,
+          "many": true,
+          "how": "referred"
+        }
+      ],
+      "finish": "Merge the target into the current state once compliant.",
+      "sort": 70,
+      "stakeholders": [
+        {
+          "name": "Regulator",
+          "category": "outside",
+          "power": "H",
+          "interest": "M",
+          "concerns": "Compliance, reporting and deadlines"
+        },
+        {
+          "name": "Compliance and legal",
+          "category": "corporate",
+          "power": "H",
+          "interest": "H",
+          "concerns": "Meeting the obligation; evidence; legal risk"
+        },
+        {
+          "name": "Chief Information Officer",
+          "category": "corporate",
+          "power": "H",
+          "interest": "H",
+          "concerns": "IT strategy, investment, delivery risk",
+          "role_title": "CIO"
+        },
+        {
+          "name": "Business unit executives",
+          "category": "end-user",
+          "power": "H",
+          "interest": "M",
+          "concerns": "Impact on their operations, people and targets"
+        },
+        {
+          "name": "Business domain experts",
+          "category": "end-user",
+          "power": "L",
+          "interest": "H",
+          "concerns": "How their processes, information and systems change"
+        },
+        {
+          "name": "IT operations",
+          "category": "operations",
+          "power": "M",
+          "interest": "M",
+          "concerns": "Running and supporting what changes; service levels"
+        },
+        {
+          "name": "Enterprise security",
+          "category": "corporate",
+          "power": "M",
+          "interest": "M",
+          "concerns": "Security, privacy and risk of the change"
+        },
+        {
+          "name": "Programme management office",
+          "category": "corporate",
+          "power": "M",
+          "interest": "H",
+          "concerns": "Plan, dependencies, resources and reporting"
+        }
+      ]
+    },
+    {
+      "code": "cloud-migration",
+      "name": "Technology refresh or cloud migration",
+      "icon": "☁️",
+      "description": "Move technology from today's platforms to new ones in migration waves (transition states).",
+      "purpose": "project",
+      "depth": "capability",
+      "domains": [
+        "technology",
+        "application"
+      ],
+      "phases": [
+        "P",
+        "A",
+        "D",
+        "E",
+        "F",
+        "G",
+        "RM"
+      ],
+      "viewpoints": [
+        "VP-04",
+        "VP-06",
+        "VP-09",
+        "VP-13",
+        "VP-24",
+        "VP-26"
+      ],
+      "goals": true,
+      "primary": "target",
+      "skip": [],
+      "slots": [
+        {
+          "role": "current",
+          "label": "Current state",
+          "help": "The model of how things are today.",
+          "starts": [
+            "existing",
+            "empty",
+            "copy"
+          ],
+          "default_start": "existing",
+          "min": 1,
+          "many": false,
+          "how": "added"
+        },
+        {
+          "role": "target",
+          "label": "Target state",
+          "help": "The model of how things should be: usually derived from the current state and kept linked so it can merge back.",
+          "starts": [
+            "child",
+            "copy",
+            "empty"
+          ],
+          "default_start": "child",
+          "min": 1,
+          "many": false,
+          "how": "added"
+        },
+        {
+          "role": "transition",
+          "label": "Transition states",
+          "help": "Intermediate states between current and target (TOGAF transition architectures), numbered in order. Optional.",
+          "starts": [
+            "child",
+            "copy"
+          ],
+          "default_start": "child",
+          "min": 0,
+          "many": true,
+          "how": "added"
+        },
+        {
+          "role": "reference",
+          "label": "Reference models",
+          "help": "Models read for context only (read only for everyone on the project).",
+          "starts": [
+            "existing"
+          ],
+          "default_start": "existing",
+          "min": 0,
+          "many": true,
+          "how": "referred"
+        }
+      ],
+      "finish": "Merge each wave into the current state as it goes live.",
+      "sort": 80,
+      "stakeholders": [
+        {
+          "name": "Chief Information Officer",
+          "category": "corporate",
+          "power": "H",
+          "interest": "H",
+          "concerns": "IT strategy, investment, delivery risk",
+          "role_title": "CIO"
+        },
+        {
+          "name": "Chief Financial Officer",
+          "category": "corporate",
+          "power": "H",
+          "interest": "L",
+          "concerns": "Cost, benefits and business case",
+          "role_title": "CFO"
+        },
+        {
+          "name": "Infrastructure operations",
+          "category": "operations",
+          "power": "H",
+          "interest": "H",
+          "concerns": "Platforms, migration cut-over, run costs"
+        },
+        {
+          "name": "Cloud provider",
+          "category": "outside",
+          "power": "M",
+          "interest": "M",
+          "concerns": "Landing zone, services used, support model"
+        },
+        {
+          "name": "IT operations",
+          "category": "operations",
+          "power": "M",
+          "interest": "M",
+          "concerns": "Running and supporting what changes; service levels"
+        },
+        {
+          "name": "Enterprise security",
+          "category": "corporate",
+          "power": "M",
+          "interest": "M",
+          "concerns": "Security, privacy and risk of the change"
+        },
+        {
+          "name": "Application owners",
+          "category": "end-user",
+          "power": "M",
+          "interest": "H",
+          "concerns": "Which applications stay, merge or retire"
+        },
+        {
+          "name": "Programme management office",
+          "category": "corporate",
+          "power": "M",
+          "interest": "H",
+          "concerns": "Plan, dependencies, resources and reporting"
+        }
+      ]
+    },
+    {
+      "code": "app-rationalisation",
+      "name": "Application rationalisation",
+      "icon": "🧹",
+      "description": "Assess the application portfolio (lifecycle, cost, health) and decide what to keep, invest in, migrate or retire.",
+      "purpose": "portfolio",
+      "depth": "segment",
+      "domains": [
+        "application"
+      ],
+      "phases": [
+        "P",
+        "A",
+        "C",
+        "C-A",
+        "E",
+        "F",
+        "RM"
+      ],
+      "viewpoints": [
+        "VP-02",
+        "VP-08",
+        "VP-11",
+        "VP-26"
+      ],
+      "goals": true,
+      "primary": "target",
+      "skip": [],
+      "slots": [
+        {
+          "role": "current",
+          "label": "Current state",
+          "help": "The model of how things are today.",
+          "starts": [
+            "existing",
+            "empty",
+            "copy"
+          ],
+          "default_start": "existing",
+          "min": 1,
+          "many": false,
+          "how": "added"
+        },
+        {
+          "role": "target",
+          "label": "Target state",
+          "help": "The model of how things should be: usually derived from the current state and kept linked so it can merge back.",
+          "starts": [
+            "child",
+            "copy",
+            "empty"
+          ],
+          "default_start": "child",
+          "min": 1,
+          "many": false,
+          "how": "added"
+        }
+      ],
+      "finish": "Merge the target into the current state as decisions are carried out.",
+      "sort": 90,
+      "stakeholders": [
+        {
+          "name": "Chief Information Officer",
+          "category": "corporate",
+          "power": "H",
+          "interest": "H",
+          "concerns": "IT strategy, investment, delivery risk",
+          "role_title": "CIO"
+        },
+        {
+          "name": "Chief Financial Officer",
+          "category": "corporate",
+          "power": "H",
+          "interest": "L",
+          "concerns": "Cost, benefits and business case",
+          "role_title": "CFO"
+        },
+        {
+          "name": "Application owners",
+          "category": "end-user",
+          "power": "M",
+          "interest": "H",
+          "concerns": "Which applications stay, merge or retire"
+        },
+        {
+          "name": "Business unit executives",
+          "category": "end-user",
+          "power": "H",
+          "interest": "M",
+          "concerns": "Impact on their operations, people and targets"
+        },
+        {
+          "name": "Business domain experts",
+          "category": "end-user",
+          "power": "L",
+          "interest": "H",
+          "concerns": "How their processes, information and systems change"
+        },
+        {
+          "name": "IT operations",
+          "category": "operations",
+          "power": "M",
+          "interest": "M",
+          "concerns": "Running and supporting what changes; service levels"
+        },
+        {
+          "name": "Procurement",
+          "category": "corporate",
+          "power": "M",
+          "interest": "L",
+          "concerns": "Licences, contracts and exit terms"
+        },
+        {
+          "name": "Architecture board",
+          "category": "corporate",
+          "power": "H",
+          "interest": "H",
+          "concerns": "Compliance with principles and standards; reuse"
+        }
+      ]
+    },
+    {
+      "code": "operating-model",
+      "name": "Operating model redesign",
+      "icon": "🏢",
+      "description": "Redesign organisation, roles, processes and capabilities.",
+      "purpose": "strategy",
+      "depth": "segment",
+      "domains": [
+        "business"
+      ],
+      "phases": [
+        "P",
+        "A",
+        "B",
+        "E",
+        "F",
+        "RM"
+      ],
+      "viewpoints": [
+        "VP-01",
+        "VP-10",
+        "VP-19",
+        "VP-20",
+        "VP-22"
+      ],
+      "goals": true,
+      "primary": "target",
+      "skip": [],
+      "slots": [
+        {
+          "role": "current",
+          "label": "Current state",
+          "help": "The model of how things are today.",
+          "starts": [
+            "existing",
+            "empty",
+            "copy"
+          ],
+          "default_start": "existing",
+          "min": 1,
+          "many": false,
+          "how": "added"
+        },
+        {
+          "role": "target",
+          "label": "Target state",
+          "help": "The model of how things should be: usually derived from the current state and kept linked so it can merge back.",
+          "starts": [
+            "child",
+            "copy",
+            "empty"
+          ],
+          "default_start": "child",
+          "min": 1,
+          "many": false,
+          "how": "added"
+        },
+        {
+          "role": "transition",
+          "label": "Transition states",
+          "help": "Intermediate states between current and target (TOGAF transition architectures), numbered in order. Optional.",
+          "starts": [
+            "child",
+            "copy"
+          ],
+          "default_start": "child",
+          "min": 0,
+          "many": true,
+          "how": "added"
+        }
+      ],
+      "finish": "Merge the target into the current state.",
+      "sort": 100,
+      "stakeholders": [
+        {
+          "name": "Chief Executive",
+          "category": "corporate",
+          "power": "H",
+          "interest": "M",
+          "concerns": "Business outcomes, cost and risk of the change",
+          "role_title": "CEO"
+        },
+        {
+          "name": "Business unit executives",
+          "category": "end-user",
+          "power": "H",
+          "interest": "M",
+          "concerns": "Impact on their operations, people and targets"
+        },
+        {
+          "name": "Human resources",
+          "category": "corporate",
+          "power": "M",
+          "interest": "M",
+          "concerns": "Roles, skills, organisation design and change"
+        },
+        {
+          "name": "Chief Information Officer",
+          "category": "corporate",
+          "power": "H",
+          "interest": "H",
+          "concerns": "IT strategy, investment, delivery risk",
+          "role_title": "CIO"
+        },
+        {
+          "name": "Business domain experts",
+          "category": "end-user",
+          "power": "L",
+          "interest": "H",
+          "concerns": "How their processes, information and systems change"
+        },
+        {
+          "name": "Programme management office",
+          "category": "corporate",
+          "power": "M",
+          "interest": "H",
+          "concerns": "Plan, dependencies, resources and reporting"
+        },
+        {
+          "name": "Strategy office",
+          "category": "corporate",
+          "power": "H",
+          "interest": "H",
+          "concerns": "Fit with strategy, priorities and investment"
+        }
+      ]
+    },
+    {
+      "code": "capability-planning",
+      "name": "Capability-based planning",
+      "icon": "🗺️",
+      "description": "Plan change by capability: current and target maturity, the gaps, and a roadmap.",
+      "purpose": "portfolio",
+      "depth": "strategic",
+      "domains": [
+        "business"
+      ],
+      "phases": [
+        "P",
+        "A",
+        "B",
+        "E",
+        "F",
+        "RM"
+      ],
+      "viewpoints": [
+        "VP-18",
+        "VP-19",
+        "VP-20",
+        "VP-21",
+        "VP-24"
+      ],
+      "goals": true,
+      "primary": "target",
+      "skip": [],
+      "slots": [
+        {
+          "role": "current",
+          "label": "Current state",
+          "help": "The model of how things are today.",
+          "starts": [
+            "existing",
+            "empty",
+            "copy"
+          ],
+          "default_start": "existing",
+          "min": 1,
+          "many": false,
+          "how": "added"
+        },
+        {
+          "role": "target",
+          "label": "Target state",
+          "help": "The model of how things should be: usually derived from the current state and kept linked so it can merge back.",
+          "starts": [
+            "child",
+            "copy",
+            "empty"
+          ],
+          "default_start": "child",
+          "min": 1,
+          "many": false,
+          "how": "added"
+        }
+      ],
+      "finish": "Merge the target into the current state.",
+      "sort": 110,
+      "stakeholders": [
+        {
+          "name": "Strategy office",
+          "category": "corporate",
+          "power": "H",
+          "interest": "H",
+          "concerns": "Fit with strategy, priorities and investment"
+        },
+        {
+          "name": "Chief Information Officer",
+          "category": "corporate",
+          "power": "H",
+          "interest": "H",
+          "concerns": "IT strategy, investment, delivery risk",
+          "role_title": "CIO"
+        },
+        {
+          "name": "Chief Financial Officer",
+          "category": "corporate",
+          "power": "H",
+          "interest": "L",
+          "concerns": "Cost, benefits and business case",
+          "role_title": "CFO"
+        },
+        {
+          "name": "Business unit executives",
+          "category": "end-user",
+          "power": "H",
+          "interest": "M",
+          "concerns": "Impact on their operations, people and targets"
+        },
+        {
+          "name": "Architecture board",
+          "category": "corporate",
+          "power": "H",
+          "interest": "H",
+          "concerns": "Compliance with principles and standards; reuse"
+        },
+        {
+          "name": "Business domain experts",
+          "category": "end-user",
+          "power": "L",
+          "interest": "H",
+          "concerns": "How their processes, information and systems change"
+        }
+      ]
+    },
+    {
+      "code": "health-check",
+      "name": "Architecture assessment or health check",
+      "icon": "🩺",
+      "description": "Assess existing models: quality, principles, risks; an assessment report. Nothing is changed.",
+      "purpose": "portfolio",
+      "depth": "segment",
+      "domains": [
+        "business",
+        "data",
+        "application",
+        "technology"
+      ],
+      "phases": [
+        "P",
+        "A",
+        "H",
+        "X"
+      ],
+      "viewpoints": [
+        "VP-05",
+        "VP-17"
+      ],
+      "goals": false,
+      "primary": null,
+      "skip": [
+        "Goals and outcomes"
+      ],
+      "slots": [
+        {
+          "role": "reference",
+          "label": "Reference models",
+          "help": "The models assessed (read only).",
+          "starts": [
+            "existing"
+          ],
+          "default_start": "existing",
+          "min": 1,
+          "many": true,
+          "how": "referred"
+        }
+      ],
+      "finish": "Freeze it when the assessment is signed off.",
+      "sort": 120,
+      "stakeholders": [
+        {
+          "name": "Chief Information Officer",
+          "category": "corporate",
+          "power": "H",
+          "interest": "H",
+          "concerns": "IT strategy, investment, delivery risk",
+          "role_title": "CIO"
+        },
+        {
+          "name": "Architecture board",
+          "category": "corporate",
+          "power": "H",
+          "interest": "H",
+          "concerns": "Compliance with principles and standards; reuse"
+        },
+        {
+          "name": "Business unit executives",
+          "category": "end-user",
+          "power": "H",
+          "interest": "M",
+          "concerns": "Impact on their operations, people and targets"
+        },
+        {
+          "name": "IT operations",
+          "category": "operations",
+          "power": "M",
+          "interest": "M",
+          "concerns": "Running and supporting what changes; service levels"
+        },
+        {
+          "name": "Enterprise security",
+          "category": "corporate",
+          "power": "M",
+          "interest": "M",
+          "concerns": "Security, privacy and risk of the change"
+        },
+        {
+          "name": "Business domain experts",
+          "category": "end-user",
+          "power": "L",
+          "interest": "H",
+          "concerns": "How their processes, information and systems change"
+        }
+      ]
+    },
+    {
+      "code": "solution-architecture",
+      "name": "Solution architecture for one initiative",
+      "icon": "🧩",
+      "description": "The architecture of one solution, within the enterprise architecture, merged back after go-live.",
+      "purpose": "solution",
+      "depth": "capability",
+      "domains": [
+        "application",
+        "data",
+        "technology"
+      ],
+      "phases": [
+        "A",
+        "B",
+        "C",
+        "C-D",
+        "C-A",
+        "D",
+        "E",
+        "F",
+        "G"
+      ],
+      "viewpoints": [
+        "VP-02",
+        "VP-08",
+        "VP-11",
+        "VP-12",
+        "VP-13"
+      ],
+      "goals": true,
+      "primary": "working-copy",
+      "skip": [],
+      "slots": [
+        {
+          "role": "reference",
+          "label": "Reference models",
+          "help": "The enterprise models the solution sits in.",
+          "starts": [
+            "existing"
+          ],
+          "default_start": "existing",
+          "min": 0,
+          "many": true,
+          "how": "referred"
+        },
+        {
+          "role": "working-copy",
+          "label": "The solution model",
+          "help": "A child of the enterprise model, merged back after go-live.",
+          "starts": [
+            "child",
+            "empty"
+          ],
+          "default_start": "child",
+          "min": 1,
+          "many": false,
+          "how": "added"
+        }
+      ],
+      "finish": "Merge the solution model into its parent after go-live.",
+      "sort": 130,
+      "stakeholders": [
+        {
+          "name": "Product owner",
+          "category": "project",
+          "power": "H",
+          "interest": "H",
+          "concerns": "Scope, features and launch date of the product"
+        },
+        {
+          "name": "Solution delivery team",
+          "category": "project",
+          "power": "M",
+          "interest": "H",
+          "concerns": "Design decisions, standards, build and test"
+        },
+        {
+          "name": "Architecture board",
+          "category": "corporate",
+          "power": "H",
+          "interest": "H",
+          "concerns": "Compliance with principles and standards; reuse"
+        },
+        {
+          "name": "IT operations",
+          "category": "operations",
+          "power": "M",
+          "interest": "M",
+          "concerns": "Running and supporting what changes; service levels"
+        },
+        {
+          "name": "Enterprise security",
+          "category": "corporate",
+          "power": "M",
+          "interest": "M",
+          "concerns": "Security, privacy and risk of the change"
+        },
+        {
+          "name": "Suppliers and partners",
+          "category": "outside",
+          "power": "L",
+          "interest": "M",
+          "concerns": "What is asked of them; contracts and timing"
+        },
+        {
+          "name": "Business domain experts",
+          "category": "end-user",
+          "power": "L",
+          "interest": "H",
+          "concerns": "How their processes, information and systems change"
+        }
+      ]
+    },
+    {
+      "code": "due-diligence",
+      "name": "Due diligence, merger or acquisition",
+      "icon": "🤝",
+      "description": "Two current states (ours and theirs), the overlaps, and a combined target.",
+      "purpose": "strategy",
+      "depth": "strategic",
+      "domains": [
+        "business",
+        "application",
+        "technology"
+      ],
+      "phases": [
+        "P",
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "F",
+        "RM"
+      ],
+      "viewpoints": [
+        "VP-02",
+        "VP-05",
+        "VP-19",
+        "VP-26"
+      ],
+      "goals": true,
+      "primary": "target",
+      "skip": [],
+      "slots": [
+        {
+          "role": "current",
+          "label": "Current states: ours and theirs",
+          "help": "Two current-state models: ours (existing) and theirs (existing, or new empty to capture it).",
+          "starts": [
+            "existing",
+            "empty",
+            "copy"
+          ],
+          "default_start": "existing",
+          "min": 2,
+          "many": true,
+          "how": "added"
+        },
+        {
+          "role": "target",
+          "label": "Combined target",
+          "help": "Usually a copy of ours, then reshaped.",
+          "starts": [
+            "copy",
+            "child",
+            "empty"
+          ],
+          "default_start": "copy",
+          "min": 1,
+          "many": false,
+          "how": "added"
+        }
+      ],
+      "finish": "Merge the combined target into ours once the integration is done.",
+      "sort": 140,
+      "stakeholders": [
+        {
+          "name": "Board or investment committee",
+          "category": "corporate",
+          "power": "H",
+          "interest": "H",
+          "concerns": "Value, risk and the decision to proceed"
+        },
+        {
+          "name": "Chief Executive",
+          "category": "corporate",
+          "power": "H",
+          "interest": "M",
+          "concerns": "Business outcomes, cost and risk of the change",
+          "role_title": "CEO"
+        },
+        {
+          "name": "Chief Financial Officer",
+          "category": "corporate",
+          "power": "H",
+          "interest": "L",
+          "concerns": "Cost, benefits and business case",
+          "role_title": "CFO"
+        },
+        {
+          "name": "Chief Information Officer",
+          "category": "corporate",
+          "power": "H",
+          "interest": "H",
+          "concerns": "IT strategy, investment, delivery risk",
+          "role_title": "CIO"
+        },
+        {
+          "name": "Target company's management",
+          "category": "outside",
+          "power": "M",
+          "interest": "H",
+          "concerns": "What happens to their people, systems and customers"
+        },
+        {
+          "name": "Compliance and legal",
+          "category": "corporate",
+          "power": "H",
+          "interest": "H",
+          "concerns": "Meeting the obligation; evidence; legal risk"
+        },
+        {
+          "name": "Architecture board",
+          "category": "corporate",
+          "power": "H",
+          "interest": "H",
+          "concerns": "Compliance with principles and standards; reuse"
+        }
+      ]
+    }
+  ]
+}

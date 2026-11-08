@@ -4,6 +4,7 @@
 // Kept apart from Quality.jsx so the model screens can use it without loading the whole Quality tab.
 import { useEffect, useState } from "react";
 import { apiFetch } from "./auth";
+import { runTask } from "./tasks";
 
 const BANDS = { green: 80, amber: 60 };
 export const qTone = (v, b = BANDS) => (v == null ? "" : Number(v) >= b.green ? "good" : Number(v) >= b.amber ? "fair" : "poor");
@@ -184,10 +185,10 @@ export function RecheckAll({ model, type, label = "Recheck all" }) {
   async function go() {
     setBusy(true); setMsg("");
     try {
-      const r = await ask(`/api/v1/models/${model}/quality/types/${encodeURIComponent(type)}/recheck`);
-      setMsg(r.message);
-      if (r.background) { for (let i = 1; i <= 8; i += 1) setTimeout(refresh, i * 2500); setTimeout(() => setBusy(false), 8 * 2500); }
-      else { refresh(); setBusy(false); }
+      // D273: a background task, followed in the Tasks tab on the right; the rows read again when it is done
+      const r = await runTask(ask(`/api/v1/models/${model}/quality/types/${encodeURIComponent(type)}/recheck`), `#/metamodel/${model}/quality`);
+      setMsg(`${r.rechecked ?? r.queued ?? ""} rechecked.`.trim());
+      refresh(); setBusy(false);
     } catch (e) { setMsg(e.message); setBusy(false); }
   }
   return (

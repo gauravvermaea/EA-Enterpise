@@ -198,7 +198,11 @@ class TypeRecheck(MethodView):
     @blp.response(200, Free)
     @require_auth()
     def post(self, model_id, entity_type):
-        """Recheck every entity of a type in the background (Recheck all)"""
+        """Recheck every entity of a type in the background (Recheck all; a task followed in the task drawer, D273)"""
+        from .tasks import start, waiting
+        if not waiting():
+            return start("quality.recheck_type", model_id, f"Recheck data quality of {entity_type}",
+                         {"entity_type": entity_type}, f"#/metamodel/{model_id}/quality")
         return _write(lambda c: q.recheck_type(c, model_id, entity_type))
 
 

@@ -4,15 +4,18 @@
 //   #/compare[?left=..&right=..|?model=..]         Compare (top menu, D177): two sides, each any model now or one of its tags
 //   #/compare/gaps[?model=..]                      Gap analyses: every one you may see, each stored in a model you choose
 //   #/compare/gaps/<analysis>                      one gap analysis
-import { Fragment, useEffect, useMemo, useState } from "react";
-import { apiDownload, apiFetch, canOn, myInfo } from "./auth";
+//   #/compare/common[/new|/<analysis>]             Common analyses: what two or more models have in common (Commons.jsx, D286)
+import { Fragment, lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { apiFetch, canOn, myInfo } from "./auth";
 import { refreshAll, useApi } from "./ModelViews";
 import { Modal } from "./ModelOps";
 import { EntityLink } from "./Changes";
 import { EntityPicker } from "./DataEntry";
 import { fmtDate, fmtDateTime } from "./fmt";
-import { trackTask } from "./tasks";
+import { TaskFiles } from "./TaskDrawer";
+import { downloadTask, runTask, trackTask, useAllTasks } from "./tasks";
 
+const Commons = lazy(() => import("./Commons"));
 const go = (path) => { window.location.hash = path; };
 const post = (path, body, method = "POST") => apiFetch(path, { method, body: JSON.stringify(body || {}) });
 const when = (t) => (t ? fmtDateTime(t) : "");
@@ -84,8 +87,8 @@ export function TagsTab({ model, m }) {
               <td className="num">{t.commit}</td><td>v{t.metamodel_version}</td><td className="num">{t.entities}</td><td className="num">{t.relationships}</td>
               <td className="nowrap small">
                 <button className="linkish" onClick={() => go(`/compare?left=tag:${model}:${t.id}&right=model:${model}`)}>Compare with now</button>{" · "}
-                <button className="linkish" onClick={() => apiDownload(`/api/v1/models/${model}/tags/${t.id}/download?format=xlsx`, `${t.name}.xlsx`)}>Excel</button>{" · "}
-                <button className="linkish" onClick={() => apiDownload(`/api/v1/models/${model}/tags/${t.id}/download?format=zip`, `${t.name}.zip`)}>zip</button>
+                <button className="linkish" onClick={() => downloadTask(`/api/v1/models/${model}/tags/${t.id}/download?format=xlsx`, undefined, `#/metamodel/${model}/tags`).catch(() => {})}>Excel</button>{" · "}
+                <button className="linkish" onClick={() => downloadTask(`/api/v1/models/${model}/tags/${t.id}/download?format=zip`, undefined, `#/metamodel/${model}/tags`).catch(() => {})}>zip</button>
                 {mayTag && <>{" · "}
                   {!t.locked && <><button className="linkish" onClick={() => setEdit(t)}>Rename</button>{" · "}</>}
                   {(!t.locked || admin) && <button className="linkish" disabled={busy}
@@ -105,6 +108,7 @@ export function TagsTab({ model, m }) {
           {!data.tags.length && <tr><td colSpan="7" className="quiet">No tags yet.</td></tr>}
         </tbody>
       </table>
+      <TaskFiles kinds={["tag.download"]} model={model} />
       {restore && <RestoreDialog model={model} m={m} t={restore} onClose={() => setRestore(null)} onDone={(out) => { setRestore(null); setMsg(out.note); refreshAll(); }} />}
       {edit && <RenameDialog model={model} t={edit} onClose={() => setEdit(null)} onDone={() => { setEdit(null); refreshAll(); }} />}
     </div>
@@ -154,8 +158,8 @@ export function TagPage({ model, m, tagId, entityId }) {
         </tbody></table>
         <div className="toolbar">
           <button onClick={() => go(`/compare?left=tag:${model}:${t.id}&right=model:${model}`)}>Compare with now</button>
-          <button onClick={() => apiDownload(`/api/v1/models/${model}/tags/${t.id}/download?format=xlsx`, `${t.name}.xlsx`)}>⬇ Excel</button>
-          <button onClick={() => apiDownload(`/api/v1/models/${model}/tags/${t.id}/download?format=zip`, `${t.name}.zip`)}>⬇ zip</button>
+          <button onClick={() => downloadTask(`/api/v1/models/${model}/tags/${t.id}/download?format=xlsx`, undefined, `#/metamodel/${model}/tags`).catch(() => {})}>⬇ Excel</button>
+          <button onClick={() => downloadTask(`/api/v1/models/${model}/tags/${t.id}/download?format=zip`, undefined, `#/metamodel/${model}/tags`).catch(() => {})}>⬇ zip</button>
           {mayTag && !t.locked && <button onClick={() => setEdit(t)}>Rename</button>}
           {mayTag && (!t.locked || admin) && <button disabled={busy}
             onClick={() => act(() => post(`/api/v1/models/${model}/tags/${t.id}`, { locked: !t.locked }, "PATCH"), t.locked ? "Unlocked." : "Locked.")}>
@@ -213,6 +217,7 @@ export function TagPage({ model, m, tagId, entityId }) {
             {!rels.length && <tr><td colSpan="3" className="quiet">Nothing to show.</td></tr>}
           </tbody></table>
       )}
+      <TaskFiles kinds={["tag.download"]} model={model} />
       {restore && <RestoreDialog model={model} m={m} t={restore} onClose={() => setRestore(null)} onDone={(out) => { setRestore(null); setMsg(out.note); refreshAll(); }} />}
       {edit && <RenameDialog model={model} t={edit} onClose={() => setEdit(null)} onDone={() => { setEdit(null); refreshAll(); }} />}
     </div>
@@ -278,7 +283,7 @@ function RestoreDialog({ model, m, t, onClose, onDone }) {
   const [typed, setTyped] = useState("");
   async function go2() {
     setBusy(true); setErr("");
-    try { onDone(await post(`/api/v1/models/${model}/tags/${t.id}/restore`, {})); } catch (e) { setErr(e.message); setBusy(false); }
+    try { onDone(await runTask(post(`/api/v1/models/${model}/tags/${t.id}/restore`, {}), `#/metamodel/${model}/tags`)); } catch (e) { setErr(e.message); setBusy(false); }
   }
   return (
     <Modal title={`Make '${t.name}' the latest version of ${m.name}`} onClose={onClose}
@@ -305,20 +310,21 @@ export default function CompareScreen({ route }) {
   const [, , sub, id] = (route || "").replace(/^#/, "").split("?")[0].split("/");
   return (
     <div className="versions">
-      <h2>{sub === "gaps" ? "Gap analyses" : "Compare"}</h2>
+      <h2>{sub === "gaps" ? "Gap analyses" : sub === "common" ? "Common analyses" : "Compare"}</h2>
       <div className="toolbar">
         <div className="seg small" role="tablist">
-          <button className={sub !== "gaps" ? "on" : ""} onClick={() => go("/compare")}>Compare</button>
+          <button className={sub !== "gaps" && sub !== "common" ? "on" : ""} onClick={() => go("/compare")}>Compare</button>
           <button className={sub === "gaps" ? "on" : ""} onClick={() => go("/compare/gaps")}>Gap analyses</button>
+          <button className={sub === "common" ? "on" : ""} onClick={() => go("/compare/common")}>Common analyses</button>
         </div>
       </div>
-      {sub === "gaps" ? (id === "results" ? <GapResultsCompared key={route} /> : id ? <GapAnalysis key={id} id={id} /> : <GapList key={route} />) : <Comparison key={route} />}
+      {sub === "common" ? <Suspense fallback={<p>Loading...</p>}><Commons key={route} id={id} /></Suspense> : sub === "gaps" ? (id === "results" ? <GapResultsCompared key={route} /> : id ? <GapAnalysis key={id} id={id} /> : <GapList key={route} />) : <Comparison key={route} />}
     </div>
   );
 }
 
 // one side: a model (any the person may open) as it is now, or one of its tags
-function SidePicker({ label, value, onChange }) {
+export function SidePicker({ label, value, onChange }) {
   const { data: models } = useApi("/api/v1/models?archived=false");
   const { data: tags } = useApi(value.model ? `/api/v1/models/${value.model}/tags` : null);
   const list = (models || []).filter((x) => x.kind !== "template");
@@ -337,7 +343,7 @@ function SidePicker({ label, value, onChange }) {
   );
 }
 
-const sideOf = (v) => (v.tag ? { kind: "tag", id: v.tag } : { kind: "model", id: v.model });
+export const sideOf = (v) => (v.tag ? { kind: "tag", id: v.tag } : { kind: "model", id: v.model });
 // a side in the address: model:<model> (as it is now) or tag:<model>:<tag>
 function parseSide(s) {
   if (!s) return null;
@@ -357,6 +363,7 @@ function Comparison() {
   const [info, setInfo] = useState(null);
   const [settings, setSettings] = useState(null);
   const [result, setResult] = useState(null);
+  const lastCompare = useAllTasks().find((t) => t.kind === "compare.run" && t.status === "done");
   const [busy, setBusy] = useState("");
   const [err, setErr] = useState("");
   const [saveGap, setSaveGap] = useState(false);
@@ -371,7 +378,7 @@ function Comparison() {
   }
   async function run() {
     setBusy("compare"); setErr("");
-    try { setResult(await post("/api/v1/compare", { left: sideOf(left), right: sideOf(right), settings })); } catch (e) { setErr(e.message); }
+    try { setResult(await runTask(post("/api/v1/compare", { left: sideOf(left), right: sideOf(right), settings }), "#/compare")); } catch (e) { setErr(e.message); }
     setBusy("");
   }
   return (
@@ -385,14 +392,19 @@ function Comparison() {
           <button disabled={!ready || !!busy} onClick={async () => { setSettings(null); await run(); }} title="Compare with the tool's defaults">Compare with the defaults</button>
         </div>
       </div>
+      {!result && !busy && lastCompare && (
+        <p className="quiet small">Your last comparison ({lastCompare.message}) <button className="linkish" onClick={() => setResult(lastCompare.result)}>Show it</button></p>
+      )}
+      {busy === "compare" && <p className="quiet"><span className="spinner" aria-hidden="true" /> Comparing in the background: you can leave this page; the Tasks tab on the right says when it is done.</p>}
       {info && settings && <FilterScreen info={info} settings={settings} setSettings={setSettings} onCompare={run} busy={busy === "compare"} />}
       {err && <p className="status bad">{err}</p>}
       {result && (
         <CompareResult result={result} actions={<>
-          <button onClick={() => apiDownload("/api/v1/compare/download", "comparison.xlsx", { left: sideOf(left), right: sideOf(right), settings })}>⬇ Excel</button>
+          <button onClick={() => downloadTask("/api/v1/compare/download", { left: sideOf(left), right: sideOf(right), settings }, "#/compare").catch((e) => setErr(e.message))}>⬇ Excel</button>
           <button className="primary" onClick={() => setSaveGap(true)}>Save as a gap analysis...</button>
         </>} />
       )}
+      <TaskFiles kinds={["compare.download"]} />
       {saveGap && <NewGapDialog baseline={left} target={right} settings={settings} onClose={() => setSaveGap(false)} />}
     </div>
   );
@@ -678,7 +690,7 @@ export function CompareResult({ result, actions }) {
 }
 
 // ================================================================ gap analyses
-function NewGapDialog({ baseline, target, settings, onClose }) {
+export function NewGapDialog({ baseline, target, settings, onClose }) {
   const { data } = useApi("/api/v1/gaps");
   const { data: models } = useApi("/api/v1/models?archived=false");
   const [name, setName] = useState("");
@@ -697,11 +709,13 @@ function NewGapDialog({ baseline, target, settings, onClose }) {
   async function save() {
     setBusy(true); setErr("");
     try {
-      const out = await post("/api/v1/gaps", {
+      const from = window.location.hash;
+      const out = await runTask(post("/api/v1/gaps", {
         store_in: storeId, name, description: desc, template, baseline: sideOf(left), target: sideOf(right),
         settings: own && settings ? settings : null,
-      });
-      refreshAll(); onClose(); go(`/compare/gaps/${out.id}`);
+      }), "#/compare/gaps");
+      refreshAll(); onClose();
+      if (window.location.hash === from) go(`/compare/gaps/${out.id}`);
     } catch (e) { setErr(e.message); setBusy(false); }
   }
   return (
@@ -904,10 +918,11 @@ function GapResultsCompared() {
           <input className="search" placeholder="Filter by element or type" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 240 }} />
           <span className="quiet small">{rows.length} shown</span>
           <span className="tabs-right">
-            <button onClick={() => apiDownload(`/api/v1/gap-runs/compare?a=${a}&b=${b}`, `${file}.xlsx`)}>⬇ Excel</button>
-            <button onClick={() => apiDownload(`/api/v1/gap-runs/compare?a=${a}&b=${b}&format=csv`, `${file}.csv`)}>⬇ CSV</button>
+            <button onClick={() => downloadTask(`/api/v1/gap-runs/compare?a=${a}&b=${b}`).catch(() => {})}>⬇ Excel</button>
+            <button onClick={() => downloadTask(`/api/v1/gap-runs/compare?a=${a}&b=${b}&format=csv`).catch(() => {})}>⬇ CSV</button>
           </span>
         </div>
+        <TaskFiles kinds={["gap.runs_compare"]} />
       </div>
       <table className="grid-table gap-compare">
         <thead><tr><th>What happened</th><th>Layer</th><th>Entity type</th><th>Element</th><th>Status A</th><th>Status B</th>
@@ -980,11 +995,12 @@ function GapAnalysis({ id }) {
           <button className={status === "undecided" ? "on" : ""} onClick={() => { setStatus("undecided"); setView("gaps"); }}><b>{a.undecided}</b> without a resolution</button>
         </div>
         <div className="toolbar">
-            {mayEdit && <button disabled={!!busy} onClick={() => act("refresh", () => post(`/api/v1/gaps/${a.id}/refresh`), "Compared again: notes and resolutions kept.")}>{busy === "refresh" ? "Comparing..." : "↻ Compare again"}</button>}
-            <button onClick={() => apiDownload(`/api/v1/gaps/${a.id}/download?format=xlsx`, `${a.name}.xlsx`)}>⬇ Excel</button>
-            <button onClick={() => apiDownload(`/api/v1/gaps/${a.id}/download?format=docx`, `${a.name}.docx`)}>⬇ Word</button>
+            {mayEdit && <button disabled={!!busy} onClick={() => act("refresh", () => runTask(post(`/api/v1/gaps/${a.id}/refresh`), `#/compare/gaps/${a.id}`), "Compared again: notes and resolutions kept.")}>{busy === "refresh" ? "Comparing..." : "↻ Compare again"}</button>}
+            <button onClick={() => downloadTask(`/api/v1/gaps/${a.id}/download?format=xlsx`, undefined, `#/compare/gaps/${a.id}`).catch((e) => setErr(e.message))}>⬇ Excel</button>
+            <button onClick={() => downloadTask(`/api/v1/gaps/${a.id}/download?format=docx`, undefined, `#/compare/gaps/${a.id}`).catch((e) => setErr(e.message))}>⬇ Word</button>
         </div>
       </div>
+      <TaskFiles kinds={["gap.download"]} match={(t) => t.link === `#/compare/gaps/${a.id}`} />
       <div className="toolbar">
         <div className="seg small">
           <button className={view === "gaps" ? "on" : ""} onClick={() => setView("gaps")}>Gaps</button>

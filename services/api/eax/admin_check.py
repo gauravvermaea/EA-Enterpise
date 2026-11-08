@@ -8,7 +8,8 @@ problem, with a link to Administration > Services. It looks at:
   * the health checks of every service: down (red); a warning or slower than a second (amber);
   * backups (none, or older than set on Administration > Backups) and the site certificate (expired: red; within 30 days: amber);
   * config and versions: API and database versions differ, the operations helper cannot be reached (red), a laptop
-    default password or token still set on a server (red; the setting names only, never the values).
+    default password or token still set on a server (red; the setting names only, never the values);
+  * file systems: Docker's disk, the work folder or the backups folder above 80% full (amber) or 90% (red).
 The admin's previous open sign-in notification is resolved when the new check runs, so only the latest is open. The
 webhooks hear it only when the list of problems has changed since the last one, so every sign-in does not repeat it.
 """
@@ -58,6 +59,8 @@ def health_now() -> dict:
                             "detail": err or "answering"}
     out["containers"] = (stats or {}).get("containers", [])
     out["volumes_at"] = (stats or {}).get("volumes_at")
+    out["filesystems"] = (stats or {}).get("filesystems", [])        # owner, 8 Nov 2026: the disks too
+    out["docker_disk"] = (stats or {}).get("docker_disk", [])
     out["problems"] = (stats or {}).get("problems", [])
     out["checked_at"] = time.time()
     if err:
@@ -156,6 +159,11 @@ def find_problems(h: dict, *, want: dict[str, bool] | None = None, cert_days: fl
         names = default_secrets(env)
         if names:
             add("red", "Config and versions", f"Laptop default passwords or tokens are still set on this {deployment}: {', '.join(names)}")
+    for fs in h.get("filesystems") or []:          # the disks (owner, 8 Nov 2026): over 80% used amber, over 90% red
+        if fs.get("same_as") or fs.get("error"):
+            continue
+        if fs.get("level") in ("red", "amber"):
+            add(fs["level"], "File systems", f"{fs['label']} is {fs['used_percent']:.0f}% full ({fs['free_bytes'] / 1e9:.1f} GB free)")
     out.sort(key=lambda p: (p["level"] != "red", p["area"]))
     return out
 

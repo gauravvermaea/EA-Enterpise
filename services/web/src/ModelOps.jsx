@@ -13,16 +13,16 @@ import { createPortal } from "react-dom";
 import { apiDownload, apiFetch, apiUpload, can, canOn, myInfo, needsRole } from "./auth";
 import { refreshAll, useApi } from "./ModelViews";
 import { fmtDateTime } from "./fmt";
-import { trackTask, useTask } from "./tasks";
+import { runTask, startDownload, trackTask, useTask } from "./tasks";
 import { IconPicker, saveIcon } from "./ModelIcon";
 
 const go = (path) => { window.location.hash = path; };
 const post = (path, body, method = "POST") => apiFetch(path, { method, body: body === undefined ? undefined : JSON.stringify(body) });
 // Root, the top of the hierarchy every root metamodel is built on
 // Who may create something (the server and the database check again)
-const mayCreate = () => can("models.create") || can("library.curate");
+export const mayCreate = () => can("models.create") || can("library.curate");
 const CREATE_ROLES = ["model-creator", "library-admin"];
-const isTop = (m) => m.is_top || (m.kind === "template" && !m.source_model_id);
+export const isTop = (m) => m.is_top || (m.kind === "template" && !m.source_model_id);
 const label = (m) => `${m.name}${m.version_label ? ` ${m.version_label}` : ""}`;
 
 export function Modal({ title, onClose, children, actions, wide }) {
@@ -45,7 +45,7 @@ export function Modal({ title, onClose, children, actions, wide }) {
 }
 
 // A form field; `tip` is the longer explanation shown when the mouse rests on the label or the ⓘ
-function Field({ label: text, hint, tip, children }) {
+export function Field({ label: text, hint, tip, children }) {
   return (
     <label className="ed-field">
       <span title={tip}>{text} {tip && <span className="tip" aria-label={tip}>ⓘ</span>} {hint && <span className="quiet">{hint}</span>}</span>
@@ -61,7 +61,7 @@ const COPIES = [
   ["history", "Deep copy: the data with its full history", "As above, and every entity keeps its whole history from the source, even if the source changes or is deleted later"],
 ];
 
-export function NewModelDialog({ from, onClose }) {
+export function NewModelDialog({ from, onClose, preset = {}, admin = false }) {
   const { data: models } = useApi("/api/v1/models?archived=false");
   const curator = can("library.curate");
   const creator = can("models.create");
@@ -78,8 +78,8 @@ export function NewModelDialog({ from, onClose }) {
   const kindAllowed = !!kinds.find((k) => k[0] === kind)?.[3];
   const [name, setName] = useState(from ? `Copy of ${from.name}` : "");
   const [source, setSource] = useState(from?.id || "");
-  const [copy, setCopy] = useState(from && from.kind !== "template" ? "content" : "metamodel");
-  const [link, setLink] = useState(!creator && !curator && fromProjectAdmin ? "child" : "independent");   // project sources: "child" (merges back) or "independent"
+  const [copy, setCopy] = useState(preset.copy || (from && from.kind !== "template" ? "content" : "metamodel"));
+  const [link, setLink] = useState(preset.link || (!creator && !curator && fromProjectAdmin ? "child" : "independent"));   // project sources: "child" (merges back) or "independent"
   const [version, setVersion] = useState(kind === "project" ? "" : "1.0");
   const [industry, setIndustry] = useState(from?.industry || "");
   const [icon, setIcon] = useState("");          // D247: every new model has an icon; empty until picked: the kind's
@@ -120,7 +120,7 @@ export function NewModelDialog({ from, onClose }) {
       if (iconFile) await saveIcon(out.model.id, null, iconFile).catch(() => {});   // the model exists; an upload failing leaves the library icon
       refreshAll();
       onClose();
-      go(`/metamodel/${out.model.id}`);
+      go(`/${admin ? "model-admin" : "metamodel"}/${out.model.id}`);
     } catch (e) { setError(e.message); setBusy(false); }
   }
 
@@ -199,7 +199,7 @@ export function NewModelDialog({ from, onClose }) {
         )}
         {kind === "project" && src && !projectSource && (
           <p className="quiet small-note" style={{ margin: 0 }}>Built on {src.name}: an independent model on its metamodel. It never merges back into a
-            {src.kind === "template" ? " root metamodel" : " library model"}; to take a newer framework version, use Actions &gt; Move to another framework.</p>
+            {src.kind === "template" ? " root metamodel" : " library model"}; to take a newer framework version, use Model admin &gt; Wizards &gt; Upgrade to another framework.</p>
         )}
         {kind === "root" && <Field label="Framework" hint="(for example ArchiMate, or your own)" tip="The name of the metamodel, shown beside every model built on this root."><input value={framework} onChange={(e) => setFramework(e.target.value)} /></Field>}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -210,16 +210,16 @@ export function NewModelDialog({ from, onClose }) {
         <Field label="Icon" tip="Shown wherever the model is named. Pick one from the library or upload your own (for this model only); its Model Admins can change it later.">
           <IconPicker value={iconName} onChange={setIcon} file={iconFile} onFile={setIconFile} kind={kind === "root" ? "template" : kind === "library" ? "reference" : "project"} /></Field>
         <p className="quiet small-note">You become the new model's Model Admin. It starts as a <b>draft</b>: you and the people you give roles
-          work on it, and nobody else can create a model from it until you publish it (Actions &gt; Publish).</p>
+          work on it, and nobody else can create a model from it until you publish it (Model admin &gt; Wizards &gt; Request publishing).</p>
         {error && <p className="status bad">{error}</p>}
       </div>
     </Modal>
   );
 }
 
-const ownsDraft = (m) => canOn(m.id, "model.lock") || (m.kind !== "project" && can("library.curate"));
-const mayCreateFrom = (m) => (!m.is_draft || ownsDraft(m)) && (mayCreate() || (m.kind === "project" && canOn(m.id, "model.derive")));
-const draftWhy = (m) => `${m.name} is a draft: only its Model Admins create models from it until it is published`;
+export const ownsDraft = (m) => canOn(m.id, "model.lock") || (m.kind !== "project" && can("library.curate"));
+export const mayCreateFrom = (m) => (!m.is_draft || ownsDraft(m)) && (mayCreate() || (m.kind === "project" && canOn(m.id, "model.derive")));
+export const draftWhy = (m) => `${m.name} is a draft: only its Model Admins create models from it until it is published`;
 
 export function CreateFromButton({ m, className = "" }) {
   const [open, setOpen] = useState(false);
@@ -233,14 +233,14 @@ export function CreateFromButton({ m, className = "" }) {
   );
 }
 
-export function NewModelButton() {
+export function NewModelButton({ admin = false }) {
   const [open, setOpen] = useState(false);
   const ok = mayCreate();
   return (
     <>
       <button className="primary" disabled={!ok} onClick={() => setOpen(true)}
         title={ok ? "A project model, a root metamodel or (Library Admins) a library model, empty or from an existing model" : `Creating a model: ${needsRole(CREATE_ROLES)}`}>+ New model</button>
-      {open && <NewModelDialog onClose={() => setOpen(false)} />}
+      {open && <NewModelDialog admin={admin} onClose={() => setOpen(false)} />}
     </>
   );
 }
@@ -260,13 +260,14 @@ export function DownloadDialog({ m, onClose }) {
   async function get() {
     setBusy(true); setError("");
     try {
-      await apiDownload(`/api/v1/models/${m.id}/package?format=${format}&content=${content}`, `${m.name}.${format}`);
+      // D273: made in the background; downloaded when ready (also from the Tasks tab on the right for 24 hours)
+      await startDownload(`/api/v1/models/${m.id}/package?format=${format}&content=${content}`, undefined, `#/metamodel/${m.id}`);
       onClose();
     } catch (e) { setError(e.message); setBusy(false); }
   }
   return (
     <Modal title={`Download ${m.name}`} onClose={onClose}
-      actions={<><button onClick={onClose}>Cancel</button><button className="primary" disabled={busy} onClick={get}>{busy ? "Preparing..." : "Download"}</button></>}>
+      actions={<><button onClick={onClose}>Cancel</button><button className="primary" disabled={busy} onClick={get}>{busy ? "Starting..." : "Download"}</button></>}>
       <div className="ed-form">
         <Field label="Format" tip="Both upload again, here or in another EA Explorer. Excel is easiest to read and change; the zip holds JSON and CSV files.">
           <div className="seg small">
@@ -336,7 +337,7 @@ export function UploadWizard({ onClose }) {
     const form = new FormData();
     form.append("file", f);
     try {
-      const out = await apiUpload("/api/v1/packages/analyse", form);
+      const out = await runTask(apiUpload("/api/v1/packages/analyse", form));
       setInfo(out);
       const mm = out.manifest?.model || {};
       setName(mm.name || f.name.replace(/\.(zip|xlsx)$/i, ""));
@@ -357,10 +358,11 @@ export function UploadWizard({ onClose }) {
     form.append("name", name.trim());
     if (!isRoot) { form.append("as_kind", asKind); form.append("content", load); }
     try {
-      const out = await apiUpload("/api/v1/packages/import", form);
+      const from = window.location.hash;
+      const out = await runTask(apiUpload("/api/v1/packages/import", form));
       refreshAll();
       onClose();
-      go(`/metamodel/${out.model.id}`);
+      if (window.location.hash === from) go(`/metamodel/${out.model.id}`);
     } catch (e) { setError(e.message); setBusy(false); }
   }
 
@@ -492,7 +494,7 @@ function Differences({ list }) {
 }
 
 // ------------------------------------------------------------------ move to another framework
-function FrameworkMoveDialog({ m, onClose }) {
+export function FrameworkMoveDialog({ m, onClose }) {
   const { data: roots } = useApi("/api/v1/models?kind=template&archived=false");
   const [target, setTarget] = useState("");
   const [map, setMap] = useState(null);
@@ -521,10 +523,11 @@ function FrameworkMoveDialog({ m, onClose }) {
   async function move() {
     setBusy(true); setError("");
     try {
-      const out = await post(`/api/v1/models/${m.id}/framework-move`, { target, mode, map, name: mode === "copy" ? name.trim() : null, with_data: mode === "copy" ? withData : true });
+      const from = window.location.hash;
+      const out = await runTask(post(`/api/v1/models/${m.id}/framework-move`, { target, mode, map, name: mode === "copy" ? name.trim() : null, with_data: mode === "copy" ? withData : true }));
       refreshAll();
       onClose();
-      go(`/metamodel/${out.model.id}`);
+      if (window.location.hash === from) go(`/metamodel/${out.model.id}`);
     } catch (e) { setError(e.message); setBusy(false); }
   }
 
@@ -596,7 +599,7 @@ function FrameworkMoveDialog({ m, onClose }) {
 }
 
 // ------------------------------------------------------------------ delete, archive, library actions
-function DeleteDialog({ m, onClose }) {
+export function DeleteDialog({ m, onClose }) {
   const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -623,7 +626,7 @@ function DeleteDialog({ m, onClose }) {
   );
 }
 
-function PromoteDialog({ m, onClose }) {
+export function PromoteDialog({ m, onClose }) {
   const [name, setName] = useState(m.name);
   const [version, setVersion] = useState(m.version_label || "1.0");
   const [industry, setIndustry] = useState(m.industry || "");
@@ -633,10 +636,11 @@ function PromoteDialog({ m, onClose }) {
   async function promote() {
     setBusy(true); setError("");
     try {
-      const out = await post(`/api/v1/models/${m.id}/promote`, { name: name.trim(), version_label: version, industry, copy });
+      const from = window.location.hash;
+      const out = await runTask(post(`/api/v1/models/${m.id}/promote`, { name: name.trim(), version_label: version, industry, copy }), "#/library");
       refreshAll();
       onClose();
-      go(`/metamodel/${(out.model || out).id}`);
+      if (window.location.hash === from) go(`/metamodel/${(out.model || out).id}`);
     } catch (e) { setError(e.message); setBusy(false); }
   }
   return (
@@ -789,7 +793,7 @@ export function ModelActions({ m }) {
 
 // Actions > Tag this model now (phase 8.3): the same as the Tags tab's box. Tagging reads the whole model, so it runs
 // in the background (D192): the dialog follows it; close it any time, the top bar says when the tag is made
-function TagNowDialog({ m, onClose }) {
+export function TagNowDialog({ m, onClose }) {
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
   const [lock, setLock] = useState(false);
@@ -842,7 +846,7 @@ const PUBLISH_STEPS = {
   reopen: ["Open again", "A note (optional)", "primary", false],
 };
 
-function PublishStepDialog({ m, step, onClose }) {
+export function PublishStepDialog({ m, step, onClose }) {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -878,14 +882,14 @@ export function CopyBanner({ m }) {
   }
   if (m.library_state === "building") {
     return <div className="lock-banner draft-banner">📝 Draft: not yet published in the library. {m.approval_state === "requested"
-      ? "Publishing requested: a Library Admin approves it (Actions > Approve and publish in the library) or sends it back."
+      ? "Publishing requested: a Library Admin approves it (Model admin > Wizards > Approve and publish) or sends it back."
       : "Request publishing (Actions) when it is ready; a Library Admin approves it."}</div>;
   }
   if (m.is_draft) {
-    const st = { requested: "Publishing requested: waiting for approval (Actions > Approve and publish, or Send back).",
-      returned: "Sent back: change it and request publishing again (Actions > Request publishing).",
-      rejected: "Rejected: not published and archived. Its Model Admin can open it again (Actions > Open the rejected draft again).",
-      editing: "Nobody else can create a model from it until it is published: Actions > Request publishing, then it is approved." }[m.approval_state] || "";
+    const st = { requested: "Publishing requested: waiting for approval (Model admin > Wizards > Approve and publish).",
+      returned: "Sent back: change it and request publishing again (Model admin > Wizards > Request publishing).",
+      rejected: "Rejected: not published and archived. Its Model Admin can open it again (Model admin > Wizards > Open the rejected draft again).",
+      editing: "Nobody else can create a model from it until it is published: Model admin > Wizards > Request publishing, then it is approved." }[m.approval_state] || "";
     return <div className="lock-banner draft-banner">📝 Draft model. {st}</div>;
   }
   if (m.library_state === "withdrawn") {
@@ -976,7 +980,7 @@ function NewDraftDialog({ onClose }) {
         const j = JSON.parse(t);
         setSpec(j);
         if (!name && j.name) setName(j.name);
-      } catch { setError("That file is not JSON: a metamodel file is the JSON a model's Actions > Download the metamodel gives."); }
+      } catch { setError("That file is not JSON: a metamodel file is the JSON Model admin > Wizards > Download the metamodel gives."); }
     });
   }
   async function create() {
@@ -1313,13 +1317,14 @@ function ApplyDraftDialog({ d, onClose }) {
   async function go2() {
     setBusy(true); setError("");
     try {
-      const out = await post(`/api/v1/metamodel-drafts/${d.id}/apply`, d.kind === "root"
+      const from = window.location.hash;
+      const out = await runTask(post(`/api/v1/metamodel-drafts/${d.id}/apply`, d.kind === "root"
         ? { name: name.trim(), version_label: version, create_model: model.trim() || null }
-        : { remove_missing: removeMissing });
+        : { remove_missing: removeMissing }));
       refreshAll();
       onClose();
       const to = out.model?.id || out.draft?.applied_model_id;
-      if (to) go(`/metamodel/${to}/metamodel`);   // detailed changes are made here, in the metamodel editor
+      if (to && window.location.hash === from) go(`/metamodel/${to}/metamodel`);   // detailed changes are made here, in the metamodel editor
     } catch (e) { setError(e.message); setBusy(false); }
   }
   return (

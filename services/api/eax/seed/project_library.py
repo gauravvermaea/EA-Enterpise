@@ -53,6 +53,9 @@ def _ins(table: str, cols: list[str], rows: list[list], conflict: str) -> str:
     return f"INSERT INTO {table} ({', '.join(cols)}) VALUES\n{_values(rows)}\nON CONFLICT {conflict} DO NOTHING;\n"
 
 
+CF_ITEMS: dict[str, str] = json.loads((HERE / "content_framework_map.json").read_text(encoding="utf-8"))["document_types"]
+
+
 def library_sql(d: dict | None = None) -> str:
     d = d or data()
     out = [
@@ -62,9 +65,13 @@ def library_sql(d: dict | None = None) -> str:
              [[p["code"], p["name"], p["workspace"], p["objectives"], p["inputs"], p["sort"]] for p in d["phases"]], "(code)"),
         _ins("proj.lib_steps", ["phase", "seq", "name", "source", "marking", "note"],
              [[s["phase"], s["seq"], s["name"], s["source"], s["marking"] or "", s["note"] or ""] for s in d["steps"]], "(phase, name)"),
-        _ins("proj.lib_items", ["id", "phase", "name", "kind", "type", "default_pick", "work_folder", "approved_folder", "templates"],
+        _ins("proj.lib_items", ["id", "phase", "name", "kind", "type", "default_pick", "work_folder", "approved_folder", "templates",
+                                "content_area"],
              [[i["id"], i["phase"], i["name"], i["kind"], i["type"] or "", i["default"] != "Not for use", i["work"], i["approved"] or "",
-               i["templates"] or ""] for i in d["items"]], "(id)"),
+               i["templates"] or "", CF_ITEMS.get(i["name"], "")] for i in d["items"]], "(id)"),
+        # where each document type sits in the content framework (D299): set where it is not chosen yet
+        ("UPDATE proj.lib_items i SET content_area = v.a FROM (VALUES\n"
+         + _values([[n, a] for n, a in CF_ITEMS.items()]) + "\n) AS v (n, a) WHERE i.name = v.n AND i.content_area = '';\n"),
         _ins("proj.lib_folders", ["path", "holds", "togaf_class", "origin"],
              [[f["path"], f["holds"] or "", f["togaf_class"] or "", f["origin"] or ""] for f in d["folders"]], "(path)"),
         _ins("proj.template_libraries", ["name", "kind", "description", "shared"],
@@ -73,6 +80,12 @@ def library_sql(d: dict | None = None) -> str:
               [TOGAF, "togaf", "The TOGAF Standard, 10th Edition: Template Deliverables (The Open Group I094). Only their "
                "names ship; a Super Admin loads the licensed files once.", True]], "(name)"),
     ]
+    # project templates (D282): the shipped ones, added once; a Super Admin's changes are kept
+    tpl = json.loads((HERE / "project_templates.json").read_text(encoding="utf-8"))["templates"]
+    out.append(_ins("proj.project_templates", ["code", "name", "icon", "description", "spec", "builtin", "sort_order"],
+                    [[t["code"], t["name"], t["icon"], t["description"],
+                      json.dumps({k: v for k, v in t.items() if k not in ("code", "name", "icon", "description", "sort")}), True, t["sort"]]
+                     for t in tpl], "(code)"))
     # TOGAF's templates by name (files loaded later); the other sources' names are covered by EA Explorer's own files
     togaf = [t for t in d["templates"] if t["source"] == "TOGAF 10"]
     if togaf:

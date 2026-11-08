@@ -239,6 +239,10 @@ class TagDownload(MethodView):
     def get(self, model_id, tag_id):
         """The tag as a model package (Excel or zip): to keep, load elsewhere, or merge into another model"""
         fmt = "zip" if request.args.get("format") == "zip" else "xlsx"
+        if request.args.get("background") == "true":   # D273: made in the background, downloaded from the task
+            from .tasks import start
+            return start("tag.download", model_id, f"Download a tag ({fmt})", {"tag": tag_id, "format": fmt},
+                         f"#/metamodel/{model_id}/tags")
         data, name, ctype = _read(lambda c: tg.download_tag(c, model_id, tag_id, fmt, g.user.username))
         return _file(data, name, ctype)
 
@@ -251,7 +255,11 @@ class TagRestore(MethodView):
     @require_auth("model.lock")
     def post(self, data, model_id, tag_id):
         """Makes the tag the latest (Model Admin): the current version is tagged first, then the tag overwrites the
-        model completely, metamodel and content, as one commit. Restore that new tag to go back"""
+        model completely, metamodel and content, as one commit. Restore that new tag to go back. In the background (D273)"""
+        from .tasks import start, waiting
+        if not waiting():
+            return start("tag.restore", model_id, "Restore a tag as the latest", {"tag": tag_id, "note": data.get("note", "")},
+                         f"#/metamodel/{model_id}/tags")
         return _write(lambda c: tg.restore_tag(c, model_id, g.user, tag_id, data.get("note", "")), "tag.restore", model_id,
                       {"tag": tag_id})
 
@@ -278,7 +286,11 @@ class Compare(MethodView):
     @blp.response(200, Free)
     @require_auth()
     def post(self, data):
-        """Compares two sides (each a model as it is now, or a tag): summary, entities, fields, relationships, metamodel"""
+        """Compares two sides (each a model as it is now, or a tag): summary, entities, fields, relationships, metamodel.
+        In the background (D273): the answer is a task whose result is the comparison; ?wait=true compares in the request"""
+        from .tasks import start, waiting
+        if not waiting():
+            return start("compare.run", None, "Compare two sides", data, "#/compare")
         return _read(lambda c: cp.compare(cp.load_side(c, data["left"]), cp.load_side(c, data["right"]), data.get("settings")))
 
 
@@ -288,7 +300,11 @@ class CompareDownload(MethodView):
     @blp.arguments(SidesIn)
     @require_auth()
     def post(self, data):
-        """The comparison as an Excel workbook: summary, entities, field changes, relationships, metamodel"""
+        """The comparison as an Excel workbook: summary, entities, field changes, relationships, metamodel.
+        In the background (D273): the answer is a task with the file; ?wait=true answers the file"""
+        from .tasks import start, waiting
+        if not waiting():
+            return start("compare.download", None, "Download a comparison (Excel)", data, "#/compare")
         res = _read(lambda c: cp.compare(cp.load_side(c, data["left"]), cp.load_side(c, data["right"]), data.get("settings")))
         name = f"Compare {res['left']['label']} with {res['right']['label']}"
         safe = "".join(ch if ch.isalnum() or ch in " ._-" else "-" for ch in name)[:120].strip()
@@ -361,7 +377,10 @@ class Gaps(MethodView):
     @require_auth()
     def post(self, data):
         """A new gap analysis: a baseline and a target (any models you may read, as they are now or a tag of each) compared
-        with a TOGAF template, the gaps stored in the model given (store_in)"""
+        with a TOGAF template, the gaps stored in the model given (store_in). In the background (D273)"""
+        from .tasks import start, waiting
+        if not waiting():
+            return start("gap.create", data["store_in"], f"Make the gap analysis '{data['name']}'", data, "#/compare/gaps")
         return _write(lambda c: gp.create(c, data["store_in"], g.user, data["name"], data["baseline"], data["target"], data["template"],
                                           data.get("settings"), data["description"]), "gap.create", data["store_in"], {"name": data["name"]})
 
@@ -388,7 +407,13 @@ class GapRefresh(MethodView):
     @blp.response(200, Free)
     @require_auth()
     def post(self, analysis_id):
-        """Compares the two sides again; the gaps' notes, resolutions, work packages and Gap entities are kept"""
+        """Compares the two sides again; the gaps' notes, resolutions, work packages and Gap entities are kept.
+        In the background (D273)"""
+        from .tasks import start, waiting
+        if not waiting():
+            model_id = _read(lambda c: gp.model_of(c, analysis_id))
+            return start("gap.refresh", model_id, "Compare a gap analysis again", {"analysis": analysis_id},
+                         f"#/compare/gaps/{analysis_id}")
         return _gap_write(analysis_id, lambda c, m: gp.refresh(c, m, g.user, analysis_id), "gap.refresh")
 
 
@@ -444,7 +469,14 @@ class GapDownload(MethodView):
     @blp.doc(security=SECURITY, parameters=[{"in": "query", "name": "format", "schema": {"type": "string", "enum": ["xlsx", "docx"]}}])
     @require_auth()
     def get(self, analysis_id):
-        """The gap analysis as an Excel workbook (gaps, TOGAF gap matrix, field changes) or a Word document"""
+        """The gap analysis as an Excel workbook (gaps, TOGAF gap matrix, field changes) or a Word document.
+        ?background=true: made in the background (D273), downloaded from the task"""
+        if request.args.get("background") == "true":
+            from .tasks import start
+            fmt = "docx" if request.args.get("format") == "docx" else "xlsx"
+            model_id = _read(lambda c: gp.model_of(c, analysis_id))
+            return start("gap.download", model_id, f"Download a gap analysis ({'Word' if fmt == 'docx' else 'Excel'})",
+                         {"analysis": analysis_id, "format": fmt}, f"#/compare/gaps/{analysis_id}")
         a = _read(lambda c: gp.get(c, gp.model_of(c, analysis_id), analysis_id))
         safe = "".join(ch if ch.isalnum() or ch in " ._-" else "-" for ch in a["name"])[:100].strip() or "gap-analysis"
         if request.args.get("format") == "docx":
@@ -489,6 +521,11 @@ class GapRunsCompare(MethodView):
         a, b = request.args.get("a"), request.args.get("b")
         if not a or not b:
             abort(400, message="Choose two gap results to compare (a and b).")
+        if request.args.get("background") == "true" and request.args.get("format") != "json":   # D273
+            from .tasks import start
+            fmt = "csv" if request.args.get("format") == "csv" else "xlsx"
+            return start("gap.runs_compare", None, f"Compare two gap results ({fmt})", {"a": a, "b": b, "format": fmt},
+                         f"#/compare/gaps/results?a={a}&b={b}")
         res = _read(lambda c: gp.compare_runs(c, a, b))
         if request.args.get("format") == "json":
             return res

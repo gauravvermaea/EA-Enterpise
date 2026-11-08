@@ -2,13 +2,14 @@
 // Notifications that need action stay open until someone resolves them with a note (once for everyone who got them);
 // information ones are read or dismissed by each person. The bell's count is read when a page opens (no live push).
 import { useEffect, useState } from "react";
-import { apiFetch, can, canOn, currentUser } from "./auth";
+import { apiDownload, apiFetch, can, canOn, currentUser } from "./auth";
 import { fmtDateTime } from "./fmt";
 import { Modal } from "./ModelOps";
 import { refreshAll, useApi } from "./ModelViews";
+import { runTask } from "./tasks";
 
-const CATEGORY = { commit: "Commits", metamodel: "Metamodel", request: "Requests", model: "Model events", system: "System" };
-const ICON = { commit: "✔", metamodel: "⬇", request: "✉", model: "◆", system: "⚠" };
+const CATEGORY = { commit: "Commits", metamodel: "Metamodel", request: "Requests", model: "Model events", system: "System", task: "Background tasks" };
+const ICON = { commit: "✔", metamodel: "⬇", request: "✉", model: "◆", system: "⚠", task: "⏱" };
 const STATUS = { open: "Open", in_progress: "In progress", done: "Done", declined: "Declined" };
 
 // ---------------------------------------------------------------- the bell (top bar)
@@ -36,8 +37,11 @@ export default function NotificationsPage({ route }) {
   const go = (p) => { window.location.hash = `#/notifications${p ? `/${p}` : ""}`; };
   const { data: counts } = useApi("/api/v1/notifications/counts");
   const { data: reqs } = useApi("/api/v1/requests?box=received&status=active");
+  const { data: taskNotes } = useApi("/api/v1/notifications?show=open&category=task&limit=200");
+  const unreadTasks = (taskNotes?.items || []).filter((n) => !n.read_at).length;
   const tabs = [
     ["inbox", `Notifications${counts?.unread ? ` (${counts.unread})` : ""}`],
+    ["tasks", `Background tasks${unreadTasks ? ` (${unreadTasks})` : ""}`],
     ["received", `Requests to me${reqs?.counts?.received_active ? ` (${reqs.counts.received_active})` : ""}`],
     ["sent", "Requests I sent"],
     ["new", "✉ New request"],
@@ -55,6 +59,7 @@ export default function NotificationsPage({ route }) {
         ))}
       </div>
       {view === "inbox" ? <Inbox />
+        : view === "tasks" ? <Inbox fixed="task" />
         : view === "requests" && parts[1] ? <RequestPage key={parts[1]} id={parts[1]} />
         : view === "received" || view === "sent" ? <RequestList box={view} />
         : view === "new" ? <NewRequest />
@@ -63,9 +68,11 @@ export default function NotificationsPage({ route }) {
   );
 }
 
-function Inbox() {
+// fixed: one category only (the Background tasks tab, D273: a task of yours finished, with its link and file)
+function Inbox({ fixed = "" }) {
   const [show, setShow] = useState("open");
-  const [category, setCategory] = useState("");
+  const [chosen, setCategory] = useState("");
+  const category = fixed || chosen;
   const [q, setQ] = useState("");
   const [resolving, setResolving] = useState(null);
   const [err, setErr] = useState("");
@@ -88,15 +95,19 @@ function Inbox() {
           <option value="open">Open</option><option value="actions">Waiting for action</option>
           <option value="resolved">Resolved and dismissed</option><option value="all">All</option>
         </select>
-        <select value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Kind">
+        {!fixed && <select value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Kind">
           <option value="">Every kind</option>
           {Object.entries(CATEGORY).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-        </select>
+        </select>}
         <input type="search" placeholder="Search" value={q} onChange={(e) => setQ(e.target.value)} />
         {data && <span className="quiet small">{data.total} notification{data.total === 1 ? "" : "s"} · {data.counts.open_actions} waiting for action</span>}
+        {data && data.items.some((n) => !n.needs_action && !n.dismissed_at) && <button className="push-right" title="Put away every notification that needs no action (those waiting for action stay)"
+          onClick={() => act(() => apiFetch(`/api/v1/notifications/dismiss-all?category=${category}`, { method: "POST" }))}>{fixed === "task" ? "Clear them all" : "Dismiss all"}</button>}
       </div>
       {error && <p className="status bad">{error}</p>}
       {err && <p className="status bad">{err}</p>}
+      {fixed === "task" && <p className="quiet small">Each background task of yours says here when it is done or why it
+        failed. Running ones are in the Tasks tab on the right edge of every page. A file a task made is kept 24 hours.</p>}
       {data && !data.items.length && <p className="quiet">Nothing here.</p>}
       <ul className="notif-list">
         {(data?.items || []).map((n) => (
@@ -108,6 +119,7 @@ function Inbox() {
                 {n.needs_action && !n.resolved_at && <span className="badge action-badge">needs action</span>}
               </div>
               {n.body && <div className="notif-body small">{n.body}</div>}
+              {n.task_file && <div className="small"><button className="linkish" onClick={() => apiDownload(`/api/v1/tasks/${n.task_id}/file`, n.task_file).catch((e) => setErr(e.message))}>⬇ {n.task_file}</button></div>}
               <div className="quiet small">{CATEGORY[n.category]} · {n.model_name ? <><a href={`#/metamodel/${n.model_id}`}>{n.model_name}</a> · </> : null}
                 {n.actor} · {fmtDateTime(n.created_at)}</div>
               {n.resolved_at && <div className="small resolved-note">Resolved by {n.resolved_by} {fmtDateTime(n.resolved_at)}: {n.resolution}</div>}
@@ -167,8 +179,9 @@ function RequestList({ box }) {
             <tbody>
               {data.items.map((r) => (
                 <tr key={r.id}>
-                  <td><a href={`#/notifications/requests/${r.number}`}>{r.number}</a></td>
-                  <td><a href={`#/notifications/requests/${r.number}`}>{r.subject}</a></td>
+                  <td>{r.kind === "signoff" ? <span className="chip" title="A document sent for sign-off in an architecture project">sign-off</span>
+                    : <a href={`#/notifications/requests/${r.number}`}>{r.number}</a>}</td>
+                  <td><a href={r.kind === "signoff" ? r.link : `#/notifications/requests/${r.number}`}>{r.subject}</a></td>
                   <td>{box === "received" ? r.sender : r.receiver}</td>
                   <td><span className={`req-status ${r.status}`}>{r.status_label}</span></td>
                   <td>{r.comment_count || ""}</td>
@@ -297,7 +310,7 @@ export function PushDownTab({ model }) {
   async function push() {
     setBusy(true); setErr(""); setMsg("");
     try {
-      const out = await apiFetch(`/api/v1/models/${model}/pushdown`, { method: "POST", body: JSON.stringify({ mode, fill_defaults: fill, note }) });
+      const out = await runTask(apiFetch(`/api/v1/models/${model}/pushdown`, { method: "POST", body: JSON.stringify({ mode, fill_defaults: fill, note }) }), `#/metamodel/${model}/metamodel`);
       setMsg(`${out.message} ${out.targets.map((t) => `${t.model}: ${t.status}${t.error ? ` (${t.error})` : ""}`).join("; ")}`);
       setNote(""); refreshAll();
     } catch (e) { setErr(e.message); }
@@ -410,7 +423,7 @@ function DecideDialog({ model, d, onClose }) {
   async function save() {
     setBusy(true); setErr("");
     try {
-      const out = await apiFetch(`/api/v1/models/${model}/pushdown/${d.item.id}/decide`, { method: "POST", body: JSON.stringify({ accept: d.accept, note }) });
+      const out = await runTask(apiFetch(`/api/v1/models/${model}/pushdown/${d.item.id}/decide`, { method: "POST", body: JSON.stringify({ accept: d.accept, note }) }), `#/metamodel/${model}/metamodel`);
       if (out.status === "failed") { setErr(`Could not be made: ${out.error}`); setBusy(false); return; }
       refreshAll(); onClose();
     } catch (e) { setErr(e.message); }

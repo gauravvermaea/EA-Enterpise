@@ -1,4 +1,5 @@
-// The administration console (build phase 10, D183): #/admin/<tab>
+// System admin (build phase 10, D183; one of the five areas, D285): #/admin/<tab>
+//   wizards      the system's admin tasks as wizards: access, backups and restores, services (SystemWizards.jsx, D284)
 //   users        people, their roles, Keycloak role mapping (Users.jsx; User Admins)
 //   application  application settings every screen, report and export follows (everyone sees; Super Admins change)
 //   system       runtime system settings (Super Admins change), the optional services on or off (D191), start-up
@@ -6,7 +7,7 @@
 //   health       the heartbeat and the containers
 //   sql          the SQL window (IT Admins)
 //   licences     the products and libraries and their licences
-// The old addresses #/users, #/heartbeat and #/sql open the same tabs.
+// The old addresses #/users, #/heartbeat and #/sql open the same tabs; #/admin/projects moved to #/project-admin/library.
 import { lazy, Suspense, useEffect, useState } from "react";
 import { apiFetch, can, needsRole } from "./auth";
 import { refreshAll, useApi } from "./ModelViews";
@@ -21,10 +22,11 @@ const Sql = lazy(() => import("./Sql"));
 const ContainerConsole = lazy(() => import("./ContainerConsole"));
 const AdminBackups = lazy(() => import("./Backups"));
 const RestoresPage = lazy(() => import("./Restores"));
+const SystemWizards = lazy(() => import("./SystemWizards"));
 const QualityAdmin = lazy(() => import("./Quality").then((x) => ({ default: x.QualityAdmin })));
-const ProjectLibraryAdmin = lazy(() => import("./Projects").then((x) => ({ default: x.ProjectLibraryAdmin })));
 
 const TABS = [
+  ["wizards", "Wizards", () => true, null],
   ["application", "Application settings", () => true, null],
   ["system", "System settings", () => can("system.operate") || can("settings.manage"), ["it-admin", "super-admin"]],
   ["users", "Users", () => can("users.read"), ["user-admin", "super-admin"]],
@@ -33,7 +35,6 @@ const TABS = [
   ["backups", "Backups", () => can("system.operate"), ["it-admin", "super-admin"]],
   ["restores", "Restores", () => can("system.operate"), ["it-admin", "super-admin"]],
   ["quality", "Quality", () => true, null],
-  ["projects", "Project library", () => true, null],
   ["sql", "SQL", () => can("system.operate"), ["it-admin", "super-admin"]],
   ["licences", "Licences", () => true, null],
 ];
@@ -44,15 +45,16 @@ export function adminTab(route) {
   if (r.startsWith("/heartbeat")) return ["health", route];
   if (r.startsWith("/sql")) return ["sql", route];
   const [, , tab, sub] = r.split("?")[0].split("/");
-  return [tab || "application", sub ? `#/users/${sub}` : "#/users"];
+  return [tab || "wizards", sub ? `#/users/${sub}` : "#/users"];
 }
 
 export default function Admin({ route }) {
   const [tab, inner] = adminTab(route);
+  if (tab === "projects") { window.location.replace("#/project-admin/library"); return null; }   // moved to Project admin (D285)
   const t = TABS.find(([k]) => k === tab) || TABS[0];
   return (
     <div className="admin">
-      <h1>Administration</h1>
+      <h1>System admin</h1>
       <div className="tabs" role="tablist">
         {TABS.map(([k, l, ok, roles]) => (ok()
           ? <a key={k} href={`#/admin/${k}`} className={`tab${t[0] === k ? " on" : ""}`} role="tab" aria-selected={t[0] === k}>{l}</a>
@@ -61,13 +63,13 @@ export default function Admin({ route }) {
       <div className="tab-panel" role="tabpanel">
         <Suspense fallback={<p>Loading...</p>}>
           {!t[2]() ? <p className="status bad">{needsRole(t[3])}</p>
+            : t[0] === "wizards" ? <SystemWizards />
             : t[0] === "users" ? <Users route={inner} />
               : t[0] === "health" ? <Heartbeat />
                 : t[0] === "containers" ? <ContainerConsole />
                   : t[0] === "backups" ? <AdminBackups />
                     : t[0] === "restores" ? <RestoresPage route={route} />
                     : t[0] === "quality" ? <QualityAdmin />
-                    : t[0] === "projects" ? <ProjectLibraryAdmin />
                   : t[0] === "sql" ? <Sql />
                   : t[0] === "licences" ? <Licences />
                     : <Settings group={t[0]} />}

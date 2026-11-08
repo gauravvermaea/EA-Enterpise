@@ -76,7 +76,13 @@ class ChangeLogExport(MethodView):
     @blp.doc(security=SECURITY, parameters=[*QUERY_DOC, {"in": "query", "name": "format", "schema": {"type": "string", "enum": ["csv", "xlsx"]}}])
     @require_auth()
     def get(self):
-        """Every change log row the filters select, as CSV or Excel (Super Admin)"""
+        """Every change log row the filters select, as CSV or Excel (Super Admin). ?background=true: made in the
+        background (D273), downloaded from the task"""
+        if request.args.get("background") == "true":
+            from . import tasks as api_tasks
+            fmt = "xlsx" if request.args.get("format") == "xlsx" else "csv"
+            return api_tasks.start("changelog.export", None, f"Export the change log ({fmt})",
+                                   {"filters": _filters(), "format": fmt}, "#/change-log")
         data, name, ctype = _run(lambda c, log: cl.export(c, g.user, _filters(), request.args.get("format", "csv"), cl=log))
         return Response(data, mimetype=ctype, headers={"Content-Disposition": f'attachment; filename="{name}"'})
 

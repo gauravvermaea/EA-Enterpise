@@ -316,10 +316,13 @@ def _add_metamodel(conn, m: dict, spec: dict, gaps: dict, user) -> int:
 
 
 def apply(conn, model: Any, session: Any, user, decisions: dict | None = None, all_conflicts: str = "",
-          add_metamodel: bool = False) -> dict:
+          add_metamodel: bool = False, exclude: dict | None = None) -> dict:
     """Applies a merge: adds the missing metamodel parts, then commits (one commit, no separate step) the new
     entities, the filled and decided fields and the new relationships.
-    decisions: {conflict id: "mine" | "theirs" | {"value": text}}; all_conflicts "mine" or "theirs" for the rest."""
+    decisions: {conflict id: "mine" | "theirs" | {"value": text}}; all_conflicts "mine" or "theirs" for the rest.
+    exclude (the model wizards' "select what goes in", D283): {entity_types: [codes], relationship_types: [codes],
+    entities: [keys], relationships: [r<n>, the n-th of the plan's relationships], metamodel: [entity or relationship
+    type codes of the metamodel gaps]}: what is left out; relationships to entities left out are left out too."""
     m = repo.get_model(conn, model)
     s = _session(conn, m, session, user)
     plan = cm._json(s["plan"])
@@ -328,6 +331,10 @@ def apply(conn, model: Any, session: Any, user, decisions: dict | None = None, a
         raise EditError(why, 409)
     add_metamodel = True   # a merge takes everything the other model has (D169)
     decisions = decisions or {}
+    ex = {k: {str(x).lower() for x in (exclude or {}).get(k) or []}
+          for k in ("entity_types", "relationship_types", "entities", "relationships", "metamodel")}
+    if any(ex.values()):
+        plan = _select(plan, ex)
     undecided = [c for c in plan["conflicts"] if c["id"] not in decisions and all_conflicts not in ("mine", "theirs")]
     if undecided:
         raise EditError(f"Decide every conflict first ({len(undecided)} left), or take all of the model's or all of the upload's.", 409)
@@ -539,6 +546,27 @@ def sample_package(conn, model: Any, fmt: str = "zip", actor: str | None = None,
     manifest["merge_test"] = {"conflicts": changed, "fills": filled, "new_entities": len(picks)}
     base = re.sub(r"[^A-Za-z0-9._]+", "-", f"{m['name']} merge test{'' if with_data else ' metamodel'}").strip("-")
     return mo.write_package(manifest, spec, content, None, fmt, base)
+
+
+def _select(plan: dict, ex: dict) -> dict:
+    """The plan with what the person left out taken away (D283)."""
+    plan = dict(plan)
+    gaps = dict(plan["metamodel_gaps"])
+    gone_types = ex["metamodel"] | ex["entity_types"]
+    for k in gaps:
+        if isinstance(gaps[k], list):
+            gaps[k] = [g for g in gaps[k] if str(g.get("code", "")).lower() not in gone_types and
+                       not (k == "relationship_types" and str(g.get("code", "")).lower() in ex["relationship_types"] | ex["metamodel"])]
+    plan["metamodel_gaps"] = gaps
+    keep = [e for e in plan["entities"] if e["entity_type"].lower() not in ex["entity_types"] and str(e["key"]).lower() not in ex["entities"]]
+    kept_keys = {e["key"] for e in keep}
+    left = {e["key"] for e in plan["entities"]} - kept_keys
+    plan["entities"] = keep
+    plan["conflicts"] = [c for c in plan["conflicts"] if c["id"].split("|", 1)[0] in kept_keys]
+    plan["relationships"] = [r for n, r in enumerate(plan["relationships"])
+                             if f"r{n}" not in ex["relationships"] and str(r["type"]).lower() not in ex["relationship_types"]
+                             and r["source"] not in left and r["target"] not in left]
+    return plan
 
 
 def analyse_model(conn, model: Any, source: Any, user, with_data: bool = True) -> dict:

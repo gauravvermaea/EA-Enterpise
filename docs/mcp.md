@@ -63,7 +63,7 @@ to a value with letters and digits only and restart the api container.
 MCP Inspector (to try the tools by hand): `npx @modelcontextprotocol/inspector`, then Transport
 *Streamable HTTP*, URL `http://localhost/mcp`, header `Authorization: Bearer P^55w0rd1234&`.
 
-## Tools (read only until build phase 6, apart from metamodel drafts)
+## Tools
 
 From phase 3.1 every tool answers as the person whose token it is: they see only the models their
 roles and assignments allow (the database enforces it too), and the server refuses to answer when it
@@ -139,6 +139,29 @@ Models, entity types and entities can be given by guid or by name. Lists come ba
 | `quality_findings(model, entity_type?, owner?, rule?, mine?)` | The entities with problems and why, with the person responsible ("what are my gaps?") |
 | `suggest_quality_fix(model, entity, changes)` | Fills in what is missing as your uncommitted change; Claude never commits it |
 | `draft_quality_rule(model, rule, save?)` | Shows what a rule would find; with `save=true` it is saved, and a Model Admin's rule waits for a Super Admin's approval |
+
+### Building with an assistant (phase 13.0.6, owner 7 Nov 2026)
+
+Your assistant can make models and projects and work in them, as you, with your permissions. It should call
+`how_to_build` first; the prompts **build_a_project**, **build_a_model** and **fill_a_model** start a guided session. It
+always asks for your yes before it makes a model or a project.
+
+| Tool | What it does |
+| --- | --- |
+| `how_to_build()` | The order of work and the tools to use (read first) |
+| `create_model(name, start, source, copy?, tag?)` | A project model: `empty` from a root metamodel, a `copy` (now, or at a `tag`), or a `child` that can merge back |
+| `add_entities(model, entity_type, rows)` | Up to 500 entities of one type, with values by attribute code |
+| `update_entity(model, entity, ...)` | Change an entity's name, description, values or tags |
+| `add_relationships(model, rows)` | Up to 1000 relationships; the metamodel's rules apply |
+| `list_my_changes(model)` · `commit_my_changes(model, message)` · `request_my_commit(model)` | In a working model, what the assistant adds is your uncommitted change until committed |
+| `tag_model(model, name)` | A baseline to compare with or copy from |
+| `list_projects()` · `list_project_templates()` · `get_project(project, part)` | Read projects (summary, steps, documents, classes, approvals, viewpoints) |
+| `create_project(name, template, models, goals?)` | A project from a template, with its models (referred, added, derived, created) and goals |
+| `add_project_step` · `complete_project_step` · `repeat_project_step` | Steps at any time; completions kept as sub steps |
+| `add_document_class` · `set_document_class_needed` · `set_document_tags` | Document classes and tags |
+| `accept_document(project, document, evidence)` · `send_document_for_approval` | Accepted with evidence, or approval by the sign-off people (quorum) |
+
+Documents themselves (Word, Excel) are still uploaded on the project's Repository tab.
 
 ## How it is built and kept up to date
 

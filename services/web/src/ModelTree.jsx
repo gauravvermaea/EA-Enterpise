@@ -50,7 +50,7 @@ function layout(models, across) {
   return { nodes, edges, pos, width, height };
 }
 
-export default function ModelTree({ models, focus }) {
+export default function ModelTree({ models, focus, base = "metamodel" }) {
   const [across, setAcross] = useState(false);
   const [mine, setMine] = useState("");
   const svgRef = useRef(null);
@@ -108,7 +108,7 @@ export default function ModelTree({ models, focus }) {
               const hit = (q && (m.name.toLowerCase().includes(q) || (m.industry || "").toLowerCase().includes(q))) || m.id === focus;
               return (
                 <g key={m.id} transform={`translate(${x},${y})`} className="tree-box"
-                  onClick={() => { if (!wasDrag()) window.location.hash = `/metamodel/${m.id}`; }}>
+                  onClick={() => { if (!wasDrag()) window.location.hash = `/${base}/${m.id}`; }}>
                   <title>{[`${m.name}${m.version_label ? ` ${m.version_label}` : ""}`, s.label, m.metamodel_name, readOnlyWhy(m), lockWhy(m)].filter(Boolean).join("\n")}</title>
                   <rect width={W} height={H} rx="8" fill={s.fill} stroke={hit ? "#d4351c" : s.stroke} strokeWidth={hit ? 3 : 1.4} />
                   <text x={W / 2} y="25" textAnchor="middle" fontSize="13" fontWeight="600" fill="#1d2733">

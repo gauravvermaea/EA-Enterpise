@@ -39,6 +39,7 @@ from ..auth import require_auth
 from ..db import get_engine
 from ..metamodel_edit import EditError, _db_message
 from .models import Free
+from .tasks import start, upload, waiting
 
 blp = Blueprint("commits", __name__, url_prefix="/api/v1",
                 description="Commits of content, change sets, merges and draft decisions (phase 8)")
@@ -278,6 +279,12 @@ class Merges(MethodView):
         source = body.get("source_model") or request.form.get("source_model")
         wd = body.get("with_data", request.form.get("with_data", "true"))
         with_data = str(wd).lower() not in ("false", "0", "no")
+        if not waiting():   # D273: in the background; the plan is the task's result
+            if not source and f is None:
+                abort(400, message="Send the model as the form field 'file', or give source_model (another model here).")
+            return start("merge.analyse", model_id, f"Plan a merge into the model ({'another model' if source else f.filename})",
+                         {"source_model": source, "with_data": with_data}, f"#/metamodel/{model_id}/merge",
+                         None if source else [upload()])
         if source:   # straight from another model here: no file to download and upload
             return _write(lambda c: mg.analyse_model(c, model_id, source, g.user, with_data), "merge.analyse", model_id,
                           {"source_model": source, "with_data": with_data})
@@ -298,6 +305,9 @@ class MergeTestFile(MethodView):
         changed (conflicts), empty fields filled, four new entities with relationships, one attribute the metamodel lacks"""
         fmt = "xlsx" if request.args.get("format") == "xlsx" else "zip"
         with_data = request.args.get("content", "content") != "metamodel"
+        if request.args.get("background") == "true":   # D273: made in the background, downloaded from the task
+            return start("merge.sample", model_id, f"Make a merge test file ({fmt})", {"format": fmt, "with_data": with_data},
+                         f"#/metamodel/{model_id}/merge")
         try:
             with get_engine().connect() as conn:
                 data, name, ctype = mg.sample_package(conn, model_id, fmt, g.user.username, with_data)
@@ -313,7 +323,13 @@ class MergeApply(MethodView):
     @blp.response(200, Free)
     @require_auth("model.lock")
     def post(self, data, model_id, merge_id):
-        """Apply a merge with the decisions: committed at once as one commit (no commit step; roll back from the commits)"""
+        """Apply a merge with the decisions: committed at once as one commit (no commit step; roll back from the commits).
+        In the background (D273): the answer is a task; ?wait=true applies it in the request"""
+        if not waiting():
+            return start("merge.apply", model_id, "Apply a merge", {"merge": merge_id, "decisions": data.get("decisions"),
+                                                                   "all_conflicts": data.get("all_conflicts", ""),
+                                                                   "add_metamodel": data["add_metamodel"]},
+                         f"#/metamodel/{model_id}/changes")
         return _write(lambda c: mg.apply(c, model_id, merge_id, g.user, data.get("decisions"), data.get("all_conflicts", ""),
                                          data["add_metamodel"]), "merge.apply", model_id, {"merge": merge_id})
 

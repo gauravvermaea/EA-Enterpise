@@ -150,13 +150,13 @@ def list_favourites(conn, username: str) -> list[dict]:
           LEFT JOIN core.models m ON f.kind = 'model' AND m.guid = f.target AND NOT m.is_deleted
           LEFT JOIN core.saved_views v ON f.kind = 'view' AND v.guid = f.target
           LEFT JOIN core.models vm ON vm.id = v.model_id
-         WHERE f.username = lower(:u) AND (e.id IS NOT NULL OR m.id IS NOT NULL OR v.id IS NOT NULL)
+         WHERE f.username = lower(:u) AND (e.id IS NOT NULL OR m.id IS NOT NULL OR v.id IS NOT NULL OR f.kind = 'project')
          ORDER BY f.created_at DESC""", u=username)
 
 
 def set_favourite(conn, username: str, kind: str, target: str, on: bool, label: str = "") -> dict:
-    if kind not in ("entity", "model", "view"):
-        raise EditError("A favourite is an entity, a model or a view.")
+    if kind not in ("entity", "model", "view", "project"):
+        raise EditError("A favourite is an entity, a model, a view or a project.")
     if on:
         conn.execute(text("""INSERT INTO core.favourites (username, kind, target, label) VALUES (lower(:u), :k, CAST(:t AS uuid), :l)
                              ON CONFLICT (username, kind, target) DO NOTHING"""), {"u": username, "k": kind, "t": str(target), "l": label or ""})

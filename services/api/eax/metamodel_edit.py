@@ -246,10 +246,12 @@ def _op_entity_type_create(conn, m, p):
     table = _unique(conn, "entity_types", "table_name", mid, snake_from(p["name"]))
     prefix = (p.get("id_prefix") or re.sub(r"[^A-Z]", "", p["name"].upper())[:3] or "ENT")[:6]
     sort = _one(conn, "SELECT coalesce(max(sort_order), 0) + 10 AS s FROM core.entity_types WHERE model_id = :m", m=mid)["s"]
-    r = _one(conn, """INSERT INTO core.entity_types (model_id, layer_id, code, name, description, aspect, id_prefix, table_name, sort_order)
-                      VALUES (:m, :l, :c, :n, :d, :a, :p, :t, :s) RETURNING guid""",
+    from .content_framework import clean_area
+    r = _one(conn, """INSERT INTO core.entity_types (model_id, layer_id, code, name, description, aspect, id_prefix, table_name, sort_order,
+                                                     content_area)
+                      VALUES (:m, :l, :c, :n, :d, :a, :p, :t, :s, :ca) RETURNING guid""",
              m=mid, l=layer["id"], c=code, n=p["name"].strip(), d=p.get("description", ""), a=p.get("aspect", ""),
-             p=prefix, t=table, s=sort)
+             p=prefix, t=table, s=sort, ca=clean_area(p.get("content_area")))
     return {"id": r["guid"], "code": code}, f"Added entity type {p['name'].strip()}", []
 
 
@@ -257,6 +259,9 @@ def _op_entity_type_update(conn, m, p):
     _need(p, "id")
     t = _row(conn, "entity_types", m["_id"], p["id"], "entity type")
     fields = {k: p[k] for k in ("name", "description", "aspect", "id_prefix") if k in p and p[k] is not None}
+    if "content_area" in p:                     # where it sits in the content framework (D299); '' = the default
+        from .content_framework import clean_area
+        fields["content_area"] = clean_area(p["content_area"])
     if "layer" in p and p["layer"]:
         fields["layer_id"] = _layer(conn, m["_id"], p["layer"])["id"]
     if not fields:
@@ -810,6 +815,8 @@ def set_lock(conn, model: Any, level: str, reason: str, actor: str) -> dict:
     m = repo.get_model(conn, model)
     if m["kind"] not in ("project", "template") or m["is_locked"]:
         raise EditError(f"Model {m['name']!r} is already read-only ({m['kind_name'].lower()}).", 409)
+    if m.get("frozen_at"):
+        raise EditError(f"Model {m['name']!r} is frozen: read only for good (a Super Admin unfreezes it).", 409)
     conn.execute(text("SELECT set_config('eax.actor', :a, true)"), {"a": actor})
     try:
         conn.execute(text("UPDATE core.models SET lock_level = :l, lock_reason = :r WHERE id = :m"),
@@ -823,6 +830,8 @@ def clear_lock(conn, model: Any, actor: str) -> dict:
     m = repo.get_model(conn, model)
     if m.get("lock_level", "none") == "none":
         raise EditError(f"Model {m['name']!r} is not locked.", 409)
+    if m.get("frozen_at"):   # D283: freezing is final; the lock under it goes only with Unfreeze (Super Admins)
+        raise EditError(f"Model {m['name']!r} is frozen, not locked: only a Super Admin unfreezes it (Model admin > Wizards > Unfreeze).", 409)
     conn.execute(text("SELECT set_config('eax.actor', :a, true)"), {"a": actor})
     try:
         conn.execute(text("UPDATE core.models SET lock_level = 'none' WHERE id = :m"), {"m": m["_id"]})

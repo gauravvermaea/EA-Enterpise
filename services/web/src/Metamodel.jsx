@@ -17,8 +17,9 @@
 //   #/metamodel/<model>/tags             tab Tags: frozen snapshots of the model (Versions.jsx, phase 8.3)
 //   #/metamodel/<model>/merge            tab Merge: merge an uploaded model into this one, conflicts decided (Merge.jsx, phase 8)
 //   #/metamodel/<model>/viewpoints[/<code>[/<view>]]   tab Viewpoints: the model through VP-01 to VP-26 and your own (Viewpoints.jsx, phase 8.2)
-import { lazy, Suspense, useState } from "react";
-import { can, keycloak, signedIn, canOn, myRolesOn, roleName } from "./auth";
+import PinButton from "./PinButton";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { apiFetch, can, keycloak, signedIn, canOn, myRolesOn, roleName } from "./auth";
 import { CopyButton, LockBadge } from "./Library";
 import { KindMark, MarksLegend, ModelStateBadge, StatusMarks, readOnlyWhy } from "./ModelMarks";
 import { RecalculateButton } from "./QualityBits";
@@ -45,6 +46,13 @@ import QualityTab from "./Quality";
 import { GridTab, MetamodelGrids } from "./GridPages";
 import { CopyBanner, DraftPage, Drafts, IconDialog, ModelActions, NewModelButton, UploadButton } from "./ModelOps";
 import { fmtDate } from "./fmt";
+import { modelOrigin } from "./modelOrigin";
+
+// what kind of model it is, from where it came (owner, 7 Nov 2026)
+export function OriginChip({ m }) {
+  const o = modelOrigin(m);
+  return o.key ? <span className={`chip origin-${o.key}`} title={o.text}>{o.label}</span> : null;
+}
 
 // the diagram and its layout library load only when the ER diagram tab is opened
 const MetamodelDiagram = lazy(() => import("./MetamodelDiagram"));
@@ -58,7 +66,8 @@ const KINDS = [["", "All kinds"], ["template", "Root metamodels"], ["reference",
 // The model a model comes from in the hierarchy: the one it merges into, else the one it was created from
 const upOf = (m) => m.parent_model_id || m.source_model_id || null;
 
-function ModelList({ view }) {
+export function ModelList({ view, admin = false }) {
+  const base = admin ? "model-admin" : "metamodel";
   const [search, setSearch] = useState("");
   const [kind, setKind] = useState("");
   const [archived, setArchived] = useState(false);
@@ -74,16 +83,20 @@ function ModelList({ view }) {
   const drafts = view === "drafts";
   return (
     <section>
-      <h1>Models</h1>
+      <h1>{admin ? "Model admin" : "Models"}</h1>
       <p className="quiet">
-        Every model you may open. Root metamodels and reference models are also in the <a href="#/library">model library</a>.
+        {admin ? <>Start a new model or upload one, or pick a model to run its wizards: copy and derive, merge into the parent and
+          freeze, propagate, split, extend or upgrade the metamodel, lock, freeze, tag, promote, hand over, download, archive or delete.
+          Entering data and reports are on the model's own page (<a href="#/work">Architecture work</a>).</>
+          : <>Every model you may open. Root metamodels and reference models are also in the <a href="#/library">model library</a>.</>}
       </p>
       <div className="tabs" role="tablist">
-        <button role="tab" aria-selected={!tree && !drafts} className={!tree && !drafts ? "tab on" : "tab"} onClick={() => go("/metamodel")}>List</button>
-        <button role="tab" aria-selected={tree} className={tree ? "tab on" : "tab"} onClick={() => go("/metamodel/hierarchy")}>Hierarchy</button>
-        <button role="tab" aria-selected={drafts} className={drafts ? "tab on" : "tab"} onClick={() => go("/metamodel/drafts")}>Metamodel drafts</button>
+        {admin && <button role="tab" aria-selected={false} className="tab" onClick={() => go("/model-admin")}>Wizards</button>}
+        <button role="tab" aria-selected={!tree && !drafts} className={!tree && !drafts ? "tab on" : "tab"} onClick={() => go(admin ? "/model-admin/list" : `/${base}`)}>{admin ? "Models" : "List"}</button>
+        <button role="tab" aria-selected={tree} className={tree ? "tab on" : "tab"} onClick={() => go(`/${base}/hierarchy`)}>Hierarchy</button>
+        <button role="tab" aria-selected={drafts} className={drafts ? "tab on" : "tab"} onClick={() => go(admin ? "/model-admin/drafts" : "/metamodel/drafts")}>Metamodel drafts</button>
         <span className="tabs-right">
-          <NewModelButton />
+          <NewModelButton admin={admin} />
           <UploadButton />
         </span>
       </div>
@@ -107,8 +120,8 @@ function ModelList({ view }) {
       <WaitingDrafts />
       {error && <p className="status bad">{error}</p>}
       {!models && !error && <p>Loading...</p>}
-      {models && tree && <Suspense fallback={<p>Loading the tree...</p>}><ModelTree models={models} /></Suspense>}
-      {models && !tree && tiles && <ModelTiles models={models} empty={search || kind ? "No models match." : "There are no models for you yet."} />}
+      {models && tree && <Suspense fallback={<p>Loading the tree...</p>}><ModelTree models={models} base={base} /></Suspense>}
+      {models && !tree && tiles && <ModelTiles models={models} base={base} empty={search || kind ? "No models match." : "There are no models for you yet."} />}
       {models && !tree && !tiles && (
         <div className="scroll">
           <table className="grid-table models-table">
@@ -117,15 +130,15 @@ function ModelList({ view }) {
               {models.map((m) => (
                 <tr key={m.id}>
                   <td>
-                    <KindMark m={m} /> <a href={`#/metamodel/${m.id}`}><strong>{m.name}</strong></a>
+                    <KindMark m={m} /> <a href={`#/${base}/${m.id}`}><strong>{m.name}</strong></a>
                     {m.version_label && <span className="quiet"> {m.version_label}</span>}
                     <StatusMarks m={m} />
                     <br /><span className="quiet">{m.industry && `${m.industry} · `}{m.metamodel_name}</span>
                   </td>
-                  <td>{m.kind_name}</td>
+                  <td>{m.kind_name}<br /><OriginChip m={m} /></td>
                   <td className="small">
                     {m.parent_model_id && <>merges into <a href={`#/metamodel/${m.parent_model_id}`}>{m.parent_model_name}</a></>}
-                    {m.source_model_id && m.source_model_id !== m.parent_model_id && <>{m.parent_model_id && <br />}created from <a href={`#/metamodel/${m.source_model_id}`}>{m.source_model_name}</a></>}
+                    {m.source_model_id && m.source_model_id !== m.parent_model_id && <>{m.parent_model_id && <br />}created from <a href={`#/metamodel/${m.source_model_id}`}>{m.source_model_name}</a>{m.source_tag_name ? ` at the tag ${m.source_tag_name}` : ""}</>}
                     {!m.parent_model_id && !m.source_model_id && <span className="quiet">-</span>}
                   </td>
                   <td>{m.owner || <span className="quiet">-</span>}</td>
@@ -149,15 +162,15 @@ function ModelList({ view }) {
 }
 
 // the models as tiles: the icon large, the name, kind and state marks, what it comes from and its counts
-function ModelTiles({ models, empty }) {
+function ModelTiles({ models, empty, base = "metamodel" }) {
   if (!models.length) return <p className="quiet">{empty}</p>;
   return (
     <div className="model-tiles">
       {models.map((m) => (
-        <a key={m.id} className={`model-tile ${m.kind}${m.lifecycle === "archived" ? " archived" : ""}`} href={`#/metamodel/${m.id}`}>
+        <a key={m.id} className={`model-tile ${m.kind}${m.lifecycle === "archived" ? " archived" : ""}`} href={`#/${base}/${m.id}`}>
           <div className="model-tile-head"><KindMark m={m} big /><span><ModelStateBadge m={m} /> <StatusMarks m={m} /></span></div>
           <strong className="model-tile-name">{m.name}{m.version_label && <span className="quiet"> {m.version_label}</span>}</strong>
-          <span className="small quiet">{m.kind_name}{m.industry ? ` · ${m.industry}` : ""} · {m.metamodel_name}</span>
+          <span className="small quiet">{m.kind_name}{m.industry ? ` · ${m.industry}` : ""} · {m.metamodel_name} <OriginChip m={m} /></span>
           {m.description && <span className="small model-tile-desc">{m.description}</span>}
           <span className="small">{m.entity_type_count} types{m.kind !== "template" ? ` · ${m.entity_count} entities · ${m.relationship_count} relationships` : ""}</span>
           <span className="small quiet">{m.parent_model_name ? `merges into ${m.parent_model_name}` : m.source_model_name ? `from ${m.source_model_name}` : ""}
@@ -177,11 +190,11 @@ function WaitingDrafts() {
       <strong>{data.length} draft model{data.length === 1 ? "" : "s"} waiting for your approval</strong>
       <ul>
         {data.map((d) => (
-          <li key={d.id}><a href={`#/metamodel/${d.id}`}>{d.name}</a> <span className="quiet">· asked by {d.requested_by || d.created_by}
+          <li key={d.id}><a href={`#/model-admin/${d.id}`}>{d.name}</a> <span className="quiet">· asked by {d.requested_by || d.created_by}
             {d.requested_at ? ` on ${fmtDate(d.requested_at)}` : ""}{d.note ? `: “${d.note}”` : ""}</span></li>
         ))}
       </ul>
-      <span className="quiet small">Open one and use Actions: Approve and publish, Send back, or Reject.</span>
+      <span className="quiet small">Open one and use its Library and publishing wizards: Approve and publish, Send back, or Reject.</span>
     </div>
   );
 }
@@ -256,6 +269,8 @@ function TypeDetail({ model, m, mm, typeId, holdsContent }) {
         SQL <code>eax.get_entity('{t.name}', '{t.table_name}')</code> ·{" "}
         <a href={`#/metamodel/${model}/diagram/${typeId}`}>show in the ER diagram</a>
       </p>
+      {holdsContent && <p><a className="button" href={`#/metamodel/${model}/types/${typeId}`} title="The entity grid of this type, with its values">
+        ▦ Open the {t.name} entities (grid){list ? ` · ${list.length}` : ""}</a></p>}
       {holdsContent && list && (
         <p>{list.length ? <a href={`#/metamodel/${model}/types/${typeId}`}>{list.length} {t.name} entities in this model: open the table</a>
           : <span className="quiet">No {t.name} entities in this model yet.</span>}
@@ -312,6 +327,33 @@ function TypeDetail({ model, m, mm, typeId, holdsContent }) {
 
 const MM_VIEWS = [["", "Definition"], ["tree", "Tree"], ["grids", "Grids"], ["lists", "Pick lists"], ["history", "History and versions"]];
 
+// find an entity of this model by name from the metamodel tab (owner, 8 Nov 2026): it opens on its own page
+function EntityFinder({ model }) {
+  const [q, setQ] = useState("");
+  const [hits, setHits] = useState(null);
+  useEffect(() => {
+    const t = q.trim();
+    if (t.length < 2) { setHits(null); return undefined; }
+    let live = true;
+    const h = setTimeout(() => apiFetch(`/api/v1/search?q=${encodeURIComponent(t)}&model=${model}&limit=12`)
+      .then((r) => live && setHits(r.results || [])).catch(() => live && setHits([])), 250);
+    return () => { live = false; clearTimeout(h); };
+  }, [q, model]);
+  return (
+    <span className="entity-finder">
+      <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find an entity by name" aria-label="Find an entity by name" />
+      {hits && (
+        <div className="entity-finder-list" role="listbox">
+          {!hits.length ? <div className="quiet small">Nothing found.</div> : hits.map((h) => (
+            <a key={h.id} href={`#/metamodel/${model}/entity/${h.id}`} onClick={() => setQ("")}>
+              <Swatch colour={h.colour} /> <b>{h.name}</b> <span className="quiet small">{h.display_id} · {h.entity_type}</span></a>
+          ))}
+        </div>
+      )}
+    </span>
+  );
+}
+
 function MetamodelView({ model, m, typeId, holdsContent, sub, gridKind }) {
   const { data: mm, error } = useApi(`/api/v1/models/${model}/metamodel`);
   if (error) return <p className="status bad">{error}</p>;
@@ -337,6 +379,7 @@ function MetamodelView({ model, m, typeId, holdsContent, sub, gridKind }) {
       <EditButton model={model} m={m} label="+ Entity type" spec={() => entityTypeSpec(mm.layers)} />
       <EditButton model={model} m={m} label="+ Relationship type" spec={relationshipTypeSpec()} />
       <EditButton model={model} m={m} label="+ Mapping" spec={() => mappingSpec(types, mm.relationship_types)} />
+      {holdsContent && <EntityFinder model={model} />}
       <span className="quiet small-note">
         {!changeableModel(m) ? "Read-only: create a model from it (Actions) to change a copy."
           : !canOn(model, "model.metamodel") ? "Read-only for you: hover a button to see the role it needs."
@@ -442,6 +485,7 @@ function ModelPage({ model, view, itemId, sub }) {
   const v = view === "relationships" ? "rels" : view === "sheets" ? "import" : view;   // older links
   const tab = !v ? (holdsContent ? "types" : "metamodel")
     : v === "type" ? "metamodel" : v === "entity" ? "types" : v;
+  // every tab the model page always had (the owner wants them all here); Model admin has the same admin tabs and the wizards
   const tabs = [
     ...(holdsContent ? [["types", "Entity types", m.entity_type_count], ["entry", "Data entry", null], ["grid", "Grid", null], ["rels", "Relationship types", null],
       ["graph", "Graph", null], ["viewpoints", "Viewpoints", null], ["checks", "Failing checks", null]] : []),
@@ -455,6 +499,7 @@ function ModelPage({ model, view, itemId, sub }) {
     ...(changeableModel(m) ? [["people", "People", null]] : []),
     ...(canOn(model, "model.metamodel") && m.kind !== "template" ? [["backups", "Backups", null]] : []),
   ];
+  const mayAdmin = canOn(model, "model.lock") || can("models.delete") || ((m.kind === "reference" || m.kind === "template") && can("library.curate"));
   return (
     <section className="model-page">
       <Lineage m={m} />
@@ -465,20 +510,23 @@ function ModelPage({ model, view, itemId, sub }) {
           : <KindMark m={m} big />}
         {iconOpen && <IconDialog m={m} onClose={() => setIconOpen(false)} />}
         <h1>{m.name} {m.version_label && <span className="quiet">{m.version_label}</span>}</h1>
+        <PinButton k="model" x={m} />
         <StatusMarks m={m} />
         <LockBadge model={m} />
+        {m.frozen_at && <span className="rag off" title={m.frozen_note || ""}>frozen</span>}
         {m.is_locked && <CopyButton m={m} />}
         <ModelActions m={m} />
-        <LockControl model={model} m={m} />
+        {!m.frozen_at && <LockControl model={model} m={m} />}
+        {mayAdmin && <a className="button" href={`#/model-admin/${model}`} title="Model admin: every model wizard (copy, merge, freeze, split, extend...) for this model">⚙ Model wizards</a>}
         {myRolesOn(model).length > 0 && <span className="rchip on" title="Your roles on this model">You: {myRolesOn(model).map(roleName).join(", ")}</span>}
         {m.kind === "project" && m.lifecycle !== "archived" && <RecalculateButton model={model} />}
         <button className="linkish" onClick={() => setShowProps((x) => !x)}>{showProps ? "Hide details" : "Details"}</button>
       </div>
       <p className="quiet">
-        {m.kind_name}{readOnlyWhy(m) ? ` · ${m.is_locked ? "read-only" : "read-only for you"}` : ""} · {m.metamodel_name} · {m.entity_type_count} entity types
+        <OriginChip m={m} /> {m.kind_name}{readOnlyWhy(m) ? ` · ${m.is_locked ? "read-only" : "read-only for you"}` : ""} · {m.metamodel_name} · {m.entity_type_count} entity types
         {holdsContent && ` · ${m.entity_count} entities · ${m.relationship_count} relationships`}
         {m.parent_model_id && <> · merges into <a href={`#/metamodel/${m.parent_model_id}`}><strong>{m.parent_model_name}</strong></a></>}
-        {m.source_model_id && m.source_model_id !== m.parent_model_id && <> · created from <a href={`#/metamodel/${m.source_model_id}`}>{m.source_model_name}</a></>}
+        {m.source_model_id && m.source_model_id !== m.parent_model_id && <> · created from <a href={`#/metamodel/${m.source_model_id}`}>{m.source_model_name}</a>{m.source_tag_name ? ` at the tag ${m.source_tag_name}` : ""}</>}
         {(m.kind === "reference" || m.kind === "template") && <> · in the <a href={`#/library/${m.id}`}>library</a></>}
       </p>
       {showProps && (
@@ -509,24 +557,33 @@ function ModelPage({ model, view, itemId, sub }) {
         : tab === "viewpoints" ? <ViewpointsTab model={model} m={m} code={itemId} sub={sub} />
         : tab === "checks" ? <FailingChecks model={model} m={m} />
         : tab === "quality" ? <QualityTab model={model} m={m} drill={itemId} value={sub} />
-        : tab === "people" ? <ModelPeople model={model} m={m} />
-        : tab === "merge" ? <MergeTab model={model} m={m} />
         : tab === "hierarchy" ? <ModelLineageTab model={model} m={m} />
-        : tab === "pushdown" ? <PushDownTab model={model} m={m} />
-        : tab === "documents" ? <ChangeDocumentsTab model={model} m={m} />
-        : tab === "backups" ? <ModelBackupsTab model={model} />
-        : tab === "tags" ? (itemId ? <TagPage key={itemId} model={model} m={m} tagId={itemId} entityId={sub} /> : <TagsTab model={model} m={m} />)
         : tab === "changes" ? <ChangesTab model={model} m={m} sub={itemId} itemId={sub} />
         : tab === "reports" ? <ModelReports model={model} m={m} />
         : tab === "import" ? <SheetsTab model={model} m={m} sub={itemId} itemId={sub} />
         : tab === "grid" ? <GridTab key={itemId || "none"} model={model} m={m} typeFromUrl={itemId || ""} />
         : tab === "entry" ? <DataEntryTab key={itemId || "none"} model={model} m={m} typeFromUrl={itemId || ""} />
-        : tab === "diagram" ? <Suspense fallback={<p>Loading the diagram...</p>}><MetamodelDiagram model={model} focus={itemId || null} /></Suspense>
-        : <MetamodelView model={model} m={m} typeId={v === "type" ? itemId : null} holdsContent={holdsContent} sub={v === "metamodel" ? itemId : null}
-            gridKind={v === "metamodel" && itemId === "grids" ? sub : null} />}
+        : v === "type" ? <MetamodelView model={model} m={m} typeId={itemId} holdsContent={holdsContent} />
+        : ADMIN_VIEWS.includes(tab) ? <ModelAdminPanel model={model} m={m} tab={tab} itemId={itemId} sub={sub} />
+        : <Suspense fallback={<p>Loading the diagram...</p>}><MetamodelDiagram model={model} focus={tab === "diagram" ? itemId || null : null} /></Suspense>}
       </div>
     </section>
   );
+}
+
+// ---------------------------------------------------------------- the admin parts of a model (shown in Model admin, D285)
+export const ADMIN_VIEWS = ["metamodel", "people", "merge", "tags", "pushdown", "documents", "backups"];
+
+export function ModelAdminPanel({ model, m, tab, itemId, sub }) {
+  const holdsContent = m.kind !== "template";
+  return tab === "people" ? <ModelPeople model={model} m={m} />
+    : tab === "merge" ? <MergeTab model={model} m={m} />
+    : tab === "pushdown" ? <PushDownTab model={model} m={m} />
+    : tab === "documents" ? <ChangeDocumentsTab model={model} m={m} />
+    : tab === "backups" ? <ModelBackupsTab model={model} />
+    : tab === "tags" ? (itemId ? <TagPage key={itemId} model={model} m={m} tagId={itemId} entityId={sub} /> : <TagsTab model={model} m={m} />)
+    : <MetamodelView model={model} m={m} typeId={null} holdsContent={holdsContent} sub={itemId || null}
+        gridKind={itemId === "grids" ? sub : null} />;
 }
 
 export default function Metamodel({ route }) {

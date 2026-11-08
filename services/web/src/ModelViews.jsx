@@ -12,13 +12,13 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { apiFetch, canOn } from "./auth";
 import { downloadCsv } from "./exporting";
-import { EditButton, entityTypeSpec, mappingSpec, relationshipTypeSpec } from "./MetamodelEditor";
 import { PendingMark } from "./ModelMarks";
 import { EntityChanges, useEntityChanges, WasValue } from "./Changes";
 import { AddRelationshipButton, EntityActions, NewEntityButton, NewRelationshipButton, RemoveRelationshipButton, RollBackButton, RowActions } from "./DataEntry";
 import { fmtDate, fmtDateTime } from "./fmt";
 import { EntityTree } from "./Trees";
 import { EntityReasons, fieldClass, FieldQuality, q2, QualityBadge, QualityCell, RecheckAll, ScoreChip, useEntityQuality, useTypeQuality, useTypeScores } from "./QualityBits";
+import { EditButton, entityTypeSpec, mappingSpec, relationshipTypeSpec } from "./MetamodelEditor";
 
 const EntityGraph = lazy(() => import("./EntityGraph"));
 const HierarchyMap = lazy(() => import("./HierarchyMap"));
@@ -408,11 +408,6 @@ export function RelationshipTypesTab({ model, m }) {
   );
 }
 
-function MappingButton({ model, m, relTypes }) {
-  const { data: mm } = useApi(`/api/v1/models/${model}/metamodel`);
-  const types = mm ? mm.layers.flatMap((l) => l.entity_types).filter((t) => t.status !== "retired") : [];
-  return <EditButton model={model} m={m} label="+ Mapping" spec={() => mappingSpec(types, relTypes)} />;
-}
 
 export function RelationshipsOfType({ model, m, relTypeId }) {
   const { data: types } = useApi(`/api/v1/models/${model}/relationship-types`);
@@ -1005,4 +1000,11 @@ export function EntityPage({ model, m, entityId, sub }) {
       </div>
     </div>
   );
+}
+
+
+function MappingButton({ model, m, relTypes }) {
+  const { data: mm } = useApi(`/api/v1/models/${model}/metamodel`);
+  const types = mm ? mm.layers.flatMap((l) => l.entity_types).filter((t) => t.status !== "retired") : [];
+  return <EditButton model={model} m={m} label="+ Mapping" spec={() => mappingSpec(types, relTypes)} />;
 }

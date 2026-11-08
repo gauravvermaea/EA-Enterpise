@@ -49,3 +49,9 @@ export function fmtNumber(n, decimals) {
   return `${x < 0 ? "-" : ""}${grouped}${frac ? S.decimal_separator + frac : ""}`;
 }
 export function fmtMoney(n) { return n === null || n === undefined || n === "" ? "" : `${S.currency_symbol} ${fmtNumber(n, 0)}`; }
+
+// a backup's stamp (20261106T010000Z or 20261106-010000, UTC) -> a date and time to read, in local time
+export function fmtStamp(stamp) {
+  const m = /^(\d{4})(\d{2})(\d{2})[T-](\d{2})(\d{2})(\d{2})Z?/.exec(stamp || "");
+  return m ? fmtDateTime(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}Z`) : stamp || "";
+}

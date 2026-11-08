@@ -95,7 +95,8 @@ def plan(settings, with_sample: bool) -> list[tuple[str, object]]:
 
     if with_sample:
         steps.append(("Sample insurance model", sql_step("Sample insurance model", f"SELECT 1 FROM core.models WHERE guid = '{SAMPLE_ID}'::uuid",
-                                                         seed_sql(with_template=False, with_insurance=False, with_sample=True))))
+                                                         seed_sql(with_template=False, with_insurance=False, with_sample=True, with_togaf10=False,
+                                                                  with_principles=False))))
     laptop = settings.deployment == "laptop" and with_sample
     if laptop:
         for _key, label, check, sql in test_model_steps():
@@ -122,6 +123,7 @@ def plan(settings, with_sample: bool) -> list[tuple[str, object]]:
         steps.append(("Demo estate tags, gap analyses and sheets", estate))
     if laptop:
         steps.append(("Sample architecture project", sample_project))
+        steps.append(("Sample projects, one per project template", sample_projects))
     steps.append(("First data quality measurement", first_measurements))
     return steps
 
@@ -157,6 +159,14 @@ def sample_project() -> None:
             "signoff": {"": ["user_lead_architect", "user_stakeholder"]},
             "libraries": ["EA Explorer"],
         }, sample=True)
+
+
+def sample_projects() -> None:
+    """Laptop (owner, 7 Nov 2026): a sample project for each project template, between them showing every way a model
+    joins a project: referred to, added, a separate copy (now or at a tag), a child, a new empty model."""
+    from . import sample_projects as sp
+    for line in sp.run():
+        _say(line)
 
 
 def first_measurements() -> None:

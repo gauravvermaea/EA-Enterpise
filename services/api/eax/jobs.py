@@ -102,6 +102,18 @@ def record_terminal_ends(timestamp: int) -> None:
         log.info("terminal sessions recorded: %s", n)
 
 
+@app.periodic(cron="*/10 * * * *")
+@app.task(name="eax.task_files_cleanup", queue="default", queueing_lock="task_files_cleanup")
+def task_files_cleanup(timestamp: int) -> None:
+    """D273: a background task's file is kept 24 hours; the uploaded files of finished tasks go at once."""
+    from . import tasks
+    from .db import get_engine
+    with get_engine().begin() as conn:
+        n = tasks.cleanup(conn)
+    if n:
+        log.info("removed %s background task files", n)
+
+
 @app.periodic(cron="* * * * *")
 @app.task(name="eax.deliver_webhooks", queue="default", queueing_lock="deliver_webhooks")
 def deliver_webhooks(timestamp: int) -> None:
@@ -285,8 +297,14 @@ def project_repositories(timestamp: int) -> None:
     with get_projects_engine().begin() as conn:
         todo = projects.pending_repositories(conn)
         libraries = projects.pending_library_loads(conn)
-    if not (todo or libraries) or not mayan.ping():
+        togaf = projects.togaf_files_waiting(conn)
+    if not (todo or libraries or togaf) or not mayan.ping():
         return
+    if togaf:                        # the TOGAF folder on disk, loaded again after a clean restart (no git, no hand work)
+        try:
+            log.info("TOGAF templates: %s", projects.auto_load_togaf(lambda: get_projects_engine().begin()))
+        except Exception as exc:  # noqa: BLE001 - tried again next minute
+            log.warning("TOGAF templates: %s", exc)
     for lid in libraries:            # uploaded template libraries first: projects using them wait for them
         try:
             projects.load_library_upload(lambda: get_projects_engine().begin(), lid)

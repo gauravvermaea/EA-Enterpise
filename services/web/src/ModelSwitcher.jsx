@@ -56,3 +56,42 @@ export default function ModelSwitcher({ route }) {
     </div>
   );
 }
+
+// The current project beside the current model (owner, 8 Nov 2026): on a project's pages it comes from the address;
+// elsewhere it is the last project opened (kept in this browser only). Changing project keeps the tab.
+const PKEY = "eax.lastProject";
+const rememberP = (id) => { try { localStorage.setItem(PKEY, id); } catch { /* storage may be blocked */ } };
+const recallP = () => { try { return localStorage.getItem(PKEY); } catch { return null; } };
+
+export function ProjectSwitcher({ route }) {
+  const [projects, setProjects] = useState(null);
+  const parts = route.replace(/^#/, "").split("?")[0].split("/");
+  const inProject = parts[1] === "projects" && parts[2] && !["new"].includes(parts[2]) ? parts[2] : null;
+  const current = inProject || recallP();
+  useEffect(() => { if (inProject) rememberP(inProject); }, [inProject]);
+  useEffect(() => {
+    let live = true;
+    apiFetch("/api/v1/projects").then((r) => live && setProjects(r.projects || [])).catch(() => live && setProjects([]));
+    return () => { live = false; };
+  }, []);
+  if (!projects) return null;
+  const p = projects.find((x) => x.id === current);
+  function choose(id) {
+    if (!id) return;
+    rememberP(id);
+    const tab = inProject && parts[3] ? `/${parts[3]}` : "";
+    window.location.hash = `/projects/${id}${tab}`;
+  }
+  const libs = projects.filter((x) => x.is_library);
+  const work = projects.filter((x) => !x.is_library);
+  return (
+    <div className={`model-switch${inProject ? " here" : ""}`} title={inProject ? "The project you are in" : "The last project you opened"}>
+      <span className="model-switch-label">{inProject ? "Project" : "Last project"}</span>
+      <select value={p ? p.id : ""} onChange={(e) => choose(e.target.value)} aria-label="Change project">
+        {!p && <option value="">Choose a project...</option>}
+        {work.length > 0 && <optgroup label="Projects">{work.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</optgroup>}
+        {libs.length > 0 && <optgroup label="Library projects">{libs.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</optgroup>}
+      </select>
+    </div>
+  );
+}

@@ -3,6 +3,7 @@ import { config } from "./config";
 import { can, needsRole, roleName, signedIn } from "./auth";
 import { serviceOn } from "./fmt";
 import { useApi } from "./ModelViews";
+import { AreaTiles } from "./Areas";
 
 function Tile({ item }) {
   const allowed = !item.perm || can(item.perm);
@@ -53,7 +54,7 @@ function ProjectSetupTile() {
     <section>
       <h2>Get started</h2>
       <div className="grid">
-        <a className="tile live setup-tile" href={data.may_manage ? "#/admin/projects" : "#/projects"}>
+        <a className="tile live setup-tile" href={data.may_manage ? "#/project-admin/library" : "#/work"}>
           <h3>Set up architecture projects</h3>
           <p>{data.may_manage
             ? "Choose the template libraries projects start from: EA Explorer's own, TOGAF 10 (upload its zip) and your own. Needed before the first project."
@@ -65,18 +66,42 @@ function ProjectSetupTile() {
   );
 }
 
+// The start page (D285): the five areas
 export default function StartPage() {
   return (
     <>
       <section className="intro">
         <h1>Start</h1>
-        <p>
-          Every part of EA Explorer is linked from here. Tiles in colour work now; the grey ones show what is
-          coming and the build phase that delivers it.
-          {!signedIn() && " Sign in once and every product opens without another login."}
-        </p>
+        <p>Choose where to work. Admin work (setting up and changing models, projects and the system) is done by wizards;
+          architecture work is done on the model and project pages.
+          {!signedIn() && " Sign in once and every product opens without another login."}</p>
       </section>
       <ProjectSetupTile />
+      <AreaTiles />
+    </>
+  );
+}
+
+// Everything else (#/more, D285): the screens that belong to no area, and every product and what is coming
+const MORE = [
+  { name: "Search", text: "Search every model you may open", href: "#/search", live: true },
+  { name: "Notifications", text: "What happened on your models and projects, requests, and your background tasks", href: "#/notifications", live: true },
+  { name: "Change log", text: "Every change across the models, with who and when, and its export", href: "#/change-log", live: true },
+  { name: "Model library", text: "Browse the root metamodels and reference models", href: "#/library", live: true },
+  { name: "MCP", service: "mcp", text: "Connect your own language model to the repository", href: "#/mcp", live: true },
+  { name: "API", text: "The REST API and its documentation", href: "/api/docs", live: true },
+];
+
+export function EverythingElse() {
+  return (
+    <>
+      <section className="intro">
+        <h1>Everything else</h1>
+        <p>Tiles in colour work now; the grey ones show what is coming and the build phase that delivers it.</p>
+      </section>
+      <section>
+        <div className="grid">{MORE.map((item) => <Tile key={item.name} item={item} />)}</div>
+      </section>
       {groups.map((g) => (
         <section key={g.title}>
           <h2>{g.title}</h2>

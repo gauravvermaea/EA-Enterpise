@@ -131,6 +131,68 @@ function Tile({ label, value, sub, onClick, bad }) {
 
 // ---------------------------------------------------------------- the model's Quality tab
 export default function QualityTab({ model, m, drill, value }) {
+  if (drill === "duplicates") return <Duplicates model={model} m={m} />;
+  return <QualityMain model={model} m={m} drill={drill} value={value} />;
+}
+
+// Duplicates (D284: data cleaning is architecture work, a screen): entities of a type whose names are the same or
+// very close; keep one, the others' relationships move to it and their values fill what it lacks (one commit)
+function Duplicates({ model, m }) {
+  const [type, setType] = useState("");
+  const { data, error } = useApi(`/api/v1/models/${model}/duplicates${type ? `?type=${encodeURIComponent(type)}` : ""}`);
+  const [keep, setKeep] = useState({});          // group index -> id kept
+  const [off, setOff] = useState({});            // entity id -> left out of its group's merge
+  const [busy, setBusy] = useState(null);
+  const [msg, setMsg] = useState({});
+  const types = useMemo(() => [...new Set((data?.groups || []).map((g) => g.type))].sort(), [data]);
+  async function merge(i, g) {
+    const k = keep[i] || g.entities[0].id;
+    const others = g.entities.filter((e) => e.id !== k && !off[e.id]).map((e) => e.id);
+    setBusy(i);
+    try {
+      const out = await apiFetch(`/api/v1/models/${model}/duplicates/merge`, { method: "POST", body: JSON.stringify({ keep: k, others }) });
+      setMsg((x) => ({ ...x, [i]: [true, out.message] })); refreshAll();
+    } catch (e) { setMsg((x) => ({ ...x, [i]: [false, e.message] })); }
+    setBusy(null);
+  }
+  return (
+    <div className="quality">
+      <p className="small"><a href={`#/metamodel/${model}/quality`}>Quality</a> › Duplicates</p>
+      <h3>Likely duplicates in {m.name}</h3>
+      <p className="quiet">Entities of the same type whose names are the same once case, spaces and punctuation are ignored, or very close.
+        Pick the one to keep: the others' relationships move to it, their values fill what it lacks, and they are deleted, as one commit
+        (roll it back from Changes &gt; Commits).</p>
+      <div className="toolbar">
+        <select value={type} onChange={(e) => setType(e.target.value)}>
+          <option value="">Every entity type</option>{types.map((t) => <option key={t}>{t}</option>)}</select>
+        {data && <span className="quiet small">{data.count} group{data.count === 1 ? "" : "s"}{data.count > data.groups.length ? ` (the first ${data.groups.length} shown)` : ""}</span>}
+      </div>
+      {error && <p className="status bad">{error}</p>}
+      {!data && !error && <p><span className="spinner" aria-hidden="true" /> Looking for duplicates…</p>}
+      {data && !data.groups.length && <p className="status ok">No likely duplicates.</p>}
+      {(data?.groups || []).map((g, i) => {
+        const k = keep[i] || g.entities[0].id;
+        const n = g.entities.filter((e) => e.id !== k && !off[e.id]).length;
+        return (
+          <div key={g.entities.map((e) => e.id).join()} className="merge-step dup-group">
+            <strong>{g.type}</strong>
+            <table className="grid-table"><thead><tr><th>Keep</th><th>Merge in</th><th>Entity</th><th>ID</th></tr></thead>
+              <tbody>{g.entities.map((e) => (
+                <tr key={e.id}><td><input type="radio" name={`keep${i}`} checked={k === e.id} onChange={() => setKeep((x) => ({ ...x, [i]: e.id }))} /></td>
+                  <td>{k !== e.id && <input type="checkbox" checked={!off[e.id]} onChange={() => setOff((x) => ({ ...x, [e.id]: !x[e.id] }))} />}</td>
+                  <td><a href={`#/metamodel/${model}/entity/${e.id}`}>{e.name}</a></td><td className="quiet">{e.display_id}</td></tr>))}</tbody></table>
+            <div className="toolbar">
+              {msg[i] ? <span className={`status ${msg[i][0] ? "ok" : "bad"}`}>{msg[i][1]}</span>
+                : <button className="primary" disabled={busy !== null || !n} onClick={() => merge(i, g)}>{busy === i ? "Merging…" : `Merge ${n} into the one kept`}</button>}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function QualityMain({ model, m, drill, value }) {
   const { data, error } = useApi(`/api/v1/models/${model}/quality`);
   const reports = useApi(`/api/v1/models/${model}/reports`);
   const [msg, setMsg] = useState("");
@@ -167,6 +229,7 @@ export default function QualityTab({ model, m, drill, value }) {
             <Tile label="Rules passed" value={pct(s.passing)} sub={`${s.failing} failing, ${s.errors} on errors`} onClick={s.failing ? () => go(`${base}/kind/failing`) : null} bad={s.errors > 0} />
             <Tile label="Fresh" value={pct(s.fresh)} sub={`${s.stale} stale`} onClick={s.stale ? () => go(`${base}/kind/stale`) : null} />
             <Tile label="Orphans" value={s.orphans} sub="connected to nothing" onClick={s.orphans ? () => go(`${base}/kind/orphan`) : null} />
+            <Tile label="Duplicates" value="find" sub="same or very close names" onClick={() => go(`${base}/duplicates`)} />
             <Tile label="Seals" value={s.seals.valid} sub={`${s.seals.broken} broken, ${s.seals.expired} expired`} onClick={s.seals.broken + s.seals.expired ? () => go(`${base}/kind/seal-broken`) : () => go(`${base}/kind/sealed`)} bad={s.seals.broken > 0} />
             <Tile label="Yours to fix" value={data.entities.filter((e) => e.responsible.includes(me()) && (e.completeness < 100 || e.failing || e.stale)).length} sub="you are responsible" onClick={() => go(`${base}/mine/me`)} />
           </div>

@@ -307,3 +307,21 @@ so it can move to a database of its own (D266): no foreign key or query crosses 
 | `project_models`, `project_viewpoints`, `principles` | The models (added, derived, created), viewpoints and principles (from the library, its own or inherited) |
 | `steps`, `items`, `folders` | The project's steps (removed ones kept with the reason), its deliverables and artifacts (chosen or not_for_use) and its folders, each with its Mayan cabinet |
 | `documents`, `document_events` | Documents (the Mayan document id, state, who checked out and when, versions) and who did what to them |
+
+## Background tasks (phase 13.0.2, D273)
+
+Migration `0023_background`. `core.tasks` gains `link` (the screen that asked), `progress` (0 to 100, empty while unknown)
+and `progress_note`; `core.task_files` gains `role` (`input`: a file uploaded with the request, removed when the task
+ends; `result`: the file the task made, kept 24 hours); `core.notifications` takes the category `task` (a task of
+yours ended; `ref_kind` task, `ref_id` the task). Rows only: the rules are in eax/tasks.py and eax/background.py.
+
+## Setting up and running a project (phase 13.0.1, D274-D279)
+
+Migration `0024_project_setup`. `proj.projects` gains the scope (`scope_breadth`, `scope_depth`, `scope_domains`,
+`scope_start`, `scope_end`, `scope_horizon`, `scope_notes`), the sponsor (`sponsor_name`, `sponsor_role`,
+`sponsor_contact`, `sponsor_asks` jsonb), `notes_html` (cleaned rich text), `home_model` (the model its goals and
+outcomes are entities in), `pending_goals`, and how it ended (`finished_at`, `finished_by`, `finish_note`,
+`merged_into`); its status is active, finishing, frozen, merged or closed. `proj.project_models.how` adds `referred`.
+`proj.items` gains `placeholder`, `templates` (the chosen library templates; NULL: all) and `note`;
+`proj.project_viewpoints.own`; `proj.documents.kind` and `signed_version`. `proj.signoff_requests` and
+`proj.signoff_decisions` keep sign-offs (how: in-app, self, recorded with evidence). Rows only.

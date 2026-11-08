@@ -1,11 +1,12 @@
 """Application backups and model restores from the command line (phase 8.4, D227), for when the screens cannot be used.
 
 Run in the api container by the eax command:
-    .\\eax app-backup [tag]              every model backed up now
+    .\\eax app-backup [tag]              every model, and every project with its documents, backed up now
     .\\eax restore-model                 choose an application backup, a model in it, then: as a new model or over itself
     .\\eax restore-model <run> <file> [--new "<name>" | --over] [--yes]
     .\\eax restore-app [run|tag|latest] [--yes]   every model of an application backup put back over itself; models no
                                          longer there are made again; models made since stay as they are (D233)
+                                         then every project in it over itself, with its documents (owner, 7 Nov 2026)
 Every restore is recorded with its log in work/backups/restores (listed by .\\eax restores and on Administration >
 Restores). It runs as the system with the Super Admin's rights, so whoever runs it on the server must be trusted to.
 """
@@ -122,19 +123,26 @@ def restore_all(args: list[str]) -> int:
     else:
         print("Application backups (work/backups/application):")
         i = _pick(runs, lambda r: f"{bk.human(r.get('created', ''))}  {r.get('tag')}  "
-                                  f"({len([m for m in r.get('models') or [] if m.get('status') == 'ok'])} models)")
+                                  f"({len([m for m in r.get('models') or [] if m.get('status') == 'ok'])} models, "
+                                  f"{len([p for p in r.get('projects') or [] if p.get('status') == 'ok'])} projects)")
         if i is None:
             return 1
         run = runs[i]
     n = len([m for m in run.get("models") or [] if m.get("status") == "ok"])
-    print(f"Backup: {run['name']} (tag {run.get('tag')}, made {bk.human(run.get('created', ''))} by {run.get('by')}), {n} models.")
+    np = len([p for p in run.get("projects") or [] if p.get("status") == "ok"])
+    print(f"Backup: {run['name']} (tag {run.get('tag')}, made {bk.human(run.get('created', ''))} by {run.get('by')}), {n} models"
+          f"{f', {np} projects with their documents' if np else ''}.")
     print("Every model in it goes back to how it was in this backup (each one is backed up first, and kept as a tag);")
     print("models no longer there are made again; models made since stay as they are. Everyone is notified.")
+    if np:
+        print("Every project in it goes back as it was, with its documents: a document still in Documents gets the")
+        print("backed-up file as its newest version (when it differs); one that is gone is put back. Projects made since stay.")
     if "--yes" not in args and _ask("Type RESTORE to go on: ") != "RESTORE":
         print("Nothing restored.")
         return 1
     try:
-        with get_engine().begin() as conn:
+        from . import tasks as tk
+        with tk.commits_after(), get_engine().begin() as conn:     # the projects commit after the models
             msg, out = bk.restore_application(conn, SYSTEM, run["name"])
     except EditError as exc:
         print(f"Not restored: {exc}")
@@ -142,6 +150,14 @@ def restore_all(args: list[str]) -> int:
     print(msg)
     for f in out["failed"]:
         print(f"  Not restored: {f}")
+    if out.get("project_ids"):          # the repositories and documents now, when Documents is up (else the minute job)
+        from . import projects as pj
+        from .db import get_projects_engine
+        for pid in out["project_ids"]:
+            try:
+                print("  " + pj.build_repository(lambda: get_projects_engine().begin(), pid))
+            except Exception as exc:  # noqa: BLE001 - the minute job tries again
+                print(f"  Repository not built yet ({str(exc)[:120]}): it is built, and the documents put back, when Documents is up.")
     print(f"Log: work/backups/restores/{out['restore']}/restore.log")
     return 0 if not out["failed"] else 1
 

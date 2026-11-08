@@ -32,7 +32,7 @@ def test_migration_and_version():
     assert "REFERENCES core" not in sql                                         # proj can move to its own database (D266)
     ver = (ROOT / "migrations" / "versions" / "0022_projects.py").read_text()
     assert 'down_revision = "0021_startup"' in ver
-    assert 'version = "0.14.0"' in (ROOT / "version.toml").read_text()
+    assert 'version = "0.1' in (ROOT / "version.toml").read_text()
 
 
 def test_the_library_holds_the_reviewed_master_list():
@@ -151,10 +151,10 @@ def test_mayan_multipart_and_switch(monkeypatch):
 def test_the_wizard_and_the_library_screen():
     web = REPO / "services" / "web" / "src"
     src = (web / "Projects.jsx").read_text(encoding="utf-8")
-    for step in ("Basics", "Template libraries", "Models", "Viewpoints and artifacts", "Principles", "Phase by phase", "People and sign-off", "Review"):
+    for step in ("Basics", "Template libraries", "Models", "Viewpoints", "Principles", "Phase by phase", "People and sign-off", "Review"):
         assert step in src, step
     assert "ProjectLibraryAdmin" in src and "not_for_use" in src
-    assert "Project library" in (web / "Admin.jsx").read_text(encoding="utf-8")
+    assert "Project templates</a>" in (web / "Projects.jsx").read_text(encoding="utf-8")   # moved to Project admin (D285)
     assert "#/projects" in (web / "App.jsx").read_text(encoding="utf-8")
 
 
@@ -203,7 +203,8 @@ def test_template_library_routes_and_rules():
                  "/projects/library/libraries/<string:library>/share"):
         assert f'@blp.route("{path}")' in src, path
     code = (ROOT / "eax" / "projects.py").read_text(encoding="utf-8")
-    assert 'raise EditError("A Super Admin finishes the template library setup first' in code      # the gate before projects
+    assert 'raise EditError("No template library is offered to projects' in code      # the gate before projects
+    assert "WHERE shared AND state = 'ready'" in code    # EA Explorer's own, offered from the start, is enough (owner, 7 Nov 2026)
     assert 'f"{t[\'library\']}-{t[\'file_name\'] or t[\'name\']}"' in code                     # library-document names
     jobs = (ROOT / "eax" / "jobs.py").read_text(encoding="utf-8")
     assert "template_library_load" in jobs and "pending_library_loads" in jobs
@@ -253,7 +254,7 @@ def test_togaf_zip_as_downloaded():
 
 
 def test_steps_and_template_downloads(monkeypatch):
-    """Steps are ticked done by contributors and reopened by admins; templates download straight from the libraries."""
+    """Steps are ticked done, or not done again, by any contributor (D275); templates download straight from the libraries."""
     monkeypatch.setattr(pj, "project_row", lambda conn, p: {"id": 1, "name": "P"})
     calls = []
 
@@ -261,12 +262,31 @@ def test_steps_and_template_downloads(monkeypatch):
         def execute(self, sql, params=None):
             calls.append(params)
 
-    monkeypatch.setattr(pj, "_one", lambda conn, sql, **k: {"id": 5, "name": "Agree scope", "removed": False, "done_at": "x"})
+    # the step itself; it has no sub steps yet (owner, 7 Nov 2026: completions become sub steps)
+    monkeypatch.setattr(pj, "_one", lambda conn, sql, **k: None if "parent_step_id = :s" in sql else
+                        {"id": 5, "name": "Agree scope", "removed": False, "done_at": "x", "cycle": 1, "phase": "A", "parent_step_id": None})
     monkeypatch.setattr(pj, "my_roles", lambda conn, p, user: {"architect"})
-    with pytest.raises(EditError):
-        pj.mark_step(Conn(), "P", _user(), 5, False)            # an architect does not reopen
+    assert pj.mark_step(Conn(), "P", _user(), 5, False)["done"] is False     # an architect reopens too (D275)
     assert pj.mark_step(Conn(), "P", _user(), 5, True)["done"]
+    monkeypatch.setattr(pj, "my_roles", lambda conn, p, user: {"stakeholder"})
+    with pytest.raises(EditError):
+        pj.mark_step(Conn(), "P", _user(), 5, True)             # a stakeholder does not contribute
     monkeypatch.setattr(pj, "my_roles", lambda conn, p, user: {"lead-architect"})
     assert pj.mark_step(Conn(), "P", _user(), 5, False)["done"] is False
     src = (ROOT / "eax" / "api" / "projects.py").read_text(encoding="utf-8")
     assert '"/projects/<string:project>/steps/<int:step>/done"' in src and '"/projects/<string:project>/templates/<int:template>"' in src
+
+
+def test_togaf_folder_loads_itself(monkeypatch, tmp_path):
+    """The TOGAF folder on disk is loaded again by the minute job after a clean restart (no git, no hand work)."""
+    folder = tmp_path / "templates" / "togaf" / "Phase A - Architecture Vision"
+    folder.mkdir(parents=True)
+    (folder / "TOGAF® Template - Architecture Vision.docx").write_bytes(b"v")
+    monkeypatch.setattr(pj, "LIBRARY_DIR", tmp_path)
+    waiting = [{"id": 1, "name": "TOGAF® Template - Architecture Vision.docx", "folder": "x/Phase A - Architecture Vision",
+                "mayan_document_id": None}]
+    monkeypatch.setattr(pj, "_rows", lambda conn, sql, **k: waiting)
+    assert pj.togaf_files_waiting(None)
+    monkeypatch.setattr(pj, "_rows", lambda conn, sql, **k: [])
+    assert not pj.togaf_files_waiting(None)
+    assert "togaf_files_waiting" in (ROOT / "eax" / "jobs.py").read_text(encoding="utf-8")

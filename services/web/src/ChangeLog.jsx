@@ -3,10 +3,12 @@
 // administer, a Super Admin every change. Only a Super Admin exports or deletes entries (the history, roll back and
 // the audit trail are never touched by a delete).
 import { useEffect, useMemo, useState } from "react";
-import { apiDownload, apiFetch } from "./auth";
+import { apiFetch } from "./auth";
 import { refreshAll, useApi } from "./ModelViews";
 import { Modal } from "./ModelOps";
 import { fmtDateTime } from "./fmt";
+import { TaskFiles } from "./TaskDrawer";
+import { downloadTask } from "./tasks";
 
 const FILTERS = ["q", "model", "user", "kind", "action", "item_type", "from", "to", "mine"];
 const show = (v) => (v === null || v === undefined || v === "" ? <span className="quiet">(empty)</span> : String(v));
@@ -103,11 +105,12 @@ export default function ChangeLog() {
         <span><b>{data.total}</b> entries{any ? " match" : ""}</span>
         {data.by_person.length > 1 && <span className="quiet small">· {data.by_person.slice(0, 5).map((p) => `${p.username} ${p.n}`).join(" · ")}</span>}
         {you.super_admin && <span className="tabs-right">
-          <button onClick={() => apiDownload(`/api/v1/change-log/export?${query(f, { format: "csv" })}`, "change-log.csv")}>⬇ CSV</button>
-          <button onClick={() => apiDownload(`/api/v1/change-log/export?${query(f, { format: "xlsx" })}`, "change-log.xlsx")}>⬇ Excel</button>
+          <button onClick={() => downloadTask(`/api/v1/change-log/export?${query(f, { format: "csv" })}`, undefined, "#/change-log").catch(() => {})}>⬇ CSV</button>
+          <button onClick={() => downloadTask(`/api/v1/change-log/export?${query(f, { format: "xlsx" })}`, undefined, "#/change-log").catch(() => {})}>⬇ Excel</button>
           <button className="danger" disabled={!data.total} onClick={() => setDel(true)}>Delete{any ? " these" : ""}...</button>
         </span>}
       </div>
+      {you.super_admin && <TaskFiles kinds={["changelog.export"]} />}
       {msg && <p className="status ok">{msg}</p>}
       <table className="grid-table change-log-table">
         <thead><tr><th>When</th><th>Model</th><th>User</th><th>Action</th><th>Item</th><th>What changed</th></tr></thead>

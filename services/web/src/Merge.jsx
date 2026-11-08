@@ -4,9 +4,11 @@
 // Entities are matched by type and name. Nothing changes until the merge is applied; then it is the person's
 // committed at once as one commit (no commit step), rolled back from Changes > Commits like any other commit.
 import { useMemo, useRef, useState } from "react";
-import { apiDownload, apiFetch, apiUpload, canOn } from "./auth";
+import { apiFetch, apiUpload, canOn } from "./auth";
 import { refreshAll, useApi } from "./ModelViews";
 import { EntityLink } from "./Changes";
+import { TaskFiles } from "./TaskDrawer";
+import { dismissTask, downloadTask, isDismissed, runTask, useAllTasks } from "./tasks";
 
 const post = (path, body) => apiFetch(path, { method: "POST", body: JSON.stringify(body || {}) });
 const show = (v) => (v === null || v === undefined || v === "" ? <span className="quiet">(empty)</span> : String(v));
@@ -35,6 +37,13 @@ export default function MergeTab({ model, m }) {
   const lockText = m.lock_level && m.lock_level !== "none"
     ? `${m.name} is locked (${m.lock_level})${m.locked_by ? ` by ${m.locked_by}` : ""}${m.lock_reason ? `: ${m.lock_reason}` : ""}. Unlock it to merge into it.` : "";
   const mergeWhy = lockText || (!canOn(model, "model.lock") ? `Merging into ${m.name} needs the Model Admin role on it (a merge can add to its metamodel).` : null);
+  // D273: planning and applying run in the background; a plan made while you were away is offered here again
+  const here = `#/metamodel/${model}/merge`;
+  const mine = useAllTasks().filter((t) => t.model_id === model && (t.kind === "merge.analyse" || t.kind === "merge.apply"));
+  const planning = mine.find((t) => t.kind === "merge.analyse" && !t.done);
+  const applying = mine.find((t) => t.kind === "merge.apply" && !t.done);
+  const ready = !plan && !done && !busy ? mine.find((t) => t.kind === "merge.analyse" && t.status === "done" && t.result?.id && !isDismissed(t.id)
+    && !mine.some((a) => a.kind === "merge.apply" && a.requested_at > t.requested_at)) : null;
 
 
   const gaps = plan?.metamodel_gaps || {};
@@ -49,12 +58,12 @@ export default function MergeTab({ model, m }) {
     try {
       let p;
       if (from === "model") {   // straight from the model: no file to download and upload
-        p = await post(`/api/v1/models/${model}/merges`, { source_model: source, with_data: withData });
+        p = await runTask(post(`/api/v1/models/${model}/merges`, { source_model: source, with_data: withData }), here);
       } else {
         const form = new FormData();
         form.append("file", f);
         form.append("with_data", withData ? "true" : "false");
-        p = await apiUpload(`/api/v1/models/${model}/merges`, form);
+        p = await runTask(apiUpload(`/api/v1/models/${model}/merges`, form), here);
       }
       setPlan(p); setSection(p.conflicts.length ? "conflicts" : "new");
     } catch (e) { setError(e.message); }
@@ -63,13 +72,14 @@ export default function MergeTab({ model, m }) {
   async function apply() {
     setBusy(true); setError("");
     try {
-      setDone(await post(`/api/v1/models/${model}/merges/${plan.id}/apply`, { decisions }));
+      setDone(await runTask(post(`/api/v1/models/${model}/merges/${plan.id}/apply`, { decisions }), `#/metamodel/${model}/changes`));
       setPlan(null); refreshAll();
     } catch (e) { setError(e.message); }
     setBusy(false);
   }
   async function cancel() {
     if (plan) await post(`/api/v1/models/${model}/merges/${plan.id}/cancel`).catch(() => {});
+    mine.filter((t) => plan && t.result?.id === plan.id).forEach((t) => dismissTask(t.id));
     setPlan(null); setDecisions({});
     if (fileRef.current) fileRef.current.value = "";
   }
@@ -92,7 +102,7 @@ export default function MergeTab({ model, m }) {
       <h2>Merge a model into {m.name}</h2>
       <p className="quiet">
         Merge another model of this installation straight in, or upload a model package (the Excel workbook or zip from
-        <em> Actions &gt; Download</em>, from here or another installation). Entities are matched by type and name: new ones are added, empty fields filled and missing relationships
+        <em> Model admin &gt; Wizards &gt; Download</em>, from here or another installation). Entities are matched by type and name: new ones are added, empty fields filled and missing relationships
         added; where both have a different value you decide. Nothing changes until you merge, and then the merge is your
         committed at once as one commit (no separate commit step); it can be rolled back from <em>Changes &gt; Commits</em>.
       </p>
@@ -109,6 +119,18 @@ export default function MergeTab({ model, m }) {
             <ul className="status bad small">{done.failed.slice(0, 30).map((f, i) => <li key={i}>{f.label || f.change}: {f.error}</li>)}</ul>
           )}
         </div>
+      )}
+
+      {(planning || applying) && !busy && (
+        <div className="lock-banner pending-banner"><span className="spinner" aria-hidden="true" />{" "}
+          {applying ? "A merge is being applied in the background" : "A merge plan is being made in the background"}: you can
+          leave this page; the Tasks tab on the right says when it is done.</div>
+      )}
+      {busy && <p className="quiet"><span className="spinner" aria-hidden="true" /> Working in the background: you can leave this
+        page, the Tasks tab on the right and Notifications say when it is done.</p>}
+      {ready && (
+        <div className="lock-banner pending-banner">The merge plan made in the background is ready ({ready.message}){" "}
+          <button onClick={() => { setPlan(ready.result); setSection(ready.result.conflicts?.length ? "conflicts" : "new"); }}>Open it</button></div>
       )}
 
       {!plan && (
@@ -303,9 +325,9 @@ function TestFiles({ model, m, withData }) {
   const [other, setOther] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState("");
-  async function get(path, name, what) {
+  async function get(path, what) {   // made in the background (D273); downloaded when done, and listed below for 24 hours
     setErr(""); setBusy(what);
-    try { await apiDownload(path, name); } catch (e) { setErr(e.message); }
+    try { await downloadTask(path, undefined, `#/metamodel/${model}/merge`); } catch (e) { setErr(e.message); }
     setBusy("");
   }
   const pick = (models || []).filter((x) => x.id !== model && x.kind !== "template");
@@ -321,18 +343,19 @@ function TestFiles({ model, m, withData }) {
         Download it, then choose it above and press <em>Read and compare</em>.
       </p>
       <div className="toolbar">
-        <button disabled={!!busy} onClick={() => get(`/api/v1/models/${model}/merge-test-file?format=xlsx&content=${content}`, `merge-test${withData ? "" : "-metamodel"}.xlsx`, "xlsx")}>
+        <button disabled={!!busy} onClick={() => get(`/api/v1/models/${model}/merge-test-file?format=xlsx&content=${content}`, "xlsx")}>
           {busy === "xlsx" ? "Making..." : `⬇ Merge test file${what} (Excel)`}</button>
-        <button disabled={!!busy} onClick={() => get(`/api/v1/models/${model}/merge-test-file?format=zip&content=${content}`, `merge-test${withData ? "" : "-metamodel"}.zip`, "zip")}>
+        <button disabled={!!busy} onClick={() => get(`/api/v1/models/${model}/merge-test-file?format=zip&content=${content}`, "zip")}>
           {busy === "zip" ? "Making..." : `⬇ Merge test file${what} (zip)`}</button>
         <span className="quiet">or another model:</span>
         <select value={other} onChange={(e) => setOther(e.target.value)}>
           <option value="">Choose a model...</option>
           {pick.map((x) => <option key={x.id} value={x.id}>{x.name}{x.version_label ? ` ${x.version_label}` : ""}</option>)}
         </select>
-        <button disabled={!chosen || !!busy} onClick={() => get(`/api/v1/models/${other}/package?format=xlsx&content=${content}`, `${chosen.name}.xlsx`, "oxlsx")}>⬇ Excel</button>
-        <button disabled={!chosen || !!busy} onClick={() => get(`/api/v1/models/${other}/package?format=zip&content=${content}`, `${chosen.name}.zip`, "ozip")}>⬇ zip</button>
+        <button disabled={!chosen || !!busy} onClick={() => get(`/api/v1/models/${other}/package?format=xlsx&content=${content}`, "oxlsx")}>⬇ Excel</button>
+        <button disabled={!chosen || !!busy} onClick={() => get(`/api/v1/models/${other}/package?format=zip&content=${content}`, "ozip")}>⬇ zip</button>
       </div>
+      <TaskFiles kinds={["merge.sample", "model.downloaded"]} match={(t) => t.model_id === model || t.model_id === other} />
       {err && <p className="status bad">{err}</p>}
     </div>
   );

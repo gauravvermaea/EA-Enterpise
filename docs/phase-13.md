@@ -106,6 +106,14 @@ The project tables (schema `proj`) are reached through `EAX_PROJECTS_DB_URL` (em
 now), so they can move to a database of their own later. Nothing in `proj` points into the other schemas (a project's
 models are kept by guid) and no query joins across them. See [Operations](operations.md#the-architecture-projects-database-d266).
 
+### root-principle-model (D271)
+
+A new built-in model, **root-principle-model**, created from ArchiMate 4 (so Root › ArchiMate 4 › root-principle-model)
+with a metamodel of principles only (Principles 1.0: Principle with Statement, Rationale, Implications, Category and
+Source). It holds The Open Group's 20 architecture principles (Y082) by name and category: Business (10), Data (3),
+Application (2), Technology (1), Governance (4). Their statement, rationale and implications are entered on the platform.
+Read-only, like the other built-in models. Projects take their principles from it once D270 is built (after 13.0.1).
+
 ### Documents' memory (D263)
 
 Mayan was stopped for running out of memory (1.66 of 2 GB). On a laptop it now runs 2 web workers and one task per
@@ -122,6 +130,11 @@ After the first start a Super Admin:
 3. Administration > **Project library** > **⬆ Upload the TOGAF zip** (or **⬆ zip** on the TOGAF 10 row) and choose the zip
    exactly as downloaded (zips inside it are opened too). Each file is matched to its TOGAF template by name and stored in
    Documents unchanged, in the background; the row shows *loading*, then how many are loaded.
+
+**Loaded automatically after that:** once the files are in `library/templates/togaf` (on your disk, so they survive a
+clean restart), every start loads any TOGAF template that has no file yet as soon as Documents is up, in the
+background. Nobody loads them by hand again, and they never need to go into git (the folder's `.gitignore` keeps them
+out).
 
 Or unzip it into `library/templates/togaf` (or the folder set by `EAX_LIBRARY_DIR`; never committed to git) and press
 **Load templates from the folder**; a single template can also be uploaded on its own line. `eax up` reminds you of the

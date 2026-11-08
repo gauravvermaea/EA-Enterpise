@@ -1,7 +1,9 @@
 """Application backups and model backups (build phase 8.4, D216).
 
-An application backup is every model (or chosen ones) as model backup files in one tagged folder:
-    work/backups/application/<UTC time>-<tag>/manifest.json and models/<model>.eaxbackup.zip
+An application backup is every model (or chosen ones) as model backup files in one tagged folder, and (when it is of
+every model) every project with its documents (owner, 7 Nov 2026):
+    work/backups/application/<UTC time>-<tag>/manifest.json, models/<model>.eaxbackup.zip and
+    projects/<project>.eaxproject.zip (a project backup without its models: they are beside it)
 A model backup is one model's file, made by its Model Admin on the model page:
     work/backups/application/models/<model guid>/<UTC time>-<note>.eaxbackup.zip (+ .json beside it)
 A file brought from another installation is kept in application/uploaded/.
@@ -173,7 +175,8 @@ def list_model(model_guid: str) -> list[dict]:
 
 def path_of(where: str, name: str, file: str, model_guid: str = "") -> Path:
     """The file of a backup, never outside the backup folder."""
-    if not re.match(r"^[A-Za-z0-9._-]+$", file or "") or not file.endswith(SUFFIX):
+    project_file_ = (file or "").endswith(".eaxproject.zip") and where == "application"   # a project in an application backup
+    if not re.match(r"^[A-Za-z0-9._-]+$", file or "") or not (file.endswith(SUFFIX) or project_file_):
         raise EditError("No such backup file.", 404)
     if where == "model":
         p = app_dir() / "models" / str(repo._as_guid(model_guid) or "x") / file
@@ -182,7 +185,7 @@ def path_of(where: str, name: str, file: str, model_guid: str = "") -> Path:
     else:
         if not re.match(r"^[A-Za-z0-9._-]+$", name or ""):
             raise EditError("No such backup.", 404)
-        p = app_dir() / name / "models" / file
+        p = app_dir() / name / ("projects" if project_file_ else "models") / file
     if not p.is_file():
         raise EditError("No such backup file.", 404)
     return p
@@ -203,12 +206,13 @@ def stop_application(by: str) -> list[str]:
 
 
 def application_backup(conn, user, tag: str, models: list[str] | None = None, keep_n: int | None = None) -> tuple[str, dict]:
-    """Every model (or the chosen ones) into one tagged application backup."""
+    """Every model (or the chosen ones) into one tagged application backup; with every model, every project too, with its
+    documents (the latest version of each, from Documents)."""
     name = f"{_stamp()}-{_slug(tag) or 'application'}"
     folder = app_dir() / name / "models"
     folder.mkdir(parents=True, exist_ok=True)
     manifest = {"format": "eax-application-backup/1", "tag": tag or "application", "by": user.username, "created": _stamp(),
-                "version": __version__, "status": "running", "models": []}
+                "version": __version__, "status": "running", "models": [], "projects": []}
     _write_json(folder.parent / "manifest.json", manifest)
     _bypass(conn, True)
     try:
@@ -234,14 +238,45 @@ def application_backup(conn, user, tag: str, models: list[str] | None = None, ke
             except Exception as exc:  # noqa: BLE001 - one model does not stop the others; it is listed with why
                 manifest["models"].append({"id": str(r["guid"]), "name": r["name"], "kind": r["kind_code"], "file": "",
                                            "status": "failed", "error": str(exc)[:300]})
+        if not wanted:
+            _write_json(folder.parent / "manifest.json", manifest)
+            _backup_projects(conn, user, folder.parent, manifest, tag)
     finally:
         _bypass(conn, False)
-    failed = len(manifest["models"]) - ok
-    manifest.update(status="ok" if not failed else "partial", finished=_stamp())
+    p_ok = len([p for p in manifest["projects"] if p["status"] == "ok"])
+    p_failed = len(manifest["projects"]) - p_ok
+    docs = sum(p.get("documents", 0) for p in manifest["projects"])
+    failed = len(manifest["models"]) - ok + p_failed
+    missing = sum(p.get("missing", 0) for p in manifest["projects"])
+    manifest.update(status="ok" if not (failed or missing) else "partial", finished=_stamp(), documents_missing=missing)
     _write_json(folder.parent / "manifest.json", manifest)
     removed = cleanup(keep_n or keep(conn))
-    return (f"Application backup '{manifest['tag']}': {ok} model{'s' if ok != 1 else ''} backed up"
-            f"{f', {failed} failed' if failed else ''}.", {"name": name, "models": ok, "failed": failed, "removed": removed})
+    return (f"Application backup '{manifest['tag']}': {ok} model{'s' if ok != 1 else ''}"
+            f"{f', {p_ok} project' + ('s' if p_ok != 1 else '') + f' with {docs} documents' if manifest['projects'] else ''} backed up"
+            f"{f', {failed} failed' if failed else ''}."
+            + (f" {missing} document files could not be read from Documents (is it running?): this backup is partial." if missing else ""),
+            {"name": name, "models": ok, "projects": p_ok, "documents": docs, "failed": failed, "removed": removed})
+
+
+def _backup_projects(conn, user, run_dir: Path, manifest: dict, tag: str) -> None:
+    """Every project of the application backup, each to projects/<name>-<guid8>.eaxproject.zip, with its documents."""
+    from . import project_backup as pb
+    from . import projects as pj
+    from .background import _projects_beside
+    out = run_dir / "projects"
+    out.mkdir(parents=True, exist_ok=True)
+    with _projects_beside(conn) as pc:
+        for p in pj._rows(pc, "SELECT * FROM proj.projects ORDER BY name"):
+            file = f"{_slug(p['name'], 40) or 'project'}-{str(p['guid'])[:8]}{pb.SUFFIX}"
+            try:
+                data, info = pb.project_file(conn, pc, user, p, f"application backup {tag}", with_models=False)
+                (out / file).write_bytes(data)
+                manifest["projects"].append({"id": str(p["guid"]), "name": p["name"], "file": file, "status": "ok",
+                                             "documents": info["counts"].get("documents", 0),
+                                             "missing": len(info.get("documents_missing") or [])})
+            except Exception as exc:  # noqa: BLE001 - one project does not stop the others; it is listed with why
+                manifest["projects"].append({"id": str(p["guid"]), "name": p["name"], "file": "", "status": "failed",
+                                             "error": str(exc)[:300]})
 
 
 def model_backup(conn, user, model: Any, why: str = "") -> tuple[str, dict]:
@@ -341,7 +376,7 @@ def delete_record(rid: str) -> dict:
 def delete_application(name: str) -> dict:
     """Delete an application backup by hand (not pinned)."""
     folder = app_dir() / name
-    if not re.match(r"^[A-Za-z0-9._-]+$", name or "") or not (folder / "manifest.json").exists() or name in ("models", "uploaded"):
+    if not re.match(r"^[A-Za-z0-9._-]+$", name or "") or not (folder / "manifest.json").exists() or name in ("models", "uploaded", "projects"):
         raise EditError("No such backup.", 404)
     if (folder / "PINNED").exists():
         raise EditError(f"{name} is pinned: unpin it first.", 409)
@@ -562,6 +597,10 @@ def application_zip(name: str) -> Path:
             f = d / "models" / (m.get("file") or "")
             if m.get("status") == "ok" and f.is_file():
                 z.write(f, f"models/{f.name}")
+        for p in manifest.get("projects") or []:
+            f = d / "projects" / (p.get("file") or "")
+            if p.get("status") == "ok" and f.is_file():
+                z.write(f, f"projects/{f.name}")
     return out
 
 
@@ -576,16 +615,19 @@ def store_application_upload(path: Path, filename: str) -> dict:
         raise EditError(f"{filename} is not an EA Explorer application backup.", 400)
     with z:
         files = [n for n in z.namelist() if re.match(r"^models/[A-Za-z0-9._-]+" + re.escape(SUFFIX) + "$", n)]
+        pfiles = [n for n in z.namelist() if re.match(r"^projects/[A-Za-z0-9._-]+\.eaxproject\.zip$", n)]
         name = f"{_stamp()}-uploaded-{_slug(manifest.get('tag') or 'application', 30) or 'application'}"
         d = app_dir() / name
         (d / "models").mkdir(parents=True, exist_ok=True)
-        for n in files:
+        (d / "projects").mkdir(parents=True, exist_ok=True)
+        for n in files + pfiles:
             (d / n).write_bytes(z.read(n))
-    have = {Path(n).name for n in files}
+    have = {Path(n).name for n in files + pfiles}
     manifest["models"] = [m for m in manifest.get("models") or [] if m.get("file") in have]
+    manifest["projects"] = [p for p in manifest.get("projects") or [] if p.get("file") in have]
     manifest.update(uploaded=True, uploaded_from=filename, status=manifest.get("status") or "ok")
     _write_json(d / "manifest.json", manifest)
-    return {"run": name, "tag": manifest.get("tag"), "models": len(manifest["models"])}
+    return {"run": name, "tag": manifest.get("tag"), "models": len(manifest["models"]), "projects": len(manifest["projects"])}
 
 
 def restore_application(conn, user, name: str) -> tuple[str, dict]:
@@ -596,14 +638,16 @@ def restore_application(conn, user, name: str) -> tuple[str, dict]:
         raise EditError("Restoring a whole application backup needs the Super Admin role.", 403)
     d, manifest = _run(name)
     models = [m for m in manifest.get("models") or [] if m.get("status") == "ok"]
-    if not models:
+    projects = [p for p in manifest.get("projects") or [] if p.get("status") == "ok"]
+    if not models and not projects:
         raise EditError("This application backup has no model to restore.", 409)
-    rec = new_record("application", f"{manifest.get('tag') or name} ({human(manifest.get('created', ''))}), every model", "all",
-                     user.username)
+    rec = new_record("application", f"{manifest.get('tag') or name} ({human(manifest.get('created', ''))}), every model"
+                     f"{' and project' if projects else ''}", "all", user.username)
     record_log(rec, f"restore of every model in {name} ({len(models)}) by {user.username}: each over itself, or made again "
                     "if it no longer exists; models made after the backup stay as they are", "restoring")
     _announce("started", rec)
     over, made, kept, failed = [], [], [], []
+    remade: dict[str, str] = {}       # a model made again: its guid in the backup -> the new model (for the projects)
     # the project models put back over themselves are locked first, all at once, so nobody changes them meanwhile
     # (D236); each is unlocked as its restore is done (or fails)
     locked: dict[str, bool] = {}
@@ -645,9 +689,16 @@ def restore_application(conn, user, name: str) -> tuple[str, dict]:
                 elif same_name:   # made again by an earlier restore of this backup: a restore can be repeated (D228)
                     msg = f"{m['name']}: a model with this name exists (made again by an earlier restore?): kept as it is"
                     kept.append(m["name"])
+                    if not manifest.get("uploaded"):    # this installation's own backup: that is the one made again before
+                        conn.execute(text("SELECT set_config('eax.rls_bypass', 'on', true)"))
+                        remade[info["model"]["id"]] = conn.execute(text(
+                            "SELECT guid::text FROM core.models WHERE lower(name) = lower(:n) AND NOT is_deleted"),
+                            {"n": info["model"]["name"]}).scalar()
+                        conn.execute(text("SELECT set_config('eax.rls_bypass', '', true)"))
                 else:
-                    msg, _ = _restore_new(conn, user, info, z, info["model"]["name"])
+                    msg, out_new = _restore_new(conn, user, info, z, info["model"]["name"])
                     made.append(m["name"])
+                    remade[info["model"]["id"]] = out_new.get("model")
             conn.execute(text("RELEASE SAVEPOINT restore_all"))
             record_log(rec, f"{i}/{len(models)} {msg}", rec["step"])
         except Exception as exc:  # noqa: BLE001 - one model does not stop the others; listed with why
@@ -656,13 +707,44 @@ def restore_application(conn, user, name: str) -> tuple[str, dict]:
                 unlock_after_restore(conn, m["id"], user)
             failed.append(f"{m['name']}: {exc}")
             record_log(rec, f"{i}/{len(models)} {m['name']} FAILED (nothing changed for it): {exc}", rec["step"])
+    p_done, p_ids, p_failed = _restore_projects(conn, user, d, projects, rec, remade, bool(manifest.get("uploaded"))) if projects else ([], [], [])
+    failed += p_failed
     rec["warnings"] = [f"Not restored: {f}" for f in failed]
     msg = (f"Every model of '{manifest.get('tag') or name}': {len(over)} put back, {len(made)} made again"
            f"{f', {len(kept)} kept as they are (root metamodels, library models, models made again before)' if kept else ''}{f', {len(failed)} failed' if failed else ''}.")
+    if projects:
+        msg += (f" {len(p_done)} of {len(projects)} projects put back as they were; their repositories are built again in "
+                "Documents and their documents put back within a few minutes.")
     record_log(rec, msg)
     record_end(rec, "failed" if failed and not (over or made) else "ok", "; ".join(failed)[:1000])
     _announce("ended", rec)
-    return msg, {"restore": rec["id"], "over": over, "made": made, "kept": kept, "failed": failed}
+    return msg, {"restore": rec["id"], "over": over, "made": made, "kept": kept, "failed": failed, "projects": p_done, "project_ids": p_ids}
+
+
+def _restore_projects(conn, user, run_dir: Path, projects: list[dict], rec: dict, remade: dict | None = None,
+                      uploaded: bool = False) -> tuple[list[str], list[int], list[str]]:
+    """After the models: each project of the backup over itself (or made again), each in a savepoint of its own. Its
+    repository is built again by the minute job, which then puts its documents back (a document still in Documents gets
+    the backed-up file as its newest version when it differs; one that is gone is uploaded again)."""
+    from . import project_backup as pb
+    from .background import _projects_beside
+    done, ids, failed = [], [], []
+    with _projects_beside(conn) as pc:
+        for i, p in enumerate(projects, 1):
+            rec["step"] = f"project {i} of {len(projects)}: {p['name']}"
+            pc.execute(text("SAVEPOINT restore_project"))
+            try:
+                msg, out = pb.restore(conn, pc, user, run_dir / "projects" / p["file"], over=True, model_guids=remade or {},
+                                      uploaded=uploaded)
+                pc.execute(text("RELEASE SAVEPOINT restore_project"))
+                done.append(p["name"])
+                ids.append(out["project_id"])
+                record_log(rec, f"project {i}/{len(projects)} {msg}", rec["step"])
+            except Exception as exc:  # noqa: BLE001 - one project does not stop the others; listed with why
+                pc.execute(text("ROLLBACK TO SAVEPOINT restore_project"))
+                failed.append(f"{p['name']}: {exc}")
+                record_log(rec, f"project {i}/{len(projects)} {p['name']} FAILED (nothing changed for it): {exc}", rec["step"])
+    return done, ids, failed
 
 
 def store_upload(data: bytes, filename: str) -> dict:
@@ -704,10 +786,21 @@ def pin(where: str, name: str, file: str, model_guid: str, pinned: bool) -> dict
 def cleanup(n: int | None = None) -> list[str]:
     """Keeps the newest n application backups (Administration > Backups, D222), and of each model's own; pinned ones always."""
     n, gone = n or keep(), []
-    runs = [r for r in list_application()["runs"] if not r["pinned"] and r.get("status") != "running"]
+    runs = [r for r in list_application()["runs"] if not r["pinned"] and r.get("status") != "running" and not r.get("uploaded")]
     for r in runs[n:]:
         shutil.rmtree(app_dir() / r["name"], ignore_errors=True)
         gone.append(r["name"])
+    from . import project_backup as pb
+    gone += pb.cleanup_stash()                  # files of restores and uploads nothing waits for any more
+    projects = app_dir() / "projects"          # each project's own backups (made on its page), the newest n of each
+    if projects.is_dir():
+        for d in projects.iterdir():
+            if d.is_dir() and not d.name.startswith("_"):
+                files = sorted(d.glob("*.eaxproject.zip"), reverse=True)
+                for f in files[n:]:
+                    f.unlink(missing_ok=True)
+                    f.with_name(f.name.replace(".eaxproject.zip", ".json")).unlink(missing_ok=True)
+                    gone.append(f"projects/{d.name}/{f.name}")
     models = app_dir() / "models"
     if models.is_dir():
         for d in models.iterdir():

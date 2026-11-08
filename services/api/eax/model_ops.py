@@ -109,7 +109,7 @@ def metamodel_spec(conn, model: Any) -> dict:
                              FROM core.item_attributes i JOIN core.attribute_types a ON a.id = i.attribute_type_id
                             WHERE i.model_id = :m AND NOT i.is_deleted ORDER BY i.sort_order, a.name""", m=mid)
     types = _rows(conn, """SELECT t.id AS _id, t.code, t.name, l.code AS layer, t.id_prefix, t.aspect, t.description,
-                                  t.status_code AS status
+                                  t.status_code AS status, t.content_area
                              FROM core.entity_types t JOIN core.layers l ON l.id = t.layer_id
                             WHERE t.model_id = :m AND NOT t.is_deleted ORDER BY l.sort_order, t.sort_order, t.name""", m=mid)
     rels = _rows(conn, """SELECT id AS _id, code, name, verb, category, is_directed AS directed, description, status_code AS status
@@ -256,7 +256,7 @@ _FIELDS = {
     "layers": ("name", "colour", "description"),
     "pick_lists": ("name", "description", "values"),
     "attributes": ("name", "data_type", "pick_list", "unit", "description"),
-    "entity_types": ("name", "layer", "id_prefix", "aspect", "description", "attributes"),
+    "entity_types": ("name", "layer", "id_prefix", "aspect", "description", "content_area", "attributes"),
     "relationship_types": ("name", "verb", "category", "directed", "description", "attributes"),
 }
 
@@ -381,6 +381,9 @@ def apply_spec(conn, model_id: int, spec: dict, mode: str = "new", remove_missin
         used_prefix.add(prefix)
         cols = {"name": t["name"].strip(), "layer_id": ids["layers"][t["layer"].lower()], "id_prefix": prefix,
                 "aspect": t.get("aspect") or "", "description": t.get("description") or "", "sort_order": (n + 1) * 10}
+        if t.get("content_area") is not None:                   # where it sits in the content framework (D299)
+            from .content_framework import clean_area
+            cols["content_area"] = clean_area(t.get("content_area"))
         if mode == "new" or not have("entity_types", t["code"]):
             cols["table_name"] = free("table_name", snake_from(t["name"]) or t["code"].lower())
         tid = upsert("entity_types", t["code"], cols)
@@ -521,6 +524,11 @@ def copy_into(conn, src_id: int, dst_id: int, content: bool) -> dict:
         counts = conn.execute(text("SELECT core.copy_model(:s, :d, :c)"), {"s": src_id, "d": dst_id, "c": content}).scalar_one()
     except DBAPIError as exc:
         raise EditError(_db_message(exc), 409) from exc
+    # where each entity type sits in the content framework comes with the copy (D299)
+    conn.execute(text("""UPDATE core.entity_types d SET content_area = s.content_area
+                           FROM core.entity_types s
+                          WHERE s.model_id = :s AND d.model_id = :d AND lower(d.code) = lower(s.code)
+                            AND s.content_area <> '' AND d.content_area <> s.content_area"""), {"s": src_id, "d": dst_id})
     refresh_typed_views(conn)
     return dict(counts or {})
 
@@ -560,6 +568,8 @@ def create_model(conn, actor: str, p: dict) -> dict:
         counts = copy_into(conn, src["_id"], row["id"], False) if src and src["_id"] != root_top["id"] else {}
         _label(conn, f"Created root metamodel {row['name']}")
         return {"model": repo.get_model(conn, str(row["guid"])), "copied": counts, "job": None}
+    if p.get("tag"):
+        return _from_tag(conn, p, kind, parent)
     if not src:
         raise EditError("Choose the root metamodel, library model or model to start from.")
     if kind == "library":
@@ -580,6 +590,39 @@ def create_model(conn, actor: str, p: dict) -> dict:
           i=row["id"], n=f"Copying the content of {src['name']}")
     return {"model": repo.get_model(conn, str(row["guid"])), "copied": {}, "job": None,
             "_copy": {"source": str(src["id"]), "target": str(row["guid"])}}
+
+
+def _from_tag(conn, p: dict, kind: str, parent: dict | None) -> dict:
+    """A new project model from a model as it was at one of its tags (owner, 7 Nov 2026): the model's metamodel with
+    the tag's added back, and the tag's content. Always a separate copy: never a child (it cannot merge back into a
+    model that has moved on since the tag)."""
+    from . import tags as tg
+    if kind != "project":
+        raise EditError("Only a project model is made from a tag.")
+    if parent:
+        raise EditError("A model made from a tag is a separate copy: it cannot be a child of (merge back into) the model.")
+    side = tg.tag_side(conn, p["tag"])
+    if p.get("source") and str(repo.get_model(conn, p["source"])["id"]) != side["model_id"]:
+        raise EditError(f"The tag '{side['tag']}' is not one of that model's tags.")
+    src = repo.get_model(conn, side["model_id"])
+    row = _create_row(conn, icon=p.get("icon"), name=p.get("name"), kind="project", source_id=src["_id"], parent_id=None,
+                      description=p.get("description", "") or f"{src['name']} as it was at the tag '{side['tag']}'.",
+                      metamodel_name=src["metamodel_name"], owner=p.get("owner", ""), industry=src.get("industry", ""),
+                      history_from_source=False)
+    copy_into(conn, src["_id"], row["id"], False)           # the metamodel as it is now
+    apply_spec(conn, row["id"], side["spec"], "merge")       # and whatever the tag's had that has gone since
+    ents: dict[str, list[dict]] = {}
+    for e in side["snapshot"]["entities"].values():
+        ents.setdefault(e["type_code"], []).append({"key": e["guid"], "display_id": e["display_id"], "name": e["name"],
+                                                    "description": e["description"], "parent": e["parent"] or "",
+                                                    "status": e["status"], **(e.get("values") or {})})
+    rels = [{"key": r["guid"], "type": r["type_code"], "source": r["source"], "target": r["target"], "name": r["name"],
+             "description": "", "status": "published"} for r in side["snapshot"]["relationships"].values()]
+    counts = load_content(conn, row["id"], ents, rels, metamodel_spec(conn, str(row["guid"])))
+    _exec(conn, "UPDATE core.models SET source_tag_id = CAST(:t AS uuid), source_tag_name = :n WHERE id = :i",
+          t=side["tag_id"], n=side["tag"], i=row["id"])
+    _label(conn, f"Created {row['name']} from {src['name']} at the tag {side['tag']}")
+    return {"model": repo.get_model(conn, str(row["guid"])), "copied": counts, "job": None}
 
 
 def run_copy(conn, source: str, target: str, actor: str, publish: bool = False) -> dict:

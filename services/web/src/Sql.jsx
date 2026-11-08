@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch, keycloak, signedIn } from "./auth";
 import { config } from "./config";
+import SchemaDiagram from "./SchemaDiagram";
 
 const EXAMPLE = `-- Ctrl+Enter runs. Several statements in one run are fine.
 SELECT name, kind_code, is_locked FROM core.models ORDER BY name;`;
@@ -112,14 +113,10 @@ export default function Sql() {
         {field("password", "Password", "password")}
       </div>
       <details className="sql-tables" open>
-        <summary>Tables and how they join</summary>
-        <a href="/db-tables.svg" target="_blank" rel="noreferrer" title="Open full size">
-          <img src="/db-tables.svg" alt="Database tables and the columns that join them" />
-        </a>
+        <summary>Database diagram: the tables behind models and behind projects, and how they join</summary>
+        <SchemaDiagram />
         <p className="quiet">
-          Lines are joins (child column → parent <code>id</code>). Every core table also has <code>model_id</code> →
-          <code> core.models.id</code> and <code>status_code</code> → <code>core.item_statuses.code</code>.
-          For one table per entity type use <code>eax.get_entity('Capability', 'caps')</code>.
+          For one table per entity type of a model use <code>eax.get_entity('Capability', 'caps')</code>.
         </p>
       </details>
       <textarea id="sql-text" className="sql-text" spellCheck="false" value={sql}
