@@ -105,6 +105,21 @@ def create_app(testing: bool = False) -> Flask:
         return None
 
     @app.before_request
+    def _parts():
+        """A part switched off in System settings (D329): its API answers 404 with why; its data is kept."""
+        if not request.path.startswith("/api/v1/"):
+            return None
+        from . import settings as app_settings
+        try:
+            part = app_settings.part_of_path(request.path, app_settings.parts())
+        except Exception:  # noqa: BLE001 - the database not there yet: nothing is refused for this
+            return None
+        if part:
+            return {"message": f"{part.title()} is switched off in this installation (System admin > System settings). "
+                               "Its data is kept and comes back when a Super Admin switches it on.", "part_off": part}, 404
+        return None
+
+    @app.before_request
     def _maintenance():
         """While a backup is restored (D216) the installation is read only: every change is refused with why."""
         if request.method in ("GET", "HEAD", "OPTIONS") or request.path.startswith("/api/v1/internal/"):

@@ -16,7 +16,8 @@ export default function ReferenceLibraryPage({ route }) {
 }
 
 function Library() {
-  const [folder, setFolder] = useState("");
+  // opened on a folder from the repository map (D324): #/reference-library?folder=...
+  const [folder, setFolder] = useState(() => decodeURIComponent((window.location.hash.match(/[?&]folder=([^&]+)/) || [])[1] || ""));
   const [q, setQ] = useState("");
   const [query, setQuery] = useState("");
   const [tag, setTag] = useState("");

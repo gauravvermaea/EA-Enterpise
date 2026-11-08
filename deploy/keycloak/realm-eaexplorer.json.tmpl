@@ -156,6 +156,31 @@
       ]
     },
     {
+      "clientId": "eax-console",
+      "name": "EA Explorer console",
+      "description": "eax console --server: signs in on another device with a code (device sign-in), with the person's own roles (D330)",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "attributes": {
+        "oauth2.device.authorization.grant.enabled": "true"
+      },
+      "protocolMappers": [
+        {
+          "name": "audience eax-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "eax-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
+    },
+    {
       "clientId": "eax-admin",
       "name": "EA Explorer API (reads users and roles)",
       "description": "Service account the API uses to list people and their roles; it never changes them",

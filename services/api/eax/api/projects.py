@@ -43,6 +43,9 @@ POST   /projects/<p>/as-template                   {name, description}: save a p
 The content framework (D299):
 GET    /projects/<p>/content-framework             the areas and their numbers; GET .../<area> one area as a tree
 GET    /repository/summary|governance/<kind>|people|model-levels   the organisation's repository views (D318)
+GET    /repository/board|measures/<what>|reference/<part>      the board, performance measures, reference parts (D324)
+GET    /tracking-sheets/<org|project>[/<sheet>]   tracking sheets (D325); POST new or upload; PUT/DELETE; /upload; /xlsx
+GET    /calendars/<org|project>  events; POST adds; PUT/DELETE /events/<e>; GET /ics; POST /feed; GET /calendar-feed/<token>.ics
 GET    /projects/library/template-setup            the defaults: deliverables and artifacts, templates, their areas (D317)
 GET    /projects/<p>/cf-tags                       tag items: rows of one kind with their areas; PUT places several at once
 PUT    /projects/<p>/items/<i>/content-area        {area}: where a document type sits; .../documents/<d>/content-area: a document
@@ -258,6 +261,207 @@ class OrgPeople(MethodView):
         """Read only, across the projects you are on: who works on them, their roles and skills"""
         from .. import org_repository as orp
         return _run(lambda c: orp.people(c, g.user))
+
+
+@blp.route("/repository/board")
+class OrgBoard(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def get(self):
+        """The Architecture Board's members (D324)"""
+        from .. import org_repository as orp
+        return _run(lambda c: orp.board(c, g.user))
+
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth()
+    def post(self, data):
+        """Add or change a member {username, role}, or take one off {username, remove: true} (Super Admins)"""
+        from .. import org_repository as orp
+        d = data or {}
+        return _run(lambda c: orp.board_set(c, g.user, d.get("username") or "", d.get("role") or "", bool(d.get("remove"))),
+                    write=True, action="repository.board", obj=d.get("username") or "")
+
+
+@blp.route("/repository/measures/<string:what>")
+class OrgMeasures(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def get(self, what):
+        """Performance measurement across the projects you may see: completion, governance, turnaround or coverage"""
+        from .. import org_repository as orp
+        return _run(lambda c: orp.measures(c, g.user, what))
+
+
+@blp.route("/repository/reference/<string:part>")
+class OrgReferencePart(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def get(self, part):
+        """A part of the reference library (foundation, common, industry, own): its library models and its documents"""
+        from .. import org_repository as orp
+        return _run(lambda c: orp.reference_part(c, g.user, part))
+
+
+# ---------------------------------------------------------------- calendars (D324): 'org' or a project's guid
+@blp.route("/calendars/<string:cal>")
+class Calendar(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def get(self, cal):
+        """The calendar's events and their occurrences between ?from= and ?to= (YYYY-MM-DD)"""
+        from .. import calendars as cl
+        return _run(lambda c: cl.listing(c, cal, g.user, request.args.get("from"), request.args.get("to")))
+
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(201, Free)
+    @require_auth()
+    def post(self, data, cal):
+        """Add an event: {topic, starts_on, at_time, minutes, notes, repeat, weekdays, until_on, times}"""
+        from .. import calendars as cl
+        return _run(lambda c: cl.add(c, cal, g.user, data or {}), write=True, action="calendar.event.added", obj=cal)
+
+
+@blp.route("/calendars/<string:cal>/events/<string:eid>")
+class CalendarEvent(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth()
+    def put(self, data, cal, eid):
+        """Change an event, or skip one occurrence {skip: YYYY-MM-DD}"""
+        from .. import calendars as cl
+        return _run(lambda c: cl.update(c, cal, g.user, eid, data or {}), write=True, action="calendar.event.changed", obj=cal)
+
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def delete(self, cal, eid):
+        """Delete an event (whoever made it, a Project Admin or Lead Architect, a Super Admin)"""
+        from .. import calendars as cl
+        return _run(lambda c: cl.delete(c, cal, g.user, eid), write=True, action="calendar.event.deleted", obj=cal)
+
+
+@blp.route("/calendars/<string:cal>/ics")
+class CalendarIcs(MethodView):
+    @blp.doc(security=SECURITY)
+    @require_auth()
+    def get(self, cal):
+        """Download the calendar as an iCalendar file"""
+        from urllib.parse import quote
+
+        from .. import calendars as cl
+        body, name = _run(lambda c: cl.download(c, cal, g.user))
+        return Response(body, mimetype="text/calendar", headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}"})
+
+
+@blp.route("/calendars/<string:cal>/feed")
+class CalendarFeedLink(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth()
+    def post(self, data, cal):
+        """Your private subscription link for this calendar; {renew: true} makes a new one (the old one stops working)"""
+        from .. import calendars as cl
+        return _run(lambda c: cl.feed_link(c, cal, g.user, bool((data or {}).get("renew"))), write=True)
+
+
+@blp.route("/calendar-feed/<string:token>.ics")
+class CalendarFeed(MethodView):
+    def get(self, token):
+        """A private calendar link, for calendar applications (no sign-in: the link is the key; renew it to stop it)"""
+        from .. import calendars as cl
+        body, _name = _run(lambda c: cl.feed(c, token))
+        return Response(body, mimetype="text/calendar")
+
+
+# ---------------------------------------------------------------- tracking sheets (D325): 'org' or a project's guid
+@blp.route("/tracking-sheets/<string:scope>")
+class TrackingSheets(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def get(self, scope):
+        """The sheets of a project, or of the organisation"""
+        from .. import tracking_sheets as ts
+        return _run(lambda c: ts.listing(c, scope, g.user))
+
+    @blp.doc(security=SECURITY)
+    @blp.response(201, Free)
+    @require_auth()
+    def post(self, scope):
+        """A new sheet: JSON {name, description, columns}, or a multipart file (Excel's first tab or CSV) with name"""
+        from .. import tracking_sheets as ts
+        if request.files.get("file"):
+            name, data = _file()
+            return _run(lambda c: ts.upload(c, scope, g.user, None, name, data, name=request.form.get("name") or ""), write=True,
+                        action="sheet.uploaded", obj=scope)
+        d = request.get_json(silent=True) or {}
+        return _run(lambda c: ts.create(c, scope, g.user, d), write=True, action="sheet.made", obj=scope)
+
+
+@blp.route("/tracking-sheets/<string:scope>/<string:sid>")
+class TrackingSheet(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def get(self, scope, sid):
+        """A sheet: its columns and rows"""
+        from .. import tracking_sheets as ts
+        return _run(lambda c: ts.get(c, scope, g.user, sid))
+
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth()
+    def put(self, data, scope, sid):
+        """Change it: {name, description, columns, renames, rows: [{id, cells}], add: [cells], delete: [id]}"""
+        from .. import tracking_sheets as ts
+        return _run(lambda c: ts.update(c, scope, g.user, sid, data or {}), write=True, action="sheet.changed", obj=sid)
+
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def delete(self, scope, sid):
+        """Delete the sheet"""
+        from .. import tracking_sheets as ts
+        return _run(lambda c: ts.delete(c, scope, g.user, sid), write=True, action="sheet.deleted", obj=sid)
+
+
+@blp.route("/tracking-sheets/<string:scope>/<string:sid>/upload")
+class TrackingSheetUpload(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def post(self, scope, sid):
+        """Upload into the sheet: multipart file, how (replace, add, update) and key (the column to match on, for update)"""
+        from .. import tracking_sheets as ts
+        name, data = _file()
+        f = request.form
+        return _run(lambda c: ts.upload(c, scope, g.user, sid, name, data, f.get("how") or "replace", f.get("key") or ""), write=True,
+                    action="sheet.uploaded", obj=sid)
+
+
+@blp.route("/tracking-sheets/<string:scope>/<string:sid>/xlsx")
+class TrackingSheetXlsx(MethodView):
+    @blp.doc(security=SECURITY)
+    @require_auth()
+    def get(self, scope, sid):
+        """Download as Excel; ?rows=1,2,3 for only those rows (the filtered ones)"""
+        from urllib.parse import quote
+
+        from .. import tracking_sheets as ts
+        only = [int(x) for x in (request.args.get("rows") or "").split(",") if x.strip().isdigit()] or None
+        data, name = _run(lambda c: ts.download(c, scope, g.user, sid, only))
+        return Response(data, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}"})
 
 
 @blp.route("/repository/model-levels")
@@ -1786,6 +1990,20 @@ class ProjectPrinciple(MethodView):
 
 
 # ---------------------------------------------------------------- links and the Reference area (D296)
+@blp.route("/projects/<string:project>/principle-areas")
+class ProjectPrincipleAreas(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth()
+    def post(self, data, project):
+        """Add a top-level area for principles {name}, or remove an empty one {name, remove: true} (D327)"""
+        from .. import project_work as pw
+        d = data or {}
+        return _run(lambda c: pw.principle_area(c, project, g.user, d.get("name") or "", bool(d.get("remove"))), write=True,
+                    action="project.principle_area", obj=project)
+
+
 @blp.route("/projects/<string:project>/links")
 class ProjectLinks(MethodView):
     @blp.doc(security=SECURITY)

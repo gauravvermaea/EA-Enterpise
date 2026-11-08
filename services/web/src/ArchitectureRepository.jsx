@@ -5,11 +5,13 @@
 // The organisation's read-only views across projects (decisions, compliance and capability assessments, people and
 // skills) show only the projects the person is on (a Super Admin: all); records are changed inside each project.
 import { useEffect, useRef, useState } from "react";
-import { useApi } from "./ModelViews";
+import { apiFetch } from "./auth";
 import { fmtDateTime } from "./fmt";
+import { refreshAll, useApi } from "./ModelViews";
+import { CalendarView } from "./Calendar";
+import { TrackingSheets } from "./TrackingSheets";
 
 const LATER = "to be designed (phase 13.0.9)";
-const REF_LATER = "the reference library's structure is discussed when it is built";
 
 function orgParts(base) {
   const ob = base ? `#/projects/${base.id}` : null;
@@ -25,24 +27,24 @@ function orgParts(base) {
       { label: "Transition architectures", href: "#/work?tab=models&view=tiles&level=transition", note: "models with the transition role" },
     ] },
     reference: { title: "Reference library", colour: "#2d3f8f", items: [
-      { label: "Foundation architectures", href: "#/reference-library", note: REF_LATER },
-      { label: "Common systems architectures", href: "#/reference-library", note: REF_LATER },
-      { label: "Industry architectures", href: "#/reference-library", note: REF_LATER },
-      { label: "Organisation's own architectures", href: "#/reference-library", note: REF_LATER },
+      { label: "Foundation architectures", href: "#/repository/reference/foundation", note: "root metamodels and their documents" },
+      { label: "Common systems architectures", href: "#/repository/reference/common", note: "common reference models and documents" },
+      { label: "Industry architectures", href: "#/repository/reference/industry", note: "industry reference models and documents" },
+      { label: "Organisation's own architectures", href: "#/repository/reference/own", note: "the organisation's reference models and documents" },
     ] },
     standards: { title: "Standards information base", colour: "#2d3f8f", items: [
-      { label: "Business standards", href: "#/reference-library", note: "the reference library, for now" },
-      { label: "Data standards", href: "#/reference-library", note: "the reference library, for now" },
-      { label: "Application standards", href: "#/reference-library", note: "the reference library, for now" },
-      { label: "Technology standards", href: "#/reference-library", note: "the reference library, for now" },
+      { label: "Business standards", href: ob && `${ob}/standards?group=Business`, note: "the Organisation base's standards" },
+      { label: "Data standards", href: ob && `${ob}/standards?group=Data`, note: "the Organisation base's standards" },
+      { label: "Application standards", href: ob && `${ob}/standards?group=Application`, note: "the Organisation base's standards" },
+      { label: "Technology standards", href: ob && `${ob}/standards?group=Technology`, note: "the Organisation base's standards" },
     ] },
     governance: { title: "Governance log", colour: "#8f1d1d", items: [
       { label: "Decision log", href: "#/repository/decisions", note: "every project's decisions, read only" },
       { label: "Compliance assessments", href: "#/repository/compliance", note: "every project's, read only" },
       { label: "Capability assessments", href: "#/repository/capability", note: "every project's, read only" },
-      { label: "Calendar", href: null, note: LATER },
+      { label: "Calendar", href: "#/repository/calendar", note: "the organisation's calendar" },
       { label: "Project portfolio", href: "#/work?tab=projects", note: "all the projects" },
-      { label: "Performance measurement", href: "#/admin/quality", note: "data quality; each project's completion" },
+      { label: "Performance measurement", href: "#/repository/measures", note: "completion, governance, sign-off, coverage, data quality" },
     ] },
     capability: { title: "Architecture capability", colour: "#1f7a3a", items: [
       { label: "Skills repository", href: "#/repository/skills", note: "people on the projects, by skill" },
@@ -51,8 +53,8 @@ function orgParts(base) {
     ] },
     outside: [
       { label: "External reference models", href: "#/library?kind=reference", note: "the model library, reference models" },
-      { label: "External standards", href: "#/reference-library", note: "the reference library (an external standards folder: to be discussed)" },
-      { label: "Architecture board", href: "#/admin/users", note: "users and their roles", tall: true },
+      { label: "External standards", href: ob && `${ob}/standards?external=1`, note: "standards adopted from outside (by their source)" },
+      { label: "Architecture board", href: "#/repository/board", note: "its members", tall: true },
     ],
   };
 }
@@ -93,7 +95,7 @@ function projectParts(p) {
       { label: "Decision log", href: gov("Decision"), note: "the project's decisions" },
       { label: "Compliance assessments", href: gov("Compliance assessment"), note: "the project's" },
       { label: "Capability assessments", href: gov("Capability assessment"), note: "the project's" },
-      { label: "Calendar", href: null, note: LATER },
+      { label: "Calendar", href: `${pj}/calendar`, note: "the project's calendar" },
       { label: "Project portfolio", href: `${pj}/home`, note: "this project" },
       { label: "Performance measurement", href: `${pj}/quality`, note: "the data quality of the project's models", also: [["Project report", `${pj}/report`]] },
     ] },
@@ -167,10 +169,11 @@ export function RepositoryMap({ p }) {
   return (
     <div>
       {p ? <p className="quiet">This project's part of the Enterprise Repository, in the shape TOGAF gives the Architecture Repository. Every link stays
-        within the project, except the reference library and the model library, which offer the project's and the organisation's.</p>
+        within the project, except the reference library and the model library, which offer the project's and the organisation's.
+        Also: the project's <a href={`#/projects/${p.id}/sheets`}>tracking sheets</a>.</p>
         : <p className="quiet">The organisation's Architecture Repository in the shape TOGAF gives it. Each item opens the screen that holds it, showing
         everything you may see (admins: every project and every user); the decision log, the assessments and the people are read only here (changed
-        inside each project).</p>}
+        inside each project). Also: the organisation's <a href="#/repository/sheets">tracking sheets</a>.</p>}
       <div className="ar-wrap">
         <div className="ar-main">
           <Part part={x.framework} cols={2} />
@@ -329,7 +332,103 @@ function PeopleList({ data, q, setQ, skill, setSkill, bySkill }) {
   );
 }
 
-const VIEWS = { ...GOV, people: "Organisation structure", skills: "Skills repository" };
+const VIEWS = { ...GOV, people: "Organisation structure", skills: "Skills repository", calendar: "Calendar", board: "Architecture Board",
+  measures: "Performance measurement", sheets: "Tracking sheets", "reference/foundation": "Foundation architectures", "reference/common": "Common systems architectures",
+  "reference/industry": "Industry architectures", "reference/own": "Organisation's own architectures" };
+
+// ---------------------------------------------------------------- the Architecture Board: members (D324)
+function Board() {
+  const { data, error } = useApi("/api/v1/repository/board");
+  const [u, setU] = useState("");
+  const [role, setRole] = useState("");
+  const [msg, setMsg] = useState("");
+  if (error) return <p className="status bad">{error}</p>;
+  if (!data) return <p className="quiet">Loading...</p>;
+  const post = (body) => apiFetch("/api/v1/repository/board", { method: "POST", body: JSON.stringify(body) })
+    .then((r) => { setMsg(r.message); setU(""); setRole(""); refreshAll(); }).catch((e) => setMsg(e.message));
+  return (
+    <div>
+      <p className="quiet">The Architecture Board steers the architecture: its members, named by Super Admins. Its meetings go on the{" "}
+        <a href="#/repository/calendar">organisation's calendar</a>; decisions stay in each project's governance log.</p>
+      {msg && <p className="small">{msg}</p>}
+      <table className="grid-table">
+        <thead><tr><th>Member</th><th>Role on the board</th><th>Added</th>{data.may_change && <th />}</tr></thead>
+        <tbody>
+          {data.members.map((m) => <tr key={m.username}><td><b>{m.username}</b></td><td>{m.role}</td><td className="small">{m.added_by} · {fmtDateTime(m.added_at)}</td>
+            {data.may_change && <td><button className="linkish small" onClick={() => post({ username: m.username, remove: true })}>Take off</button></td>}</tr>)}
+          {!data.members.length && <tr><td colSpan={4} className="quiet">No members yet.</td></tr>}
+        </tbody>
+      </table>
+      {data.may_change && <div className="row-gap" style={{ marginTop: 8 }}>
+        <input value={u} onChange={(e) => setU(e.target.value)} placeholder="User name" aria-label="User name" />
+        <input value={role} onChange={(e) => setRole(e.target.value)} placeholder="Role (e.g. Chair)" aria-label="Role" />
+        <button className="primary" disabled={!u.trim()} onClick={() => post({ username: u, role })}>＋ Add to the board</button>
+        <a className="small" href="#/admin/users">The users →</a></div>}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- performance measurement (D324): a tab each
+const MEASURES = [["quality", "Data quality"], ["completion", "Project completion"], ["governance", "Governance health"],
+  ["turnaround", "Sign-off turnaround"], ["coverage", "Repository coverage"]];
+function Measures() {
+  const [tab, setTab] = useState("completion");
+  const { data, error } = useApi(tab === "quality" ? null : `/api/v1/repository/measures/${tab}`);
+  const P = ({ r }) => <a href={`#/projects/${r.project_id}`}>{r.project}</a>;
+  return (
+    <div>
+      <div className="cf-views" role="tablist">
+        {MEASURES.map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} className={`cf-view${tab === k ? " on" : ""}`} onClick={() => setTab(k)}>{l}</button>)}
+      </div>
+      {tab === "quality" ? <p>The models' data quality, with trends and drill-downs: <a href="#/admin/quality">Administration › Quality →</a>
+        {" "}(inside a project: its Quality tab).</p>
+        : error ? <p className="status bad">{error}</p> : !data ? <p className="quiet">Loading...</p> : <>
+          <p className="small quiet">Across the {data.projects} project{data.projects === 1 ? "" : "s"} you may see (admins: every project).</p>
+          {tab === "completion" && <table className="grid-table"><thead><tr><th>Project</th><th>Complete</th><th>Phases done</th><th>Steps done</th></tr></thead>
+            <tbody>{data.rows.map((r) => <tr key={r.project_id}><td><P r={r} /></td>
+              <td><span className="completion-bar" aria-hidden="true"><span style={{ width: `${r.percent || 0}%` }} /></span> {r.percent ?? 0}%</td>
+              <td>{r.phases_done ?? 0} of {r.phases ?? 0}</td><td>{r.steps_done ?? 0} of {r.steps ?? 0}</td></tr>)}</tbody></table>}
+          {tab === "governance" && <table className="grid-table"><thead><tr><th>Project</th><th>Records</th><th>Drafts</th><th>Waiting for approval</th><th>Longest wait (days)</th>
+            <th>Dispensations overdue</th><th>Expiring in 30 days</th><th>Not compliant</th></tr></thead>
+            <tbody>{data.rows.map((r) => <tr key={r.project_id}><td><P r={r} /></td><td>{r.records}</td><td>{r.drafts}</td>
+              <td className={r.waiting ? "status warn" : ""}>{r.waiting}</td><td>{r.oldest_days ?? "–"}</td>
+              <td className={r.overdue ? "status bad" : ""}>{r.overdue}</td><td>{r.expiring}</td><td className={r.not_compliant ? "status bad" : ""}>{r.not_compliant}</td></tr>)}</tbody></table>}
+          {tab === "turnaround" && <>
+            <h3>By project</h3>
+            <table className="grid-table"><thead><tr><th>Project</th><th>Signed off</th><th>Average days</th><th>Still open</th><th>Oldest open (days)</th></tr></thead>
+              <tbody>{data.rows.map((r) => <tr key={r.project_id}><td><P r={r} /></td><td>{r.closed}</td><td>{r.average_days ?? "–"}</td><td>{r.open}</td><td>{r.open ? r.oldest_open : "–"}</td></tr>)}
+                {!data.rows.length && <tr><td colSpan={5} className="quiet">No sign-off yet.</td></tr>}</tbody></table>
+            <h3>By person</h3>
+            <table className="grid-table"><thead><tr><th>Signer</th><th>Decisions</th><th>Average days to decide</th></tr></thead>
+              <tbody>{(data.people || []).map((r) => <tr key={r.signer}><td>{r.signer}</td><td>{r.decided}</td><td>{r.avg_days ?? "–"}</td></tr>)}</tbody></table>
+            <p className="small quiet">Documents and governance records together; withdrawn requests are left out.</p></>}
+          {tab === "coverage" && <table className="grid-table"><thead><tr><th>Project</th><th>Content framework areas with something in them</th><th>With documents</th><th>Empty areas</th></tr></thead>
+            <tbody>{data.rows.map((r) => <tr key={r.project_id}><td><a href={`#/projects/${r.project_id}/content`}>{r.project}</a></td>
+              <td><span className="completion-bar" aria-hidden="true"><span style={{ width: `${r.percent}%` }} /></span> {r.filled} of {r.areas} ({r.percent}%)</td>
+              <td>{r.with_documents}</td><td className="small quiet">{r.empty.join(", ")}</td></tr>)}</tbody></table>}
+        </>}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- a part of the reference library (D324)
+function ReferencePart({ part }) {
+  const { data, error } = useApi(`/api/v1/repository/reference/${part}`);
+  if (error) return <p className="status bad">{error}</p>;
+  if (!data) return <p className="quiet">Loading...</p>;
+  const docs = data.documents?.entries || [];
+  return (
+    <div>
+      <h3>Models in the model library <span className="small quiet">{data.models.length}</span></h3>
+      {!data.models.length ? <p className="quiet small">None yet.</p> : <ul>{data.models.map((m) => <li key={m.id}><a href={`#/library/${m.id}`}>{m.name}</a>
+        <span className="small quiet"> {m.kind === "template" ? "root metamodel" : "reference model"}{m.industry ? ` · ${m.industry}` : ""}</span></li>)}</ul>}
+      <h3>Documents and links <span className="small quiet">{docs.length}</span></h3>
+      {!docs.length ? <p className="quiet small">None yet.</p> : <ul>{docs.map((e) => <li key={e.id}><a href={`#/reference-library/${e.id}`}>{e.title}</a>
+        <span className="small quiet"> {e.folder}</span></li>)}</ul>}
+      <p className="small"><a href={`#/reference-library?folder=${encodeURIComponent(data.folder)}`}>Open the folder "{data.folder}" in the reference library →</a></p>
+    </div>
+  );
+}
 
 // the top-level map is always the organisation's (owner, 8 Nov 2026): everything an admin may see, or what the person
 // may see; inside a project (its Enterprise Repository tab) everything is the project's. A link takes you there.
@@ -358,7 +457,9 @@ export default function ArchitectureRepositoryPage() {
   return (
     <section className="page">
       <h1>{title ? <><a href="#/repository">Architecture repository</a> › {title}</> : "Architecture repository"}</h1>
-      {GOV[sub] ? <GovAcross kind={sub} /> : sub === "people" ? <PeopleAcross /> : sub === "skills" ? <PeopleAcross bySkill /> : <ScopedMap />}
+      {GOV[sub] ? <GovAcross kind={sub} /> : sub === "people" ? <PeopleAcross /> : sub === "skills" ? <PeopleAcross bySkill />
+        : sub === "calendar" ? <CalendarView cal="org" /> : sub === "sheets" ? <TrackingSheets scope="org" /> : sub === "board" ? <Board /> : sub === "measures" ? <Measures />
+          : sub.startsWith("reference/") ? <ReferencePart part={sub.split("/")[1]} /> : <ScopedMap />}
     </section>
   );
 }

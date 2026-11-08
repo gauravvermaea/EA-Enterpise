@@ -294,6 +294,9 @@ def project_repositories(timestamp: int) -> None:
     """Every minute: uploaded template libraries still to store, then the repositories still to build (made while
     Documents was starting or off) once Mayan answers; each failure is kept on the project and tried again (up to 30 times)."""
     from . import mayan, projects
+    from . import settings as app_settings
+    if not app_settings.parts().get("projects", True):     # switched off (D329): its work waits until it is on again
+        return
     with get_projects_engine().begin() as conn:
         todo = projects.pending_repositories(conn)
         libraries = projects.pending_library_loads(conn)

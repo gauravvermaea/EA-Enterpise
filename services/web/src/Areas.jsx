@@ -8,7 +8,7 @@
 import PinButton from "./PinButton";
 import { lazy, Suspense, useState } from "react";
 import ProjectTree, { flatten } from "./ProjectTree";
-import { can, myInfo, needsRole, roles } from "./auth";
+import { can, myInfo, needsRole, partOn, roles } from "./auth";
 import { useApi } from "./ModelViews";
 import { fmtDateTime } from "./fmt";
 import { KindMark } from "./ModelMarks";
@@ -26,16 +26,16 @@ export const AREAS = [
   { key: "model", name: "Model admin", href: "#/model-admin", icon: "🧭",
     text: "Create, copy and derive models; merge into the parent and freeze; propagate; split; extend or upgrade the metamodel; lock, freeze, tag, promote, hand over, download, archive",
     ok: mayModelAdmin, why: () => needsRole(["model-creator", "library-admin", "model-admin"]) },
-  { key: "project", name: "Project admin", href: "#/project-admin", icon: "🗂",
+  { key: "project", name: "Project admin", href: "#/project-admin", icon: "🗂", part: "projects",
     text: "Set up a new architecture project, change one while it runs, finish it, save it as a template; the project templates and the project library",
     ok: mayProjectAdmin, why: () => "Needs a global role (any). Ask a User Admin to give you one." },
   { key: "work", name: "Architecture work", href: "#/work", icon: "✏",
     text: "Your projects and your models: open one to enter data, draw, analyse gaps, report, and deliver and sign off documents",
     ok: () => true },
-  { key: "repository", name: "Architecture repository", short: "Repository", href: "#/repository", icon: "🏛",
+  { key: "repository", name: "Architecture repository", short: "Repository", href: "#/repository", icon: "🏛", part: "repository",
     text: "The Architecture Repository's parts (framework, landscape, reference library, standards, governance log, capability), each leading to what is held for it",
     ok: () => true },
-  { key: "reflib", name: "Reference library", short: "References", href: "#/reference-library", icon: "📚",
+  { key: "reflib", name: "Reference library", short: "References", href: "#/reference-library", icon: "📚", part: "references",
     text: "The organisation's reference material: standards, regulations, reference architectures, research and links; search inside documents",
     ok: () => true },
   { key: "more", name: "Everything else", href: "#/more", icon: "…",
@@ -56,9 +56,12 @@ export function areaOf(route) {
   return "more";
 }
 
+// the areas of the parts switched on (D329): a part switched off is not shown at all
+const shown = () => AREAS.filter((a) => !a.part || partOn(a.part));
+
 export function AreaMenu({ route }) {
   const on = areaOf(route);
-  return AREAS.map((a) => (a.ok()
+  return shown().map((a) => (a.ok()
     ? <a key={a.key} href={a.href} className={on === a.key ? "on" : ""} aria-current={on === a.key ? "page" : undefined}>{a.short || a.name}</a>
     : <span key={a.key} className="nav-off" title={a.why ? a.why() : ""}>{a.short || a.name}</span>));
 }
@@ -66,7 +69,7 @@ export function AreaMenu({ route }) {
 export function AreaTiles() {
   return (
     <div className="area-grid">
-      {AREAS.map((a) => (a.ok()
+      {shown().map((a) => (a.ok()
         ? <a key={a.key} className={`area-tile area-${a.key}`} href={a.href}>
           <span className="area-icon" aria-hidden="true">{a.icon}</span><h2>{a.name}</h2><p>{a.text}</p></a>
         : <div key={a.key} className={`area-tile area-${a.key} off`} aria-disabled="true" title={a.why ? a.why() : ""}>
@@ -83,7 +86,9 @@ const PROJECT_STATUS = { active: "active", finishing: "finishing", frozen: "froz
 export function ArchitectureWork() {
   // two tabs, a list or tiles, filters and pins (owner, 8 Nov 2026); the pins are favourites, kept per person on the server
   const route = window.location.hash;
-  const [tab, setTab] = useState(() => (/[?&]tab=models/.test(route) ? "models" : "projects"));
+  const projectsOn = partOn("projects");
+  const [tabWanted, setTab] = useState(() => (/[?&]tab=models/.test(route) ? "models" : "projects"));
+  const tab = projectsOn ? tabWanted : "models";
   const [view, setView] = useState(() => (route.match(/[?&]view=(tiles|list|tree|levels)/) || [])[1]
     || (() => { try { return localStorage.getItem("eax-work-view") || "tiles"; } catch { return "tiles"; } })());
   const [q, setQ] = useState("");
@@ -93,8 +98,8 @@ export function ArchitectureWork() {
   const [onlyPinned, setOnlyPinned] = useState(false);
   // the landscape level of a model comes from its project's depth (owner, 8 Nov 2026, D318); transition: its role there
   const [level, setLevel] = useState(() => (route.match(/[?&]level=(strategic|segment|capability|transition)/) || [])[1] || "");
-  const { data: lv } = useApi(tab === "models" ? "/api/v1/repository/model-levels" : null);
-  const { data: pd, error: pe } = useApi("/api/v1/projects");
+  const { data: lv } = useApi(tab === "models" && partOn("repository") ? "/api/v1/repository/model-levels" : null);
+  const { data: pd, error: pe } = useApi(projectsOn ? "/api/v1/projects" : null);
   const { data: models, error: me } = useApi("/api/v1/models?archived=false");
   const { data: favs } = useApi("/api/v1/favourites");
   const pinned = new Set((favs || []).filter((f) => f.kind === "project" || f.kind === "model").map((f) => `${f.kind}:${f.id}`));
@@ -121,8 +126,8 @@ export function ArchitectureWork() {
       <p className="quiet">Your projects and your models. Open one to work in it: data entry, grids, diagrams, viewpoints, gap analysis,
         reports, and the project's deliverables and sign-off. Setting up and changing models and projects is in Model admin and Project admin.</p>
       <div className="tabs" role="tablist">
-        <button role="tab" aria-selected={tab === "projects"} className={`tab${tab === "projects" ? " on" : ""}`} onClick={() => { setTab("projects"); setStatus(""); }}>
-          Projects <span className="small quiet">{(pd?.projects || []).length || ""}</span></button>
+        {projectsOn && <button role="tab" aria-selected={tab === "projects"} className={`tab${tab === "projects" ? " on" : ""}`} onClick={() => { setTab("projects"); setStatus(""); }}>
+          Projects <span className="small quiet">{(pd?.projects || []).length || ""}</span></button>}
         <button role="tab" aria-selected={tab === "models"} className={`tab${tab === "models" ? " on" : ""}`} onClick={() => { setTab("models"); setStatus(""); }}>
           Models <span className="small quiet">{allModels.length || ""}</span></button>
       </div>

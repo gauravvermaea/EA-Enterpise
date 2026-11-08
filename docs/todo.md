@@ -213,8 +213,9 @@ Projects are created and changed in the background (D273). What is left from tha
   rationale, implications); a project's principles are derived from the model(s) it selects; added ones go into the
   project's model as new Principle entities, committed like any change; the separate principles library goes. Still
   to settle: the screen, and how a project refines a principle without changing the model it came from.
-- **An execution phase of a project**: what happens after the ADM phases are set up (delivery, Phase G implementation
-  governance, tracking), and how the project shows it. (Steps ticked, sign-off and the landing page are in 13.0.1.)
+- ~~**An execution phase of a project**~~: **not in scope** (owner, 8 Nov 2026, D336): EA Explorer is for architecture;
+  solutions execute it. Governance of the delivery, where needed, is in the project (its governance log, D321) or the
+  solution.
 
 - [ ] **Test phase 13.0.1** (0.14.2): the checks in [phase-13.0.1.md](phase-13.0.1.md).
 - [ ] **Test phase 13.0.3** (0.14.3): model roles and the 14 project templates: the checks in [phase-13.0.3.md](phase-13.0.3.md).
@@ -226,7 +227,7 @@ Projects are created and changed in the background (D273). What is left from tha
 - [ ] **Story DIA-023: standard ArchiMate notation everywhere (owner, 7 Nov 2026; D288).** The views and viewpoints do not use the standard iconography yet. Every element type (shape, type icon, layer colours) and relationship type (line, ends, dashing, junctions) drawn with the standard notation in viewpoints, the draw.io stencil, the ER diagram, graphs and maps, legends, pickers and exports; one shared set of shapes; afterwards every existing viewpoint, report, view and map is moved onto it. Built with draw.io, phase 28 (owner, 7 Nov 2026).
 - [ ] **Example content (phase to think through, owner 7 Nov 2026)**: every installation has example content to learn and test with, and production work. Two ways to weigh: **marked examples** in one realm (an EXAMPLE badge, an Examples area; a System admin switches examples on or off, admins give people access or take it away, each person shows or hides them; reset or remove by a wizard), or **two realms** (Example and Production) in one installation. Design session first.
 - [ ] **Later (owner: "much later")**: sign-in through **LDAP** (Keycloak LDAP federation, users and groups synced, groups to roles; no Active Directory) and **Entra ID** (how users work with Entra: sign-in, groups to roles, guests). Stories in the requirements.
-- [ ] **Principles: discuss with the owner (7 Nov 2026: "what we have are useless")** before changing them: what a project's principles are for, where they come from, how they are written and used. Owner's points so far: open a principle and see its details; in admin, principles that are **mandatory for every project** or **optional**; projects add principles of their own.
+- [x] **Principles: built 8 Nov 2026 (D327, checks in [phase-13.8.md](phase-13.8.md))**. Was: discuss with the owner (7 Nov 2026: "what we have are useless") before changing them: what a project's principles are for, where they come from, how they are written and used. Owner's points so far: open a principle and see its details; in admin, principles that are **mandatory for every project** or **optional**; projects add principles of their own.
   Owner, 8 Nov 2026 ("currently they look messy"):
   - the project's Principles screen is a **grid, grouped by area** (Business, Security, Data and so on), showing each principle's name, statement, **rationale and implications**, not just the name;
   - principles **forced by a Super Admin** are ticked in every project and cannot be unticked;
@@ -246,37 +247,9 @@ Projects are created and changed in the background (D273). What is left from tha
   data, technology, the whole organisation); the maturity model; who assesses and how (surveys, 38.1; workshops;
   evidence from the repository and data quality); scores, targets and gaps; reports; how it feeds roadmaps and projects.
 
-## Design session for phase 13.4, business architecture artifacts (owner, 6 Nov 2026, D268)
+## Design session for phase 15.3, business architecture artifacts (owner, 6 Nov 2026, D268; its own phase, D335)
 
-**Agreed so far (6 Nov 2026):**
-- The artifacts are **entities in the model**, linked by relationships; a canvas is a view of the model and stays in
-  step with it, so gaps can be found.
-- **Gaps of four kinds**: baseline vs target (added, removed, changed, using the existing tags, versions, compare and
-  gap analysis); completeness inside one artifact (e.g. a value proposition with no customer segment or channel, a
-  segment with no revenue stream, an activity with no resource); against the architecture (items no capability,
-  process or application supports); against strategy (items not traced to a driver, goal or objective, and goals with
-  nothing behind them).
-- **Entity types: both, chosen per model**: a pack of canvas types (Customer Segment, Value Proposition, Channel,
-  Revenue Stream, Cost Item...) each mapped to its ArchiMate 4 type, so a model uses either.
-- **Scope**: the Business Model Canvas, the value proposition canvas, the capability map (with heat) and value streams,
-  motivation and strategy (drivers, goals, objectives, outcomes, SWOT), the customer journey and the stakeholder map.
-- **When 13.4 starts: ask the owner to upload documents to study first.** Documents that forbid AI use (such as The Open
-  Group's TOGAF Business Architecture guides, marked "NOT FOR AI USE OR AUTOMATED PROCESSING") are not read; only their
-  titles are used. The artifact list comes from the owner and from openly licensed sources (the Business Model Canvas is
-  published under CC BY-SA).
-- **Candidate artifacts, from the guide titles only**: business model (Business Model Canvas), business capabilities and
-  capability planning, value streams, information map, organization map, business scenarios.
-
-**Still to discuss:**
-- **Which artifacts** (beyond the agreed scope): candidates are the Business Model Canvas, value proposition canvas, business capability map,
-  value chain and value streams, business motivation (drivers, goals, objectives), organisation map, actor and role
-  catalogue, customer journey map, stakeholder map, SWOT, and others the owner names. The Meridian samples have most of
-  them (EA Explorer's template library holds them rebranded).
-- **How each works**: filled in on screen with the model's entities (the canvas is a view of the model and stays in
-  step with it), drawn from the model like the report views, or a document in the project repository.
-- **Where they live**: the metamodel types each needs (the insurance reference model and ArchiMate 4's motivation and
-  strategy elements), viewpoints, a project's deliverables and artifacts, versions and approvals (13.1).
-- **Export**: PowerPoint, PDF, draw.io, Excel.
+Moved into [phase-15.3.md](phase-15.3.md) with everything agreed so far and what is still to discuss.
 
 ## Design session before phase 15 (architecture projects and repository, D103-D105)
 
@@ -345,6 +318,26 @@ Projects are created and changed in the background (D273). What is left from tha
 
 Noted 4 Nov 2026 (D99). To discuss and settle when we build the final deployment scripts:
 
+- [ ] **Infrastructure stories (owner, 8 Nov 2026, D334; were phases 13.6 and 13.7)**: [load balancing and scaling up and
+  down](story-load-balancing.md) and [real-time mirrors of PostgreSQL and the other servers](story-real-time-mirrors.md).
+- [ ] **Release planning (owner, 8 Nov 2026)**: each release is frozen when it is done: its migration is never edited
+  again (the next change is a new migration and a new version; 0.15.1's 0032 is the first to freeze), and an upgrade
+  from the previous release with real data in it is tested. Settled when we plan the releases.
+- [ ] **Download and upgrade from the command line or the web (owner, 8 Nov 2026)**: an administrator downloads a new
+  version of EA Explorer and upgrades the installation, either with an eax command or from the web application
+  (System admin): see what version is available and what changed, back up first, upgrade, keep the data, go back if
+  it fails. To discuss in the deployment phase.
+- [ ] **How EA Explorer is deployed in production (owner, 8 Nov 2026)**: the production deployment as a whole: where it
+  runs (a server, Azure or AWS, Kubernetes or a container service), the databases (managed PostgreSQL or our own),
+  the certificates and addresses, sign-in, secrets, backups, monitoring, scaling and failover. To discuss in the
+  deployment phase.
+- [ ] **The console on a remote machine, and in the cloud (owner, 8 Nov 2026; D330; settle in phase 36)**. `eax console`
+  runs on the machine itself (no sign-in) and, with `--server`, against a running installation through its API. Still
+  to work out: connecting the console to a **remote machine** when its API is down (for example over SSH to the server
+  and running the console there, or a small console agent on the server), and how the console works when EA Explorer
+  runs on an **Azure or AWS cluster** (managed Kubernetes or container services, managed PostgreSQL, no single
+  machine to sign in to): what replaces Start / Stop / Restart (the platform's own scaling and restarts), where the
+  logs, backups and restores come from (the cloud's), how passwords are reset (the key vault), and who may connect.
 - [ ] **Scale-out**: run the API, job runner, reports and documents on several servers behind a load
   balancer; database and storage sized and placed for production.
 - [ ] **Users on another platform**: keep the people and roles in an existing identity platform
@@ -365,6 +358,19 @@ Noted 4 Nov 2026 (D99). To discuss and settle when we build the final deployment
   Model Admin of a draft's source model cannot see the requested draft to approve it.
 
 ## Backlog (to work out later)
+
+- [ ] **Switching modules on and off (owner, 8 Nov 2026: hold on to this thought)**. Admins switching whole modules on and
+  off (governance log, calendars, tracking sheets, stakeholders, analyses, data quality...), users not seeing what is
+  off. Not now: Projects, Repository and References (D329) and the optional services cover the "lighter installation";
+  roles decide who uses what; every switch is a lasting cost in menus, pages, links, API, MCP, jobs and tests. The
+  pattern exists (D329): add a switch when an organisation asks for one. Possibly instead: hide, rather than grey out,
+  controls a person can never use (decide after the owner's test).
+- [ ] **The security phase, 36.2 (owner, 8 Nov 2026, D333)**: dependency and image scanning in CI, generated passwords
+  on a server install (not the laptop's shared one), the API reviewed against the OWASP list, the key vault, a
+  penetration test; one phase, later.
+- [ ] **The full test suite, phase 36.1 (owner, 8 Nov 2026, D332)**: browser end-to-end journeys in CI (sign in, project,
+  model, governance approval, backup and restore, the switches), an upgrade from the previous release with data, load
+  with a large estate; built and run as one testing phase later, not piecemeal.
 
 - [ ] **Feature request (owner, 6 Nov 2026): API servers that scale themselves.** Thresholds on the API and job
   servers (D249) so that when usage rises more servers start, and when it falls they stop again. To settle: what is
@@ -556,10 +562,13 @@ Noted 4 Nov 2026 (D99). To discuss and settle when we build the final deployment
     allow), help for every field from the metamodel's own help text, a "?" beside each section that
     opens the matching guide page, and search across the help from the top bar. Builds on the tooltips
     and greyed-out controls of phase 4 (D123, D125).
+  - *The command line and the console* (owner, 8 Nov 2026): the detailed documentation includes every eax command and
+    the console item by item; it starts from [command-line-and-console.md](command-line-and-console.md), kept up to date
+    with every change to eax or the console.
   To settle: the documentation tool (kept in the repository and built with the product), whether the
   help is per version, and how the industry guides of phase 39 fit in.
 
-- **Upgrading a project backup when it is restored** (owner, 7 Nov 2026). Today a project backup from an older version
+- **Upgrading a project backup when it is restored** (owner, 7 Nov 2026). **Built 8 Nov 2026 (D328); checks in [phase-13.8.md](phase-13.8.md).** Today a project backup from an older version
   restores with the columns it has and the defaults for the new ones (D293). Later: each project backup format version
   gets upgrade steps run on restore, as migrations do for the database:
   - fill new fields from old ones where they can be worked out, not only with defaults;

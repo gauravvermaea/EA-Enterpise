@@ -127,6 +127,11 @@ export function myRolesOn(model) {
   return me?.models?.find((x) => String(x.id) === String(model))?.roles || [];
 }
 
+// Whether a part of EA Explorer is switched on (System settings, D329): projects, repository, references
+export function partOn(part) {
+  return me?.parts?.[part] !== false;
+}
+
 export function myInfo() {
   return me;
 }

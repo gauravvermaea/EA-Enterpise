@@ -6,6 +6,7 @@ FROM docker:27.3-cli
 RUN apk add --no-cache python3
 WORKDIR /app
 COPY ops.py /app/ops.py
+COPY console.py /app/console.py
 USER root
 EXPOSE 8090 8091
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD python3 -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8090/health').status==200 else 1)"

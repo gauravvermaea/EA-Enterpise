@@ -31,12 +31,14 @@ from typing import Any
 
 from sqlalchemy import text
 
+from . import __version__, mayan
 from . import backups as bk
-from . import mayan
 from . import projects as pj
 from .metamodel_edit import EditError
 
-FORMAT = "eax-project-backup/1"
+FORMAT_VERSION = 2                       # raised whenever what a project backup holds changes shape (see UPGRADES)
+FORMAT = f"eax-project-backup/{FORMAT_VERSION}"
+FORMAT_NAME = "eax-project-backup/"
 SUFFIX = ".eaxproject.zip"
 
 # the project's tables, in the order they are put back; for each: how it hangs on the project, and its links to remap
@@ -60,6 +62,10 @@ TABLES = [
     ("base_skips", "project_id = :p", {}),
     ("gov_kinds", "project_id = :p", {}),
     ("gov_records", "project_id = :p", {"evidence_mayan_id": None}),
+    ("cal_events", "project_id = :p", {}),
+    ("sheets", "project_id = :p", {}),
+    ("principle_areas", "project_id = :p", {}),
+    ("sheet_rows", "sheet_id IN (SELECT id FROM proj.sheets WHERE project_id = :p)", {"sheet_id": "sheets"}),
     ("gov_approvals", "record_id IN (SELECT id FROM proj.gov_records WHERE project_id = :p)", {"record_id": "gov_records"}),
     ("gov_decisions", """approval_id IN (SELECT a.id FROM proj.gov_approvals a JOIN proj.gov_records r ON r.id = a.record_id
                                           WHERE r.project_id = :p)""", {"approval_id": "gov_approvals"}),
@@ -76,7 +82,7 @@ TABLES = [
     ("signoff_decisions", """request_id IN (SELECT r.id FROM proj.signoff_requests r JOIN proj.documents d ON d.id = r.document_id
                                              WHERE d.project_id = :p)""", {"request_id": "signoff_requests"}),
 ]
-NEW_GUID = {"projects", "items", "documents", "signoff_requests", "steps", "stakeholders", "stakeholder_notes", "tasks", "org_people", "standards", "gov_records", "gov_approvals", "repo_tags"}   # tables whose guid is made new (when they have one)
+NEW_GUID = {"projects", "items", "documents", "signoff_requests", "steps", "stakeholders", "stakeholder_notes", "tasks", "org_people", "standards", "gov_records", "gov_approvals", "cal_events", "sheets", "repo_tags"}   # tables whose guid is made new (when they have one)
 
 
 def folder() -> Path:
@@ -177,12 +183,12 @@ def project_file(core, pc, user, p: dict, why: str = "", with_models: bool = Tru
                 z.writestr(f"documents/{d['guid']}/{d['file_name']}", content)
             except Exception as exc:  # noqa: BLE001 - Documents down or the file gone: the row is kept, the file said missing
                 skipped_docs.append(f"{d['file_name']}: {str(exc)[:120]}")
-        info = {"format": FORMAT, "created": _stamp(), "by": user.username, "why": why,
+        info = {"format": FORMAT, "format_version": FORMAT_VERSION, "version": __version__, "created": _stamp(), "by": user.username, "why": why,
                 "project": {"id": str(p["guid"]), "name": p["name"]},
                 "counts": {t: len(v) for t, v in rows.items()}, "models": model_files,
                 "documents_missing": skipped_docs, "links": _links(pc, rows)}
         z.writestr("backup.json", json.dumps(info, indent=2, ensure_ascii=False))
-        z.writestr("README.txt", "EA Explorer project backup (eax-project-backup/1): the project's rows, the models it works on "
+        z.writestr("README.txt", f"EA Explorer project backup ({FORMAT}): the project's rows, the models it works on "
                                  "(model backups) and the latest version of each document. Restore it on the project page "
                                  "(Admin › Back up and restore) or in Project admin; it comes back as a new project.\n")
     return buf.getvalue(), info
@@ -234,7 +240,7 @@ def list_backups(pc, user, project: Any) -> dict:
             info = {}
         out.append({"file": f.name, "size": f.stat().st_size, "created": info.get("created"), "by": info.get("by"),
                     "why": info.get("why"), "counts": info.get("counts") or {}, "models": info.get("models") or [],
-                    "documents_missing": info.get("documents_missing") or []})
+                    "documents_missing": info.get("documents_missing") or [], **about_file(info)})
     return {"backups": out, "may_manage": may_manage(pc, p, user), "may_restore": may_restore_new(user)}
 
 
@@ -252,7 +258,7 @@ def list_all(pc) -> list[dict]:
             files.append({"file": f.name, "size": f.stat().st_size, "created": info.get("created"), "by": info.get("by"),
                           "why": info.get("why"), "counts": info.get("counts") or {},
                           "models": len([m for m in info.get("models") or [] if not m.get("error")]),
-                          "documents_missing": len(info.get("documents_missing") or [])})
+                          "documents_missing": len(info.get("documents_missing") or []), **about_file(info)})
         out.append({"id": str(p["guid"]), "name": p["name"], "status": p["status"], "backups": files})
     return out
 
@@ -275,6 +281,82 @@ def delete_backup(pc, user, project: Any, file: str) -> dict:
     return {"message": f"Backup {file} deleted."}
 
 
+# ---------------------------------------------------------------- upgrading an older backup on restore (owner, 7 Nov 2026)
+# Like the database's migrations: each step takes the rows of a backup one format version older to the next one, filling
+# new fields from old ones where they can be worked out (not only with the columns' defaults) and reshaping what changed.
+# A step gets every table's rows (table -> list of dicts, as in the file) and the backup's info; it changes them in place
+# and returns what it did, in words, for the restore's message. Columns a file does not have get their defaults on insert.
+def _up_to_2(rows: dict, info: dict) -> list[str]:
+    """Into 0.15.1: steps keep their dates (D316), governance records need approval (D321), principles refine (D327)."""
+    done: list[str] = []
+    proj = (rows.get("projects") or [{}])[0]
+    started = proj.get("created_at")
+    # steps: when each was opened and closed, from what the step itself holds
+    if not rows.get("step_events"):
+        ev, n = [], 0
+        for st in rows.get("steps") or []:
+            if not st.get("added_at"):
+                st["added_at"] = started
+            if st.get("removed"):
+                continue
+            n += 1
+            ev.append({"id": -n, "step_id": st["id"], "at": st.get("added_at") or started, "by_user": st.get("added_by") or proj.get("created_by") or "system",
+                       "action": "opened", "note": "from an older backup"})
+            if st.get("done_at"):
+                n += 1
+                ev.append({"id": -n, "step_id": st["id"], "at": st["done_at"], "by_user": st.get("done_by") or "system",
+                           "action": "closed", "note": st.get("done_note") or ""})
+        rows["step_events"] = ev
+        if ev:
+            done.append(f"the steps' dates worked out from the steps ({len(ev)} opened and closed events)")
+    # governance records: an approval state beside their status; a record logged before approval existed is a draft
+    # until it is sent for approval, and its history starts with when it was logged
+    recs = rows.get("gov_records") or []
+    if recs and not rows.get("gov_history"):
+        hist = []
+        for i, r in enumerate(recs, 1):
+            r.setdefault("approval", "Draft")
+            r.setdefault("approval_note", "")
+            hist.append({"id": -i, "record_id": r["id"], "at": r.get("created_at") or started, "by_user": r.get("created_by") or "system",
+                         "action": "logged", "note": "from an older backup: approval was not recorded then", "snapshot": None})
+        rows["gov_history"] = hist
+        done.append(f"{len(recs)} governance records given the approval state Draft and a history")
+    # principles: the areas they use become the project's areas
+    pr = rows.get("principles") or []
+    if pr and not rows.get("principle_areas"):
+        areas = sorted({(x.get("area") or "").strip() for x in pr} - {""})
+        rows["principle_areas"] = [{"project_id": proj.get("id"), "name": a, "sort_order": k, "added_by": "upgrade"}
+                                   for k, a in enumerate(areas, 1)]
+        if areas:
+            done.append(f"principle areas made from the principles ({', '.join(areas)})")
+    return done
+
+
+UPGRADES: dict[int, tuple[str, Any]] = {   # the version a step upgrades TO -> (the release that brought it, the step)
+    2: ("0.15.1", _up_to_2),
+}
+
+
+def format_of(info: dict) -> int:
+    """The backup's format version: '...backup/N' (files made before 0.15.1 say 1)."""
+    try:
+        return int(str(info.get("format", "")).rsplit("/", 1)[1])
+    except (IndexError, ValueError):
+        return 0
+
+
+def upgrade(rows: dict, info: dict) -> list[str]:
+    """Bring a backup's rows up to this installation's format, step by step; what was done, in words."""
+    v = format_of(info)
+    out: list[str] = []
+    while v < FORMAT_VERSION:
+        v += 1
+        release, step = UPGRADES[v]
+        for what in step(rows, info) or []:
+            out.append(f"{what} (for {release})")
+    return out
+
+
 # ---------------------------------------------------------------- restore (as a new project)
 def _read(path: Path) -> tuple[dict, zipfile.ZipFile]:
     try:
@@ -282,9 +364,20 @@ def _read(path: Path) -> tuple[dict, zipfile.ZipFile]:
         info = json.loads(z.read("backup.json"))
     except (OSError, KeyError, ValueError, zipfile.BadZipFile) as exc:
         raise EditError(f"{path.name} is not an EA Explorer project backup.", 400) from exc
-    if info.get("format") != FORMAT:
+    if not str(info.get("format", "")).startswith(FORMAT_NAME) or format_of(info) < 1:
         raise EditError(f"{path.name} is not an EA Explorer project backup.", 400)
+    if format_of(info) > FORMAT_VERSION:
+        raise EditError(f"{path.name} was made by a newer EA Explorer ({info.get('version') or 'a later version'}, project backup "
+                        f"format {format_of(info)}): this installation ({__version__}) reads up to format {FORMAT_VERSION}. "
+                        "Upgrade EA Explorer first.", 409)
     return info, z
+
+
+def about_file(info: dict) -> dict:
+    """What the restore says about a file: its version and whether it is upgraded."""
+    v = format_of(info)
+    return {"format_version": v, "version": info.get("version") or ("before 0.15.1" if v < 2 else ""),
+            "upgrade": [UPGRADES[k][0] for k in range(v + 1, FORMAT_VERSION + 1)]}
 
 
 def restore(core, pc, user, path: Path, new_name: str = "", over: bool = False, models_over: bool = False,
@@ -306,7 +399,10 @@ def restore(core, pc, user, path: Path, new_name: str = "", over: bool = False, 
     links = info.get("links") or {}
     with z:
         names = set(z.namelist())
-        load = lambda t: json.loads(z.read(f"project/{t}.json")) if f"project/{t}.json" in names else []  # noqa: E731
+        data = {t: json.loads(z.read(f"project/{t}.json")) if f"project/{t}.json" in names else []
+                for t in ["projects"] + [t for t, _w, _m in TABLES]}
+        upgraded = upgrade(data, info)             # an older file: its rows brought up to this installation's form
+        load = lambda t: data.get(t) or []  # noqa: E731
         old = load("projects")[0]
         notes: list[str] = []
         live = None
@@ -475,11 +571,13 @@ def restore(core, pc, user, path: Path, new_name: str = "", over: bool = False, 
         backed = {str(d["guid"]) for d in load("documents")}
         trash = [mid for g, mid in current.items() if g not in backed]
         _write_pending(guid, files, trash, evidence)
+    about = (f" The file is from EA Explorer {about_file(info)['version']} (project backup format {format_of(info)}); upgraded: "
+             + "; ".join(upgraded) + ".") if upgraded else ""
     if over:
         msg = (f"{name} put back as it was ({'over itself' if live else 'made again'}): {len(ids['documents'])} documents, "
                f"{len(ids['steps'])} steps{f'; {len(trash)} documents added since go to the trash in Documents' if trash else ''}."
-               f"{(' ' + '; '.join(notes) + '.') if notes else ''}")
-        return msg, {"project": guid, "project_id": new_p, "files": files}
+               f"{(' ' + '; '.join(notes) + '.') if notes else ''}{about}")
+        return msg, {"project": guid, "project_id": new_p, "files": files, "upgraded": upgraded}
     # the goals and outcomes are entities tagged with the project: tagged with the new one (a model made again here is the
     # project's own, its old tag is replaced; a model linked again keeps the old project's tag too)
     old_tag, new_tag = f"project:{old['guid']}", f"project:{guid}"
@@ -496,7 +594,7 @@ def restore(core, pc, user, path: Path, new_name: str = "", over: bool = False, 
            f"{len(model_map)} models, {len(ids['steps'])} steps. Its repository is being built again.")
     if notes:
         msg += " " + "; ".join(notes) + "."
-    return msg, {"project": guid, "project_id": new_p, "files": files}
+    return msg + about, {"project": guid, "project_id": new_p, "files": files, "upgraded": upgraded}
 
 
 def _local_projects(pc, by_id: dict) -> dict[str, int]:
@@ -569,7 +667,8 @@ def _insert(conn, table: str, vals: dict, cols: list[str]) -> int | None:
 def _pgtype(udt: str | None) -> str:
     return {"_text": "text[]", "int4": "integer", "int8": "bigint", "int2": "smallint", "bool": "boolean", "timestamptz": "timestamptz",
             "timestamp": "timestamp", "uuid": "uuid", "jsonb": "jsonb", "json": "json", "date": "date", "numeric": "numeric",
-            "_int8": "bigint[]", "_int4": "integer[]", "_uuid": "uuid[]"}.get(udt or "", "text")
+            "_int8": "bigint[]", "_int4": "integer[]", "_uuid": "uuid[]", "time": "time", "timetz": "timetz", "float8": "double precision",
+            "float4": "real", "interval": "interval", "_date": "date[]", "_bool": "boolean[]"}.get(udt or "", "text")
 
 
 def _typed(conn, table: str, vals: dict, cols: list[str]) -> tuple[dict, dict]:

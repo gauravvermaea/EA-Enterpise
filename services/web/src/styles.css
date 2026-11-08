@@ -1672,3 +1672,31 @@ table.repo-docs tr.repo-versions-row > td { background: #fafbfc; padding: 2px 6p
 .ar-item { position: relative; }
 .gov-approval { border-top: 1px solid var(--line, #d9dee5); margin-top: 12px; padding-top: 8px; }
 .gov-approval h4 { margin: 0 0 6px; }
+/* calendars (D324) */
+.cal-bar { flex-wrap: wrap; align-items: center; margin: 6px 0; }
+.cal-label { font-size: 16px; }
+.cal-month { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border-left: 1px solid var(--line, #d9dee5); border-top: 1px solid var(--line, #d9dee5); }
+.cal-head { font-size: 12px; font-weight: 600; color: var(--quiet, #5b6775); padding: 4px 6px; background: #f3f5f8; border-right: 1px solid var(--line, #d9dee5); border-bottom: 1px solid var(--line, #d9dee5); }
+.cal-cell { min-height: 92px; padding: 2px 4px; border-right: 1px solid var(--line, #d9dee5); border-bottom: 1px solid var(--line, #d9dee5); background: #fff; display: flex; flex-direction: column; gap: 2px; }
+.cal-cell.out { background: #f8f9fb; color: #9aa3ad; }
+.cal-cell.today, .cal-col.today { box-shadow: inset 0 0 0 2px #1f5fb8; }
+.cal-num { font-size: 12px; align-self: flex-end; }
+.cal-occ { display: block; width: 100%; text-align: left; border: none; border-radius: 4px; background: #e8f0fb; color: #1d2733; font-size: 12px; padding: 1px 4px; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-occ:hover { background: #d4e3f8; }
+.cal-time { font-weight: 600; color: #1f5fb8; }
+.cal-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.cal-day { display: grid; grid-template-columns: 1fr; }
+.cal-col { border: 1px solid var(--line, #d9dee5); border-radius: 6px; padding: 4px; min-height: 220px; background: #fff; display: flex; flex-direction: column; gap: 3px; }
+@media (max-width: 760px) { .cal-week { grid-template-columns: 1fr; } .cal-cell { min-height: 60px; } }
+/* tracking sheets (D325) */
+.tsheet-wrap { max-height: 70vh; overflow: auto; }
+.tsheet-table th { position: sticky; top: 0; background: #f3f5f8; z-index: 1; white-space: nowrap; }
+.tsheet-table thead tr.tsheet-filters th { top: 30px; }
+.tsheet-filters input, .tsheet-filters select { width: 100%; min-width: 80px; font-size: 12px; padding: 2px 4px; display: block; margin: 1px 0; }
+.tsheet-table td { padding: 0; }
+.tsheet-cell { border: none; width: 100%; min-width: 90px; padding: 5px 6px; background: transparent; font: inherit; font-size: 13px; }
+.tsheet-cell:focus { outline: 2px solid #1f5fb8; background: #fff; }
+.tsheet-table tr.ticked td { background: #f2f7ff; }
+.principle-child td { background: #fafbfd; }
+.principle-area h3 .linkish { margin-left: 8px; font-weight: normal; }

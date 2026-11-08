@@ -1,29 +1,56 @@
-# Phase 13.8 — More sample projects and models that show how to use EA Explorer (requested, for later)
+# Phase 13.8: sample content (D326)
 
-Status: **requested for later** (owner, 8 Nov 2026). Not designed or built yet; discuss before building.
+**Accepted and closed by the owner, 8 Nov 2026 (D337).**
 
-## The ask
-More sample projects and models, loaded with the sample data, that **show what has been built and how to use it**: each
-one a worked example someone can open and follow, not just data.
+## Status: built (8 Nov 2026), waiting for the owner's test
 
-## What they could show (to settle when it is built)
-- **Projects at different points of the ADM cycle**: one just set up; one mid-way (some phases complete, steps closed and
-  reopened with sub steps and their dates, documents checked out and in with several versions, sign-offs pending,
-  approved and rejected); one complete, frozen or merged.
-- **Documents**: classes with several documents from templates, planned documents with no file yet, links to another
-  project's documents, tags and content framework areas, classes not in use, repository tags and a revert.
-- **Governance**: a charter approved, standards and principles (mandatory from the base, the project's own), a governance
-  log with decisions, dispensations, risks and issues; stakeholders with their engagement; the project organisation with
-  skills; tasks.
-- **Models**: a current, target and transition set with gaps and a roadmap; a model built on the TOGAF 10 content
-  metamodel; a common analysis; models with data-quality rules, seals and exemptions; viewpoints in use.
-- **Reference**: the organisation's reference library with folders, links and documents; a library project.
-- **How to use it**: a short guide per sample (what it shows, what to try, which screens), shown on the project's or
-  model's About, and a "Try this" list; perhaps a guided tour.
-- The fictitious company stays Meridian (and the existing Fynbos, Karoo and Protea samples).
+Seed data only (owner: "sample projects as projects, no guides"), laptop only, made once at start-up after the sample
+projects (`eax/seed/sample_content.py`, a step in `eax/seed/later.py`). Everything is invented.
 
-## Questions to settle when it is built
-- How many samples and which stories; one per kind of project, or a few rich ones.
-- Where the "how to use it" text lives (About, a help page, a tour) and who keeps it current as features change.
-- Laptop only (as today's sample data) or also offered on a server as a "demo" switch.
-- Load time at start-up: samples load in the background, after the core is up.
+- **Karoo Re cloud migration (sample)**, mid-way: governance records in every approval state (a decision approved by
+  the sign-off people, one approved with a reason, a dispensation waiting, an issue rejected, a risk in draft, a
+  compliance and a capability assessment approved); its charter approved; six people with skills on the Organisation
+  tab; a weekly sync, a phase gate, a walkthrough and a rehearsal on its calendar; phases P and A complete and steps of B
+  done; the Architecture Vision deliverable also in Stakeholders; two sheets: an application portfolio (15 rows) and
+  migration costs.
+- **Protea build or buy (sample)**: complete, every phase complete.
+- **Fynbos Pet Insurance launch (sample)**: as just set up.
+- **The organisation**: four Architecture Board members, the board's monthly meetings and reviews on its calendar, a link
+  in each of the reference library's four folders, a vendor contracts sheet.
+
+## Test steps
+1. `.\eax clean-restart`, Ctrl+F5 (the content loads in the background after the sample projects).
+2. Karoo Re cloud migration (sample): Governance log (every approval state), Organisation, Calendar, Phases, Sheets,
+   Charter (approved).
+3. Repository: Decision log, Organisation structure, Skills, Calendar, Architecture board, Performance measurement
+   (governance health and sign-off turnaround now have figures), the reference library's four parts.
+4. Architecture work › Projects: Protea build or buy (sample) at 100%.
+
+## Also in this release: principles (D327)
+
+Checks:
+
+1. As a Super Admin, open Project admin › **Principles**: the Organisation base's principles, a grid per area with
+   name, statement, rationale, implications and "Below" (🔒 enforced, or optional).
+2. **＋ Add an area** (say AI): the empty area shows with "remove the area"; it cannot be removed once it has principles.
+3. **＋ Add a principle** with "Enforced" ticked, and another unticked; **Enforce / Make optional** flips one.
+4. On a row, **＋ Refine it**: the new principle is shown nested under its parent (▾ / ▸ collapses); in another area it
+   says "refines X (area)". A principle cannot refine itself.
+5. Create a project: it has every principle of the base. Enforced ones are locked (🔒); an optional one can be **taken
+   out**, and the Base tab does not offer it again. Nesting is kept in the project.
+6. In the project, add a principle of its own that refines an enforced one: nested under it, never enforced.
+7. A project backup carries the principles' areas and refinements.
+
+## Also in this release: upgrading a backup on restore (D328)
+
+Checks:
+
+1. Back up a project: its list shows nothing about upgrading (it is the current format, 2).
+2. Restore a project backup made before 0.15.1 (format 1): the message says "The file is from EA Explorer before
+   0.15.1 (project backup format 1); upgraded: ..." and lists what was filled in: the steps' opened and closed dates,
+   governance records as Draft with a history, principle areas.
+3. In the restored project: the governance log's records are Draft (they can be sent for approval), the steps show
+   when they were opened and closed, and the Principles tab shows the areas.
+4. A backup file from a newer EA Explorer is refused with "Upgrade EA Explorer first" (project and model backups).
+5. A project with calendar events backs up and restores with its events (times kept).
+

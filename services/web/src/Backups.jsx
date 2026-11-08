@@ -521,7 +521,8 @@ function ProjectSection({ act }) {
                 {open === p.id && p.backups.map((b) => (
                   <tr key={b.file} className="sub-row">
                     <td colSpan="2" className="small">↳ {when(b.created)} by {b.by}{b.why ? <span className="quiet"> · {b.why}</span> : ""}</td>
-                    <td className="small">{b.counts.documents || 0} documents, {b.models} models, {b.counts.steps || 0} steps{b.documents_missing ? <span className="bad-text"> ({b.documents_missing} files could not be read)</span> : ""}</td>
+                    <td className="small">{b.counts.documents || 0} documents, {b.models} models, {b.counts.steps || 0} steps{b.documents_missing ? <span className="bad-text"> ({b.documents_missing} files could not be read)</span> : ""}
+                      {b.upgrade?.length > 0 && <span className="quiet"> · from {b.version}, upgraded on restore</span>}</td>
                     <td className="small nowrap">{size(b.size)}</td>
                     <td className="small nowrap">
                       <button className="linkish" onClick={() => apiDownload(`/api/v1/projects/${p.id}/backups/${b.file}`, b.file).catch((e) => act(() => Promise.reject(e)))}>Download</button>

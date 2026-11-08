@@ -128,6 +128,83 @@ CREATE TABLE proj.gov_history (
     snapshot    jsonb                           -- the record as it was (the approved version is kept when it changes)
 );
 CREATE INDEX gov_history_record ON proj.gov_history (record_id, at);
+-- the Architecture Repository (owner, 8 Nov 2026, phase 13.0.9, D324): calendars, the Architecture Board's members.
+-- A calendar event belongs to a project (project_id) or to the organisation (NULL): a date, a time, a topic, once or
+-- repeated (daily, weekly on chosen weekdays, monthly, yearly; until a date or a number of times); skipped dates kept.
+CREATE TABLE proj.cal_events (
+    id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    guid        uuid NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+    project_id  bigint REFERENCES proj.projects (id) ON DELETE CASCADE,       -- NULL: the organisation's calendar
+    topic       text NOT NULL,
+    starts_on   date NOT NULL,
+    at_time     time,                                                         -- NULL: all day
+    minutes     integer NOT NULL DEFAULT 60,
+    notes       text NOT NULL DEFAULT '',
+    repeat      text NOT NULL DEFAULT 'none' CHECK (repeat IN ('none', 'daily', 'weekly', 'monthly', 'yearly')),
+    weekdays    integer[] NOT NULL DEFAULT '{}',                              -- weekly: 0 Monday .. 6 Sunday
+    until_on    date,
+    times       integer,
+    skipped     date[] NOT NULL DEFAULT '{}',
+    created_by  text NOT NULL,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    modified_by text,
+    modified_at timestamptz
+);
+CREATE INDEX cal_events_project ON proj.cal_events (project_id, starts_on);
+-- a private subscription link per person and calendar ('org', or a project's guid): renewed to stop the old one
+CREATE TABLE proj.cal_feeds (
+    username    text NOT NULL,
+    calendar    text NOT NULL,
+    token       text NOT NULL UNIQUE,
+    every       boolean NOT NULL DEFAULT false,         -- made by an admin who sees every project
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (username, calendar)
+);
+-- the reference library's fixed top folders, beside the model library's root and reference models (D324)
+INSERT INTO proj.org_ref_folders (path, description, added_by) VALUES
+    ('Foundation architectures', 'Generic building blocks, services and standards every architecture builds on', 'system'),
+    ('Common systems architectures', 'Architectures of common systems (security, management, network) reused across the organisation', 'system'),
+    ('Industry architectures', 'Architectures and reference models of an industry', 'system'),
+    ('Organisation''s own architectures', 'The organisation''s own reference architectures and patterns', 'system')
+ON CONFLICT (path) DO NOTHING;
+-- tracking sheets (owner, 8 Nov 2026, phase 13.2, D325): light sheets with no schema rules, at project level
+-- (project_id) and organisation level (NULL); every value text; the columns are whatever was uploaded or added
+CREATE TABLE proj.sheets (
+    id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    guid        uuid NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+    project_id  bigint REFERENCES proj.projects (id) ON DELETE CASCADE,
+    name        text NOT NULL,
+    description text NOT NULL DEFAULT '',
+    columns     text[] NOT NULL DEFAULT '{}',
+    created_by  text NOT NULL,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    modified_by text,
+    modified_at timestamptz
+);
+CREATE TABLE proj.sheet_rows (
+    id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    sheet_id    bigint NOT NULL REFERENCES proj.sheets (id) ON DELETE CASCADE,
+    seq         integer NOT NULL,
+    cells       jsonb NOT NULL DEFAULT '{}'                     -- column name -> text
+);
+CREATE INDEX sheet_rows_sheet ON proj.sheet_rows (sheet_id, seq);
+-- principles (owner, 8 Nov 2026, D327): the organisation's set lives in the Organisation base, each enforced (mandatory
+-- below it) or optional (a project may take it out); a principle may refine a higher-level one (refines: the guid of
+-- the principle it refines, in the same project or the base it came from); areas may be added before they have principles
+ALTER TABLE proj.principles ADD COLUMN refines uuid;
+CREATE TABLE proj.principle_areas (
+    project_id  bigint NOT NULL REFERENCES proj.projects (id) ON DELETE CASCADE,
+    name        text NOT NULL,
+    sort_order  integer NOT NULL DEFAULT 0,
+    added_by    text NOT NULL,
+    PRIMARY KEY (project_id, name)
+);
+CREATE TABLE proj.board_members (
+    username    text PRIMARY KEY,
+    role        text NOT NULL DEFAULT '',
+    added_by    text NOT NULL,
+    added_at    timestamptz NOT NULL DEFAULT now()
+);
 
 DO $$
 BEGIN

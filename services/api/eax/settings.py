@@ -52,7 +52,17 @@ REGISTRY: dict[str, tuple] = {
     "log_level": ("system", "Log level", "choice", "INFO", ["DEBUG", "INFO", "WARNING", "ERROR"],
                   "How much the API, the job runner and the change log write to their logs (eax logs api); applied at once. "
                   "DEBUG is very verbose: use it only while looking into a problem."),
+    # the parts of EA Explorer an organisation uses (owner, 8 Nov 2026, phase 13.3, D329): off hides a part's screens, menus,
+    # API, MCP tools and background work; its data is kept and comes back when it is switched on again
+    "part_projects": ("system", "Projects", "bool", True, None,
+                      "Architecture projects, Project admin, the project library and templates. Off also switches off the "
+                      "Repository and References (they show what projects hold). The data is kept."),
+    "part_repository": ("system", "Repository", "bool", True, None,
+                        "The Architecture Repository, at organisation and project level. Needs Projects. The data is kept."),
+    "part_references": ("system", "References", "bool", True, None,
+                        "The organisation's reference library and the projects' references. Needs Projects. The data is kept."),
 }
+PARTS = ("projects", "repository", "references")
 
 _cache: dict[str, Any] = {"at": 0.0, "values": None}
 _lock = threading.Lock()
@@ -86,6 +96,31 @@ def values(conn=None) -> dict[str, Any]:
     return out
 
 
+def parts(conn=None) -> dict[str, bool]:
+    """Which parts are on (D329): Repository and References only while Projects is on."""
+    v = values(conn)
+    proj = bool(v.get("part_projects", True))
+    return {"projects": proj, "repository": proj and bool(v.get("part_repository", True)),
+            "references": proj and bool(v.get("part_references", True))}
+
+
+# what each part answers in the API (path prefixes under /api/v1); the first part that is off and matches refuses it
+PART_PATHS = {
+    "references": (r"^/api/v1/reference-library", r"^/api/v1/projects/reference-sources", r"^/api/v1/projects/[^/]+/reference(s|/|$)"),
+    "repository": (r"^/api/v1/repository/(?!summary$)", r"^/api/v1/projects/[^/]+/repo-tags"),   # summary: the Organisation base's id
+    "projects": (r"^/api/v1/projects", r"^/api/v1/calendars", r"^/api/v1/calendar-feed/", r"^/api/v1/tracking-sheets",
+                 r"^/api/v1/repository/", r"^/api/v1/reference-library"),
+}
+
+
+def part_of_path(path: str, on: dict[str, bool]) -> str | None:
+    """The switched-off part a request belongs to, or None."""
+    for part in ("projects", "repository", "references"):
+        if not on.get(part, True) and any(re.match(p, path) for p in PART_PATHS[part]):
+            return part
+    return None
+
+
 def forget() -> None:
     with _lock:
         _cache.update(at=0.0, values=None)
@@ -103,6 +138,7 @@ def describe(conn) -> dict:
                            "modified_at": rows.get(k, {}).get("modified_at") if _by_person(rows.get(k, {})) else None,
                            "modified_by": rows.get(k, {}).get("modified_by") if _by_person(rows.get(k, {})) else None})
     out["months"] = MONTHS
+    out["parts"] = parts(conn)
     return out
 
 
@@ -116,6 +152,14 @@ def check(key: str, value: Any) -> Any:
     if key not in REGISTRY:
         raise EditError(f"There is no setting '{key}'.", 404)
     _group, label, typ, _default, choices, _help = REGISTRY[key]
+    if typ == "bool":
+        if isinstance(value, bool):
+            return value
+        if str(value).strip().lower() in ("true", "on", "yes", "1"):
+            return True
+        if str(value).strip().lower() in ("false", "off", "no", "0"):
+            return False
+        raise EditError(f"{label}: on or off.")
     if typ in ("int", "month"):
         try:
             n = int(value)
@@ -146,6 +190,11 @@ def update(conn, user, changes: dict) -> dict:
     if perms.SUPER_ADMIN not in (user.roles or []):
         raise EditError("Only a Super Admin changes settings.", 403)
     clean = {k: check(k, v) for k, v in (changes or {}).items()}
+    after = {**values(conn), **clean}
+    if not after.get("part_projects", True):
+        for k in ("part_repository", "part_references"):
+            if clean.get(k) is True:
+                raise EditError(f"{REGISTRY[k][1]} needs Projects: switch Projects on first.")
     if clean.get("decimal_separator", values(conn)["decimal_separator"]) == clean.get("thousands_separator",
                                                                                        values(conn)["thousands_separator"]):
         raise EditError("The decimal and thousands separators must differ.")
@@ -166,8 +215,12 @@ def update(conn, user, changes: dict) -> dict:
             applied.append("session time-outs (Keycloak)")
         except Exception as exc:  # noqa: BLE001
             note = f" The session time-outs are saved but Keycloak did not take them ({exc}); they apply after the next restart."
+    if {"part_projects", "part_repository", "part_references"} & set(clean):
+        p = parts(conn)
+        off = [k.title() for k in PARTS if not p[k]]
+        note += (f" Switched off: {', '.join(off)} (their data is kept)." if off else " Every part is on.")
     return {"values": values(conn), "changed": sorted(clean), "note": f"{len(clean)} settings saved and applied at once.{note}",
-            "applied": applied}
+            "applied": applied, "parts": parts(conn)}
 
 
 # ---------------------------------------------------------------- start-up settings (shown only, D183)

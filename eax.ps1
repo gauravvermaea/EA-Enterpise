@@ -599,6 +599,17 @@ Starting again
                         then clean-run (cleanup --all --yes, init, up). Rebuilds our images and
                         starts with empty databases; the trusted certificate is kept.
 
+When something is wrong
+  console [--server https://host] [--insecure]
+                        A numbered menu for getting EA Explorer back up, for anyone (D330): status, start,
+                        restart, stop, problems and logs, back up, restore (guided), reset a password (a
+                        person, Keycloak's administrator, break-glass, the database logins), users and roles,
+                        settings and switches, background tasks, health and data quality, the maintenance
+                        page, a diagnostics file, and a prompt for every eax command. On this machine nobody
+                        signs in; anything that changes or replaces data asks you to type YES. With --server
+                        it works on another installation through its API (sign in with Keycloak, your roles).
+                        Every command and the console in detail: docs/command-line-and-console.md.
+
   help [command]        This text, or the part about one command.
 
 Logs: every command except help and cleanup writes its full output to
@@ -669,10 +680,11 @@ function Invoke-Cleanup([string[]]$Options) {
         Write-Host "No $EnvFile, so the Docker volumes cannot be found by name; list them with: docker volume ls"
     }
     if (Test-Path $WorkDir) {
-        if ($cert) { Get-ChildItem -Path $WorkDir -Force | Remove-Item -Recurse -Force }
+        # work\tools (uv and its Python, for eaxpy, D331) is kept either way
+        if ($cert) { Get-ChildItem -Path $WorkDir -Force | Where-Object { $_.Name -ne "tools" } | Remove-Item -Recurse -Force }
         else {
             # keep work\data\tls: the local certificate you trusted with .\eax trust (D107)
-            Get-ChildItem -Path $WorkDir -Force | Where-Object { $_.Name -ne "data" } | Remove-Item -Recurse -Force
+            Get-ChildItem -Path $WorkDir -Force | Where-Object { $_.Name -notin @("data", "tools") } | Remove-Item -Recurse -Force
             $data = Join-Path $WorkDir "data"
             if (Test-Path $data) { Get-ChildItem -Path $data -Force | Where-Object { $_.Name -ne "tls" } | Remove-Item -Recurse -Force }
         }
@@ -713,6 +725,69 @@ if ($Command -in @("clean-run", "clean-debug", "clean-restart")) {
         }
     }
     exit 0
+}
+# the console (phase 13.5, D330): a numbered menu for getting a system that is down back up. It runs in the operations
+# helper (services/ops/console.py); what needs this machine (start, stop, diagnostics, any eax command) it hands back here
+# by its exit code. No sign-in: being on the machine is the trust. With --server: another installation, through its API.
+function Invoke-Console([string[]]$Options) {
+    if ($Options -contains "--server") {
+        Assert-Docker
+        & docker @(Get-ComposeArgs (@("run", "--rm", "--no-deps", "api", "python", "-m", "eax.console_cli", "remote") + $Options))
+        return
+    }
+    $stopped = $false            # after Stop everything, nothing is started again until asked (1 below)
+    while ($true) {
+        $old = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+        & docker info --format "{{.ServerVersion}}" 2>&1 | Out-Null
+        $dockerOk = ($LASTEXITCODE -eq 0)
+        $code = 99
+        if ($dockerOk -and (Test-Path $EnvFile) -and -not $stopped) {
+            # built first: an ops image from before the console has no console.py (a rebuild takes seconds when nothing changed)
+            Write-Host "Starting the console (the operations helper; the first time it is built, a minute)..." -ForegroundColor DarkGray
+            & docker @(Get-ComposeArgs @("up", "-d", "--build", "--no-deps", "ops")) 2>&1 | Out-Null
+            if ($LASTEXITCODE -eq 0) {
+                & docker @(Get-ComposeArgs @("exec", "ops", "python3", "/app/console.py", "--version", (Get-Version)))
+                $code = $LASTEXITCODE
+                # anything but the console's own answers (it failed): the basic menu, not the same failure again
+                if ($code -notin @(0, 20, 21, 23, 25)) {
+                    Write-Host "The console stopped with an error (exit $code); the basic menu follows. Its log: work\logs\console-*.log" -ForegroundColor Yellow
+                    $code = 99
+                }
+            }
+        }
+        $ErrorActionPreference = $old
+        if ($code -eq 99) {          # the helper could not start: only what this machine can do
+            Write-Host ""
+            Write-Host "EA Explorer console (basic: $(if ($stopped) { 'everything is stopped' } else { 'the operations helper is not running' }))" -ForegroundColor Cyan
+            if (-not $dockerOk) { Write-Host "Docker Desktop is not running: start it, wait for 'Engine running', then choose 1." -ForegroundColor Yellow }
+            elseif (-not (Test-Path $EnvFile)) { Write-Host "Not set up yet: there is no $EnvFile. Run .\eax init laptop first." -ForegroundColor Yellow }
+            Write-Host "  1  Start everything"; Write-Host "  2  Save a diagnostics file for support"
+            Write-Host "  c  Command prompt (every eax command)"; Write-Host "  q  Quit"
+            $a = Read-Host "Choose"
+            $code = switch ($a) { "1" { 20 } "2" { 23 } "c" { 25 } "q" { 0 } default { 98 } }
+        }
+        switch ($code) {
+            0 { return }
+            20 { $stopped = $false; & $PSCommandPath up }
+            21 { & $PSCommandPath down; $stopped = $true }
+            23 { & $PSCommandPath diag }
+            25 {
+                Write-Host "Type an eax command (for example: logs api, services, backups). Empty or back: the menu." -ForegroundColor Cyan
+                while ($true) {
+                    $line = Read-Host "eax"
+                    if (-not $line -or $line -in @("back", "b", "menu")) { break }
+                    $words = @($line -split "\s+" | Where-Object { $_ })
+                    if ($words[0] -eq "console") { Write-Host "You are in the console already."; continue }
+                    & $PSCommandPath @words
+                }
+            }
+            default { }
+        }
+    }
+}
+if ($Command -eq "console") {
+    try { Invoke-Console $RestArgs; exit 0 }
+    catch { Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red; exit 1 }
 }
 if ($Command -eq "cleanup") {
     try { Invoke-Cleanup $RestArgs; exit 0 }

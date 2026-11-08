@@ -287,6 +287,15 @@ def listing(conn, user) -> list[dict]:
 def detail(conn, project: Any, user) -> dict:
     p = project_row(conn, project)
     roles = _need(conn, p, user, "read")
+    if p.get("base_kind"):
+        # a base: whoever may change it (a Super Admin in the Organisation base) sees the screens to change it; the Empty
+        # and TOGAF 10 projects stay read-only for everyone
+        from . import project_bases as pbm
+        try:
+            pbm.check_change(p, user)
+            roles = roles | {"super-admin"}
+        except EditError:
+            pass
     out = {k: p[k] for k in ("name", "purpose", "description", "cycle", "status", "repo_state", "repo_note", "created_by", "created_at")}
     out.update(id=str(p["guid"]), me=user.username, parent_id=p["parent_guid"], parent_name=p["parent_name"], my_roles=sorted(roles),
                may_admin=bool(roles & (ADMINS | {"super-admin"})), may_contribute=bool(roles & (CONTRIBUTORS | {"super-admin"})),
@@ -309,7 +318,8 @@ def detail(conn, project: Any, user) -> dict:
                          _rows(conn, "SELECT viewpoint AS code FROM proj.project_viewpoints WHERE project_id = :p ORDER BY viewpoint", p=p["id"])]
     out["principles"] = _rows(conn, """SELECT pr.id, pr.code, pr.name, pr.statement, pr.rationale, pr.implications, pr.library_id,
                                               pr.area, pr.created_by, pp.name AS inherited_from, pr.mandatory,
-                                              pr.origin_guid IS NOT NULL AS from_base FROM proj.principles pr
+                                              pr.origin_guid IS NOT NULL AS from_base, pr.guid::text AS guid, pr.origin_guid::text AS origin_guid,
+                                              pr.refines::text AS refines FROM proj.principles pr
                                          LEFT JOIN proj.projects pp ON pp.id = pr.inherited_from
                                         WHERE pr.project_id = :p ORDER BY pr.area, pr.sort_order, pr.code, pr.name""", p=p["id"])
     # the project hierarchy (phase 13.1, D303): its base and what the base offers that it has not taken
@@ -318,8 +328,14 @@ def detail(conn, project: Any, user) -> dict:
     out["base_kind"] = p.get("base_kind") or ""
     out["base_chain"] = pbm.chain(conn, p)[1:]
     out["base_offers"] = len(pbm.offers(conn, p)) if not p.get("base_kind") or p.get("base_kind") == "org" else 0
+    # the areas (D327): the project's own list (added before they have principles), its base's, and those in use
+    own_areas = [r["name"] for r in _rows(conn, "SELECT name FROM proj.principle_areas WHERE project_id = :p ORDER BY sort_order, name", p=p["id"])]
+    base_areas = [r["name"] for r in _rows(conn, """SELECT a.name FROM proj.principle_areas a JOIN proj.projects x ON x.id = a.project_id
+                                                    WHERE x.id = :b ORDER BY a.sort_order, a.name""", b=p.get("base_id") or 0)]
+    out["principle_area_list"] = list(dict.fromkeys(own_areas + base_areas))
     out["principle_areas"] = sorted({r["category"] for r in _rows(conn, "SELECT DISTINCT category FROM proj.lib_principles WHERE category <> ''")}
-                                    | {r["area"] for r in out["principles"] if r["area"]})
+                                    | {r["area"] for r in out["principles"] if r["area"]} | set(own_areas) | set(base_areas))
+    out["is_super"] = _super(user)
     out["phases"] = _rows(conn, "SELECT code, name, workspace FROM proj.lib_phases ORDER BY sort_order")
     out["steps"] = _rows(conn, """SELECT id, phase, seq, name, library_id, library_id IS NULL AS own, removed, removed_reason, done_at, done_by,
                                          done_note, parent_step_id AS parent, added_by, added_at, due_date,

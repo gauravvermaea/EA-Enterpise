@@ -96,7 +96,7 @@ export default function ProjectTree({ items, focus, onPick, height }) {
         <button onClick={() => downloadSvg(svgRef.current, t.width, t.height, title)}>SVG</button>
         <button onClick={() => downloadPng(svgRef.current, t.width, t.height, title)}>PNG</button>
       </div>
-      <p className="quiet er-info">Each project sits under the base or library project it derives from. Click a box to {onPick ? "see what it holds" : "open it"}.</p>
+      <p className="quiet er-info">Each project sits under the base or library project it derives from. {onPick ? "Click a project to open it; click a base to see what it holds (double-click opens it)." : "Click a box to open it."}</p>
       <div className="er-frame graph-frame model-tree-frame" ref={frame} {...handlers} style={height ? { height, minHeight: 0 } : undefined}>
         <svg ref={svgRef} width="100%" height="100%" role="img" aria-label="Project hierarchy">
           <g data-viewport="" transform={`translate(${view.x},${view.y}) scale(${view.k})`}>
@@ -106,7 +106,8 @@ export default function ProjectTree({ items, focus, onPick, height }) {
               const hit = (hl && m.name.toLowerCase().includes(hl)) || m.id === focus;
               return (
                 <g key={m.id} transform={`translate(${x},${y})`} className="tree-box"
-                  onClick={() => { if (wasDrag()) return; if (onPick) onPick(m.id); else window.location.hash = `/projects/${m.id}`; }}>
+                  onClick={() => { if (wasDrag()) return; if (onPick) onPick(m.id, m.kind); else window.location.hash = `/projects/${m.id}`; }}
+                  onDoubleClick={() => { window.location.hash = `/projects/${m.id}`; }}>
                   <title>{`${m.name}\n${s.label}${m.status ? ` · ${m.status}` : ""}`}</title>
                   <rect width={W} height={H} rx="8" fill={s.fill} stroke={hit ? "#d4351c" : s.stroke} strokeWidth={hit ? 3 : 1.4} />
                   <text x={W / 2} y="25" textAnchor="middle" fontSize="13" fontWeight="600" fill="#1d2733">{s.glyph} {cut(m.name, 24)}</text>

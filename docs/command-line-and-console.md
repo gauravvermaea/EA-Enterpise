@@ -1,0 +1,327 @@
+# The command line and the console
+
+EA Explorer is installed, started, backed up and repaired with one command, **eax**, run in the main folder of the
+installation:
+
+| Computer | How to run it | Example |
+|---|---|---|
+| Windows | `.\eax <command>` (PowerShell; `eax.cmd` starts `eax.ps1`) | `.\eax up` |
+| Linux, macOS | `./eax.sh <command>` | `./eax.sh up` |
+
+Both do the same; this page writes `eax` for either. `eax help` lists every command, and `eax help <command>` shows
+the part about one.
+
+**The Python version (phase 13.9, D331).** The same commands also exist as one Python program for every system:
+
+| Computer | How to run it |
+|---|---|
+| Windows | `.\eaxpy <command>` |
+| Linux, macOS | `./eaxpy.sh <command>` |
+
+- **First run:** it fetches uv into `work/tools`, and uv fetches the Python it needs there too. Nothing is installed
+  elsewhere, and `cleanup` keeps that folder.
+- **Without internet:** put uv into `work/tools`, or set `EAX_UV` to a uv program.
+- **Side by side:** `eax` and `eaxpy` stay side by side, and do the same, until the switch is made.
+
+Most commands are for people who look after the installation. For anyone else, **`eax console`** is the place to
+start when something is wrong. It is a numbered menu that says what to do in plain words (see
+[The console](#the-console)).
+
+## Contents
+
+- [Where things live](#where-things-live)
+- [Getting started](#getting-started): init, check, up, run
+- [Finding problems](#finding-problems): status, logs, diag, debug
+- [Everyday use](#everyday-use): url, logins, trust, down, services, service, servers, maintenance
+- [Backups and restores](#backups-and-restores)
+- [Starting again](#starting-again): cleanup, clean-run, clean-debug, clean-restart
+- [The console](#the-console): the menu item by item, the command prompt, the console against another installation
+- [What is recorded](#what-is-recorded)
+- [Remote machines and the cloud (later)](#remote-machines-and-the-cloud-later)
+
+## Where things live
+
+Everything local is in the **work** folder (never committed to git):
+
+| Path | What it holds |
+|---|---|
+| `work/eaexplorer.env` | The config file: the deployment kind, addresses, passwords, service switches. Containers read it when they start. |
+| `work/config-history/` | A dated copy of the config file before every change made by the screens, `eax service`, `eax servers` or the console. |
+| `work/logs/` | One log per eax command (`eax-<date-time>-<command>.log`) and the console's log (`console-<date>.log`). |
+| `work/backups/infrastructure/` | Infrastructure backups (databases, document files, certificate, config file). |
+| `work/backups/application/` | Application backups (every model, one file each). |
+| `work/backups/restores/` | Each restore's status and log. |
+| `work/data/tls/` | The local certificate (laptop). Kept by `cleanup` unless asked. |
+| `work/proxy/maintenance` | While this file exists, everyone sees the maintenance page. |
+
+## Getting started
+
+### `eax init [laptop|server]`
+Creates `work/eaexplorer.env` from the template for the kind of installation (laptop if not given), and the work
+folders. Nothing is generated:
+- on a **laptop** every password is the same known one (`eax logins` prints them);
+- on a **server**, replace every `change-me` value before the first `eax up`.
+
+It refuses to overwrite an existing config file.
+
+### `eax check`
+Checks that Docker is running and that the config file and the compose files are valid. It starts nothing.
+
+### `eax up [service...] [--wait-all]` and `eax run`
+Builds EA Explorer's images, pulls the others, and starts everything in two tiers:
+1. **The core:** sign-in (Keycloak), the database, the API and the screens. You can sign in when it says *ready*.
+2. **The rest, in the background:** Reports, Documents, draw.io and the sample data.
+
+`--wait-all` starts everything and waits until all of it is up. Naming services starts only those and what they
+depend on; for example, `eax up api proxy` starts the database, the API and the web server only. `run` is the
+everyday start and is the same as `up`. Running `up` on a running installation is an upgrade: everyone sees the
+maintenance page until it has finished.
+
+## Finding problems
+
+| Command | What it does |
+|---|---|
+| `eax status` | Every container with its state and health (stopped ones too), then the disks: Docker's, the work and backups folders, this computer's drive (size, used, free). |
+| `eax logs [service]` | Follows the logs of every container, or of one (`eax logs api`). Ctrl+C stops following. |
+| `eax diag` | Saves a diagnostics report into this run's log: Docker versions, memory and disk, every container's state and last 300 log lines, and the compose configuration with the passwords masked. Send that log when asking for help. |
+| `eax debug [service...]` | Like `up`, but it does not stop on a failure. It saves a diagnostics report, then records every container's output to `work/logs/containers-<date-time>.log` until Ctrl+C. The containers keep running. |
+
+## Everyday use
+
+| Command | What it does |
+|---|---|
+| `eax url` | Prints the addresses to open (and, on a laptop, the logins). |
+| `eax logins` | Prints every user name and password (laptop only). |
+| `eax trust [--remove]` | Windows: adds the local certificate to the trusted root certificates, so the browser stops warning about `https://localhost`. `--remove` takes it out again. |
+| `eax down` | Stops and removes the containers. The data (Docker volumes and the work folder) is kept. |
+| `eax services` | The optional services (reports, documents, drawio, mcp, change_log, backups): whether each is on in the config file, and its containers' state. |
+| `eax service <name> on\|off` | Switches an optional service on or off. It keeps a dated copy of the config file, writes the switch, then starts or stops the service's containers. Also in System admin › System settings › Services. |
+| `eax servers [n]` | How many API and job servers run. With n (1 to 16), it writes `EAX_API_SERVERS` (a dated copy first) and adds or removes servers without a restart. |
+| `eax maintenance on\|off` | Shows the maintenance page to everyone, or stops showing it. Restores and upgrades switch it themselves. |
+
+**Projects, Repository and References** (phase 13.3, D329) are switched on or off by a Super Admin in System admin ›
+System settings, or in the console (menu item 10). They are not eax commands because they are application settings:
+- they apply at once, with no restart;
+- switching one off keeps its data;
+- switching Projects off switches the Repository and References off too.
+
+## Backups and restores
+
+There are two kinds of backup:
+
+- An **infrastructure backup** holds every database, the document files, the certificate, the config file, and the
+  release and image versions. It is what you need to rebuild the machine.
+- An **application backup** holds every model, one file each.
+
+| Command | What it does |
+|---|---|
+| `eax backup [tag]` | An infrastructure backup now, with a tag to find it by. |
+| `eax app-backup [tag]` | An application backup now (needs the API running). |
+| `eax backups [words]` | Lists every backup (infrastructure ones numbered); with words, only those whose tag, name or maker has them. |
+| `eax restore [name\|tag\|latest] [--what ...] [--yes]` | Restores an infrastructure backup (see the list of what it can put back below). Without a name it lists the backups to choose from, asks what to restore, and asks you to type RESTORE. A backup of the current state is taken first, and nothing live changes until everything is restored cleanly. It works when the screens are down. |
+| `eax restore-app [run\|tag\|latest] [--yes]` | Puts every model of an application backup back over itself (each model is backed up first). Models no longer there are made again; newer models stay as they are. |
+| `eax restore-model` | Choose an application backup and one model in it, then restore that model as a new model or over itself. |
+| `eax restores` | Every restore with its status. |
+| `eax restore-log <id>` | One restore's whole log. |
+| `eax stop-backup` | Stops the backups that are running; the partial backup is deleted. A restore cannot be stopped. |
+| `eax delete-backup <name>` | Deletes an infrastructure backup (unpin it first if it is pinned). |
+| `eax delete-restore <id>` | Forgets a finished restore and its log. |
+
+What `eax restore --what` can put back:
+
+| `--what` | What is put back |
+|---|---|
+| `full` | Everything |
+| `app` | The config file |
+| `app+data` | The config file, the repository and document databases, and the document files |
+| `db` | Every database |
+| `files` | The document files and the certificate |
+
+A **project backup** (one architecture project, with its documents and models) is made and restored on the project's
+page or in Project admin. One made by an older EA Explorer is upgraded as it is restored (D328).
+
+## Starting again
+
+| Command | What it does |
+|---|---|
+| `eax cleanup [--all] [--yes] [--certificate]` | Stops the containers and empties the work folder: the config file, the logs and the data folders, backups included. `--all` also deletes the Docker volumes, so the databases and documents start empty. The local certificate is kept unless `--certificate` is given. It asks you to type yes unless `--yes` is given. |
+| `eax clean-run [laptop\|server]` | From scratch in one step: `cleanup --all --yes`, `init`, `up`. It does not ask. |
+| `eax clean-debug [laptop\|server]` | The same, ending with `debug`. |
+| `eax clean-restart [laptop\|server]` | For testing a new version: `down`, then `clean-run`. Rebuilds the images and starts with empty databases. |
+
+## The console
+
+`eax console` (phase 13.5, D330) is for **getting a system that is down back up, by someone who need not be
+technical**:
+- a numbered menu, in plain words;
+- every step says what it will do;
+- anything that changes or replaces data asks you to type **YES** (in capitals) first. Anything else stops.
+
+**No sign-in on the machine.** Run on the machine where EA Explorer is installed, the console asks for no password:
+being able to run commands on that machine is the trust, as for every eax command. What it does is recorded (see
+[What is recorded](#what-is-recorded)).
+
+**How it runs.** The console runs inside the operations helper, a small container that reaches Docker and the work
+folder. eax starts that container first.
+- If it cannot start (Docker is not running, or nothing is set up yet), a **basic menu** appears instead: Start
+  everything, Save a diagnostics file, Command prompt, Quit.
+- After *Stop everything*, the basic menu is shown until you choose to start again.
+
+### The menu
+
+```
+EA Explorer console  (laptop, 0.15.1)
+
+ 1  Status: what is running, what is not
+ 2  Start everything
+ 3  Restart everything / one service
+ 4  Stop everything
+ 5  Show problems and recent errors (logs)
+ 6  Back up now (infrastructure / application)
+ 7  Restore a backup (guided)
+ 8  Reset a password (a person, Keycloak admin, break-glass, service passwords)
+ 9  Users and roles
+10  Settings and switches (Projects, Repository, References, optional services)
+11  Background tasks and job servers
+12  Health and data quality, audit trail
+13  Maintenance mode on / off
+14  Save a diagnostics file for support
+ c  Command prompt (every eax command)
+ q  Quit
+```
+
+In every list, type a number to choose, or **b** to go back.
+
+**1 Status.** Every service with OK, `--` (stopped) or `!!` (unhealthy), and what Docker says. It ends with a line
+saying either that everything is running or what is not and what to choose next. It also warns:
+- when the maintenance page is on;
+- when a disk is almost full.
+
+**2 Start everything.** The same as `eax up`: the core first, the rest in the background. When it finishes, the
+console comes back.
+
+**3 Restart everything / one service.** Choose *Everything* (one service after the other, the database first) or one
+service. Anything that had stopped is started too. People are signed out of what restarts for a minute or two.
+
+**4 Stop everything.** The same as `eax down`, after YES. The data is kept. Nobody can use EA Explorer until it is
+started again (2).
+
+**5 Show problems and recent errors.** Each service that is stopped, unhealthy, or whose set-up step failed, with the
+error lines from its recent log (or its last lines when there are none). When everything is healthy, you can still
+read any service's last 40 lines. If a service keeps stopping, choose 14 and send the file.
+
+**6 Back up now.**
+- *Infrastructure* (every database, the documents, the certificate and the config file) starts the database and the
+  backup service if needed.
+- *Application* (every model) runs in the API.
+
+Give a tag to find the backup by, or press Enter for *on-demand*.
+
+**7 Restore a backup (guided).**
+- *Infrastructure:* the same guided restore as `eax restore`. Choose the backup from a numbered list, then what to
+  put back (full, the config file, config and data, the databases, or the files), then type RESTORE. The current
+  state is backed up first, everyone is told, and the maintenance page is shown until it is done.
+- *Every model from an application backup*, or *one model*.
+- *List the backups*, and *the restores so far*.
+
+**8 Reset a password.** Each reset shows the new password **once**. Tell it to the person in person or by phone, not
+by email. For a new password, choose *Make one for me* (24 letters and digits; recommended) or type one: at least
+12 characters, with no spaces, quotes, `$`, `` ` `` or `\`.
+
+| Choice | What happens |
+|---|---|
+| A person's sign-in | Find the person by part of their name or email. They get a **temporary** password and choose their own at their next sign-in. A disabled person is enabled again. Done in Keycloak with its own admin tool. |
+| Keycloak's administrator | Sets the password of Keycloak's administrator and writes it into the config file (a dated copy first). If the password in the config file no longer works, a temporary administrator is made with Keycloak's own bootstrap command, used for the reset, then removed. |
+| The break-glass account | The account that signs in when Keycloak is down. The new password is written into the config file, then the API is started again to take it. Everyone signed in with break-glass is signed out. |
+| A service password | The databases' logins: the administrator, EA Explorer's own, the reports' read-only one, the installer's, Keycloak's, Reports' and Documents'. Choose one, or all at once. New passwords are made, set in PostgreSQL and written into the config file (a dated copy first). Then every service is started again to use them (a few minutes). The other secrets (sign-in client secrets, Reports' and Documents' own administrators, the document queue) change with phase 36, which also brings a key vault. |
+
+**9 Users and roles.** People and their global roles are kept in Keycloak. The console changes them there, with
+Keycloak's own admin tool.
+- *List everyone with their roles.*
+- *Give someone a role* and *Take a role away* (it applies at their next sign-in).
+- *Disable or enable a person.*
+- *Add a person* (then give them a temporary password with 8 and roles here).
+
+A person's roles on a model stay on that model's People tab.
+
+**10 Settings and switches.**
+- *Projects, Repository, References and the system settings*:
+  - the parts of EA Explorer in use (Projects off also switches the Repository and References off; their data is kept);
+  - the largest upload, how long change log entries are kept, the session time-outs, the log level.
+
+  Each setting is shown with its value and help; choose one to change it. These run in the API (start it first if it
+  is down).
+- *Optional services on or off*: reports, documents, draw.io, MCP, change log, backups. This is the same as
+  `eax service`, with a dated copy of the config file first.
+
+**11 Background tasks and job servers.**
+- *Background tasks*: everyone's tasks that are waiting or running, and the job queue. Cancel one queued task, or
+  every queued one. The people who asked see them as cancelled. A running task cannot be stopped from here: it
+  finishes, or restart the API.
+- *API and job servers*: how many run, and set how many should (1 to 16), as `eax servers`.
+
+**12 Health and data quality, audit trail.**
+- *Every service's health now*: the same checks as System admin › Health.
+- *Measure the data quality of every model now*: queued in the background.
+- *The audit trail*: the last 30 things done, by whom and from where.
+
+**13 Maintenance mode on / off.** Shows or hides the maintenance page for everyone. While a restore runs, it is left
+to the restore.
+
+**14 Save a diagnostics file for support.** The same as `eax diag`. Its log file is the one to send.
+
+**c Command prompt.** Type any eax command without `eax` in front (for example `logs api`, `services`,
+`backups karoo`). An empty line or `back` returns to the menu.
+
+### The console against another installation
+
+```
+eax console --server https://ea.example.org [--realm eaexplorer] [--insecure]
+```
+
+This works on an installation that is **running**, through its API, from any computer with EA Explorer's folder and
+Docker:
+- **Sign-in:** you sign in with Keycloak's device sign-in. The console shows a web address and a code; open it in a
+  browser, sign in and check the code.
+- **Roles:** everything is done with **your own roles** (IT Admin or Super Admin for most of it).
+- **Certificate:** `--insecure` accepts a laptop's own certificate.
+
+Its menu:
+- status (every service's health);
+- restart everything or one service;
+- what is not running, with its last lines;
+- back up now;
+- restore an infrastructure backup;
+- users and roles (read only);
+- settings and switches;
+- your background tasks and the job servers;
+- data quality now and the audit trail.
+
+Passwords, users' roles, starting and stopping are done **on the machine** (`eax console` there), because they must
+work when the API cannot.
+
+The device sign-in uses the Keycloak client `eax-console`. A new installation gets it with its realm; an installation
+from before 0.15.1 gets it with a clean install, or by adding the client in Keycloak's screens (public, *OAuth 2.0
+Device Authorization Grant* on, with an audience mapper for `eax-api`).
+
+## What is recorded
+
+- Every eax command writes its full output to `work/logs/eax-<date-time>-<command>.log`.
+- The console writes what it did to `work/logs/console-<date>.log`. Passwords are never written there.
+- Every change to the config file leaves a dated copy in `work/config-history`.
+- Settings, cancelled tasks and other changes made in the application are in the audit trail as
+  *console (on the machine)*.
+- Keycloak keeps its own record of password and role changes.
+
+## Remote machines and the cloud (later)
+
+These are settled in the deployment phase (phase 36):
+- connecting the console to a **remote machine** whose API is down, for example over SSH, or with a small console
+  agent on the server;
+- how the console works when EA Explorer runs on an **Azure or AWS cluster**, where there is no single machine to
+  sign in to:
+  - the platform's own restarts and scaling replace Start, Stop and Restart;
+  - logs, backups and restores come from the cloud's services;
+  - passwords live in the key vault.
+
+See [todo.md](todo.md), *Productionising stories*.

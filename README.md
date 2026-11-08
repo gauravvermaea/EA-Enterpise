@@ -8,8 +8,8 @@ language model. Everything runs in Docker containers from one config file.
 **All the documentation, listed with what each covers: [docs/index.md](docs/index.md).** Backup and restore
 commands: [below](#backup-and-restore-from-the-command-line) and in [docs/operations.md](docs/operations.md#backup-and-restore-from-the-command-line-d227).
 
-**Status: version 0.15.1, phase 13 (architecture projects) under way.** Phases 0 to 12 and 13 to 13.1 are accepted
-and closed; next is 13.0.9, the Architecture Repository. The short list is
+**Status: version 0.15.1. Phases 0 to 13 are accepted and closed** (phase 13, architecture projects, closed 8 Nov
+2026, D337). The short list is
 below; every phase in detail: [docs/build-phases.md](docs/build-phases.md). Database design:
 [docs/database.md](docs/database.md). How it is built (for developers and AI agents):
 [docs/architecture.md](docs/architecture.md), [AGENTS.md](AGENTS.md); the high-level technical architecture (under 10 pages):
@@ -36,7 +36,7 @@ The major phases; each line covers its sub-phases. **In detail (every sub-phase,
 | 9 | The change log | closed |
 | 10 | Administration console; import and export sheets | closed |
 | 12 | Validation and data quality; start-up in two tiers | closed |
-| 13 | Architecture projects: library, wizard, repository, sign-off, content framework, bases, governance, charter | closed to 13.1; 13.0.9 and 13.2 to 13.8 to come |
+| 13 | Architecture projects: library, wizard, repository, sign-off, content framework, bases, governance, charter, the Architecture Repository, tracking sheets, the console, eaxpy | accepted and closed (8 Nov 2026) |
 | 15, 16 | Organisation-wide repository; guided wizards | planned |
 | 19 to 24 | Collaboration at scale: work copies and merges, dedupe, ownership, portfolio and impact, report trends | planned |
 | 25 to 27 | Security hardening; MCP server read tools and proposals | planned |
@@ -59,7 +59,12 @@ Windows (PowerShell or Command Prompt, in this folder):
 .\eax run            # NEXT TIME ONWARDS: starts it again, keeping your data
 .\eax run --wait-all # the same, but waits until everything (reports, documents, draw.io, sample data) is up
 .\eax help           # what every command does
+.\eax console        # SOMETHING WRONG? a numbered menu to get it back up (no technical knowledge needed)
 ```
+
+Every command and the console are described in detail in [docs/command-line-and-console.md](docs/command-line-and-console.md).
+The same commands also run as one Python program on every system: `.\eaxpy <command>` (Windows) or `./eaxpy.sh <command>`
+(it fetches uv into `work/tools` the first time; phase 13.9).
 
 **Starting takes a minute or two** (D255): `up`, `run` and the `clean-*` commands start the core first (sign-in, the
 API, the screens) and say *"EA Explorer is ready: you can sign in"*; Reports, Documents, draw.io and the sample data

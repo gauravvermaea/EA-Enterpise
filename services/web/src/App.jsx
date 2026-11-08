@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { apiFetch, can, currentUser, isBreakGlass, keycloak, keycloakReachable, myInfo, roleName, roles, signedIn as isSignedIn, signOut } from "./auth";
+import { apiFetch, can, currentUser, isBreakGlass, keycloak, keycloakReachable, myInfo, partOn, roleName, roles, signOut, signedIn as isSignedIn } from "./auth";
 import BreakGlass from "./BreakGlass";
 import { config } from "./config";
 import StartPage, { EverythingElse } from "./StartPage";
@@ -113,10 +113,10 @@ export default function App() {
         <nav className="subnav" aria-label="Menus">
           <a href="#/" className={route === "#/" || route === "#" ? "on" : ""}>Start</a>
           <a href="#/metamodel" className={route.startsWith("#/metamodel") ? "on" : ""}>Models</a>
-          <a href="#/work" className={/^#\/(projects|work|project-admin)/.test(route) ? "on" : ""}>Projects</a>
-          <a href="#/repository" className={route.startsWith("#/repository") ? "on" : ""}>Repository</a>
+          {partOn("projects") && <a href="#/work" className={/^#\/(projects|work|project-admin)/.test(route) ? "on" : ""}>Projects</a>}
+          {partOn("repository") && <a href="#/repository" className={route.startsWith("#/repository") ? "on" : ""}>Repository</a>}
           <a href="#/library" className={route.startsWith("#/library") ? "on" : ""}>Library</a>
-          <a href="#/reference-library" className={route.startsWith("#/reference-library") ? "on" : ""}>Reference library</a>
+          {partOn("references") && <a href="#/reference-library" className={route.startsWith("#/reference-library") ? "on" : ""}>Reference library</a>}
           <a href="#/compare" className={route === "#/compare" || route.startsWith("#/compare?") ? "on" : ""}>Compare</a>
           <a href="#/compare/gaps" className={route.startsWith("#/compare/gaps") ? "on" : ""}>Gap analysis</a>
           <a href="#/compare/common" className={route.startsWith("#/compare/common") ? "on" : ""}>Common analysis</a>
@@ -136,7 +136,8 @@ export default function App() {
         Nothing can be changed until it is done; you will be asked to sign in again.</div>}
       {signedIn && <TaskDrawer />}
       <main>
-        {route.startsWith("#/search") ? <SearchPage key={route} route={route} />
+        {partOff(route) ? <PartOff part={partOff(route)} />
+          : route.startsWith("#/search") ? <SearchPage key={route} route={route} />
           : route.startsWith("#/work") ? <ArchitectureWork />
           : route.startsWith("#/repository") ? <ArchitectureRepositoryPage />
           : route.startsWith("#/reference-library") ? <ReferenceLibraryPage route={route} />
@@ -157,6 +158,26 @@ export default function App() {
       <footer>
         Version {version || "?"} · {config.deployment} deployment · open source (AGPL-3.0)
       </footer>
+    </div>
+  );
+}
+
+// a part switched off in System settings (D329): its pages say so instead of loading
+function partOff(route) {
+  if (/^#\/(projects|project-admin)/.test(route) && !partOn("projects")) return "projects";
+  if (route.startsWith("#/repository") && !partOn("repository")) return "repository";
+  if (route.startsWith("#/reference-library") && !partOn("references")) return "references";
+  return "";
+}
+
+function PartOff({ part }) {
+  const name = { projects: "Projects", repository: "The Repository", references: "References" }[part];
+  return (
+    <div className="page">
+      <h1>{name} {part === "projects" ? "are" : "is"} switched off</h1>
+      <p>This installation does not use {part === "repository" ? "the Architecture Repository" : part}. A Super Admin switches it on in{" "}
+        <a href="#/admin/system">System admin › System settings</a>; everything it held is kept and comes back.</p>
+      <p><a href="#/">Start page</a></p>
     </div>
   );
 }

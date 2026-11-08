@@ -39,7 +39,7 @@ BASES = [  # (kind, guid, name, description)
 ]
 READ_ONLY = {"empty", "togaf"}
 KINDS = ("principle", "standard", "step")
-P_FIELDS = ("name", "area", "statement", "rationale", "implications")
+P_FIELDS = ("name", "area", "statement", "rationale", "implications", "refines")    # refines: D327
 S_FIELDS = ("name", "area", "description", "status", "source")
 
 
@@ -151,6 +151,17 @@ def _skips(conn, p: dict) -> set[tuple[str, str]]:
     return {(r["kind"], str(r["origin_guid"])) for r in _rows(conn, "SELECT kind, origin_guid FROM proj.base_skips WHERE project_id = :p", p=p["id"])}
 
 
+def _local_ref(conn, b: dict, r: dict) -> dict:
+    """A base's principle may refine one that the base itself took from higher up (its refines then holds the higher
+    guid): below, it points at the base's own copy, so it nests under it in the project too (D327)."""
+    ref = r.get("refines")
+    if not ref:
+        return r
+    own = _one(conn, "SELECT guid FROM proj.principles WHERE project_id = :b AND (guid = CAST(:g AS uuid) OR origin_guid = CAST(:g AS uuid))",
+               b=b["id"], g=str(ref))
+    return {**r, "refines": own["guid"] if own else ref}
+
+
 def offers(conn, p: dict) -> list[dict]:
     """What the project's base holds that the project has not taken (or has taken in an older form) and not skipped."""
     b = base_row(conn, p)
@@ -163,14 +174,16 @@ def offers(conn, p: dict) -> list[dict]:
         mine = {str(r["origin_guid"]): r for r in _rows(conn, f"SELECT id, origin_guid, mandatory, {cols} FROM proj.{table} "
                                                               "WHERE project_id = :p AND origin_guid IS NOT NULL", p=p["id"])}
         for r in _rows(conn, f"SELECT guid, mandatory, {cols} FROM proj.{table} WHERE project_id = :b ORDER BY area, sort_order, name", b=b["id"]):
+            if kind == "principle":
+                r = _local_ref(conn, b, r)
             g = str(r["guid"])
             have = mine.get(g)
             if have is None:
                 if (kind, g) not in skipped:
                     out.append({"kind": kind, "action": "add", "id": g, "name": r["name"], "area": r["area"], "mandatory": r["mandatory"]})
-            elif any((have[f] or "") != (r[f] or "") for f in fields) or have["mandatory"] != r["mandatory"]:
+            elif any(str(have[f] or "") != str(r[f] or "") for f in fields) or have["mandatory"] != r["mandatory"]:
                 out.append({"kind": kind, "action": "update", "id": g, "name": r["name"], "area": r["area"], "mandatory": r["mandatory"],
-                            "changed": [f for f in fields if (have[f] or "") != (r[f] or "")]})
+                            "changed": [f for f in fields if str(have[f] or "") != str(r[f] or "")]})
     have_steps = _rows(conn, "SELECT origin_guid, library_id, phase, lower(name) AS n FROM proj.steps WHERE project_id = :p AND cycle = :c",
                        p=p["id"], c=p.get("cycle") or 1)
     by_origin = {str(s["origin_guid"]) for s in have_steps if s["origin_guid"]}
@@ -193,6 +206,8 @@ def _take(conn, p: dict, b: dict, o: dict, user) -> None:
         r = _one(conn, f"SELECT * FROM proj.{table} WHERE project_id = :b AND guid = CAST(:g AS uuid)", b=b["id"], g=o["id"])
         if not r:
             raise EditError(f"That {o['kind']} is no longer in the base.", 404)
+        if o["kind"] == "principle":
+            r = _local_ref(conn, b, r)
         vals = {f: r[f] for f in fields}
         mine = _one(conn, f"SELECT id FROM proj.{table} WHERE project_id = :p AND origin_guid = CAST(:g AS uuid)", p=p["id"], g=o["id"])
         if mine:

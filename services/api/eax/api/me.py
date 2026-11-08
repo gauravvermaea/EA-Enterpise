@@ -26,4 +26,12 @@ class MeView(MethodView):
         return {"username": u.username, "email": u.email, "name": u.name, "roles": u.roles,
                 "keycloak_roles": u.keycloak_roles, "permissions": permissions.describe(u.roles),
                 "sees_every_model": permissions.sees_every_model(u.roles), "models": models,
-                "break_glass": u.break_glass}
+                "break_glass": u.break_glass, "parts": _parts()}
+
+
+def _parts() -> dict:
+    from .. import settings as st
+    try:
+        return st.parts()
+    except Exception:  # noqa: BLE001 - settings not readable: everything on
+        return dict.fromkeys(st.PARTS, True)

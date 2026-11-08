@@ -60,6 +60,9 @@ async def _proj(fn, *args, write: bool = False) -> Any:
     from . import projects as pj
     if permissions.current.get() is None:
         return {"error": "Sign in required."}
+    from . import settings as app_settings
+    if not app_settings.parts().get("projects", True):         # D329
+        return {"error": "Projects are switched off in this installation (System admin > System settings)."}
     who = _who()
 
     def work():

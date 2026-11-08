@@ -81,6 +81,10 @@ export default function Admin({ route }) {
 
 // ---------------------------------------------------------------- settings (application and system)
 function Field({ s, value, onChange, disabled }) {
+  if (s.type === "bool") {
+    return <label className="switch-label"><input type="checkbox" checked={!!value} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
+      {" "}{value ? "On" : "Off"}</label>;
+  }
   if (s.type === "choice") {
     return (
       <select value={value ?? ""} onChange={(e) => onChange(e.target.value)} disabled={disabled}>
@@ -140,6 +144,7 @@ function Settings({ group }) {
       const out = await apiFetch("/api/v1/admin/settings", { method: "PUT", body: JSON.stringify(Object.fromEntries(changed.map((k) => [k, draft[k]]))) });
       if (group === "application") setAppSettings(Object.fromEntries(Object.entries(out.values).filter(([k]) => data.application.some((s) => s.key === k))));
       setDraft({}); setMsg(out.note); refreshAll();
+      if (changed.some((k) => k.startsWith("part_"))) setTimeout(() => window.location.reload(), 1500);   // the menus follow (D329)
     } catch (e) { setErr(e.message); }
     setBusy(false);
   }
@@ -158,7 +163,9 @@ function Settings({ group }) {
             <tr key={s.key} className={changed.includes(s.key) ? "changed-here" : ""}>
               <th>{s.label}</th>
               <td><Field s={s} value={value(s)} disabled={!may} onChange={(v) => setDraft((d) => ({ ...d, [s.key]: v }))} /></td>
-              <td className="quiet small">{s.help}{s.modified_by && <div>Changed {fmtDateTime(s.modified_at)} by {s.modified_by}</div>}</td>
+              <td className="quiet small">{s.help}
+                {s.key.startsWith("part_") && s.value && data.parts && !data.parts[s.key.slice(5)] && <div className="bad-text">Off for now: Projects is off.</div>}
+                {s.modified_by && <div>Changed {fmtDateTime(s.modified_at)} by {s.modified_by}</div>}</td>
             </tr>
           ))}
         </tbody>

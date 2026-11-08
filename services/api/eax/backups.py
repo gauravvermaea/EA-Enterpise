@@ -124,7 +124,23 @@ def read_file(path: Path) -> tuple[dict, zipfile.ZipFile]:
         raise EditError(f"{path.name} is not an EA Explorer model backup.", 400) from exc
     if info.get("format") != FORMAT:
         raise EditError(f"{path.name} is not an EA Explorer model backup.", 400)
+    if newer_than_here(info.get("version")):
+        raise EditError(f"{path.name} was made by a newer EA Explorer ({info['version']}) than this installation ({__version__}): "
+                        "upgrade EA Explorer first.", 409)
     return info, z
+
+
+def _vt(v: str | None) -> tuple[int, ...]:
+    out = []
+    for part in str(v or "").split("+")[0].split("-")[0].split("."):
+        out.append(int(part) if part.isdigit() else 0)
+    return tuple(out)
+
+
+def newer_than_here(version: str | None) -> bool:
+    """A file made by a later release than this installation (a model backup's upgrade steps, like the project backup's,
+    are added here when its shape changes; none so far: format 1)."""
+    return bool(version) and _vt(version) > _vt(__version__)
 
 
 def _meta(path: Path) -> dict:

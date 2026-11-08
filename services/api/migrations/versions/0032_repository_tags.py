@@ -27,7 +27,14 @@ def upgrade() -> None:
 def downgrade() -> None:
     # Clean rebuilds are the rule (D54); this removes what 0032 added.
     raw = op.get_bind().connection.driver_connection
-    raw.execute("""DROP TABLE IF EXISTS proj.gov_history;
+    raw.execute("""DROP TABLE IF EXISTS proj.principle_areas;
+                   ALTER TABLE proj.principles DROP COLUMN refines;
+                   DROP TABLE IF EXISTS proj.sheet_rows;
+                   DROP TABLE IF EXISTS proj.sheets;
+                   DROP TABLE IF EXISTS proj.board_members;
+                   DROP TABLE IF EXISTS proj.cal_feeds;
+                   DROP TABLE IF EXISTS proj.cal_events;
+                   DROP TABLE IF EXISTS proj.gov_history;
                    DROP TABLE IF EXISTS proj.gov_decisions;
                    DROP TABLE IF EXISTS proj.gov_approvals;
                    ALTER TABLE proj.gov_records DROP COLUMN approval, DROP COLUMN approved_by, DROP COLUMN approved_at,

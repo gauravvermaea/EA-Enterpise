@@ -62,6 +62,8 @@ class Me(Schema):
     sees_every_model = fields.Boolean()
     models = fields.List(fields.Nested(AssignedModelOut), metadata={"description": "Models where you have a role, with the role"})
     break_glass = fields.Boolean()
+    parts = fields.Dict(keys=fields.String(), values=fields.Boolean(),
+                        metadata={"description": "Which parts are on: projects, repository, references (D329)"})
 
 
 class JobRequestIn(Schema):

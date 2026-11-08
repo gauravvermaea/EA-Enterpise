@@ -124,6 +124,7 @@ def plan(settings, with_sample: bool) -> list[tuple[str, object]]:
     if laptop:
         steps.append(("Sample architecture project", sample_project))
         steps.append(("Sample projects, one per project template", sample_projects))
+        steps.append(("Sample content: governance, people, calendars, sheets, the board", sample_content))
     steps.append(("First data quality measurement", first_measurements))
     return steps
 
@@ -166,6 +167,13 @@ def sample_projects() -> None:
     joins a project: referred to, added, a separate copy (now or at a tag), a child, a new empty model."""
     from . import sample_projects as sp
     for line in sp.run():
+        _say(line)
+
+
+def sample_content() -> None:
+    """Laptop (owner, 8 Nov 2026, phase 13.8): seed content for the sample projects and the organisation, made once."""
+    from . import sample_content as sc
+    for line in sc.run():
         _say(line)
 
 

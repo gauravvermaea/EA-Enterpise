@@ -36,21 +36,21 @@ Each phase has its own notes: what it delivers, a demo, checks, how to upgrade a
 | 13.0.6 | The project repository as a table: versions, tags, accept or approve, archive and delete (D290-D293) | 0.14.6 | accepted and closed | [phase-13.0.6.md](phase-13.0.6.md) |
 | 13.0.7 | Content framework, tagging to it (defaults by admins, inherited, changed per project), the architecture repository's links, the Repository Area, project organisation, tasks (D299, D302, D317-D320) | 0.15.1 | accepted and closed | [phase-13.0.7.md](phase-13.0.7.md) |
 | 13.0.8 | The organisation's reference library (D300) | 0.14.8 | accepted and closed | [phase-13.0.8.md](phase-13.0.8.md) |
-| 13.0.9 | The Architecture Repository structure: calendar, board, performance measures, standards (D301) | | planned: design session under way | [phase-13.0.9.md](phase-13.0.9.md) |
+| 13.0.9 | The Architecture Repository: calendars (subscribable), the Architecture Board, performance measurement, the reference library's parts, the standards information base (D301, D324) | 0.15.1 | accepted and closed | [phase-13.0.9.md](phase-13.0.9.md) |
 | 13.1 | Project bases, the TOGAF 10 content metamodel, standards, governance log (with approval, D321), charter (organisation-wide in the Organisation base, D319); the documents table, repository tags, the Phases tab (D303-D316) | 0.15.1 | accepted and closed | [phase-13.1.md](phase-13.1.md) |
-| 13.2 | Tracking sheets | | requested for later | [phase-13.2.md](phase-13.2.md) |
-| 13.3 | Turn Projects, Repository and References on or off | | requested for later | [phase-13.3.md](phase-13.3.md) |
-| 13.4 | Reference library with wiki pages | | requested for later | [phase-13.4.md](phase-13.4.md) |
-| 13.5 | A console app | | requested for later | [phase-13.5.md](phase-13.5.md) |
-| 13.6 | Load balancing | | requested for later | [phase-13.6.md](phase-13.6.md) |
-| 13.7 | Real-time mirrors of PostgreSQL and the other servers | | requested for later | [phase-13.7.md](phase-13.7.md) |
-| 13.8 | More sample projects and models | | requested for later | [phase-13.8.md](phase-13.8.md) |
+| 13.2 | Tracking sheets: project and organisation, Excel and CSV in, Excel out, filters, edited in place (D325) | 0.15.1 | accepted and closed | [phase-13.2.md](phase-13.2.md) |
+| 13.3 | Turn Projects, Repository and References on or off (D329) | 0.15.1 | accepted and closed | [phase-13.3.md](phase-13.3.md) |
+| 13.5 | The console: `eax console`, a menu for getting EA Explorer back up, on the machine or through the API (D330) | 0.15.1 | accepted and closed | [phase-13.5.md](phase-13.5.md) |
+| 13.8 | Sample content: governance, people, calendars, sheets, the board (D326) | 0.15.1 | accepted and closed | [phase-13.8.md](phase-13.8.md) |
+| 13.9 | The eax command in Python, run by uv: one program for Windows, Linux and macOS (D331); `eaxpy` beside `eax` until the switch | 0.15.1 | accepted and closed | [phase-13.9.md](phase-13.9.md) |
 
 
 ## Planned phases (from the build plan)
 | Phase | Name |
 | --- | --- |
 | 15.1 | Organisation-wide repository |
+| 15.2 | Reference library with wiki pages: an open-source wiki beside the links and documents ([phase-15.2.md](phase-15.2.md), D334) |
+| 15.3 | Business architecture artifacts: Business Model Canvas, value proposition canvas, capability map and value streams, motivation and strategy, customer journey, stakeholder map; canvases as views of the model, with gaps ([phase-15.3.md](phase-15.3.md), D268, D335) |
 | 16.3 | Guided wizards |
 | 19, 20 | Work copies and merge back, parts 1 and 2 |
 | 21 | Dedupe within a model |
@@ -64,7 +64,7 @@ Each phase has its own notes: what it delivers, a demo, checks, how to upgrade a
 | 33, 33.1 | ArchiMate exchange and migration; conformance check |
 | 34, 34.1 | Integrations: collection, CMDB, reconciliation; ETL, more sources and outbound |
 | 35, 35.1 | Operations insight; maintenance and optimisation |
-| 36 to 36.3, 8.5 | Deployment kinds and scripts; upgrades, releases and tests; test automation; security, scale and continuity; scaling out |
+| 36 to 36.3, 8.5 | Deployment kinds and scripts; upgrades, releases and tests; test automation; security, scale and continuity; scaling out (with the infrastructure stories: [load balancing](story-load-balancing.md), [real-time mirrors](story-real-time-mirrors.md), D334) |
 | 37 | Hardening and release candidate |
 | 38, 38.1 | Pilot and version 1.0; surveys |
 | 39 | Industry models, reports and product documentation |

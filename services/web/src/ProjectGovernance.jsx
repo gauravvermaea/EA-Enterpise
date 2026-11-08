@@ -111,12 +111,16 @@ export function StandardsTab({ p }) {
   const { data, error } = useApi(url);
   const [dlg, setDlg] = useState(null);
   const [q, setQ] = useState("");
+  // opened on one group, or on the external ones, from the repository map (D324): ?group=Business | ?external=1
+  const [group, setGroup] = useState(() => decodeURIComponent((window.location.hash.match(/[?&]group=([^&]+)/) || [])[1] || ""));
+  const [ext, setExt] = useState(() => /[?&]external=1/.test(window.location.hash));
   const [msg, setMsg] = useState({ ok: true, text: "" });
   const act = useAct(setMsg);
   if (error) return <p className="status bad">{error}</p>;
   if (!data) return <p className="quiet">Loading...</p>;
   const can = data.may_edit && !p.frozen;
-  const shown = data.standards.filter((s) => !q.trim() || `${s.name} ${s.source} ${s.area}`.toLowerCase().includes(q.trim().toLowerCase()));
+  const shown = data.standards.filter((s) => (!q.trim() || `${s.name} ${s.source} ${s.area}`.toLowerCase().includes(q.trim().toLowerCase()))
+    && (!group || (s.area || "Other").toLowerCase() === group.toLowerCase()) && (!ext || /external|iso|open group|ieee|nist|w3c|ietf/i.test(s.source || "")));
   const areas = [...new Set([...data.areas, ...shown.map((s) => s.area || "Other")])].filter((a) => shown.some((s) => (s.area || "Other") === a));
   const locked = (s) => s.mandatory && s.from_base && data.locked_from_base;
   return (
@@ -127,6 +131,9 @@ export function StandardsTab({ p }) {
       <div className="row-gap filters">
         {can && <button className="primary" onClick={() => setDlg({})}>＋ Add a standard</button>}
         <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search standards" aria-label="Search standards" />
+        <select value={group} onChange={(e) => setGroup(e.target.value)} aria-label="Group"><option value="">Every group</option>
+          {[...new Set([...data.areas, ...data.standards.map((s) => s.area || "Other")])].map((a) => <option key={a} value={a}>{a}</option>)}</select>
+        <label className="small"><input type="checkbox" checked={ext} onChange={(e) => setExt(e.target.checked)} /> external only</label>
         <span className="small quiet">{data.standards.length} standards</span>
       </div>
       {!shown.length && <p className="quiet">{data.standards.length ? "Nothing matches." : "No standards yet."}</p>}
@@ -368,8 +375,13 @@ export function BasesTree() {
       </div>
       {graph ? (
         <>
-          <Suspense fallback={<p className="quiet">Loading the tree...</p>}><ProjectTree items={flatten(data.nodes)} focus={sel} onPick={setSel} /></Suspense>
-          <div style={{ marginTop: 12 }}>{sel ? <BaseDetail key={sel} id={sel} /> : <p className="quiet">Click a box to see its principles, standards, steps, document types and charter.</p>}</div>
+          <Suspense fallback={<p className="quiet">Loading the tree...</p>}><ProjectTree items={flatten(data.nodes)} focus={sel} onPick={(id, kind) => {
+            // a project opens (owner, 8 Nov 2026); a base shows what it holds below the tree, scrolled into view
+            if (kind === "project") { window.location.hash = `/projects/${id}`; return; }
+            setSel(id);
+            setTimeout(() => document.getElementById("base-detail")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+          }} /></Suspense>
+          <div id="base-detail" style={{ marginTop: 12 }}>{sel ? <BaseDetail key={sel} id={sel} /> : <p className="quiet">Click a box to see its principles, standards, steps, document types and charter.</p>}</div>
         </>
       ) : (
         <div className="bases-layout">

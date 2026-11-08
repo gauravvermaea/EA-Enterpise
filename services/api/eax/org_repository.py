@@ -106,3 +106,157 @@ def summary(conn, user) -> dict:
     if ch and ch.get("approved_at") is not None:
         ch = {**ch, "approved_at": ch["approved_at"].isoformat()}
     return {"org_base": b, "charter": dict(ch) if ch else None, "may_change": pj._super(user)}
+
+
+# ---------------------------------------------------------------- the Architecture Board (D324): members only
+def board(conn, user) -> dict:
+    rows = _rows(conn, "SELECT username, role, added_by, added_at FROM proj.board_members ORDER BY username")
+    for r in rows:
+        r["added_at"] = r["added_at"].isoformat() if hasattr(r["added_at"], "isoformat") else r["added_at"]
+    return {"members": rows, "may_change": pj._super(user)}
+
+
+def board_set(conn, user, username: str, role: str = "", remove: bool = False) -> dict:
+    from sqlalchemy import text
+    if not pj._super(user):
+        raise EditError("The Architecture Board's members are named by Super Admins.", 403)
+    u = (username or "").strip().lower()
+    if not u:
+        raise EditError("Choose the person.")
+    if remove:
+        conn.execute(text("DELETE FROM proj.board_members WHERE username = :u"), {"u": u})
+        return {"message": f"{u} is no longer on the Architecture Board."}
+    conn.execute(text("""INSERT INTO proj.board_members (username, role, added_by) VALUES (:u, :r, :b)
+                         ON CONFLICT (username) DO UPDATE SET role = EXCLUDED.role"""), {"u": u, "r": " ".join((role or "").split())[:120], "b": user.username})
+    return {"message": f"{u} is on the Architecture Board{' as ' + role if role else ''}."}
+
+
+# ---------------------------------------------------------------- performance measurement (D324): one tab each
+def _ts(v):
+    from datetime import UTC, datetime
+    if isinstance(v, str):
+        v = datetime.fromisoformat(v)
+    return v if v.tzinfo else v.replace(tzinfo=UTC)
+
+
+def _days(a, b) -> float:
+    return round((_ts(b) - _ts(a)).total_seconds() / 86400, 1)
+
+
+def measures(conn, user, what: str) -> dict:
+    """completion, governance, turnaround or coverage, across the projects the person may see (admins: all)."""
+    from datetime import UTC, date, datetime
+    ps = _visible(conn, user)
+    ids = [p["id"] for p in ps]
+    if not ids:
+        return {"what": what, "rows": [], "projects": 0}
+    if what == "completion":
+        pk = {r["g"]: r["id"] for r in _rows(conn, "SELECT id, guid::text AS g FROM proj.projects WHERE guid = ANY (CAST(:i AS uuid[]))", i=ids)}
+        comp = pj.completion(conn, list(pk.values()))
+        rows = []
+        for p in ps:
+            c = comp.get(pk.get(p["id"])) or {}
+            rows.append({"project_id": p["id"], "project": p["name"],
+                         **{k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in c.items()}})
+        return {"what": what, "rows": sorted(rows, key=lambda r: -(r.get("percent") or 0)), "projects": len(ps)}
+    if what == "governance":
+        today = date.today()
+        rows = _rows(conn, """SELECT p.guid::text AS project_id, p.name AS project,
+                                     count(*) FILTER (WHERE g.approval = 'Waiting for approval') AS waiting,
+                                     min(a.raised_at) FILTER (WHERE a.state = 'open') AS oldest_wait,
+                                     count(*) FILTER (WHERE g.approval = 'Draft') AS drafts,
+                                     count(*) FILTER (WHERE g.kind = 'Dispensation' AND g.expires_on IS NOT NULL AND g.expires_on < CAST(:t AS date)
+                                                        AND g.status NOT IN ('Expired', 'Withdrawn', 'Refused')) AS overdue,
+                                     count(*) FILTER (WHERE g.kind = 'Dispensation' AND g.expires_on BETWEEN CAST(:t AS date) AND CAST(:t AS date) + 30) AS expiring,
+                                     count(*) FILTER (WHERE g.kind = 'Compliance assessment' AND g.status = 'Not compliant') AS not_compliant,
+                                     count(g.id) AS records
+                                FROM proj.projects p LEFT JOIN proj.gov_records g ON g.project_id = p.id
+                                LEFT JOIN proj.gov_approvals a ON a.record_id = g.id AND a.state = 'open'
+                               WHERE p.guid = ANY (CAST(:i AS uuid[])) GROUP BY p.id ORDER BY p.name""", i=ids, t=today)
+        now = datetime.now(UTC)
+        for r in rows:
+            w = r.pop("oldest_wait", None)
+            r["oldest_days"] = _days(w, now) if w else None
+        return {"what": what, "rows": rows, "projects": len(ps)}
+    if what == "turnaround":
+        now = datetime.now(UTC)
+        reqs = _rows(conn, """SELECT p.guid::text AS project_id, p.name AS project, 'document' AS kind, r.raised_at, r.closed_at, r.state, r.signers
+                                FROM proj.signoff_requests r JOIN proj.documents d ON d.id = r.document_id JOIN proj.projects p ON p.id = d.project_id
+                               WHERE p.guid = ANY (CAST(:i AS uuid[])) AND r.state <> 'withdrawn'
+                              UNION ALL
+                              SELECT p.guid::text, p.name, 'governance record', a.raised_at, a.closed_at, a.state, a.signers
+                                FROM proj.gov_approvals a JOIN proj.gov_records g ON g.id = a.record_id JOIN proj.projects p ON p.id = g.project_id
+                               WHERE p.guid = ANY (CAST(:i AS uuid[])) AND a.state <> 'withdrawn'""", i=ids)
+        byp: dict[str, dict] = {}
+        for r in reqs:
+            x = byp.setdefault(r["project_id"], {"project_id": r["project_id"], "project": r["project"], "closed": 0, "open": 0, "_days": [], "oldest_open": 0})
+            if r["closed_at"]:
+                x["closed"] += 1
+                x["_days"].append(_days(r["raised_at"], r["closed_at"]))
+            else:
+                x["open"] += 1
+                x["oldest_open"] = max(x["oldest_open"], _days(r["raised_at"], now))
+        rows = []
+        for x in byp.values():
+            d = x.pop("_days")
+            rows.append({**x, "average_days": round(sum(d) / len(d), 1) if d else None})
+        people = _rows(conn, """SELECT x.signer, count(*) AS decided, avg(EXTRACT(EPOCH FROM (x.at - r.raised_at)) / 86400) AS avg_days
+                                  FROM (SELECT signer, at, request_id AS rid, 'd' AS k FROM proj.signoff_decisions
+                                        UNION ALL SELECT signer, at, approval_id, 'g' FROM proj.gov_decisions) x
+                                  JOIN LATERAL (SELECT raised_at FROM proj.signoff_requests WHERE x.k = 'd' AND id = x.rid
+                                                UNION ALL SELECT raised_at FROM proj.gov_approvals WHERE x.k = 'g' AND id = x.rid) r ON true
+                                 GROUP BY x.signer ORDER BY avg_days DESC NULLS LAST""")
+        for pr in people:
+            pr["avg_days"] = round(float(pr["avg_days"]), 1) if pr["avg_days"] is not None else None
+        return {"what": what, "rows": sorted(rows, key=lambda r: r["project"]), "people": people, "projects": len(ps)}
+    if what == "coverage":
+        from . import content_framework as cf
+        rows = []
+        total = len(cf.LABEL)
+        for p in ps:
+            try:
+                ov = cf.overview(conn, p["id"], _Viewer(user))
+            except EditError:
+                continue
+            filled = [a for a in ov["areas"] if a["types"] or a["doc_types"] or a["documents"]]
+            with_docs = [a for a in ov["areas"] if a["documents"]]
+            rows.append({"project_id": p["id"], "project": p["name"], "areas": total, "filled": len(filled), "with_documents": len(with_docs),
+                         "percent": round(100 * len(filled) / total), "empty": [a["label"] for a in ov["areas"] if a not in filled][:40]})
+        return {"what": what, "rows": sorted(rows, key=lambda r: -r["percent"]), "projects": len(ps)}
+    raise EditError("Completion, governance, turnaround or coverage.", 404)
+
+
+class _Viewer:
+    """Reads a project as the person, or (an admin seeing every project) as a Super Admin would."""
+    def __init__(self, user):
+        self._u = user
+        self.username = user.username
+        self.roles = list(user.roles) + (["super-admin"] if may_see_all_users(user) else [])
+
+
+# ---------------------------------------------------------------- the reference library's four parts (D324)
+REF_PARTS = {"foundation": "Foundation architectures", "common": "Common systems architectures", "industry": "Industry architectures",
+             "own": "Organisation's own architectures"}
+SEEDED = ("eax_migrator", "system", "seed", "postgres")
+
+
+def reference_part(conn, user, part: str) -> dict:
+    """One part of the reference library: the model library's models of that kind and the reference library's folder.
+    Foundation: root metamodels; Common systems: reference models with no industry; Industry: reference models of an
+    industry; the Organisation's own: reference models the organisation made."""
+    name = REF_PARTS.get(part)
+    if not name:
+        raise EditError("Foundation, common, industry or own.", 404)
+    models = _rows(pj.core(conn), """SELECT guid::text AS id, name, kind_code AS kind, coalesce(industry, '') AS industry, created_by, description
+                                       FROM core.models WHERE kind_code IN ('template', 'reference') AND NOT is_deleted
+                                        AND coalesce(library_state, 'published') <> 'withdrawn' ORDER BY name""")
+    pick = {"foundation": lambda m: m["kind"] == "template",
+            "common": lambda m: m["kind"] == "reference" and not m["industry"] and m["created_by"] in SEEDED,
+            "industry": lambda m: m["kind"] == "reference" and bool(m["industry"]) and m["created_by"] in SEEDED,
+            "own": lambda m: m["kind"] == "reference" and m["created_by"] not in SEEDED}[part]
+    from . import reference_library as rl
+    try:
+        docs = rl.browse(conn, user, name, deep=True)
+    except EditError:
+        docs = {"entries": [], "folders": []}
+    return {"part": part, "name": name, "models": [m for m in models if pick(m)], "folder": name, "documents": docs}

@@ -924,8 +924,15 @@ def _principle_vals(d: dict) -> dict:
     name = (d.get("name") or "").strip()
     if not name:
         raise EditError("Give the principle a name.")
+    ref = (d.get("refines") or "").strip() or None
+    if ref:
+        import uuid as _uuid
+        try:
+            ref = str(_uuid.UUID(ref))
+        except ValueError as e:
+            raise EditError("Refines: choose a principle.") from e
     return {"n": name[:200], "a": (d.get("area") or "").strip()[:80], "c": (d.get("code") or "").strip()[:20],
-            "s": clean_html(d.get("statement")), "r": clean_html(d.get("rationale")), "i": clean_html(d.get("implications"))}
+            "s": clean_html(d.get("statement")), "r": clean_html(d.get("rationale")), "i": clean_html(d.get("implications")), "ref": ref}
 
 
 def add_principle(conn, project: Any, user, d: dict) -> dict:
@@ -935,11 +942,13 @@ def add_principle(conn, project: Any, user, d: dict) -> dict:
     need(conn, p, user, "contribute")
     v = _principle_vals(d)
     # in the Organisation base every principle binds the projects below it (phase 13.1, D304)
+    # in a base, a principle is enforced (mandatory below it) or optional (D327); a project's own never binds others
+    mand = bool(p.get("base_kind")) and bool(d.get("mandatory", True))
     r = _one(conn, """INSERT INTO proj.principles (project_id, code, name, statement, rationale, implications, area, created_by, mandatory,
-                                                   sort_order)
-                      VALUES (:p, :c, :n, :s, :r, :i, :a, :u, :m, (SELECT coalesce(max(sort_order), 0) + 1 FROM proj.principles
+                                                   refines, sort_order)
+                      VALUES (:p, :c, :n, :s, :r, :i, :a, :u, :m, CAST(:ref AS uuid), (SELECT coalesce(max(sort_order), 0) + 1 FROM proj.principles
                                                                      WHERE project_id = :p)) RETURNING id""",
-             **v, p=p["id"], u=user.username, m=bool(p.get("base_kind")))
+             **v, p=p["id"], u=user.username, m=mand)
     return {"id": r["id"], "message": f"Principle {v['n']} added{(' under ' + v['a']) if v['a'] else ''}."}
 
 
@@ -961,9 +970,13 @@ def update_principle(conn, project: Any, user, pid: int, d: dict) -> dict:
     r = _own_principle(conn, p, pid)
     if r["library_id"] and any(k in d for k in ("name", "statement", "rationale", "implications")):
         raise EditError("A principle from the library keeps its words; only its area can be changed here.", 409)
-    v = _principle_vals({**{k: r[k] for k in ("name", "area", "code", "statement", "rationale", "implications")}, **d})
-    conn.execute(text("""UPDATE proj.principles SET code = :c, name = :n, statement = :s, rationale = :r, implications = :i, area = :a
-                          WHERE id = :id"""), {**v, "id": r["id"]})
+    v = _principle_vals({**{k: r[k] for k in ("name", "area", "code", "statement", "rationale", "implications")},
+                         "refines": str(r["refines"]) if r.get("refines") else "", **d})
+    if v["ref"] and v["ref"] in (str(r.get("guid")), str(r.get("origin_guid"))):
+        raise EditError("A principle cannot refine itself.")
+    mand = bool(d["mandatory"]) if "mandatory" in d and p.get("base_kind") else r["mandatory"]
+    conn.execute(text("""UPDATE proj.principles SET code = :c, name = :n, statement = :s, rationale = :r, implications = :i, area = :a,
+                                refines = CAST(:ref AS uuid), mandatory = :m WHERE id = :id"""), {**v, "m": mand, "id": r["id"]})
     return {"id": pid, "message": f"Principle {v['n']} saved."}
 
 
@@ -972,7 +985,28 @@ def delete_principle(conn, project: Any, user, pid: int) -> dict:
     need(conn, p, user, "contribute")
     r = _own_principle(conn, p, pid)
     conn.execute(text("DELETE FROM proj.principles WHERE id = :i"), {"i": r["id"]})
+    if r.get("origin_guid"):        # an optional one from the base: not offered again (the Base tab can bring it back)
+        conn.execute(text("""INSERT INTO proj.base_skips (project_id, kind, origin_guid, skipped_by) VALUES (:p, 'principle', :g, :u)
+                             ON CONFLICT DO NOTHING"""), {"p": p["id"], "g": r["origin_guid"], "u": user.username})
     return {"message": f"Principle {r['name']} taken out of the project."}
+
+
+def principle_area(conn, project: Any, user, name: str, remove: bool = False) -> dict:
+    """A top-level area for principles (Business, Security, Data, AI...), added before it has principles (D327)."""
+    p = pj.project_row(conn, project)
+    need(conn, p, user, "contribute")
+    n = " ".join((name or "").split())[:80]
+    if not n:
+        raise EditError("Name the area.")
+    if remove:
+        if _one(conn, "SELECT 1 AS x FROM proj.principles WHERE project_id = :p AND area = :a", p=p["id"], a=n):
+            raise EditError(f"{n} still has principles: move them first.", 409)
+        conn.execute(text("DELETE FROM proj.principle_areas WHERE project_id = :p AND name = :a"), {"p": p["id"], "a": n})
+        return {"message": f"Area {n} removed."}
+    conn.execute(text("""INSERT INTO proj.principle_areas (project_id, name, sort_order, added_by)
+                         VALUES (:p, :a, (SELECT coalesce(max(sort_order), 0) + 1 FROM proj.principle_areas WHERE project_id = :p), :u)
+                         ON CONFLICT DO NOTHING"""), {"p": p["id"], "a": n, "u": user.username})
+    return {"message": f"Area {n} added."}
 
 
 # ---------------------------------------------------------------- sign-off requests in the requests boxes (owner, 8 Nov 2026)

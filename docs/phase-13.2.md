@@ -1,30 +1,29 @@
-# Phase 13.2 — Tracking sheets (requested, for later)
+# Phase 13.2: tracking sheets (D325)
 
-Status: **requested for later** (owner, 8 Nov 2026). Not designed or built yet; discuss before building.
+**Accepted and closed by the owner, 8 Nov 2026 (D337).**
 
-## The ask, in the owner's words (summarised)
-People sometimes want to keep data in a sheet, an application portfolio for example, without the rigour of a
-metamodel. These sheets:
+## Status: built (8 Nov 2026), waiting for the owner's test
 
-- live at **project level** and at **organisation level**;
-- are **defined**, **uploaded** from Excel and **downloaded** as Excel;
-- have **no hard schema rules**: the sheet's columns are whatever was uploaded, and fields can be **added on the fly**;
-- are **saved in the database**, and can be **edited in place** or downloaded;
-- have **basic filters** in the web: filter the rows by column values (owner, 8 Nov 2026);
-- **do not affect quality** (no validation rules, no data-quality scores);
-- may later be **promoted to metamodel entities** (not part of this ask: "nothing more for now").
+Light sheets kept without the rigour of a metamodel: an application portfolio, vendors, costs. `eax/tracking_sheets.py`
+(not `eax/sheets.py`, which is the metamodel's import and export sheets of phase 10.1), `TrackingSheets.jsx`; tables
+proj.sheets and proj.sheet_rows (migration 0032); routes `/api/v1/tracking-sheets/<org|project>...`.
 
-## Questions to settle when it is built
-- Who may create, change and delete a sheet at each level (project roles; Super Admin at organisation level)?
-- Does a re-upload replace the rows, add to them, or match rows by a key column?
-- Filters: a text filter per column and a pick of a column's values; sorting by a column; does a download take the
-  filtered rows or all of them?
-- Column types: all text, or types guessed from the upload (number, date) and changeable?
-- Several tabs in one workbook: one sheet each, or one sheet with tabs?
-- History: keep earlier versions of a sheet, or only the latest?
-- Where they show: a tab on the project, an item under Architecture work or the Enterprise Repository (13.0.9)?
-- Promotion to metamodel entities later: map columns to an entity type's attributes (a separate phase).
+## Decided (owner, 8 Nov 2026)
+- A **Sheets** tab on each project (anyone who contributes creates, edits and deletes) and the organisation's sheets on
+  Repository › tracking sheets (Super Admins and Library Admins; everyone reads).
+- Uploading again: chosen each time: replace every row, add the rows, or update the rows matched on a key column (the
+  others added). Columns in the file the sheet lacks are added.
+- Every value is text; only the first tab of a workbook is read; only the latest version is kept.
+- Filters: a filter and a pick of values per column, a search over every column, sorting by a column; the download is
+  every row or the filtered ones.
+- No data quality; not promoted to entities (later, if asked).
 
-## Not in this request
-- Promoting rows to metamodel entities.
-- Quality rules, checks or scores on sheets.
+## Test steps
+1. `.\eax clean-restart`, Ctrl+F5.
+2. Karoo Re cloud migration (sample) › **Sheets**: open *Application portfolio (working list)*: filter TIME = Migrate,
+   type in a column's filter, sort by Annual cost, search; ⬇ Filtered rows and ⬇ Excel.
+3. Edit a cell (saved when you leave it), ＋ Row, ＋ Column, a column's ⋯ (rename, move, remove), tick rows › Delete.
+4. ⬆ Upload… a workbook: Add, then Update on the Application column, then Replace.
+5. ⬆ From Excel or CSV… makes a new sheet from a file.
+6. Repository › tracking sheets: *Vendor contracts*; as an architect you can read it but not change it.
+7. As a Stakeholder on the project, the sheets are read only.

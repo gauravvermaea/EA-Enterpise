@@ -8,6 +8,7 @@ the `eax` commands (backups and restores included) and the phase table.
 | Document | What it covers |
 | --- | --- |
 | [README](../README.md) | Quick start on a laptop, the `eax` commands, the work folder, certificates, the phase table |
+| [Command line and console](command-line-and-console.md) | Every `eax` command in detail, and the console (`eax console`) item by item: for getting EA Explorer back up |
 | [Operations](operations.md) | Health, services on and off, backups and restores (console and command line), the maintenance page, upgrades, logs and diagnostics |
 | [Licences](licences.md) | The open-source components EA Explorer uses and their licences |
 | [CI](../ci/README.md) | The checks and tests run on every change |
@@ -71,12 +72,14 @@ Every phase in detail, with versions and the planned ones: [build-phases.md](bui
 | 13.0.2 | [Every slow button as a background task, the task drawer](phase-13.0.2.md) | closed |
 | 13.0.7 | [Content framework, tagging, architecture repository links, project organisation, tasks](phase-13.0.7.md) | closed |
 | 13.0.8 | [The organisation's reference library](phase-13.0.8.md) | closed |
-| 13.0.9 | [The Architecture Repository structure](phase-13.0.9.md) | planned: its own design session first |
+| 13.0.9 | [The Architecture Repository: calendars, board, performance measurement, reference library parts](phase-13.0.9.md) | closed |
 | 13.1 | [Project bases, TOGAF 10 metamodel, standards, governance log, charter; the documents table, repository tags, the Phases tab](phase-13.1.md) | closed |
-| 13.2 | [Tracking sheets: light sheets at project and organisation level, Excel in and out](phase-13.2.md) | requested for later |
-| 13.3 | [Turn Projects, Repository and References on or off: a lighter, metamodel-only application](phase-13.3.md) | requested for later |
-| 13.4 | [Reference library with pages: an open-source wiki beside links and documents](phase-13.4.md) | requested for later |
-| 13.5 | [A console app: an interactive session with EA Explorer](phase-13.5.md) | requested for later |
-| 13.6 | [Load balancing: servers go up and down with the load](phase-13.6.md) | requested for later |
-| 13.7 | [Real-time mirrors of PostgreSQL and the other servers](phase-13.7.md) | requested for later |
-| 13.8 | [More sample projects and models that show how to use EA Explorer](phase-13.8.md) | requested for later |
+| 13.2 | [Tracking sheets: light sheets at project and organisation level, Excel in and out](phase-13.2.md) | closed |
+| 13.3 | [Turn Projects, Repository and References on or off: a lighter, metamodel-only application](phase-13.3.md) | closed |
+| 13.5 | [The console: eax console](phase-13.5.md) | closed |
+| 13.8 | [Sample content for the sample projects and the organisation](phase-13.8.md) | closed |
+| 13.9 | [The eax command in Python, run by uv](phase-13.9.md) | closed |
+| 15.2 | [Reference library with pages: an open-source wiki beside links and documents](phase-15.2.md) | requested for later |
+| 15.3 | [Business architecture artifacts: canvases as views of the model, with gaps](phase-15.3.md) | design session half done |
+| story | [Load balancing: servers go up and down with the load](story-load-balancing.md) (production deployment, phase 36) | later |
+| story | [Real-time mirrors of PostgreSQL and the other servers](story-real-time-mirrors.md) (production deployment, phase 36) | later |

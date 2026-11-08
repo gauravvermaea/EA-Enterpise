@@ -261,7 +261,9 @@ export function ProjectBackupPanel({ p }) {
         <tbody>{list.map((b) => (
           <tr key={b.file}>
             <td>{b.created ? fmtStamp(b.created) : b.file}
-              {b.documents_missing?.length > 0 && <div className="bad-text">{b.documents_missing.length} document files missing</div>}</td>
+              {b.documents_missing?.length > 0 && <div className="bad-text">{b.documents_missing.length} document files missing</div>}
+              {b.upgrade?.length > 0 && <div className="small quiet" title="Restoring it runs the upgrade steps, as the database's migrations do">
+                from EA Explorer {b.version}: upgraded to {b.upgrade[b.upgrade.length - 1]} on restore</div>}</td>
             <td>{b.by}</td><td className="num">{b.counts?.documents ?? ""}</td>
             <td>{(b.models || []).filter((m) => !m.error).map((m) => m.name).join(", ")}</td>
             <td className="nowrap">

@@ -34,7 +34,7 @@ def test_project_tabs():
 def test_backup_restore_and_tasks():
     for k in ("project.backup", "project.restore", "project.repository"):
         assert k in bg.WORK and k in bg.KINDS
-    assert pb.FORMAT == "eax-project-backup/1" and pb.SUFFIX == ".eaxproject.zip"
+    assert pb.FORMAT == "eax-project-backup/2" and pb.SUFFIX == ".eaxproject.zip"
     tables = [t for t, _w, _m in pb.TABLES]
     for t in ("members", "items", "steps", "documents", "document_events", "signoff_requests", "signoff_decisions"):
         assert t in tables

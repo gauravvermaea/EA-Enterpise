@@ -262,3 +262,53 @@ def test_admins_see_everything_outside_a_project():
     assert not orp.may_see_all_users(U(["user"]))
     web = (WEB / "ArchitectureRepository.jsx").read_text()
     assert "function AllUsers" in web and "/api/v1/people" in web and "archrepo" in web
+
+
+def test_calendars_and_repository_parts():
+    """D324: calendars (repeats, skips, iCalendar), the board, measures, the reference library's parts."""
+    from datetime import date
+
+    from eax import calendars as cl
+    from eax import org_repository as orp
+    ev = {"starts_on": date(2026, 11, 2), "repeat": "weekly", "weekdays": [0, 3], "times": 4, "until_on": None, "skipped": [date(2026, 11, 5)]}
+    assert cl.occurrences(ev, date(2026, 11, 1), date(2026, 12, 31)) == [date(2026, 11, 2), date(2026, 11, 9), date(2026, 11, 12)]
+    m = {"starts_on": date(2026, 1, 31), "repeat": "monthly", "until_on": date(2026, 6, 30), "times": None, "skipped": []}
+    assert cl.occurrences(m, date(2026, 1, 1), date(2026, 12, 31)) == [date(2026, 1, 31), date(2026, 3, 31), date(2026, 5, 31)]
+    once = {"starts_on": date(2026, 11, 9), "repeat": "none", "until_on": None, "times": None, "skipped": []}
+    assert cl.occurrences(once, date(2026, 11, 1), date(2026, 11, 30)) == [date(2026, 11, 9)]
+    with pytest.raises(EditError):
+        cl._vals({"topic": "", "starts_on": "2026-11-09"})
+    body = cl.ics(None, "org", "Org", [{"id": "x", "topic": "Board, monthly", "starts_on": date(2026, 11, 12), "at_time": None, "minutes": 60, "notes": "",
+                                        "repeat": "weekly", "weekdays": [0], "until_on": None, "times": 3, "skipped": []}])
+    assert "BEGIN:VCALENDAR" in body and "SUMMARY:Board\\, monthly" in body and "RRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=3" in body
+    assert set(orp.REF_PARTS) == {"foundation", "common", "industry", "own"}
+    sql = (ROOT / "migrations" / "sql" / "0032_repository_tags.sql").read_text()
+    for x in ("CREATE TABLE proj.cal_events", "CREATE TABLE proj.cal_feeds", "CREATE TABLE proj.board_members", "'Foundation architectures'"):
+        assert x in sql
+    api = (ROOT / "eax" / "api" / "projects.py").read_text()
+    for x in ('"/calendars/<string:cal>"', '"/calendar-feed/<string:token>.ics"', '"/repository/board"', '"/repository/measures/<string:what>"'):
+        assert x in api
+    web = (WEB / "ArchitectureRepository.jsx").read_text()
+    for x in ("#/repository/calendar", "#/repository/board", "#/repository/measures", "#/repository/reference/foundation", "standards?group=Business"):
+        assert x in web
+    assert "<CalendarView cal={p.id} />" in (WEB / "Projects.jsx").read_text()
+
+
+def test_tracking_sheets_and_sample_content():
+    """D325, D326."""
+    from eax import tracking_sheets as ts
+    cols, rows = ts.read_file("x.csv", b"Application,Cost\nClaims,10\n,\nBilling,5\n")
+    assert cols == ["Application", "Cost"] and rows == [{"Application": "Claims", "Cost": "10"}, {"Application": "Billing", "Cost": "5"}]
+    assert ts._cols(["A", "A", "", None]) == ["A", "A (2)", "Column 3", "Column 4"]
+    assert ts._cell(1200.0) == "1200" and ts._cell(None) == ""
+    with pytest.raises(EditError):
+        ts.read_file("x.txt", b"a")
+    sql = (ROOT / "migrations" / "sql" / "0032_repository_tags.sql").read_text()
+    assert "CREATE TABLE proj.sheets" in sql and "CREATE TABLE proj.sheet_rows" in sql
+    assert (ROOT / "eax" / "sheets.py").read_text().startswith('"""Import and export sheets')      # phase 10.1 untouched
+    later = (ROOT / "eax" / "seed" / "later.py").read_text()
+    assert "sample_content" in later
+    sc = (ROOT / "eax" / "seed" / "sample_content.py").read_text()
+    for x in ("send_for_approval", "approve_with_evidence", '"rejected"', "board_set", "cl.add", "ts.create", "add_link"):
+        assert x in sc
+    assert "<TrackingSheets scope={p.id} />" in (WEB / "Projects.jsx").read_text()

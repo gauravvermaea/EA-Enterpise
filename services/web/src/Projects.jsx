@@ -9,7 +9,7 @@
 import PinButton from "./PinButton";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import AdmWheel from "./AdmWheel";
-import { apiDownload, apiFetch, apiUpload, roles } from "./auth";
+import { apiDownload, apiFetch, apiUpload, partOn, roles } from "./auth";
 import { fmtDate, fmtDateTime } from "./fmt";
 import { refreshAll, useApi } from "./ModelViews";
 import RichText from "./RichText";
@@ -27,6 +27,8 @@ import { BaseBanner, BaseTab, BasesTree, CharterTab, GovernanceTab, StandardsTab
 import { LinkDialog, LinkName, ReferenceStep, ReferenceTab } from "./References";
 import { TemplateSetup } from "./TemplateSetup";
 import { ProjectQuality } from "./Quality";
+import { CalendarView } from "./Calendar";
+import { TrackingSheets } from "./TrackingSheets";
 import { TemplateBrowserDialog } from "./TemplateBrowser";
 import { ProjectBackupPanel, ProjectCompare, ProjectGaps, ProjectReports, RestoreProjectFile, ViewpointsByPhase } from "./ProjectTabs";
 
@@ -55,7 +57,7 @@ const subPhases = (code) => (code === "C" ? ["C", "C-D", "C-A"] : [code]);
 export function ProjectAdmin({ route }) {
   const parts = route.replace(/^#\/project-admin\/?/, "").split("?")[0].split("/").filter(Boolean);
   const tab = parts[0] === "library" ? "library" : parts[0] === "templates" ? "templates" : parts[0] === "libprojects" ? "libprojects"
-    : parts[0] === "list" ? "projects" : parts[0] === "bases" ? "bases" : parts[0] === "template-setup" ? "tsetup" : parts[0] ? "one" : "wizards";
+    : parts[0] === "list" ? "projects" : parts[0] === "bases" ? "bases" : parts[0] === "template-setup" ? "tsetup" : parts[0] === "principles" ? "principles" : parts[0] ? "one" : "wizards";
   return (
     <div className="page">
       <h1>Project admin</h1>
@@ -67,6 +69,7 @@ export function ProjectAdmin({ route }) {
         <a href="#/project-admin/templates" className={`tab${tab === "templates" ? " on" : ""}`}>Project templates</a>
         <a href="#/project-admin/library" className={`tab${tab === "library" ? " on" : ""}`}>Project content template library</a>
         <a href="#/project-admin/template-setup" className={`tab${tab === "tsetup" ? " on" : ""}`}>Template setup</a>
+        <a href="#/project-admin/principles" className={`tab${tab === "principles" ? " on" : ""}`}>Principles</a>
       </div>}
       <div className="tab-panel">
         {tab === "wizards" && <ProjectWizards />}
@@ -76,6 +79,7 @@ export function ProjectAdmin({ route }) {
         {tab === "libprojects" && <LibraryProjects />}
         {tab === "bases" && <BasesTree />}
         {tab === "tsetup" && <TemplateSetup />}
+        {tab === "principles" && <OrgPrinciples />}
         {tab === "one" && <AdminProject id={parts[0]} />}
       </div>
     </div>
@@ -96,6 +100,20 @@ const PROJECT_WIZARDS = [
 
 // the organisation-wide architecture charter (owner, 8 Nov 2026, D319): in the Organisation base, filled in from the seed,
 // a draft until a Super Admin approves it; each project keeps its own charter page, started from it
+// Project admin › Principles (D327): the organisation's principles, kept in the Organisation base by Super Admins
+function OrgPrinciples() {
+  const { data: sum } = useApi("/api/v1/repository/summary");
+  const { data: p, error } = useApi(sum?.org_base ? `/api/v1/projects/${sum.org_base.id}` : null);
+  if (error) return <p className="status bad">{error}</p>;
+  if (!p) return <p className="quiet">Loading...</p>;
+  return (
+    <div>
+      <p className="small">Kept in the <a href={`#/projects/${p.id}/principles`}>Organisation base</a>; Super Admins change them.</p>
+      <PrinciplesTab p={p} />
+    </div>
+  );
+}
+
 function OrgCharterCard() {
   const { data } = useApi("/api/v1/repository/summary");
   if (!data?.org_base) return null;
@@ -1760,7 +1778,7 @@ function Review({ d, lib, purpose, problems }) {
 // phase 13.1 (D303 to D307): Base, Charter, Standards, Governance log
 const TABS = [["home", "Home"], ["phases", "Phases"], ["report", "Project report"], ["base", "Base"], ["charter", "Charter"], ["archrepo", "Enterprise Repository (Project Scope)"], ["content", "Content framework"],
   ["tasks", "Tasks"], ["models", "Models"], ["organisation", "Organisation"], ["stakeholders", "Stakeholders"], ["principles", "Principles"],
-  ["standards", "Standards"], ["governance", "Governance log"], ["reference", "Reference"], ["viewpoints", "Viewpoints"], ["reports", "Model reports"], ["quality", "Quality"],
+  ["standards", "Standards"], ["governance", "Governance log"], ["reference", "Reference"], ["viewpoints", "Viewpoints"], ["reports", "Model reports"], ["quality", "Quality"], ["calendar", "Calendar"], ["sheets", "Sheets"],
   ["analysis", "Gaps and comparison"], ["signoff", "Sign-off"]];
 
 function ProjectPage({ id, tab }) {
@@ -1801,7 +1819,7 @@ function ProjectPage({ id, tab }) {
         catch (e) { setMsg(e.message); }
       } : null} />
       <div className="tabs" role="tablist">
-        {TABS.map(([k, l]) => <a key={k} href={`#/projects/${id}/${k}`} className={`tab${tab === k ? " on" : ""}`}>{l}{k === "signoff" && mine ? ` (${mine})` : ""}</a>)}
+        {TABS.filter(([k]) => (k !== "archrepo" || partOn("repository")) && (k !== "reference" || partOn("references"))).map(([k, l]) => <a key={k} href={`#/projects/${id}/${k}`} className={`tab${tab === k ? " on" : ""}`}>{l}{k === "signoff" && mine ? ` (${mine})` : ""}</a>)}
       </div>
       <div className="tab-panel">
         {["home", "about", "overview"].includes(tab) && <Landing p={p} />}
@@ -1823,6 +1841,8 @@ function ProjectPage({ id, tab }) {
         {tab === "standards" && <StandardsTab p={p} />}
         {tab === "governance" && <GovernanceTab p={p} />}
         {tab === "quality" && <ProjectQuality p={p} />}
+        {tab === "calendar" && <CalendarView cal={p.id} />}
+        {tab === "sheets" && <TrackingSheets scope={p.id} />}
         {tab === "models" && <ProjectModels p={p} />}
         {["analysis", "gaps", "compare"].includes(tab) && <AnalysisTab p={p} start={tab} />}
       </div>
@@ -3266,45 +3286,86 @@ function FinishDialog({ p, onClose }) {
 const richOrPlain = (v) => (/^\s*</.test(v || "") ? <div className="rich-view" dangerouslySetInnerHTML={{ __html: v }} />
   : <div style={{ whiteSpace: "pre-line" }}>{v}</div>);
 
-function PrinciplesTab({ p }) {
+// A project's principles (owner, 8 Nov 2026, D327): a grid by area (Business, Security, Data...), each principle with its
+// statement, rationale and implications; one that refines a higher-level principle is nested under it. The
+// organisation's set lives in the Organisation base: enforced ones (🔒) are in every project and cannot be taken out;
+// optional ones come too and a project may take them out; a project adds its own. In a base, a Super Admin sets each
+// principle enforced or optional and adds areas.
+export function PrinciplesTab({ p }) {
   const [dlg, setDlg] = useState(null);
   const [msg, setMsg] = useState("");
+  const [shut, setShut] = useState(() => new Set());
   const can = p.may_contribute && !p.frozen;
-  const areas = [...new Set(p.principles.map((r) => r.area || ""))].sort((a, b) => (a || "~").localeCompare(b || "~"));
-  async function remove(r) {
-    // eslint-disable-next-line no-alert
-    if (!window.confirm(`Take the principle ${r.name} out of the project?`)) return;
-    try { const out = await apiFetch(`/api/v1/projects/${p.id}/principles/${r.id}`, { method: "DELETE" }); setMsg(out.message); refreshAll(); }
-    catch (e) { setMsg(e.message); }
+  const isBase = !!p.base_kind;
+  const all = p.principles;
+  const byKey = {};
+  for (const r of all) { if (r.guid) byKey[r.guid] = r; if (r.origin_guid) byKey[r.origin_guid] = r; }
+  const parentOf = (r) => (r.refines && byKey[r.refines] && byKey[r.refines] !== r ? byKey[r.refines] : null);
+  const areas = [...new Set([...(p.principle_area_list || []), ...all.map((r) => r.area || "")])].filter((a) => a !== undefined);
+  const ordered = areas.sort((x, y) => (x || "~").localeCompare(y || "~"));
+  async function call(url, opts) {
+    try { const out = await apiFetch(url, opts); setMsg(out.message); refreshAll(); } catch (e) { setMsg(e.message); }
   }
+  function remove(r) {
+    // eslint-disable-next-line no-alert
+    if (!window.confirm(`Take the principle ${r.name} out of the ${isBase ? "base" : "project"}?`)) return;
+    call(`/api/v1/projects/${p.id}/principles/${r.id}`, { method: "DELETE" });
+  }
+  const addArea = () => {
+    // eslint-disable-next-line no-alert
+    const n = window.prompt("The new area's name (e.g. Business, Security, Data, AI)");
+    if (n && n.trim()) call(`/api/v1/projects/${p.id}/principle-areas`, { method: "POST", body: JSON.stringify({ name: n }) });
+  };
+  const from = (r) => (isBase ? (r.mandatory ? "🔒 enforced in every project below" : "optional below")
+    : r.from_base && r.mandatory ? "🔒 enforced by the organisation" : r.from_base ? "optional, from the organisation"
+      : r.inherited_from ? `inherited from ${r.inherited_from}` : r.library_id ? "library" : `the project's own (${r.created_by})`);
+  const locked = (r) => r.inherited_from || (!isBase && r.from_base && r.mandatory);
+  const row = (r, depth) => {
+    const kids = all.filter((k) => parentOf(k) === r && (k.area || "") === (r.area || ""));
+    const open = !shut.has(r.id);
+    return [
+      <tr key={r.id} className={depth ? "principle-child" : ""}>
+        <td style={{ paddingLeft: 8 + depth * 22 }}>
+          {kids.length > 0 && <button className="linkish small" aria-expanded={open} onClick={() => { const n = new Set(shut); if (open) n.add(r.id); else n.delete(r.id); setShut(n); }}>{open ? "▾" : "▸"}</button>}
+          {depth > 0 && <span className="quiet">↳ </span>}<b>{r.name}</b>{r.code && <div className="small quiet">{r.code}</div>}
+          {parentOf(r) && (parentOf(r).area || "") !== (r.area || "") && <div className="small quiet">refines {parentOf(r).name} ({parentOf(r).area || "Other"})</div>}</td>
+        <td className="small">{richOrPlain(r.statement)}</td><td className="small">{richOrPlain(r.rationale)}</td>
+        <td className="small">{richOrPlain(r.implications)}</td>
+        <td className="small">{from(r)}</td>
+        {can && <td className="small nowrap">{!locked(r) && <>
+          <button className="linkish" onClick={() => setDlg(r)}>Change</button>{" · "}
+          {isBase && p.is_super && <><button className="linkish" onClick={() => call(`/api/v1/projects/${p.id}/principles/${r.id}`, { method: "PUT", body: JSON.stringify({ mandatory: !r.mandatory }) })}>
+            {r.mandatory ? "Make optional" : "Enforce"}</button>{" · "}</>}
+          <button className="linkish" onClick={() => remove(r)}>Take out</button></>}
+          {can && <>{!locked(r) && " · "}<button className="linkish" onClick={() => setDlg({ area: r.area, refines: r.guid })}>＋ Refine it</button></>}</td>}
+      </tr>,
+      ...(open ? kids.flatMap((k) => row(k, depth + 1)) : []),
+    ];
+  };
   return (
     <div>
-      <p className="quiet">The principles this project works to, by area (Business, Data, Application, Technology, Security, or a group of your own,
-        such as AI). Those from the project's base are mandatory (🔒); the project adds its own at any time.</p>
+      <p className="quiet">{isBase
+        ? "The organisation's principles, by area. Enforced ones (🔒) are in every project below and cannot be taken out there; optional ones come to every new project, which may take them out. A principle may refine a higher-level one: it is shown under it."
+        : "The principles this project works to, by area. Those the organisation enforces are locked (🔒; ask for a dispensation in the governance log); optional ones from the organisation may be taken out; the project adds its own, and may refine any of them."}</p>
       {msg && <p className="small status">{msg}</p>}
-      {can && <button className="primary" onClick={() => setDlg({})}>＋ Add a principle</button>}
-      {!p.principles.length && <p className="quiet">No principles on this project yet.</p>}
-      {areas.map((area) => (
-        <section key={area} className="principle-area">
-          <h3>{area || "Other"} <span className="small quiet">{p.principles.filter((r) => (r.area || "") === area).length}</span></h3>
-          <table className="grid-table principle-grid">
-            <thead><tr><th>Principle</th><th>Statement</th><th>Rationale</th><th>Implications</th><th>From</th>{can && <th />}</tr></thead>
-            <tbody>
-              {p.principles.filter((r) => (r.area || "") === area).map((r) => (
-                <tr key={r.id}>
-                  <td><b>{r.name}</b>{r.code && <div className="small quiet">{r.code}</div>}</td>
-                  <td className="small">{richOrPlain(r.statement)}</td><td className="small">{richOrPlain(r.rationale)}</td>
-                  <td className="small">{richOrPlain(r.implications)}</td>
-                  <td className="small">{r.from_base && r.mandatory ? <span title="From the project's base: it binds this project (a dispensation goes in the governance log)">🔒 mandatory, from the base</span>
-                    : r.inherited_from ? `inherited from ${r.inherited_from}` : r.library_id ? "library" : `the project's own (${r.created_by})`}</td>
-                  {can && <td className="small nowrap">{!r.inherited_from && !(r.from_base && r.mandatory && !p.base_kind) && <><button className="linkish" onClick={() => setDlg(r)}>Change</button>
-                    {" · "}<button className="linkish" onClick={() => remove(r)}>Take out</button></>}</td>}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-      ))}
+      {can && <div className="row-gap"><button className="primary" onClick={() => setDlg({})}>＋ Add a principle</button>
+        <button onClick={addArea}>＋ Add an area</button></div>}
+      {!all.length && !ordered.length && <p className="quiet">No principles yet.</p>}
+      {ordered.map((area) => {
+        const here = all.filter((r) => (r.area || "") === area);
+        const tops = here.filter((r) => !parentOf(r) || (parentOf(r).area || "") !== area);
+        return (
+          <section key={area || "~"} className="principle-area">
+            <h3>{area || "Other"} <span className="small quiet">{here.length}</span>
+              {can && <button className="linkish small" onClick={() => setDlg({ area })}>＋ add here</button>}
+              {can && !here.length && area && <button className="linkish small" onClick={() => call(`/api/v1/projects/${p.id}/principle-areas`, { method: "POST", body: JSON.stringify({ name: area, remove: true }) })}>remove the area</button>}</h3>
+            {here.length ? <table className="grid-table principle-grid">
+              <thead><tr><th>Principle</th><th>Statement</th><th>Rationale</th><th>Implications</th><th>{isBase ? "Below" : "From"}</th>{can && <th />}</tr></thead>
+              <tbody>{tops.flatMap((r) => row(r, 0))}</tbody>
+            </table> : <p className="small quiet">No principles in this area yet.</p>}
+          </section>
+        );
+      })}
       {dlg && <PrincipleDialog p={p} r={dlg} onClose={(m) => { setDlg(null); if (m) setMsg(m); }} />}
     </div>
   );
@@ -3312,7 +3373,9 @@ function PrinciplesTab({ p }) {
 
 function PrincipleDialog({ p, r, onClose }) {
   const lib = !!r.library_id;
-  const [f, setF] = useState({ name: r.name || "", area: r.area || "", code: r.code || "", statement: r.statement || "", rationale: r.rationale || "", implications: r.implications || "" });
+  const [f, setF] = useState({ name: r.name || "", area: r.area || "", code: r.code || "", statement: r.statement || "", rationale: r.rationale || "",
+    implications: r.implications || "", refines: r.refines || "", ...(p.base_kind && !r.id ? { mandatory: true } : {}) });
+  const others = p.principles.filter((x) => x.id !== r.id);
   const [err, setErr] = useState("");
   const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
   const asHtml = (v) => (/^\s*</.test(v) ? v : v ? `<p>${v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/\n/g, "<br>")}</p>` : "");
@@ -3320,12 +3383,12 @@ function PrincipleDialog({ p, r, onClose }) {
     setErr("");
     try {
       const out = await apiFetch(r.id ? `/api/v1/projects/${p.id}/principles/${r.id}` : `/api/v1/projects/${p.id}/principles`,
-        { method: r.id ? "PUT" : "POST", body: JSON.stringify(lib ? { area: f.area } : f) });
+        { method: r.id ? "PUT" : "POST", body: JSON.stringify(lib ? { area: f.area, refines: f.refines } : f) });
       refreshAll(); onClose(out.message);
     } catch (e) { setErr(e.message); }
   }
   return (
-    <Modal title={r.id ? `Change ${r.name}` : "Add a principle"} onClose={() => onClose()} wide
+    <Modal title={r.id ? `Change ${r.name}` : r.refines ? "A principle that refines another" : "Add a principle"} onClose={() => onClose()} wide
       actions={<><button onClick={() => onClose()}>Cancel</button><button className="primary" disabled={!f.name.trim()} onClick={save}>Save</button></>}>
       <div className="ed-form">
         {lib && <p className="small quiet">A principle from the library keeps its words: only its area can be changed here.</p>}
@@ -3333,6 +3396,12 @@ function PrincipleDialog({ p, r, onClose }) {
           <input list="principle-areas" value={f.area} onChange={(e) => set("area", e.target.value)} />
           <datalist id="principle-areas">{(p.principle_areas || []).map((a) => <option key={a} value={a} />)}</datalist></Field>
         <Field label="Name"><input value={f.name} disabled={lib} onChange={(e) => set("name", e.target.value)} autoFocus /></Field>
+        <Field label="Refines" hint="(optional: the higher-level principle this one makes more specific)">
+          <select value={f.refines} onChange={(e) => set("refines", e.target.value)}>
+            <option value="">nothing: a top-level principle</option>
+            {others.map((x) => <option key={x.id} value={x.origin_guid || x.guid}>{x.area ? `${x.area}: ` : ""}{x.name}</option>)}</select></Field>
+        {p.base_kind && !r.id && <label className="small"><input type="checkbox" checked={!!f.mandatory} onChange={(e) => set("mandatory", e.target.checked)} /> Enforced in every
+          project below (otherwise optional: a project may take it out)</label>}
         <Field label="Code" hint="(optional)"><input value={f.code} disabled={lib} onChange={(e) => set("code", e.target.value)} /></Field>
         {lib ? <>{richOrPlain(f.statement)}</> : <>
           <Field label="Statement"><RichText value={asHtml(f.statement)} onChange={(v) => set("statement", v)} placeholder="What the principle says" /></Field>

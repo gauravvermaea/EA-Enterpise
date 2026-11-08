@@ -1,7 +1,8 @@
 # Phase 13.0.9: the Architecture Repository structure (planned, D301)
 
-**State:** asked for by the owner (8 Nov 2026) as a full phase of its own, built separately and designed first.
-Nothing is built yet.
+**Accepted and closed by the owner, 8 Nov 2026 (D337).**
+
+**State:** built (8 Nov 2026, D324), waiting for the owner's test.
 
 ## What the owner asked for
 EA Explorer to hold the organisation's **Architecture Repository** in the structure TOGAF gives it, with the
@@ -72,3 +73,36 @@ the board, external models and standards, who reads and changes) wait for the bu
    (records waiting for approval and for how long, dispensations expiring or overdue, non-compliant assessments),
    sign-off turnaround (how long documents and records wait, by project and by person) and repository coverage (how
    much of the content framework each project has filled), beside the models' data quality.
+10. **Standards Information Base**: the Organisation base's Standards (by group, mandatory below it) are the SIB; the
+    documents behind a standard are linked from the reference library; an external standard is a standard whose source
+    says where it comes from. The map's standards items open the Organisation base's Standards on that group.
+11. **Reference library structure**: Foundation architectures are the root metamodels (model library); Common systems
+    and Industry architectures are reference models in the model library (with an industry: Industry; without: Common
+    systems); the Organisation's own are reference models the organisation made; the reference library has fixed top
+    folders with the same four names for documents and links. Each map item opens a page listing both.
+12. **Architecture Board**: members only (Super Admins name them); the map's item opens the list.
+13. **Calendar repeats and rights**: once, daily, weekly (chosen weekdays), monthly or yearly, until a date or a number of
+    times; one occurrence can be skipped. Changed or deleted by whoever made it, a Project Admin or Lead Architect (a
+    project's) or a Super Admin (the organisation's).
+14. **Subscribing**: a private https link per person and calendar (a long random token), renewable to stop the old one;
+    it shows only what that person may see.
+
+## Built (8 Nov 2026, D324)
+Calendars (`eax/calendars.py`, `Calendar.jsx`; tables proj.cal_events, proj.cal_feeds), the Architecture Board
+(proj.board_members), performance measurement and the reference library's parts (`eax/org_repository.py`), the
+organisation's and the project's maps (`ArchitectureRepository.jsx`). Migration 0032.
+
+### Test steps
+1. `.\eax clean-restart`, Ctrl+F5.
+2. A project › **Calendar**: ＋ Event (a weekly meeting on Monday and Thursday, 10 times); it shows in Month, Week and Day.
+   Open one occurrence › Skip it; open the event › change the time; Delete. As another member, try to change it: refused
+   unless you are the Project Admin or Lead Architect.
+3. ⬇ .ics opens in a calendar application; 🔗 Subscribe… gives your link: add it in Outlook or Google Calendar; Renew
+   the link and the old one stops working.
+4. Repository › Governance log › **Calendar**: the organisation's calendar; only a Super Admin can add to it.
+5. Repository › **Architecture board**: as a Super Admin add two members with a role; take one off.
+6. Repository › **Performance measurement**: each tab (data quality, completion, governance health, sign-off turnaround,
+   repository coverage).
+7. Repository › Reference library › each of the four parts: its library models and its folder; Standards information
+   base › Business standards opens the Organisation base's standards on Business; External standards: the external ones.
+8. Inside a project, Enterprise Repository › Calendar opens the project's calendar.

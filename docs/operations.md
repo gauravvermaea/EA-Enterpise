@@ -2,6 +2,9 @@
 
 ## Everyday commands
 
+Every command, and the console for getting a system that is down back up (`.\eax console`), is described in
+detail in [command-line-and-console.md](command-line-and-console.md).
+
 Run `.\eax help` (Windows) or `./eax.sh help` (Linux / macOS) for a description of every command, or
 `.\eax help <command>` for one. On Windows, `.\eax` runs `eax.ps1` with the execution policy bypassed
 for that run (the script is not signed); the long form is

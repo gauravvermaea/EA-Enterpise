@@ -124,6 +124,17 @@ Starting again
                         then clean-run (cleanup --all --yes, init, up). Rebuilds our images and
                         starts with empty databases; the trusted certificate is kept.
 
+When something is wrong
+  console [--server https://host] [--insecure]
+                        A numbered menu for getting EA Explorer back up, for anyone (D330): status, start,
+                        restart, stop, problems and logs, back up, restore (guided), reset a password (a
+                        person, Keycloak's administrator, break-glass, the database logins), users and roles,
+                        settings and switches, background tasks, health and data quality, the maintenance
+                        page, a diagnostics file, and a prompt for every eax command. On this machine nobody
+                        signs in; anything that changes or replaces data asks you to type YES. With --server
+                        it works on another installation through its API (sign in with Keycloak, your roles).
+                        Every command and the console in detail: docs/command-line-and-console.md.
+
   help [command]        This text, or the part about one command.
 
 Logs: every command except help and cleanup writes its full output to
@@ -539,11 +550,12 @@ cleanup() {
     echo "No $ENV_FILE, so the Docker volumes cannot be found by name; remove them with: docker volume ls"
   fi
   if $cert; then
-    rm -rf "${WORK_DIR:?}"/* "${WORK_DIR:?}"/.[!.]* 2>/dev/null || true
+    # work/tools (uv and its Python, for eaxpy.sh, D331) is kept either way
+    find "${WORK_DIR:?}" -mindepth 1 -maxdepth 1 ! -name tools -exec rm -rf {} + 2>/dev/null || true
     echo "The work folder is empty. Run ./eax.sh init laptop to start again."
   else
     # keep work/data/tls: the local certificate you trusted with ./eax.sh trust (D107)
-    find "${WORK_DIR:?}" -mindepth 1 -maxdepth 1 ! -name data -exec rm -rf {} + 2>/dev/null || true
+    find "${WORK_DIR:?}" -mindepth 1 -maxdepth 1 ! -name data ! -name tools -exec rm -rf {} + 2>/dev/null || true
     [ -d "$WORK_DIR/data" ] && find "$WORK_DIR/data" -mindepth 1 -maxdepth 1 ! -name tls -exec rm -rf {} + 2>/dev/null || true
   fi
   # backups and restore logs are written by the containers (as root on Linux): if any are left, a container removes them
@@ -573,9 +585,56 @@ assert_docker() {
   fi
 }
 
+# the console (phase 13.5, D330): a numbered menu for getting a system that is down back up. It runs in the operations
+# helper (services/ops/console.py); what needs this machine (start, stop, diagnostics, any eax command) it hands back
+# here by its exit code. No sign-in: being on the machine is the trust. With --server: another installation, its API.
+console() {
+  local self="./$(basename "${BASH_SOURCE[0]}")" code stopped="" line ver
+  if [[ " $* " == *" --server "* ]]; then
+    assert_docker; compose run --rm --no-deps api python -m eax.console_cli remote "$@"; return
+  fi
+  ver=$(sed -n 's/^version = "\(.*\)"/\1/p' services/api/version.toml)
+  while true; do
+    code=99
+    if docker info --format '{{.ServerVersion}}' >/dev/null 2>&1 && [ -f "$ENV_FILE" ] && [ -z "$stopped" ]; then
+      # built first: an ops image from before the console has no console.py (a rebuild takes seconds when nothing changed)
+      echo "Starting the console (the operations helper; the first time it is built, a minute)..."
+      if compose up -d --build --no-deps ops >/dev/null 2>&1; then
+        set +e; compose exec ops python3 /app/console.py --version "$ver"; code=$?; set -e
+        case "$code" in 0|20|21|23|25) ;; *)   # it failed: the basic menu, not the same failure again
+          echo "The console stopped with an error (exit $code); the basic menu follows. Its log: work/logs/console-*.log"; code=99 ;; esac
+      fi
+    fi
+    if [ "$code" = 99 ]; then      # the helper could not start: only what this machine can do
+      echo
+      if [ -n "$stopped" ]; then echo "EA Explorer console (basic: everything is stopped)"
+      else echo "EA Explorer console (basic: the operations helper is not running)"; fi
+      docker info >/dev/null 2>&1 || echo "Docker is not running: start it, then choose 1."
+      [ -f "$ENV_FILE" ] || echo "Not set up yet: there is no $ENV_FILE. Run ./eax.sh init laptop first."
+      echo "  1  Start everything"; echo "  2  Save a diagnostics file for support"
+      echo "  c  Command prompt (every eax command)"; echo "  q  Quit"
+      read -r -p "Choose: " line || line=q
+      case "$line" in 1) code=20 ;; 2) code=23 ;; c) code=25 ;; q) code=0 ;; *) code=98 ;; esac
+    fi
+    case "$code" in
+      0) return ;;
+      20) stopped=""; "$BASH" "$self" up || true ;;
+      21) "$BASH" "$self" down || true; stopped=1 ;;
+      23) "$BASH" "$self" diag || true ;;
+      25) echo "Type an eax command (for example: logs api, services, backups). Empty or back: the menu."
+          while read -r -p "eax> " line; do
+            case "$line" in ""|back|b|menu) break ;; console*) echo "You are in the console already."; continue ;; esac
+            # shellcheck disable=SC2086
+            "$BASH" "$self" $line || true
+          done ;;
+    esac
+  done
+}
+
 # ------------------------------------------------------------------ commands
 case "$CMD" in
   help|-h|--help) show_help "${2:-}"; exit 0 ;;
+  console)        shift; console "$@"; exit 0 ;;
   cleanup)        shift; cleanup "$@"; exit 0 ;;
   clean-run|clean-debug|clean-restart)
     # cleanup --all --yes, init, then up or debug: each as its own run of this script (own log);
