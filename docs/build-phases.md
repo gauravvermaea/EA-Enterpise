@@ -44,13 +44,14 @@ Each phase has its own notes: what it delivers, a demo, checks, how to upgrade a
 | 13.8 | Sample content: governance, people, calendars, sheets, the board (D326) | 0.15.1 | accepted and closed | [phase-13.8.md](phase-13.8.md) |
 | 13.9 | The eax command in Python, run by uv: one program for Windows, Linux and macOS (D331); `eaxpy` beside `eax` until the switch | 0.15.1 | accepted and closed | [phase-13.9.md](phase-13.9.md) |
 
+| 15.2 | The library: the enterprise library and project libraries with simple pages, links and the odd file, search, history and undo, pluggable; a separate service with its own database (D346 to D351); skills on each user's profile (D353) | 0.15.1 | accepted and closed 9 Nov 2026 (D356) | [phase-15.2.md](phase-15.2.md) |
+| 15.3 (part) | Business architecture: Business Model Canvases (D344), the TOGAF Phase B artifacts with their views, mapped to reports, and six extension types (D345, D352), key questions (D341 to D343) | 0.15.1 | accepted and closed 9 Nov 2026 (D356); the rest of 15.3 planned | [business-architecture.md](business-architecture.md), [business-model-canvas.md](business-model-canvas.md), [key-questions.md](key-questions.md) |
+| 16.3 | Guided wizards (D339): improve data quality, compliance review, migration plan from gaps, collect data from people, load data, first-run setup | 0.15.1 | accepted and closed 9 Nov 2026 (D356) | [phase-16.3.md](phase-16.3.md) |
 
 ## Planned phases (from the build plan)
 | Phase | Name |
 | --- | --- |
-| 15.2 | The library: the enterprise library and project libraries with simple pages, links and the odd file, search, history and undo, pluggable; a separate service with its own database ([phase-15.2.md](phase-15.2.md), D346 to D351) — built |
-| 15.3 | Business architecture artifacts: Business Model Canvas, value proposition canvas, capability map and value streams, motivation and strategy, customer journey, stakeholder map; canvases as views of the model, with gaps ([phase-15.3.md](phase-15.3.md), D268, D335) — in part built 9 Nov 2026: Business Model Canvases (D344), the TOGAF Phase B artifacts with their viewpoints and six extension types (D345), key questions (D341 to D343); waiting for the owner's test |
-| 16.3 | Guided wizards (D339): improve data quality, compliance review, migration plan from gaps, collect data from people, load data, first-run setup ([phase-16.3.md](phase-16.3.md); 15.1 closed as covered by phase 13, D338) — built 8 Nov 2026, waiting for the owner's test |
+| 15.3 (rest) | Business architecture, the rest: value proposition canvas, customer journey, stakeholder map, SWOT; gap checks inside and across artifacts ([phase-15.3.md](phase-15.3.md), D268, D335) |
 | 19, 20 | Work copies and merge back, parts 1 and 2 |
 | 21 | Dedupe within a model |
 | 22 | Ownership and collaboration |

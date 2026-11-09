@@ -1,6 +1,6 @@
 # Key questions and placeholder viewpoints
 
-Owner, 9 Nov 2026 (D341, D342). Every piece of a project's work answers a stakeholder's question. The project records
+Owner, 9 Nov 2026 (D341, D342). Accepted as a bug fix in release 0.15.1 (D343); closed 9 Nov 2026 (D356). Every piece of a project's work answers a stakeholder's question. The project records
 those questions, what we expect the answer to be (or how we will answer it), the viewpoints that answer each one, the
 answer itself, and whether the stakeholder accepted it.
 

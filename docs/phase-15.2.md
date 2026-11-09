@@ -1,6 +1,6 @@
 # Phase 15.2 — The library: organisation and project libraries with pages
 
-Status: **built (owner, 9 Nov 2026, D346 to D351), in release 0.15.1.** Replaces the earlier idea of integrating an
+Status: **built (owner, 9 Nov 2026, D346 to D351), in release 0.15.1; accepted and closed 9 Nov 2026 (D356).** Replaces the earlier idea of integrating an
 open-source wiki (D334): EA Explorer builds the library itself, as a separate service.
 
 ## What it is — keep it simple (owner, 9 Nov 2026)

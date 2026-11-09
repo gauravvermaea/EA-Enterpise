@@ -1,6 +1,6 @@
 # Phase 16.3 — Guided wizards (D181, D339)
 
-Status: **built 8 Nov 2026**, waiting for the owner's test (checks below). The owner asked for all of them to be built without a
+Status: **built 8 Nov 2026; accepted and closed 9 Nov 2026 (D356).** The owner asked for all of them to be built without a
 question each ("just get them all done"): the choices made are written under each wizard.
 
 ## Already built (not in this phase)

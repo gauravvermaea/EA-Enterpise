@@ -21,8 +21,7 @@ planned: [docs/capabilities.md](docs/capabilities.md).**
 **All the documentation, listed with what each covers: [docs/index.md](docs/index.md).** Backup and restore
 commands: [below](#backup-and-restore-from-the-command-line) and in [docs/operations.md](docs/operations.md#backup-and-restore-from-the-command-line-d227).
 
-**Status: version 0.15.1. Phases 0 to 13 are accepted and closed** (phase 13, architecture projects, closed 8 Nov
-2026, D337). The short list is
+**Status: version 0.15.1. Phases 0 to 13, 15.2, 15.3 (part) and 16.3 are accepted and closed** (9 Nov 2026, D356). The short list is
 below; every phase in detail: [docs/build-phases.md](docs/build-phases.md). Database design:
 [docs/database.md](docs/database.md). How it is built (for developers and AI agents):
 [docs/architecture.md](docs/architecture.md), [AGENTS.md](AGENTS.md); the high-level technical architecture (under 10 pages):
@@ -50,9 +49,9 @@ The major phases; each line covers its sub-phases. **In detail (every sub-phase,
 | 10 | Administration console; import and export sheets | closed |
 | 12 | Validation and data quality; start-up in two tiers | closed |
 | 13 | Architecture projects: library, wizard, repository, sign-off, content framework, bases, governance, charter, the Architecture Repository, tracking sheets, the console, eaxpy | accepted and closed (8 Nov 2026) |
-| 15.2 | The enterprise library and project libraries (a separate service) | built, waiting for test |
-| 15.3 (part) | Business architecture: Business Model Canvases, the TOGAF Phase B artifacts and their viewpoints; key questions | built, waiting for test (the rest of 15.3 planned) |
-| 16.3 | Guided wizards | built, waiting for test |
+| 15.2 | The enterprise library and project libraries (a separate service); skills on each user's profile | accepted and closed (9 Nov 2026) |
+| 15.3 (part) | Business architecture: Business Model Canvases, the TOGAF Phase B artifacts and their views; key questions | accepted and closed (9 Nov 2026); the rest of 15.3 planned |
+| 16.3 | Guided wizards | accepted and closed (9 Nov 2026) |
 | 19 to 24 | Collaboration at scale (adds to the commits, child models and merges built in 8 and 13): project-wide work copies, dedupe, ownership, portfolio and impact, report trends and designer | planned |
 | 25 to 27 | Security hardening; MCP proposals into staging (the MCP server and its 79 tools are built) | planned |
 | 28 to 31 | Drawing in draw.io with ArchiMate notation, written back to the repository; saved standard views (the diagrams drawn from the repository are built) | planned |
