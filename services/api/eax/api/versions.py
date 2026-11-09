@@ -36,7 +36,7 @@ from .. import tags as tg
 from ..auth import require_auth
 from ..db import get_engine
 from ..metamodel_edit import EditError, _db_message
-from .models import Free
+from .models import Free, FreeIn
 
 blp = Blueprint("versions", __name__, url_prefix="/api/v1",
                 description="Model tags (snapshots), comparison and TOGAF gap analysis (phase 8.3)")
@@ -462,6 +462,42 @@ class GapEntities(MethodView):
         """Adds gaps to the storage model as Gap entities (its Model Admins; one commit at once; a Gap entity type is added if needed)"""
         return _gap_write(analysis_id, lambda c, m: gp.add_gap_entities(c, m, g.user, analysis_id, data.get("items"), data["include_kept"]),
                           "gap.entities")
+
+
+@blp.route("/gaps/<string:analysis_id>/migration-plan")
+class GapMigrationPlan(MethodView):
+    @blp.doc(security=SECURITY, parameters=[{"in": "query", "name": "by", "schema": {"type": "string",
+                                                                                   "enum": ["layer", "type", "resolution", "each"]}}])
+    @blp.response(200, Free)
+    @require_auth()
+    def get(self, analysis_id):
+        """A first grouping of the open gaps into work packages, for the migration plan wizard (WIZ-017)"""
+        return _read(lambda c: gp.suggest_packages(c, gp.model_of(c, analysis_id), analysis_id, request.args.get("by") or "layer"))
+
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth()
+    def post(self, data, analysis_id):
+        """{packages: [{name, gaps: [gap ids], wave, start, end, resolution, description}], project}: Work Package entities
+        made (one commit, Model Admins), linked to their gaps; with a project, a roadmap tracking sheet in it too"""
+        d = data or {}
+        out = _gap_write(analysis_id, lambda c, m: gp.migration_plan(c, m, g.user, analysis_id, d.get("packages") or []),
+                         "gap.migration-plan")
+        if d.get("project") and out.get("rows"):
+            from .. import projects as pj
+            from .. import tracking_sheets as ts
+            try:
+                with pj.connections(True) as pc:
+                    made = ts.create(pc, str(d["project"]), g.user, {"name": f"Roadmap: {out['analysis']}"[:200], "columns": out["columns"],
+                                                                      "description": f"Work packages from the gap analysis '{out['analysis']}' "
+                                                                                     f"in {out['model']['name']} (migration plan wizard)."})
+                    ts.update(pc, str(d["project"]), g.user, made["id"], {"add": out["rows"]})
+                out["sheet"] = {"project": str(d["project"]), "id": made["id"]}
+                out["note"] += " The roadmap is a tracking sheet in the project."
+            except Exception as exc:  # noqa: BLE001 - the work packages are made; the sheet is said not made
+                out["note"] += f" The roadmap sheet was not made: {exc}"
+        return out
 
 
 @blp.route("/gaps/<string:analysis_id>/download")

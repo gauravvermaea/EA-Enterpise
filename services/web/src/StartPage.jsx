@@ -4,6 +4,7 @@ import { can, needsRole, roleName, signedIn } from "./auth";
 import { serviceOn } from "./fmt";
 import { useApi } from "./ModelViews";
 import { AreaTiles } from "./Areas";
+import { FirstRunPanel } from "./GuidedWizards";
 
 function Tile({ item }) {
   const allowed = !item.perm || can(item.perm);
@@ -76,6 +77,7 @@ export default function StartPage() {
           architecture work is done on the model and project pages.
           {!signedIn() && " Sign in once and every product opens without another login."}</p>
       </section>
+      <FirstRunPanel />
       <ProjectSetupTile />
       <AreaTiles />
     </>

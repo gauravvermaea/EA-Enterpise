@@ -714,6 +714,121 @@ def add_gap_entities(conn, model: Any, user, analysis: Any, items: list | None =
                     + (f"; the metamodel got a Gap entity type (version {version})" if version else "") + "."}
 
 
+# ---------------------------------------------------------------- a migration plan from the gaps (WIZ-017, phase 16.3, D339)
+ROADMAP_COLUMNS = ["Wave", "Work package", "Start", "End", "Resolution", "Gaps", "New", "Changed", "Eliminated"]
+
+
+def migration_plan(conn, model: Any, user, analysis: Any, packages: list[dict]) -> dict:
+    """The gaps of an analysis grouped into work packages: each package a Work Package entity in the model (one commit,
+    Model Admins), associated with the elements its gaps are about, its gaps pointing at it (their work packages), and
+    its resolution given to its gaps that have none. Returns the roadmap rows (a wave, dates, the gaps of each package)
+    for a tracking sheet. A gap may be in one package only."""
+    m = repo.get_model(conn, model)
+    if not (perms.SUPER_ADMIN in user.roles or perms.MODEL_ADMIN in perms.model_roles(conn, user.username, m["id"])):
+        raise EditError(f"Making a migration plan needs the Model Admin role on {m['name']} (the work packages are committed at once).", 403)
+    if (m.get("lock_level") or "none") != "none" or m.get("is_locked") or not cm.uses_commits(m):
+        raise EditError(f"{m['name']} is read-only or locked: unlock it to add work packages.", 409)
+    a = _analysis(conn, m, analysis)
+    data = get(conn, str(m["id"]), str(a["guid"]))
+    items = {i["id"]: i for i in data["items"] if not i["gone"]}
+    spec = mo.metamodel_spec(conn, str(m["id"]))
+    wp = next((t for t in spec["entity_types"] if t["code"].lower() == "workpackage"), None)
+    if not wp:
+        raise EditError(f"{m['name']}'s metamodel has no Work Package entity type: extend it first (Model admin > Extend from "
+                        "another model, from ArchiMate 4).", 409)
+    seen: set[str] = set()
+    plan = []
+    for n, p in enumerate(packages or [], 1):
+        name = " ".join(str(p.get("name") or "").split())[:200]
+        gaps = [str(x) for x in p.get("gaps") or [] if str(x) in items]
+        if not name or not gaps:
+            continue
+        twice = [items[g]["name"] for g in gaps if g in seen]
+        if twice:
+            raise EditError(f"{twice[0]} is in two work packages: a gap goes into one.")
+        seen.update(gaps)
+        res = p.get("resolution") or ""
+        if res and res not in RESOLUTIONS:
+            raise EditError(f"The resolution is one of: {', '.join(RESOLUTIONS)}.")
+        plan.append({"n": n, "name": name, "gaps": gaps, "wave": str(p.get("wave") or "").strip()[:40],
+                     "start": str(p.get("start") or "")[:10], "end": str(p.get("end") or "")[:10], "resolution": res,
+                     "description": str(p.get("description") or "").strip()[:2000]})
+    if not plan:
+        raise EditError("Put the gaps into at least one work package (each with a name).")
+    ops, made = [], []
+    for p in plan:
+        g = str(uuid.uuid4())
+        gl = [items[x] for x in p["gaps"]]
+        when = " to ".join(x for x in (p["start"], p["end"]) if x)
+        desc = (p["description"] + "\n\n" if p["description"] else "") + (
+            f"From the gap analysis '{data['name']}'"
+            + (f", wave {p['wave']}" if p["wave"] else "") + (f", {when}" if when else "")
+            + (f", resolution {p['resolution']}" if p["resolution"] else "") + ". Gaps: "
+            + "; ".join(f"{i['name']} ({i['status']})" for i in gl[:60]) + ".")
+        ops.append(("entity.create", {"data": {"guid": g, "entity_type": wp["code"], "name": p["name"], "description": desc,
+                                               "tags": [*data["tags"], "migration-plan"]}}))
+        made.append((p, g))
+    for p, g in made:
+        ends = []
+        for x in p["gaps"]:
+            i = items[x]
+            if i["status"] == "eliminated":
+                ends += [i["baseline_guid"]] if i["baseline_here"] else []
+            else:
+                ends += [i["target_guid"]] if i["target_here"] else []
+        for e in dict.fromkeys(e for e in ends if e):
+            ops.append(("relationship.create", {"data": {"relationship_type": "Association", "source": g, "target": e,
+                                                         "allow_outside": True}}))
+    results = cm.record_many(conn, str(m["id"]), user.username, ops)
+    failed = [{"what": (a_.get("data") or {}).get("name") or op, "error": r["error"]}
+              for (op, a_), r in zip(ops, results, strict=True) if not r["ok"]]
+    ids = [r["kept"]["change"] for r in results if r.get("ok") and r.get("kept")]
+    done = cm.commit(conn, str(m["id"]), user, None, ids, None, f"Migration plan from '{data['name']}'") if ids else None
+    rows = []
+    for (p, g), r in zip(made, results[:len(made)], strict=True):
+        if not r["ok"]:
+            continue
+        for x in p["gaps"]:
+            _exec(conn, """UPDATE core.gap_items SET work_packages = array_append(coalesce(work_packages, '{}'), CAST(:w AS uuid)),
+                                  resolution = CASE WHEN coalesce(resolution, '') = '' AND :r <> '' THEN :r ELSE resolution END,
+                                  modified_by = :u, modified_at = now()
+                            WHERE guid = CAST(:i AS uuid) AND NOT (CAST(:w AS uuid) = ANY (coalesce(work_packages, '{}')))""",
+                  w=g, r=p["resolution"], u=user.username, i=x)
+        gl = [items[x] for x in p["gaps"]]
+        rows.append({"Wave": p["wave"], "Work package": p["name"], "Start": p["start"], "End": p["end"], "Resolution": p["resolution"],
+                     "Gaps": "; ".join(i["name"] for i in gl), "New": str(sum(1 for i in gl if i["status"] == "new")),
+                     "Changed": str(sum(1 for i in gl if i["status"] == "changed")),
+                     "Eliminated": str(sum(1 for i in gl if i["status"] == "eliminated"))})
+    rows.sort(key=lambda r: (r["Wave"] or "~", r["Start"] or "~", r["Work package"]))
+    left = [i["name"] for i in items.values() if i["status"] != "kept" and i["id"] not in seen]
+    return {"work_packages": len(rows), "failed": failed[:50], "rows": rows, "columns": ROADMAP_COLUMNS, "analysis": data["name"],
+            "model": {"id": str(m["id"]), "name": m["name"]}, "commit_number": done["number"] if done else None,
+            "not_planned": left[:200],
+            "note": f"{len(rows)} work packages made in {m['name']} (commit {done['number'] if done else '-'}), each linked to its "
+                    f"gaps and the elements they are about." + (f" {len(left)} gaps are in no work package yet." if left else "")}
+
+
+def suggest_packages(conn, model: Any, analysis: Any, by: str = "layer") -> dict:
+    """A first grouping of the gaps that are not kept, for the wizard to start from: by layer, by entity type, by
+    resolution, or one package per gap; gaps already in a work package are left out."""
+    m = repo.get_model(conn, model)
+    a = _analysis(conn, m, analysis)
+    data = get(conn, str(m["id"]), str(a["guid"]))
+    todo = [i for i in data["items"] if not i["gone"] and i["status"] != "kept" and not i["work_packages"]]
+    groups: dict[str, list[dict]] = {}
+    for i in todo:
+        k = {"layer": i["layer"] or "Other", "type": i["entity_type_name"], "resolution": i["resolution"] or "Not decided",
+             "each": i["name"]}.get(by, i["layer"] or "Other")
+        groups.setdefault(k, []).append(i)
+    status = lambda i: {"new": "New", "changed": "Changed", "eliminated": "Eliminated"}.get(i["status"], i["status"])  # noqa: E731
+    return {"analysis": {"id": str(a["guid"]), "name": data["name"]}, "by": by, "resolutions": RESOLUTIONS,
+            "packages": [{"name": (f"{k}: {data['name']}" if by != "each" else f"Work on {k}")[:200], "wave": "", "start": "", "end": "",
+                          "resolution": "", "gaps": [i["id"] for i in v]} for k, v in sorted(groups.items())],
+            "gaps": [{"id": i["id"], "name": i["name"], "type": i["entity_type_name"], "layer": i["layer"], "status": status(i),
+                      "resolution": i["resolution"] or ""} for i in todo],
+            "already": sum(1 for i in data["items"] if not i["gone"] and i["work_packages"])}
+
+
 # ---------------------------------------------------------------- downloads
 def to_xlsx(data: dict) -> bytes:
     from openpyxl import Workbook

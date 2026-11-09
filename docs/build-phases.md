@@ -48,10 +48,9 @@ Each phase has its own notes: what it delivers, a demo, checks, how to upgrade a
 ## Planned phases (from the build plan)
 | Phase | Name |
 | --- | --- |
-| 15.1 | Organisation-wide repository |
 | 15.2 | Reference library with wiki pages: an open-source wiki beside the links and documents ([phase-15.2.md](phase-15.2.md), D334) |
 | 15.3 | Business architecture artifacts: Business Model Canvas, value proposition canvas, capability map and value streams, motivation and strategy, customer journey, stakeholder map; canvases as views of the model, with gaps ([phase-15.3.md](phase-15.3.md), D268, D335) |
-| 16.3 | Guided wizards |
+| 16.3 | Guided wizards (D339): improve data quality, compliance review, migration plan from gaps, collect data from people, load data, first-run setup ([phase-16.3.md](phase-16.3.md); 15.1 closed as covered by phase 13, D338) — built 8 Nov 2026, waiting for the owner's test |
 | 19, 20 | Work copies and merge back, parts 1 and 2 |
 | 21 | Dedupe within a model |
 | 22 | Ownership and collaboration |

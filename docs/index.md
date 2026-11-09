@@ -80,6 +80,7 @@ Every phase in detail, with versions and the planned ones: [build-phases.md](bui
 | 13.8 | [Sample content for the sample projects and the organisation](phase-13.8.md) | closed |
 | 13.9 | [The eax command in Python, run by uv](phase-13.9.md) | closed |
 | 15.2 | [Reference library with pages: an open-source wiki beside links and documents](phase-15.2.md) | requested for later |
+| 16.3 | [Guided wizards: data quality, compliance review, migration plan, collect and load data, first-run setup](phase-16.3.md) | built, waiting for the owner's test |
 | 15.3 | [Business architecture artifacts: canvases as views of the model, with gaps](phase-15.3.md) | design session half done |
 | story | [Load balancing: servers go up and down with the load](story-load-balancing.md) (production deployment, phase 36) | later |
 | story | [Real-time mirrors of PostgreSQL and the other servers](story-real-time-mirrors.md) (production deployment, phase 36) | later |

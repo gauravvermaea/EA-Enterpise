@@ -10,6 +10,7 @@ import { refreshAll, useApi } from "./ModelViews";
 import { Field, Modal } from "./ModelOps";
 import { RestoreAll, RestoreInfra, RestoreModel, when } from "./Backups";
 import { trackTask } from "./tasks";
+import { FirstRunPanel } from "./GuidedWizards";
 
 const post = (path, body) => apiFetch(path, { method: "POST", body: JSON.stringify(body || {}) });
 
@@ -45,6 +46,10 @@ export default function SystemWizards() {
           ok={ops} why={needsRole(["it-admin", "super-admin"])} onClick={() => setOpen("restore")} />
         <Card title="When backups run" text="The schedules and how many are kept" ok={ops} why={needsRole(["it-admin", "super-admin"])} href="#/admin/backups" />
       </div></section>
+      <section><h3>Set up</h3><div className="wiz-grid">
+        <Card title="First-run setup" text="The essentials of a new installation, once: settings, people, the parts in use, template libraries, the charter and principles, backups"
+          ok={can("settings.manage")} why={needsRole(["super-admin"])} onClick={() => setOpen("first-run")} />
+      </div></section>
       <section><h3>Services</h3><div className="wiz-grid">
         <Card title="Switch an optional service on or off" text="Reports, documents, draw.io, MCP, backups: start or stop them (a copy of the config file is kept first)"
           ok={ops || can("settings.manage")} why={needsRole(["it-admin", "super-admin"])} href="#/admin/system" />
@@ -54,6 +59,7 @@ export default function SystemWizards() {
       {open === "take" && <TakeAccess onClose={close} />}
       {open === "backup" && <BackupNow onClose={close} />}
       {open === "restore" && <RestoreWizard onClose={close} />}
+      {open === "first-run" && <Modal wide title="First-run setup" onClose={close} actions={<button onClick={close}>Close</button>}><FirstRunPanel always /></Modal>}
     </div>
   );
 }

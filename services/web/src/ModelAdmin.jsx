@@ -15,6 +15,7 @@ import {
   PublishStepDialog, TagNowDialog, UploadWizard, draftWhy, isTop, libraryAction, mayCreateFrom, ownsDraft,
 } from "./ModelOps";
 import { runTask } from "./tasks";
+import { CollectWizard, LoadDataWizard, MigrationWizard, QualityWizard } from "./GuidedWizards";
 import { fmtDateTime } from "./fmt";
 
 const go = (path) => { window.location.hash = path; };
@@ -104,6 +105,12 @@ const ALL = [
     { k: "up", title: "Merge into the parent, keep working", text: "Choose what goes into the parent; the child stays open", kinds: ["project"] },
     { k: "down", title: "Propagate changes from the parent", text: "Choose what comes down from the parent into the child", kinds: ["project"] },
     { k: "to-child", title: "Propagate to a child", text: "Choose what goes down from a model into one of its children", kinds: ["project"] },
+  ]],
+  ["Data and quality", [
+    { k: "quality", title: "Improve data quality", text: "Work through what data quality finds, one entity at a time: fill in, not applicable, still correct", kinds: ["project", "reference"] },
+    { k: "load", title: "Load data into a model", text: "Download the sheet, fill it in, upload it and check the preview", kinds: ["project", "reference"] },
+    { k: "collect", title: "Collect data from people", text: "Ask people to fill in entity types; what they upload comes back as commit requests", kinds: ["project"] },
+    { k: "migration", title: "Plan the migration from gaps", text: "Group a gap analysis's gaps into work packages, with a roadmap sheet", kinds: ["project"] },
   ]],
   ["Metamodel", [
     { k: "extend", title: "Extend from another model", text: "Take entity types, relationship types and attributes another model has" },
@@ -253,6 +260,16 @@ function Wizards({ m, only = null, onDone = null }) {
       { k: "to-child", title: "Propagate to a child", text: kids.length ? `Choose what goes down into ${kids.map((c) => c.name).join(", ")}` : "Choose what goes down into one of its children",
         ok: kids.length > 0 && kids.some((c) => canOn(c.id, "model.lock")), why: kids.length ? "Needs the Model Admin role on a child" : `${m.name} has no child models` },
     ]],
+    ["Data and quality", [
+      { k: "quality", title: "Improve data quality", text: "Work through what data quality finds, one entity at a time: fill in, not applicable, still correct",
+        ok: m.kind !== "template" && canOn(m.id, "model.content") && !frozen, why: m.kind === "template" ? "A root metamodel holds no data" : notFrozen || needsRole(["architect", "committer", "model-sub-admin", "model-admin"], m.name) },
+      { k: "load", title: "Load data", text: "Download the sheet, fill it in, upload it and check the preview: the rows become your changes",
+        ok: m.kind !== "template" && canOn(m.id, "model.content") && !frozen, why: m.kind === "template" ? "A root metamodel holds no data" : notFrozen || needsRole(["architect", "committer", "model-sub-admin", "model-admin"], m.name) },
+      { k: "collect", title: "Collect data from people", text: "Ask people to fill in entity types; what they upload comes back as commit requests you review",
+        ok: project && admin && !frozen, why: !project ? "Only project models collect data" : notFrozen || adminWhy },
+      { k: "migration", title: "Plan the migration from gaps", text: "Group the gaps of a gap analysis into work packages (Work Package entities) and a roadmap sheet",
+        ok: project && admin && !frozen && !locked, why: !project ? "Gap analyses are kept in project models" : notFrozen || (locked ? `${m.name} is locked` : adminWhy) },
+    ]],
     ["Metamodel", [
       { k: "extend", title: "Extend from another model", text: "Take entity types, relationship types and attributes another model's metamodel has (one new metamodel version)",
         ok: admin && !frozen && changeableModel(m), why: notFrozen || adminWhy },
@@ -369,6 +386,10 @@ function Wizards({ m, only = null, onDone = null }) {
       {open === "family" && <ReparentWizard m={m} parent={parent} onClose={close} />}
       {open === "download" && <DownloadDialog m={m} onClose={close} />}
       {open === "upload" && <UploadWizard onClose={close} />}
+      {open === "quality" && <QualityWizard m={m} onClose={close} />}
+      {open === "load" && <LoadDataWizard m={m} onClose={close} />}
+      {open === "collect" && <CollectWizard m={m} onClose={close} />}
+      {open === "migration" && <MigrationWizard m={m} onClose={close} />}
     </div>
   );
 }

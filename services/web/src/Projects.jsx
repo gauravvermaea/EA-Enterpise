@@ -29,6 +29,7 @@ import { TemplateSetup } from "./TemplateSetup";
 import { ProjectQuality } from "./Quality";
 import { CalendarView } from "./Calendar";
 import { TrackingSheets } from "./TrackingSheets";
+import { ComplianceWizard } from "./GuidedWizards";
 import { TemplateBrowserDialog } from "./TemplateBrowser";
 import { ProjectBackupPanel, ProjectCompare, ProjectGaps, ProjectReports, RestoreProjectFile, ViewpointsByPhase } from "./ProjectTabs";
 
@@ -95,6 +96,7 @@ const PROJECT_WIZARDS = [
   { k: "derive", title: "Derive a new project", text: "A new project filled in from one you choose: scope, goals, steps, deliverables, viewpoints, libraries; its models referred to or derived from", to: (id) => `#/projects/new?parent=${id}` },
   { k: "library", title: "Make a project a library project", text: "Offer its reference material to every new project, or stop offering it (Super Admins)", to: (id) => `#/project-admin/${id}?library=1`, sup: true },
   { k: "as-template", title: "Save a project as a template", text: "Its decisions as a new kind of project in the gallery (Super Admins)", to: (id) => `#/project-admin/${id}?template=1`, sup: true },
+  { k: "compliance", title: "Architecture compliance review", text: "Review a solution against the project's principles and standards: a verdict and note for each, the result and any dispensations in its governance log", to: (id) => `#/project-admin/${id}?compliance=1` },
   { k: "repo", title: "Build a project's repository now", text: "Make its folders and copy its templates in Documents again (missing ones only); see why it is not built", to: (id) => `#/project-admin/${id}`, runs: true },
 ];
 
@@ -276,6 +278,7 @@ function AdminProject({ id }) {
   const qs = new URLSearchParams(window.location.hash.split("?")[1] || "");
   const [finish, setFinish] = useState(qs.get("finish") === "1");
   const [libDlg, setLibDlg] = useState(qs.get("library") === "1");
+  const [review, setReview] = useState(qs.get("compliance") === "1");
   const [asked, setAsked] = useState(false);
   useEffect(() => {      // ?template=1: asked once, after the page is shown
     if (p && !asked && qs.get("template") === "1" && p.my_roles.includes("super-admin")) { setAsked(true); setTimeout(asTemplate, 0); }
@@ -320,12 +323,15 @@ function AdminProject({ id }) {
           text={p.is_library ? "Stop offering its reference material to new projects (the material stays in the project)"
             : "Offer its reference material (reference models, regulations, patterns, standards, links) to every new project"}
           ok={sup} why="Needs the Super Admin role" onClick={() => setLibDlg(true)} />
+        <AdminCard title="Architecture compliance review" text="Review a solution against the project's principles and standards; the result and any dispensations go into its governance log"
+          ok={p.may_contribute && !p.frozen} why={frozen || "Needs a contributing role on this project"} onClick={() => setReview(true)} />
         <AdminCard title="Build the repository now" text="Make the folders and copy the templates in Documents again (missing ones only; documents stay)"
           ok={runs && p.repo_state !== "ready" && !p.frozen} why={p.repo_state === "ready" ? "The repository is ready" : frozen || why} onClick={rebuild} />
       </div>
       {msg && <p className="small quiet">{msg}</p>}
       {finish && <FinishDialog p={p} onClose={() => setFinish(false)} />}
       {libDlg && sup && <LibraryProjectDialog project={p} onClose={() => setLibDlg(false)} onDone={setMsg} />}
+      {review && <ComplianceWizard p={p} onClose={() => setReview(false)} />}
     </div>
   );
 }

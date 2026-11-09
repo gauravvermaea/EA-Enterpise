@@ -135,6 +135,28 @@ class Sheets(MethodView):
                               {"types": types, "format": fmt})}
 
 
+@blp.route("/models/<uuid:model_id>/collect")
+class Collect(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def get(self, model_id):
+        """People on the model and whether each may load data into it (the collect data wizard, WIZ-018)"""
+        from .. import collect as co
+        return _read(lambda c: {"people": co.people(c, model_id)})
+
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth()
+    def post(self, data, model_id):
+        """{types, people, note, due}: ask people to fill in those entity types (each told, with a link to the sheet);
+        their uploads become their changes, reviewed as commit requests (Model Admins)"""
+        from .. import collect as co
+        return _write(lambda c: co.ask(c, model_id, g.user, data or {}), "data.collect", model_id,
+                      {"types": (data or {}).get("types"), "people": (data or {}).get("people")})
+
+
 @blp.route("/models/<uuid:model_id>/sheets/fields")
 class SheetFields(MethodView):
     @blp.doc(security=SECURITY, parameters=[{"in": "query", "name": "types", "schema": {"type": "string"}}])

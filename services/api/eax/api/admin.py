@@ -68,6 +68,34 @@ class PublicSettings(MethodView):
         return out
 
 
+@blp.route("/admin/first-run")
+class FirstRun(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def get(self):
+        """The first-run setup (UI-009): its steps, which are done, and whether to show it (a Super Admin, not finished)"""
+        from .. import first_run as fr
+        with get_engine().connect() as conn:
+            return fr.status(conn, g.user)
+
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth()
+    def post(self, data):
+        """{step, done} marks a step; {finished: true} puts the setup away, {finished: false} opens it again (Super Admins)"""
+        from .. import first_run as fr
+        try:
+            with get_engine().connect() as conn, conn.begin():
+                out = fr.mark(conn, g.user, data or {})
+                audit.record(conn, actor=g.user.username, action="first-run.mark", object_type="settings", object_id="first_run",
+                             details=data or {})
+                return out
+        except EditError as exc:
+            abort(exc.status, message=str(exc))
+
+
 @blp.route("/admin/settings")
 class AdminSettings(MethodView):
     @blp.doc(security=SECURITY)

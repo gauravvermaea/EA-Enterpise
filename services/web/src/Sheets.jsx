@@ -73,8 +73,9 @@ function TypePicker({ model, value, onChange }) {
   );
 }
 
-function Download({ model, m }) {
-  const [types, setTypes] = useState([]);
+export function Download({ model, m }) {
+  // a request to fill in data (WIZ-018) links here with the types chosen: ?types=A,B
+  const [types, setTypes] = useState(() => (window.location.hash.match(/[?&]types=([^&]+)/) || [])[1]?.split(",").map(decodeURIComponent) || []);
   const [fmt, setFmt] = useState("xlsx");
   const [taskId, setTaskId] = useState(null);
   const [fetched, setFetched] = useState(null);
@@ -116,7 +117,7 @@ function Download({ model, m }) {
 }
 
 // ---------------------------------------------------------------- upload
-function Upload({ model, m, may }) {
+export function Upload({ model, m, may }) {
   const [file, setFile] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");

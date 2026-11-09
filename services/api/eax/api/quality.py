@@ -82,8 +82,10 @@ class Quality(MethodView):
     @blp.response(200, Free)
     @require_auth()
     def get(self, model_id):
-        """The model's quality now (measured when asked), its trend, settings, rules and changes waiting for approval"""
-        return _read(lambda c: {**q.dashboard(c, model_id), "may_manage": q.is_model_admin(c, g.user, repo.get_model(c, model_id))})
+        """The model's quality (the latest kept measurement; ?fresh=true measures it now, as the data quality wizard does), its
+        trend, settings, rules and changes waiting for approval"""
+        fresh = request.args.get("fresh") == "true"
+        return _read(lambda c: {**q.dashboard(c, model_id, fresh=fresh), "may_manage": q.is_model_admin(c, g.user, repo.get_model(c, model_id))})
 
 
 @blp.route("/models/<uuid:model_id>/quality/pdf")
