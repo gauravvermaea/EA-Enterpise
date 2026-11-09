@@ -40,6 +40,8 @@ SERVICES: dict[str, tuple[str, str, str, list[str], str]] = {
                    "No new change log entries while off; the ones already there stay and can be read."),
     "backups": ("EAX_SERVICE_BACKUPS", "Backups", "the backup container", ["backup"],
                 "No backups are taken; eax backup and restore say the service is off."),
+    "library": ("EAX_SERVICE_LIBRARY", "Library", "the library service", ["library"],
+                "The enterprise and project libraries are unavailable (their content is kept); the Library pages say it is off."),
 }
 OFF = {"off", "false", "0", "no", "disabled"}
 

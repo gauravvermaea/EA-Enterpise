@@ -69,8 +69,10 @@ def people(conn, user) -> dict:
         rows = _rows(conn, """SELECT o.guid::text AS id, o.name, o.role, o.username, o.skills, p.guid::text AS project_id, p.name AS project
                                 FROM proj.org_people o JOIN proj.projects p ON p.id = o.project_id
                                WHERE p.guid = ANY (CAST(:ids AS uuid[])) ORDER BY lower(o.name), p.name""", ids=ids)
+    from . import skills as sk
+    have = sk.of(conn, [r["username"] for r in rows])          # skills are each user's own (D353)
     for r in rows:
-        r["skills"] = list(r["skills"] or [])
+        r["skills"] = have.get((r["username"] or "").lower(), [])
     out = {"people": rows, "skills": sorted({k for r in rows for k in r["skills"]}, key=str.lower), "projects": len(ids),
            "all_users": may_see_all_users(user)}
     if out["all_users"]:     # admins see every user (owner, 8 Nov 2026): the projects each is a member of, with the role

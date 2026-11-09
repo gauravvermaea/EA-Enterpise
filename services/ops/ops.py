@@ -87,10 +87,11 @@ SERVICES = {"reports": ("EAX_SERVICE_REPORTS", ["reports-init", "reports"]),
             "drawio": ("EAX_SERVICE_DRAWIO", ["drawio"]),
             "mcp": ("EAX_SERVICE_MCP", ["api"]),
             "change_log": ("EAX_SERVICE_CHANGE_LOG", ["api"]),
-            "backups": ("EAX_SERVICE_BACKUPS", ["backup"])}
+            "backups": ("EAX_SERVICE_BACKUPS", ["backup"]),
+            "library": ("EAX_SERVICE_LIBRARY", ["library"])}
 OFF = {"off", "false", "0", "no", "disabled"}
 SECTION = "# ---- Services (D191)"
-ORDER = ["db", "dms-broker", "keycloak", "api", "reports", "dms", "drawio", "web", "backup", "proxy"]
+ORDER = ["db", "dms-broker", "keycloak", "api", "library", "reports", "dms", "drawio", "web", "backup", "proxy"]
 state = {"restarting": False, "started": None, "finished": None, "log": []}
 # what is being applied, one entry per service (owner, 5 Nov 2026: each switched on its own, the others stay usable),
 # and "config" for a restore or a saved config file (these may touch several services, so they wait for the others)
@@ -531,7 +532,7 @@ def check_text(text: str) -> dict:
         if k in now and k not in new:
             errors.append(f"{k} is missing: EA Explorer cannot start without it")
     for k in ("EAX_DB_PASSWORD", "EAX_DB_MIGRATOR_PASSWORD", "EAX_DB_SUPERUSER_PASSWORD", "EAX_DB_REPORT_PASSWORD",
-              "EAX_KEYCLOAK_DB_PASSWORD", "EAX_SUPERSET_DB_PASSWORD", "EAX_MAYAN_DB_PASSWORD"):
+              "EAX_KEYCLOAK_DB_PASSWORD", "EAX_SUPERSET_DB_PASSWORD", "EAX_MAYAN_DB_PASSWORD", "EAX_LIBRARY_DB_PASSWORD"):
         if k in now and k in new and now[k] != new[k]:
             warnings.append(f"{k} changed: the database keeps the old password until it is changed there too "
                             "(rotating passwords comes with phase 36); until then the service cannot sign in")

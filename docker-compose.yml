@@ -147,6 +147,29 @@ services:
       - ${EAX_TLS_DIR:-eax-tls}:/tls               # the certificate, backed up and restored with the rest
     networks: [backend]
 
+  # The library (phase 15.2, D346): the organisation's and the projects' libraries, a service of its own with its own
+  # database (eaxlibrary, made on first start), migrations and API (/api/library/v1). On a laptop its database shares the
+  # PostgreSQL server; in production it gets its own (scale-out story). Optional: EAX_SERVICE_LIBRARY; started after the core.
+  library:
+    build:
+      context: ./services/library
+    image: eaexplorer/library:${EAX_VERSION:-dev}
+    <<: [*restart, *logging]
+    env_file: work/eaexplorer.env
+    environment:
+      EAX_API_INTERNAL_URL: http://api:8000
+      EAX_LIBRARY_DB_HOST: ${EAX_LIBRARY_DB_HOST:-db}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [frontend, backend]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8100/api/library/v1/health').status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
   # ---------------------------------------------------------------- data (out of the box)
   # Operations helper (phase 10, D183): restarts the system when a Super Admin asks in the administration console.
   # It reaches the Docker engine (its socket), so it is only on the internal network, publishes no port, and every

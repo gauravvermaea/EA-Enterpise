@@ -71,6 +71,12 @@ def check_config() -> list[str]:
     dev = [k for k, v in os.environ.items() if k.startswith("EAX_") and v == DEV_PASSWORD]
     if dev and env("EAX_DEPLOYMENT", "laptop") != "laptop":
         problems.append("still set to the development password: " + ", ".join(sorted(dev)))
+    library_on = env("EAX_SERVICE_LIBRARY", "on").lower() not in ("off", "false", "0", "no", "disabled")
+    if library_on and env("EAX_DEPLOYMENT", "laptop") != "laptop":       # the library service (phase 15.2, D346)
+        if not env("EAX_LIBRARY_DB_PASSWORD"):
+            problems.append("EAX_LIBRARY_DB_PASSWORD is empty: the library service needs its own database password")
+        if env("EAX_LIBRARY_KEY", "eax-library-laptop") in ("eax-library-laptop", ""):
+            problems.append("EAX_LIBRARY_KEY is still the laptop value: set a long random value (the main API's key for the library)")
     temporary = env("EAX_FIRST_ADMIN_PASSWORD_TEMPORARY", "true").lower()
     if temporary not in ("true", "false"):
         problems.append("EAX_FIRST_ADMIN_PASSWORD_TEMPORARY must be true or false")
@@ -140,6 +146,7 @@ def print_logins(values: dict[str, str]) -> None:
         ("PostgreSQL Keycloak", "keycloak", v("EAX_KEYCLOAK_DB_PASSWORD")),
         ("PostgreSQL Superset", "superset", v("EAX_SUPERSET_DB_PASSWORD")),
         ("PostgreSQL Mayan", "mayan", v("EAX_MAYAN_DB_PASSWORD")),
+        ("PostgreSQL Library", "eax_library", v("EAX_LIBRARY_DB_PASSWORD") or v("EAX_DB_PASSWORD")),
         ("Mayan broker (Valkey)", "(none)", v("EAX_DMS_BROKER_PASSWORD")),
         ("MCP server (dev token)", "(bearer)", v("EAX_MCP_DEV_TOKEN")),
         ("Break-glass (when Keycloak is down)", "break-glass", v("EAX_BREAK_GLASS_PASSWORD")),

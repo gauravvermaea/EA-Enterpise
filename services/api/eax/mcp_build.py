@@ -252,7 +252,8 @@ async def list_project_templates() -> Any:
 @mcp.tool()
 async def get_project(project: str, part: str = "summary") -> Any:
     """A project by name or id. part: "summary" (models, goals, phases with steps done and documents), "steps",
-    "documents", "classes" (deliverables and artifacts), "approvals", "viewpoints" or "all"."""
+    "documents", "classes" (deliverables and artifacts), "approvals", "viewpoints", "questions" (the key questions with
+    their status, answer and what it points to, the viewpoints that answer each, and the placeholder viewpoints) or "all"."""
     from . import projects as pj
 
     def run(pc, who):
@@ -261,6 +262,8 @@ async def get_project(project: str, part: str = "summary") -> Any:
             return d
         if part in ("steps", "documents", "viewpoints"):
             return {"project": d["name"], part: d[part]}
+        if part == "questions":
+            return {"project": d["name"], "questions": d["key_questions"], "placeholders": d["placeholder_viewpoints"]}
         if part == "classes":
             return {"project": d["name"], "classes": d["items"]}
         if part == "approvals":
@@ -354,6 +357,118 @@ async def complete_project_step(project: str, step: int, done: bool = True, note
     get_project(part="steps")."""
     from . import projects as pj
     return await _proj(lambda pc, who: pj.mark_step(pc, _project_id(pc, project), who, int(step), done, note), write=True)
+
+
+@mcp.tool()
+async def save_key_question(project: str, question: str, asked_by: str = "", approach: str = "", viewpoints: list[str] | None = None,
+                            question_id: str = "") -> Any:
+    """Add a key question to a project (question_id empty) or change one (its id from get_project part "questions"):
+    the stakeholder question the work answers, who asks it, the answer we expect or the approach, and the codes of the
+    viewpoints that answer it (VP-, PV- or a placeholder's PH-; a library viewpoint is chosen for the project). A question
+    may need several viewpoints and a viewpoint may answer several questions. Ask the person before saving."""
+    from . import key_questions as kq
+    body = {"question": question, "asked_by": asked_by, "approach": approach}
+    if viewpoints is not None:
+        body["viewpoints"] = viewpoints
+    if question_id:
+        return await _proj(lambda pc, who: kq.change_question(pc, _project_id(pc, project), who, question_id, body), write=True)
+    return await _proj(lambda pc, who: kq.add_question(pc, _project_id(pc, project), who, body), write=True)
+
+
+@mcp.tool()
+async def answer_key_question(project: str, question_id: str, answer: str, documents: list[str] | None = None,
+                              links: list[dict] | None = None, viewpoints: list[str] | None = None) -> Any:
+    """Answer a key question (contributors): answer is a short summary of the answer, pointing to what holds it:
+    documents (ids of the project's documents, from get_project part "documents"), links [{url, label}] and/or the
+    viewpoints mapped to it (codes). At least one of them is needed. The question is then waiting for the stakeholder
+    to accept it. Ask the person before saving."""
+    from . import key_questions as kq
+    body: dict = {"answer": answer}
+    for k, v in (("documents", documents), ("links", links), ("viewpoints", viewpoints)):
+        if v is not None:
+            body[k] = v
+    return await _proj(lambda pc, who: kq.answer(pc, _project_id(pc, project), who, question_id, body), write=True)
+
+
+@mcp.tool()
+async def key_question_decision(project: str, question_id: str, decision: str, note: str = "", stakeholder: str = "",
+                                on: str = "") -> Any:
+    """The stakeholder's decision on an answered key question: decision "accepted" or "rejected" (a rejection needs a
+    note and opens the question again), or "reopen" (a contributor, with a note). With stakeholder empty the signed-in
+    person decides as a project stakeholder; with stakeholder named, a contributor records a decision given outside
+    the application (on: YYYY-MM-DD). Ask the person before saving."""
+    from . import key_questions as kq
+
+    def run(pc, who):
+        pid = _project_id(pc, project)
+        if decision == "reopen":
+            return kq.reopen(pc, pid, who, question_id, note)
+        if stakeholder:
+            return kq.record(pc, pid, who, question_id, {"by": stakeholder, "on": on, "decision": decision, "note": note})
+        return kq.decide(pc, pid, who, question_id, decision, note)
+    return await _proj(run, write=True)
+
+
+@mcp.tool()
+async def business_model_canvas(project: str, canvas: str = "", compare_with: str = "") -> Any:
+    """A project's Business Model Canvases: with canvas empty, the list (name, kind current | target | working |
+    scenario, status); with a canvas id, its items block by block (a working copy's marks: added, changed with the old
+    text, removed); with compare_with too, what changed from canvas to compare_with in each block."""
+    from . import canvases as cv
+
+    def run(pc, who):
+        pid = _project_id(pc, project)
+        if canvas and compare_with:
+            return cv.compare(pc, pid, who, canvas, compare_with)
+        return cv.get(pc, pid, who, canvas) if canvas else cv.listing(pc, pid, who)
+    return await _proj(run)
+
+
+@mcp.tool()
+async def change_business_model_canvas(project: str, action: str, canvas: str = "", item: str = "", block: str = "",
+                                       text: str = "", note: str = "", name: str = "", kind: str = "") -> Any:
+    """Change a project's Business Model Canvases (contributors; ask the person first). action: "new" (name, kind),
+    "add" (canvas, block, text, note), "change" (item, text, note, block), "remove" (item; crossed out in a working
+    copy), "working-copy" (canvas, name), "clean" (canvas, name, kind: a clean canvas from a working copy). Blocks:
+    key_partners, key_activities, key_resources, value_propositions, customer_relationships, channels,
+    customer_segments, cost_structure, revenue_streams."""
+    from . import canvases as cv
+
+    def run(pc, who):
+        pid = _project_id(pc, project)
+        body = {k: v for k, v in {"name": name, "kind": kind, "block": block, "text": text, "note": note}.items() if v}
+        if action == "new":
+            return cv.create(pc, pid, who, body)
+        if action == "add":
+            return cv.add_item(pc, pid, who, canvas, body)
+        if action == "change":
+            return cv.change_item(pc, pid, who, item, body)
+        if action == "remove":
+            return cv.remove_item(pc, pid, who, item)
+        if action == "working-copy":
+            return cv.copy(pc, pid, who, canvas, {**body, "kind": "working"})
+        if action == "clean":
+            return cv.clean_up(pc, pid, who, canvas, body)
+        raise EditError("action: new, add, change, remove, working-copy or clean")
+    return await _proj(run, write=True)
+
+
+@mcp.tool()
+async def add_placeholder_viewpoint(project: str, name: str, kind: str = "text", file_type: str = "", description: str = "",
+                                    questions: list[str] | None = None) -> Any:
+    """A placeholder viewpoint where no viewpoint fits a key question: kind "text" (a name and what it will show) or
+    "file" with file_type docx | pptx | xlsx | pdf | drawio | md | txt (an empty file is made in the project's files).
+    questions: the ids of the key questions it answers. It stays in the project (code PH-<n>)."""
+    from . import key_questions as kq
+
+    def run(pc, who):
+        pid = _project_id(pc, project)
+        out = kq.add_placeholder(pc, pid, who, {"name": name, "kind": kind, "file_type": file_type, "description": description,
+                                                "questions": questions or []})
+        if out.get("kind") == "file":
+            out["file"] = kq.make_files(pc, pid, who)["message"]
+        return out
+    return await _proj(run, write=True)
 
 
 @mcp.tool()

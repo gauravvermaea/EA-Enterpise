@@ -27,7 +27,17 @@ def upgrade() -> None:
 def downgrade() -> None:
     # Clean rebuilds are the rule (D54); this removes what 0032 added.
     raw = op.get_bind().connection.driver_connection
-    raw.execute("""DROP TABLE IF EXISTS proj.principle_areas;
+    raw.execute("""ALTER TABLE core.viewpoints DROP COLUMN default_view, DROP COLUMN togaf_artifact;
+                   DROP TABLE IF EXISTS proj.canvas_events;
+                   DROP TABLE IF EXISTS proj.canvas_documents;
+                   DROP TABLE IF EXISTS proj.canvas_items;
+                   DROP TABLE IF EXISTS proj.canvases;
+                   DROP TABLE IF EXISTS proj.question_viewpoints;
+                   DROP TABLE IF EXISTS proj.question_events;
+                   DROP TABLE IF EXISTS proj.question_links;
+                   DROP TABLE IF EXISTS proj.placeholder_viewpoints;
+                   DROP TABLE IF EXISTS proj.key_questions;
+                   DROP TABLE IF EXISTS proj.principle_areas;
                    ALTER TABLE proj.principles DROP COLUMN refines;
                    DROP TABLE IF EXISTS proj.sheet_rows;
                    DROP TABLE IF EXISTS proj.sheets;

@@ -263,6 +263,38 @@ class OrgPeople(MethodView):
         return _run(lambda c: orp.people(c, g.user))
 
 
+@blp.route("/repository/skills")
+class OrgSkills(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def get(self):
+        """The Skills repository (D353): every EA Explorer user (from Keycloak) with the skills they gave themselves"""
+        from .. import skills as sk
+        return _run(lambda c: sk.repository(c, g.user))
+
+
+@blp.route("/me/skills")
+class MySkills(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def get(self):
+        """Your own skills (D353), and the skills others use, to offer as you type"""
+        from .. import skills as sk
+        return _run(lambda c: sk.mine(c, g.user))
+
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth()
+    def put(self, data):
+        """{skills: [tags]}: your skills, replaced (free tags, at most 40)"""
+        from .. import skills as sk
+        return _run(lambda c: sk.set_mine(c, g.user, (data or {}).get("skills") or []), write=True, action="skills.set",
+                    obj=g.user.username)
+
+
 @blp.route("/repository/board")
 class OrgBoard(MethodView):
     @blp.doc(security=SECURITY)
@@ -834,6 +866,270 @@ class ProjectViewpointPhase(MethodView):
         """The phase the project shows a viewpoint with: {phase} (empty: its usual one)"""
         return _run(lambda c: pw.set_viewpoint_phase(c, project, g.user, code, (data or {}).get("phase") or ""), write=True,
                     action="project.viewpoint.phase", obj=project)
+
+
+@blp.route("/projects/<string:project>/key-questions")
+class KeyQuestions(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def get(self, project):
+        """The project's key questions, the viewpoints that answer each, and its placeholder viewpoints"""
+        from ..key_questions import read
+        return _run(lambda c: read(c, project, g.user))
+
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(201, Free)
+    @require_auth()
+    def post(self, data, project):
+        """A key question (contributors): {question, asked_by, approach, viewpoints: [codes]}"""
+        from ..key_questions import add_question
+        return _run(lambda c: add_question(c, project, g.user, data or {}), write=True, action="project.question", obj=project)
+
+
+@blp.route("/projects/<string:project>/key-questions/<string:qid>")
+class KeyQuestion(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth()
+    def put(self, data, project, qid):
+        """Change a key question: any of {question, asked_by, approach, viewpoints: [codes]}"""
+        from ..key_questions import change_question
+        return _run(lambda c: change_question(c, project, g.user, qid, data or {}), write=True, action="project.question", obj=qid)
+
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def delete(self, project, qid):
+        """Remove a key question (its viewpoints stay in the project)"""
+        from ..key_questions import delete_question
+        return _run(lambda c: delete_question(c, project, g.user, qid), write=True, action="project.question.removed", obj=qid)
+
+
+@blp.route("/projects/<string:project>/key-questions/<string:qid>/<string:act>")
+class KeyQuestionStatus(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def post(self, project, qid, act):
+        """A key question's status: answer {answer, note, viewpoints} and reopen {note} (contributors); decide {decision:
+        accepted | rejected, note} (the project's stakeholders, in the application); record {by, on, decision, note} with
+        an optional evidence file as multipart "file" (contributors, a decision given outside the application)"""
+        from .. import key_questions as kq
+        if request.files.get("file") or request.form:
+            data, (name, content) = dict(request.form), (_file() if request.files.get("file") else ("", b""))
+        else:
+            data, name, content = request.get_json(silent=True) or {}, "", b""
+        fns = {"answer": lambda c: kq.answer(c, project, g.user, qid, data),
+               "reopen": lambda c: kq.reopen(c, project, g.user, qid, data.get("note", "")),
+               "decide": lambda c: kq.decide(c, project, g.user, qid, data.get("decision", ""), data.get("note", "")),
+               "record": lambda c: kq.record(c, project, g.user, qid, data, name, content)}
+        if act not in fns:
+            abort(404, message="answer, reopen, decide or record")
+        return _run(fns[act], write=True, action=f"project.question.{act}", obj=qid)
+
+
+# ---------------------------------------------------------------- Business Model Canvases (D344)
+def _body_and_file():
+    """JSON, or a multipart form with an optional "file"."""
+    if request.files.get("file") or request.form:
+        name, content = _file() if request.files.get("file") else ("", b"")
+        return dict(request.form), name, content
+    return request.get_json(silent=True) or {}, "", b""
+
+
+@blp.route("/projects/<string:project>/canvases")
+class Canvases(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def get(self, project):
+        """The project's Business Model Canvases, and the nine blocks"""
+        from .. import canvases as cv
+        return _run(lambda c: cv.listing(c, project, g.user))
+
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(201, Free)
+    @require_auth()
+    def post(self, data, project):
+        """A new canvas (contributors): {name, kind: current | target | working | scenario, description}"""
+        from .. import canvases as cv
+        return _run(lambda c: cv.create(c, project, g.user, data or {}), write=True, action="project.canvas", obj=project)
+
+
+@blp.route("/projects/<string:project>/canvases/<string:cid>")
+class CanvasOne(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def get(self, project, cid):
+        """A canvas: its items by block (with a working copy's marks), documents and history"""
+        from .. import canvases as cv
+        return _run(lambda c: cv.get(c, project, g.user, cid))
+
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth()
+    def put(self, data, project, cid):
+        """Change its name, kind, status (draft | agreed) or description"""
+        from .. import canvases as cv
+        return _run(lambda c: cv.change(c, project, g.user, cid, data or {}), write=True, action="project.canvas", obj=cid)
+
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def delete(self, project, cid):
+        """Remove a canvas"""
+        from .. import canvases as cv
+        return _run(lambda c: cv.delete(c, project, g.user, cid), write=True, action="project.canvas.removed", obj=cid)
+
+
+@blp.route("/projects/<string:project>/canvases/<string:cid>/<string:act>")
+class CanvasAct(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def post(self, project, cid, act):
+        """items {block, text, note}; copy {name, kind}; copy-to {project, name, kind}; clean {name, kind}; reorder
+        {block, ids}; documents (multipart "file" and note, or {document, note})"""
+        from .. import canvases as cv
+        data, name, content = _body_and_file()
+        fns = {"items": lambda c: cv.add_item(c, project, g.user, cid, data),
+               "copy": lambda c: cv.copy(c, project, g.user, cid, data),
+               "copy-to": lambda c: cv.copy_to(c, project, g.user, cid, data.get("project") or "", data),
+               "clean": lambda c: cv.clean_up(c, project, g.user, cid, data),
+               "reorder": lambda c: cv.reorder(c, project, g.user, cid, data.get("block") or "", data.get("ids") or []),
+               "documents": lambda c: cv.add_document(c, project, g.user, cid, data, name, content)}
+        if act not in fns:
+            abort(404, message="items, copy, copy-to, clean, reorder or documents")
+        return _run(fns[act], write=True, action=f"project.canvas.{act}", obj=cid)
+
+    @blp.doc(security=SECURITY)
+    @blp.response(200)
+    @require_auth()
+    def get(self, project, cid, act):
+        """export?format=pdf | pptx | drawio [&compare=<another canvas>]: the canvas (or the comparison) as a file"""
+        from urllib.parse import quote
+
+        from .. import canvases as cv
+        if act != "export":
+            abort(404, message="export")
+        data, name, ctype = _run(lambda c: cv.export(c, project, g.user, cid, request.args.get("format", "pdf"), request.args.get("compare", "")))
+        return Response(data, mimetype=ctype, headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}"})
+
+
+@blp.route("/projects/<string:project>/canvases/<string:cid>/documents/<string:doc>")
+class CanvasDocument(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def delete(self, project, cid, doc):
+        """Take a document off the canvas (it stays in the project)"""
+        from .. import canvases as cv
+        return _run(lambda c: cv.remove_document(c, project, g.user, cid, doc), write=True, action="project.canvas.document", obj=cid)
+
+
+@blp.route("/projects/<string:project>/canvases/<string:a>/compare/<string:b>")
+class CanvasCompare(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def get(self, project, a, b):
+        """Compare two canvases: each block's items added, changed or removed from a to b"""
+        from .. import canvases as cv
+        return _run(lambda c: cv.compare(c, project, g.user, a, b))
+
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(201, Free)
+    @require_auth()
+    def post(self, data, project, a, b):
+        """A working copy of the changes from a to b, marked, to adjust and clean up: {name}"""
+        from .. import canvases as cv
+        return _run(lambda c: cv.from_compare(c, project, g.user, a, b, data or {}), write=True, action="project.canvas.compare", obj=a)
+
+
+@blp.route("/projects/<string:project>/canvas-items/<string:iid>")
+class CanvasItem(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth()
+    def put(self, data, project, iid):
+        """Change an item's text, note or block (in a working copy it is marked changed)"""
+        from .. import canvases as cv
+        return _run(lambda c: cv.change_item(c, project, g.user, iid, data or {}), write=True, action="project.canvas.item", obj=iid)
+
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def delete(self, project, iid):
+        """Remove an item (in a working copy it is crossed out)"""
+        from .. import canvases as cv
+        return _run(lambda c: cv.remove_item(c, project, g.user, iid), write=True, action="project.canvas.item", obj=iid)
+
+
+@blp.route("/projects/<string:project>/canvas-items/<string:iid>/restore")
+class CanvasItemRestore(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def post(self, project, iid):
+        """Undo a working copy's mark on an item"""
+        from .. import canvases as cv
+        return _run(lambda c: cv.restore_item(c, project, g.user, iid), write=True, action="project.canvas.item", obj=iid)
+
+
+@blp.route("/projects/<string:project>/placeholder-viewpoints")
+class PlaceholderViewpoints(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(201, Free)
+    @require_auth()
+    def post(self, data, project):
+        """A placeholder viewpoint (contributors): {name, description, kind: text | file, file_type, questions: [ids]};
+        a file one's empty file is made in the project's files straight away when Documents is up"""
+        from ..key_questions import add_placeholder, make_files
+        out = _run(lambda c: add_placeholder(c, project, g.user, data or {}), write=True, action="project.placeholder", obj=project)
+        if out.get("kind") == "file":
+            made = _run(lambda c: make_files(c, project, g.user), write=True)
+            out["message"] += " " + made["message"]
+        return out
+
+
+@blp.route("/projects/<string:project>/placeholder-viewpoints/files")
+class PlaceholderFiles(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def post(self, project):
+        """Make the empty file of each file placeholder that has none yet (in the project's files)"""
+        from ..key_questions import make_files
+        return _run(lambda c: make_files(c, project, g.user), write=True, action="project.placeholder.files", obj=project)
+
+
+@blp.route("/projects/<string:project>/placeholder-viewpoints/<string:code>")
+class PlaceholderViewpoint(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth()
+    def put(self, data, project, code):
+        """Change a placeholder viewpoint's name or description"""
+        from ..key_questions import change_placeholder
+        return _run(lambda c: change_placeholder(c, project, g.user, code, data or {}), write=True, action="project.placeholder", obj=code)
+
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def delete(self, project, code):
+        """Remove a placeholder viewpoint (its file, if made, stays in the project's files)"""
+        from ..key_questions import delete_placeholder
+        return _run(lambda c: delete_placeholder(c, project, g.user, code), write=True, action="project.placeholder.removed", obj=code)
 
 
 @blp.route("/projects/<string:project>/finish")

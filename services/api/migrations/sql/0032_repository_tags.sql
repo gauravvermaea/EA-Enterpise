@@ -6,6 +6,8 @@
 --   * the template a document was copied from
 --   * the dates each step was opened and closed, and its history
 --   * the project's own placement of entity types and entities in the content framework
+--   * key questions and the viewpoints (or placeholder viewpoints) that answer them
+--   * Business Model Canvases: current, target, working copies and scenarios, compared and cleaned up
 -- Rows only: the rules are in eax/repo_tags.py and eax/projects.py (D248).
 -- =====================================================================================
 
@@ -205,6 +207,153 @@ CREATE TABLE proj.board_members (
     added_by    text NOT NULL,
     added_at    timestamptz NOT NULL DEFAULT now()
 );
+
+-- key questions (owner, 9 Nov 2026): the stakeholder questions the project's work answers, what we expect the answer or
+-- the approach to be, and the viewpoints that answer each one (many to many: a question may need several viewpoints, a
+-- viewpoint may answer several questions). A placeholder viewpoint stands in where no viewpoint fits: a text, or an
+-- empty file (docx, pptx...) in the project's files; it stays in the project (never in the organisation's viewpoints)
+CREATE TABLE proj.key_questions (
+    id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    guid        uuid NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+    project_id  bigint NOT NULL REFERENCES proj.projects (id) ON DELETE CASCADE,
+    sort_order  integer NOT NULL DEFAULT 0,
+    question    text NOT NULL,
+    asked_by    text NOT NULL DEFAULT '',                  -- the stakeholder(s) asking, as written
+    approach    text NOT NULL DEFAULT '',                  -- the answer we expect, or how we will answer it
+    -- open, then answered (by a contributor), then accepted by the stakeholder (in the application, or recorded by a
+    -- contributor with optional evidence); a rejection sends it back to open (history in question_events)
+    status      text NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'answered', 'accepted')),
+    answer      text NOT NULL DEFAULT '',
+    answered_by text NOT NULL DEFAULT '',
+    answered_at timestamptz,
+    accepted_by text NOT NULL DEFAULT '',                  -- the stakeholder: a user name, or a name as recorded
+    accepted_at timestamptz,
+    accept_note text NOT NULL DEFAULT '',
+    accept_recorded_by text NOT NULL DEFAULT '',           -- the contributor who recorded it (empty: accepted in the application)
+    evidence_document_id bigint REFERENCES proj.documents (id) ON DELETE SET NULL,
+    created_by  text NOT NULL,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    changed_by  text NOT NULL DEFAULT '',
+    changed_at  timestamptz
+);
+CREATE TABLE proj.placeholder_viewpoints (
+    id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    guid        uuid NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+    project_id  bigint NOT NULL REFERENCES proj.projects (id) ON DELETE CASCADE,
+    code        text NOT NULL,                             -- PH-01 ... within the project
+    name        text NOT NULL,
+    description text NOT NULL DEFAULT '',
+    kind        text NOT NULL DEFAULT 'text' CHECK (kind IN ('text', 'file')),
+    file_type   text NOT NULL DEFAULT '',                  -- a file placeholder: docx, pptx, xlsx, pdf, drawio, md, txt
+    document_id bigint REFERENCES proj.documents (id) ON DELETE SET NULL,   -- its file in the project's files, once made
+    created_by  text NOT NULL,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (project_id, code)
+);
+-- what an answer points to (owner, 9 Nov 2026: "a summary of the answer pointing to artifacts with links"): a document in
+-- the project's repository, or a link (a page, a report, a shared file); the viewpoints mapped to the question link too
+CREATE TABLE proj.question_links (
+    id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    question_id bigint NOT NULL REFERENCES proj.key_questions (id) ON DELETE CASCADE,
+    document_id bigint REFERENCES proj.documents (id) ON DELETE CASCADE,
+    url         text NOT NULL DEFAULT '',
+    label       text NOT NULL DEFAULT '',
+    sort_order  integer NOT NULL DEFAULT 0,
+    added_by    text NOT NULL,
+    added_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE proj.question_events (
+    id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    question_id bigint NOT NULL REFERENCES proj.key_questions (id) ON DELETE CASCADE,
+    action      text NOT NULL,                             -- asked, changed, answered, accepted, rejected, reopened ...
+    status      text NOT NULL DEFAULT '',                  -- the status after it
+    username    text NOT NULL,
+    at          timestamptz NOT NULL DEFAULT now(),
+    note        text NOT NULL DEFAULT ''
+);
+CREATE INDEX question_events_question ON proj.question_events (question_id, at);
+CREATE TABLE proj.question_viewpoints (
+    question_id bigint NOT NULL REFERENCES proj.key_questions (id) ON DELETE CASCADE,
+    viewpoint   text NOT NULL,                             -- a viewpoint's code (VP-, PV-) or a placeholder's (PH-)
+    PRIMARY KEY (question_id, viewpoint)
+);
+
+-- Business Model Canvases (owner, 9 Nov 2026): first-class in a project, free-standing from the models. A project has
+-- any number: current state, target state, working copies and scenarios, each draft or agreed. Items keep a lineage
+-- (the same item across copies), so two canvases compare (added, changed, removed). In a working copy changes are
+-- marked by hand (added green, changed amber with the old text, removed crossed out in red) until a clean canvas is
+-- made from it
+CREATE TABLE proj.canvases (
+    id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    guid        uuid NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+    project_id  bigint NOT NULL REFERENCES proj.projects (id) ON DELETE CASCADE,
+    name        text NOT NULL,
+    kind        text NOT NULL DEFAULT 'current' CHECK (kind IN ('current', 'target', 'working', 'scenario')),
+    status      text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'agreed')),
+    description text NOT NULL DEFAULT '',
+    source_id   bigint REFERENCES proj.canvases (id) ON DELETE SET NULL,     -- the canvas it was made from
+    source_note text NOT NULL DEFAULT '',                                     -- how: a copy, cleaned up, a comparison
+    created_by  text NOT NULL,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    changed_by  text NOT NULL DEFAULT '',
+    changed_at  timestamptz
+);
+CREATE TABLE proj.canvas_items (
+    id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    guid        uuid NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+    canvas_id   bigint NOT NULL REFERENCES proj.canvases (id) ON DELETE CASCADE,
+    block       text NOT NULL CHECK (block IN ('key_partners', 'key_activities', 'key_resources', 'value_propositions',
+                                               'customer_relationships', 'channels', 'customer_segments', 'cost_structure',
+                                               'revenue_streams')),
+    sort_order  integer NOT NULL DEFAULT 0,
+    text        text NOT NULL,
+    note        text NOT NULL DEFAULT '',
+    lineage     uuid NOT NULL DEFAULT gen_random_uuid(),   -- the same item in every copy of the canvas
+    mark        text NOT NULL DEFAULT '' CHECK (mark IN ('', 'added', 'changed', 'removed')),   -- a working copy's marks
+    was_text    text NOT NULL DEFAULT '',                  -- changed: the text before
+    changed_by  text NOT NULL DEFAULT '',
+    changed_at  timestamptz
+);
+CREATE INDEX canvas_items_canvas ON proj.canvas_items (canvas_id, block, sort_order);
+-- the documents behind a canvas (what was used to build it): uploaded with it, or a document of the project
+CREATE TABLE proj.canvas_documents (
+    canvas_id   bigint NOT NULL REFERENCES proj.canvases (id) ON DELETE CASCADE,
+    document_id bigint NOT NULL REFERENCES proj.documents (id) ON DELETE CASCADE,
+    note        text NOT NULL DEFAULT '',
+    added_by    text NOT NULL,
+    added_at    timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (canvas_id, document_id)
+);
+CREATE TABLE proj.canvas_events (
+    id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    canvas_id   bigint NOT NULL REFERENCES proj.canvases (id) ON DELETE CASCADE,
+    action      text NOT NULL,
+    username    text NOT NULL,
+    at          timestamptz NOT NULL DEFAULT now(),
+    note        text NOT NULL DEFAULT ''
+);
+
+-- each user's own skills (owner, 9 Nov 2026, D353): free tags people add to themselves on their profile; the Skills
+-- repository lists every EA Explorer user (from Keycloak) with them. Tags typed against users on projects' Organisation
+-- tabs before this are moved onto the users once.
+CREATE TABLE proj.user_skills (
+    username    text PRIMARY KEY,
+    skills      text[] NOT NULL DEFAULT '{}',
+    modified_by text NOT NULL,
+    modified_at timestamptz NOT NULL DEFAULT now()
+);
+INSERT INTO proj.user_skills (username, skills, modified_by)
+SELECT lower(o.username), array_agg(DISTINCT k ORDER BY k), 'migration 0032'
+  FROM proj.org_people o, unnest(o.skills) AS k
+ WHERE o.username <> '' AND k <> ''
+ GROUP BY lower(o.username)
+ON CONFLICT (username) DO NOTHING;
+
+-- the TOGAF business architecture viewpoints (owner, 9 Nov 2026, D345): the form a viewpoint opens in (catalog, matrix,
+-- diagram, heat, rels; empty: diagram) and the TOGAF artifact it gives
+ALTER TABLE core.viewpoints
+    ADD COLUMN default_view   text NOT NULL DEFAULT '',
+    ADD COLUMN togaf_artifact text NOT NULL DEFAULT '';
 
 DO $$
 BEGIN

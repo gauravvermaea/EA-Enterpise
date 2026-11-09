@@ -179,6 +179,15 @@ def check_drawio() -> dict:
     return _http("Diagrams", "draw.io", "drawio", 8080, "/")
 
 
+def check_library() -> dict:
+    """The library service (phase 15.2, D346): its own container and database."""
+    if (off := _off("Library", "Library (ours)", "library")):
+        return off
+    import os
+    host = (os.environ.get("EAX_LIBRARY_URL", "http://library:8100").split("//")[-1].split(":")[0]) or "library"
+    return _http("Library", "Library (ours)", host, 8100, "/api/library/v1/health")
+
+
 def check_web() -> dict:
     return _http("Web screens", "nginx (ours)", "web", 8080, "/")
 
@@ -259,7 +268,7 @@ def check_break_glass() -> dict:
 
 
 CHECKS = [check_api, check_database, check_jobs, check_keycloak, check_web, check_proxy, check_reports,
-          check_dms, check_dms_broker, check_drawio, check_mcp, check_backup, check_break_glass]
+          check_dms, check_dms_broker, check_drawio, check_mcp, check_backup, check_library, check_break_glass]
 
 
 def check_all() -> dict:

@@ -20,7 +20,9 @@
         "VP-19",
         "VP-24",
         "VP-25",
-        "VP-26"
+        "VP-26",
+        "VP-33",
+        "VP-45"
       ],
       "goals": true,
       "primary": "target",
@@ -187,7 +189,11 @@
         "VP-03",
         "VP-04",
         "VP-05",
-        "VP-19"
+        "VP-19",
+        "VP-27",
+        "VP-28",
+        "VP-30",
+        "VP-47"
       ],
       "goals": false,
       "primary": null,
@@ -297,7 +303,10 @@
         "VP-18",
         "VP-19",
         "VP-20",
-        "VP-21"
+        "VP-21",
+        "VP-36",
+        "VP-48",
+        "VP-49"
       ],
       "goals": true,
       "primary": "target",
@@ -1064,7 +1073,11 @@
         "VP-10",
         "VP-19",
         "VP-20",
-        "VP-22"
+        "VP-22",
+        "VP-27",
+        "VP-37",
+        "VP-41",
+        "VP-42"
       ],
       "goals": true,
       "primary": "target",
@@ -1191,7 +1204,10 @@
         "VP-19",
         "VP-20",
         "VP-21",
-        "VP-24"
+        "VP-24",
+        "VP-31",
+        "VP-39",
+        "VP-40"
       ],
       "goals": true,
       "primary": "target",
@@ -1505,7 +1521,9 @@
         "VP-02",
         "VP-05",
         "VP-19",
-        "VP-26"
+        "VP-26",
+        "VP-31",
+        "VP-41"
       ],
       "goals": true,
       "primary": "target",

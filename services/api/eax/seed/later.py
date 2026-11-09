@@ -8,6 +8,8 @@ here, in the background, one step at a time, so nobody waits for it to sign in:
     EA metamodel and a model in each state), the demo estate Protea Insurance, the data quality samples, a few saved
     versions of two sample entities for the History tab (D110), the test users' roles, and the demo estate's tags,
     gap analyses and sheets (D176)
+  * laptop only, with the sample: key questions in every sample project, in every state (D341), and Business Model
+    Canvases in three of them (D344)
   * every model's first data quality measurement (models never measured yet), so highlights show from the start
 Each model appears as soon as its step is done. How far it has got is kept in core.startup_parts (part 'later'), which
 the screens show to everyone (Sample data: loading 3 of 9, amber; then green). A failed step is logged and the others
@@ -125,6 +127,9 @@ def plan(settings, with_sample: bool) -> list[tuple[str, object]]:
         steps.append(("Sample architecture project", sample_project))
         steps.append(("Sample projects, one per project template", sample_projects))
         steps.append(("Sample content: governance, people, calendars, sheets, the board", sample_content))
+        steps.append(("Sample key questions in every sample project", sample_questions))
+        steps.append(("Sample Business Model Canvases", sample_canvases))
+        steps.append(("Sample libraries: the enterprise library and three project libraries", sample_library))
     steps.append(("First data quality measurement", first_measurements))
     return steps
 
@@ -174,6 +179,27 @@ def sample_content() -> None:
     """Laptop (owner, 8 Nov 2026, phase 13.8): seed content for the sample projects and the organisation, made once."""
     from . import sample_content as sc
     for line in sc.run():
+        _say(line)
+
+
+def sample_questions() -> None:
+    """Laptop (owner, 9 Nov 2026, D341): key questions in every sample project, in every state, made once per project."""
+    from . import sample_questions as sq
+    for line in sq.run():
+        _say(line)
+
+
+def sample_canvases() -> None:
+    """Laptop (owner, 9 Nov 2026, D344): Business Model Canvases in three sample projects, in every kind and state."""
+    from . import sample_canvases as sc
+    for line in sc.run():
+        _say(line)
+
+
+def sample_library() -> None:
+    """Laptop (owner, 9 Nov 2026, D346): the enterprise library and project libraries, made once by the library service."""
+    from . import sample_library as sl
+    for line in sl.run():
         _say(line)
 
 

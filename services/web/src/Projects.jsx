@@ -30,6 +30,10 @@ import { ProjectQuality } from "./Quality";
 import { CalendarView } from "./Calendar";
 import { TrackingSheets } from "./TrackingSheets";
 import { ComplianceWizard } from "./GuidedWizards";
+import { CanvasTab } from "./Canvas";
+import { ProjectBusinessArtifacts } from "./BusinessArchitecture";
+import { ProjectLibraryTab } from "./Libraries";
+import { KeyQuestionsPanel, KeyQuestionsStep, makePlaceholderFiles, newKey, QuestionMapping } from "./KeyQuestions";
 import { TemplateBrowserDialog } from "./TemplateBrowser";
 import { ProjectBackupPanel, ProjectCompare, ProjectGaps, ProjectReports, RestoreProjectFile, ViewpointsByPhase } from "./ProjectTabs";
 
@@ -280,6 +284,27 @@ function AdminProject({ id }) {
   const [libDlg, setLibDlg] = useState(qs.get("library") === "1");
   const [review, setReview] = useState(qs.get("compliance") === "1");
   const [asked, setAsked] = useState(false);
+  // a wizard asked for by the address (?finish=1, ?library=1, ?compliance=1) opens whenever the address asks, also on
+  // this page already; closing it takes the ask out of the address, so asking again is a change (owner, 9 Nov 2026)
+  useEffect(() => {
+    const look = () => {
+      const q = new URLSearchParams(window.location.hash.split("?")[1] || "");
+      if (q.get("finish") === "1") setFinish(true);
+      if (q.get("library") === "1") setLibDlg(true);
+      if (q.get("compliance") === "1") setReview(true);
+    };
+    window.addEventListener("hashchange", look);
+    return () => window.removeEventListener("hashchange", look);
+  }, []);
+  const done = (set) => () => {
+    set(false);
+    const [path, query] = window.location.hash.split("?");
+    if (!query) return;
+    const q = new URLSearchParams(query);
+    ["finish", "library", "compliance", "template"].forEach((k) => q.delete(k));
+    const rest = q.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}${path}${rest ? `?${rest}` : ""}`);
+  };
   useEffect(() => {      // ?template=1: asked once, after the page is shown
     if (p && !asked && qs.get("template") === "1" && p.my_roles.includes("super-admin")) { setAsked(true); setTimeout(asTemplate, 0); }
   }, [p, asked]);  // eslint-disable-line react-hooks/exhaustive-deps
@@ -329,9 +354,9 @@ function AdminProject({ id }) {
           ok={runs && p.repo_state !== "ready" && !p.frozen} why={p.repo_state === "ready" ? "The repository is ready" : frozen || why} onClick={rebuild} />
       </div>
       {msg && <p className="small quiet">{msg}</p>}
-      {finish && <FinishDialog p={p} onClose={() => setFinish(false)} />}
-      {libDlg && sup && <LibraryProjectDialog project={p} onClose={() => setLibDlg(false)} onDone={setMsg} />}
-      {review && <ComplianceWizard p={p} onClose={() => setReview(false)} />}
+      {finish && <FinishDialog p={p} onClose={() => done(setFinish)()} />}
+      {libDlg && sup && <LibraryProjectDialog project={p} onClose={() => done(setLibDlg)()} onDone={setMsg} />}
+      {review && <ComplianceWizard p={p} onClose={() => done(setReview)()} />}
     </div>
   );
 }
@@ -384,7 +409,7 @@ export default function Projects({ route }) {
     return <Wizard key={`new-${qs.get("parent") || ""}-${qs.get("template") || ""}`} parent={qs.get("parent")} template={qs.get("template") === "blank" ? "" : qs.get("template")} />;
   }
   if (parts[0] && (parts[1] || "").split("?")[0] === "edit") return <Wizard key={`edit-${parts[0]}`} editId={parts[0]} startAt={qs.get("step")} />;
-  if (parts[0]) return <ProjectPage key={parts[0].split("?")[0]} id={parts[0].split("?")[0]} tab={(parts[1] || "home").split("?")[0]} />;
+  if (parts[0]) return <ProjectPage key={parts[0].split("?")[0]} id={parts[0].split("?")[0]} tab={(parts[1] || "home").split("?")[0]} sub={(parts[2] || "").split("?")[0]} />;
   window.location.replace("#/work");   // the list of projects is on Architecture work (D285)
   return null;
 }
@@ -566,13 +591,14 @@ export function RepoHelp({ p, onRebuild }) {
 
 // ---------------------------------------------------------------- the wizard (new, and the edit workflow)
 // the models first (owner, 7 Nov 2026); a new model's suggested name follows the project's name once it is given in Basics
-const STEPS = ["Models", "Primary working model", "Basics", "Scope", "Goals and outcomes", "Sponsor", "Stakeholders", "Notes and files", "Reference", "Template libraries", "Viewpoints",
+const STEPS = ["Models", "Primary working model", "Basics", "Scope", "Goals and outcomes", "Sponsor", "Stakeholders", "Notes and files", "Reference", "Template libraries", "Key questions", "Viewpoints",
   "Principles", "Charter", "Phase by phase", "People and sign-off", "Review"];
 const EMPTY = {
   name: "", purpose: "", own_purpose: "", description: "", parent: "", models: [],
   scope: { breadth: "", depth: "", domains: [], start: "", end: "", horizon: "", notes: "" },
   sponsor: { name: "", role: "", contact: "", asks: [], notes_html: "" }, notes_html: "", goals_notes_html: "", files: [], goals: [],
   viewpoints: [], own_viewpoints: [], existing_vps: [], removed_viewpoints: [],
+  key_questions: [], placeholder_viewpoints: [], removed_placeholders: [],
   principles: [], own_principles: [], existing_principles: [], removed_principles: [],
   removed: {}, own_steps: [], picks: null, kinds: {}, templates: {}, placeholders: {}, notes: {}, areas: {}, own_items: [], members: [], signoff: { "": [] }, signoff_quorum: "",
   libraries: null, template: "", stakeholders: [],
@@ -601,6 +627,11 @@ function fromProject(p, lib, derive) {
   const base = {
     scope: { ...EMPTY.scope, ...p.scope }, removed, own_steps: ownSteps, own_steps_seen: ownSteps.filter((s) => s.id).map((s) => s.id), picks, kinds, templates, placeholders, notes, areas, own_items: ownItems,
     viewpoints: p.viewpoints.filter((v) => !v.own).map((v) => v.code), libraries: p.libraries.map((l) => l.id),
+    // the questions the work answers and the viewpoints answering each (owner, 9 Nov 2026); a derived project gets them as new
+    key_questions: (p.key_questions || []).map((q) => ({ ...(derive ? { key: newKey() } : { id: q.id, status: q.status }), question: q.question, asked_by: q.asked_by,
+      approach: q.approach, viewpoints: q.viewpoints })),
+    placeholder_viewpoints: (p.placeholder_viewpoints || []).map((x) => ({ code: x.code, existing: !derive, key: x.code, name: x.name,
+      description: x.description, kind: x.kind, file_type: x.file_type, file_name: derive ? "" : x.file_name })),
   };
   if (derive) {
     const keep = ["name", "organisation", "role_title", "category", "email", "phone", "concerns", "power", "interest", "disrupt", "understanding_now",
@@ -620,6 +651,7 @@ function fromProject(p, lib, derive) {
     template: p.template?.code || "",
     sponsor: { ...EMPTY.sponsor, ...p.sponsor }, notes_html: p.notes_html || "", goals_notes_html: p.goals_notes_html || "", goals,
     existing_vps: p.viewpoints.filter((v) => v.own),
+    key_questions_seen: (p.key_questions || []).map((q) => q.id),
     principles: p.principles.filter((r) => r.library_id && !r.inherited_from).map((r) => r.library_id),
     existing_principles: p.principles.filter((r) => !r.library_id && !r.inherited_from),
     members: p.members.filter((m) => !(m.role === "project-admin" && m.username === p.me)).map((m) => ({ username: m.username, role: m.role })),
@@ -710,6 +742,8 @@ function Wizard({ parent, editId, template, startAt }) {
       scope: d.scope, sponsor: d.sponsor, notes_html: d.notes_html, goals_notes_html: d.goals_notes_html,
       goals: d.goals.filter((g) => g.name.trim()),
       viewpoints: d.viewpoints, own_viewpoints: d.own_viewpoints.filter((v) => v.name.trim()), removed_viewpoints: d.removed_viewpoints,
+      key_questions: d.key_questions.filter((q) => q.question.trim()), key_questions_seen: d.key_questions_seen || [],
+      placeholder_viewpoints: d.placeholder_viewpoints.filter((x) => x.name.trim()), removed_placeholders: d.removed_placeholders || [],
       libraries: d.libraries,
       models: d.models.map((m) => ({ ...(m.id ? { id: m.id, how: m.how, home: m.home }
         : ["added", "referred"].includes(m.how) ? { how: m.how, model: m.model, home: m.home }
@@ -756,9 +790,11 @@ function Wizard({ parent, editId, template, startAt }) {
         : await runTask(apiFetch("/api/v1/projects", { method: "POST", body: JSON.stringify(body()) }), "#/project-admin");
       const id = out.project.id;
       const left = d.files.length ? await uploadFiles(id) : [];
+      // the empty files of new file placeholders (owner, 9 Nov 2026)
+      const phMsg = d.placeholder_viewpoints.some((x) => x.kind === "file" && !x.file_name) ? await makePlaceholderFiles(id) : "";
       refreshAll();
-      if (left.length) setMsg(`Not uploaded: ${left.join(", ")}. Add them on the project's About tab.`);
-      if (window.location.hash === from && !left.length) window.location.hash = `#/projects/${id}`;
+      if (left.length || phMsg) setMsg([left.length ? `Not uploaded: ${left.join(", ")}. Add them on the project's About tab.` : "", phMsg].filter(Boolean).join(" "));
+      if (window.location.hash === from && !left.length && !phMsg) window.location.hash = `#/projects/${id}`;
     } catch (e) { setMsg(e.message); }
     setBusy(false);
   }
@@ -795,6 +831,8 @@ function Wizard({ parent, editId, template, startAt }) {
         {at === "Notes and files" && <NotesFiles d={d} set={set} live={live} />}
         {at === "Reference" && <ReferenceStep d={d} set={set} edit={!!editId} />}
         {at === "Template libraries" && <Libraries d={d} set={set} lib={lib} />}
+        {at === "Key questions" && <KeyQuestionsStep d={d} set={set}
+          names={[...(d.stakeholders || []), ...(live?.stakeholders || [])].map((x) => x.name).filter(Boolean)} />}
         {at === "Viewpoints" && <ViewpointsStep d={d} set={set} lib={lib} />}
         {at === "Charter" && <CharterStep d={d} set={set} lib={lib} editId={editId} />}
         {at === "Principles" && <Principles d={d} set={set} lib={lib} parentName={(plist?.projects || []).find((p) => p.id === d.parent)?.name} />}
@@ -1337,10 +1375,18 @@ function Libraries({ d, set, lib }) {
 }
 
 function ViewpointsStep({ d, set, lib }) {
-  const toggleVp = (c) => set("viewpoints", d.viewpoints.includes(c) ? d.viewpoints.filter((x) => x !== c) : [...d.viewpoints, c]);
+  // a viewpoint taken away no longer answers the key questions it was mapped to
+  const unmap = (ref) => set("key_questions", d.key_questions.map((q) => ({ ...q, viewpoints: (q.viewpoints || []).filter((r) => r !== ref) })));
+  const answers = (ref) => d.key_questions.filter((q) => q.question.trim() && (q.viewpoints || []).includes(ref)).length;
+  const toggleVp = (c) => {
+    if (d.viewpoints.includes(c)) unmap(c);
+    set("viewpoints", d.viewpoints.includes(c) ? d.viewpoints.filter((x) => x !== c) : [...d.viewpoints, c]);
+  };
   const upd = (i, k, v) => set("own_viewpoints", d.own_viewpoints.map((x, j) => (j === i ? { ...x, [k]: v } : x)));
   return (
     <div>
+      <QuestionMapping d={d} set={set} lib={lib} />
+      <h3>The viewpoints</h3>
       <p className="quiet small">The views this project's stakeholders need, from the viewpoint library. On the project's page each shows whether its
         element types are in one of the project's models' metamodels (open it there) or still to build. Chosen: <b>{d.viewpoints.length}</b> of {lib.viewpoints.length}.</p>
       <div className="row-gap">
@@ -1351,6 +1397,7 @@ function ViewpointsStep({ d, set, lib }) {
         {lib.viewpoints.map((v) => (
           <label key={v.code} className={`choice small${d.viewpoints.includes(v.code) ? " on" : ""}`} title={`${v.purpose}\n\nShows: ${(v.element_types || []).join(", ")}`}>
             <input type="checkbox" checked={d.viewpoints.includes(v.code)} onChange={() => toggleVp(v.code)} /> {v.code} {v.name}
+            {answers(v.code) > 0 && <span className="quiet"> · answers {answers(v.code)}</span>}
           </label>
         ))}
       </div>
@@ -1358,7 +1405,7 @@ function ViewpointsStep({ d, set, lib }) {
       {d.existing_vps.map((v) => (
         <div key={v.code} className="own-row small"><b>{v.code}</b> {v.name} <span className="quiet">{v.state}</span>
           <label><input type="checkbox" checked={d.removed_viewpoints.includes(v.code)}
-            onChange={(e) => set("removed_viewpoints", e.target.checked ? [...d.removed_viewpoints, v.code] : d.removed_viewpoints.filter((x) => x !== v.code))} /> take out</label></div>
+            onChange={(e) => { if (e.target.checked) unmap(v.code); set("removed_viewpoints", e.target.checked ? [...d.removed_viewpoints, v.code] : d.removed_viewpoints.filter((x) => x !== v.code)); }} /> take out</label></div>
       ))}
       {d.own_viewpoints.map((v, i) => (
         <div key={i} className="goal-box">
@@ -1366,7 +1413,7 @@ function ViewpointsStep({ d, set, lib }) {
             <input placeholder="Name, e.g. Claims journey" value={v.name} onChange={(e) => upd(i, "name", e.target.value)} />
             <input placeholder="Concerns it answers" value={v.concerns} onChange={(e) => upd(i, "concerns", e.target.value)} style={{ flex: 2 }} />
             <input placeholder="Stakeholders" value={v.stakeholders} onChange={(e) => upd(i, "stakeholders", e.target.value)} />
-            <button className="linkish" onClick={() => set("own_viewpoints", d.own_viewpoints.filter((_x, j) => j !== i))}>Remove</button>
+            <button className="linkish" onClick={() => { unmap(`own:${v.key}`); set("own_viewpoints", d.own_viewpoints.filter((_x, j) => j !== i)); }}>Remove</button>
           </div>
           <input className="wide" placeholder="Element types it shows, separated by commas, e.g. BusinessProcess, BusinessActor, Journey step"
             value={v.types_text} onChange={(e) => set("own_viewpoints", d.own_viewpoints.map((x, j) => (j === i ? { ...x, types_text: e.target.value,
@@ -1374,7 +1421,7 @@ function ViewpointsStep({ d, set, lib }) {
           <p className="small quiet">Types the project's models' metamodels have make it ready to use; others make it a viewpoint to build.</p>
         </div>
       ))}
-      <button onClick={() => set("own_viewpoints", [...d.own_viewpoints, { name: "", concerns: "", stakeholders: "", element_types: [], types_text: "" }])}>+ Make a viewpoint for the project</button>
+      <button onClick={() => set("own_viewpoints", [...d.own_viewpoints, { key: newKey(), name: "", concerns: "", stakeholders: "", element_types: [], types_text: "" }])}>+ Make a viewpoint for the project</button>
     </div>
   );
 }
@@ -1764,6 +1811,9 @@ function Review({ d, lib, purpose, problems }) {
           <tr><th>Sponsor</th><td>{d.sponsor.name ? `${d.sponsor.name}${d.sponsor.role ? `, ${d.sponsor.role}` : ""}` : <span className="quiet">not named</span>}{d.sponsor.asks.length ? ` · ${d.sponsor.asks.length} asks` : ""}</td></tr>
           <tr><th>Notes and files</th><td>{d.notes_html ? "notes written" : <span className="quiet">no notes</span>}{d.files.length ? ` · ${d.files.length} files to upload` : ""}</td></tr>
           <tr><th>Template libraries</th><td>{d.libraries.map((id) => lib.libraries.find((l) => l.id === id)?.name).filter(Boolean).join(", ") || <span className="quiet">none</span>}</td></tr>
+          <tr><th>Key questions</th><td>{d.key_questions.filter((q) => q.question.trim()).length
+            ? `${d.key_questions.filter((q) => q.question.trim()).length} (${d.key_questions.filter((q) => q.question.trim() && !(q.viewpoints || []).length).length} not answered by a viewpoint yet)`
+            : <span className="quiet">none</span>}{d.placeholder_viewpoints.filter((x) => x.name.trim()).length ? ` · ${d.placeholder_viewpoints.filter((x) => x.name.trim()).length} placeholder viewpoints` : ""}</td></tr>
           <tr><th>Viewpoints</th><td>{d.viewpoints.join(", ") || <span className="quiet">none</span>}{d.own_viewpoints.filter((v) => v.name.trim()).length ? ` + ${d.own_viewpoints.filter((v) => v.name.trim()).length} of its own` : ""}</td></tr>
           <tr><th>Charter</th><td>{Object.keys(d.charter || {}).length ? `${Object.keys(d.charter).length} section${Object.keys(d.charter).length === 1 ? "" : "s"} changed` : <span className="quiet">as the base's</span>} (a draft until approved)</td></tr>
           <tr><th>Principles</th><td>{d.principles.length} from the library, {d.own_principles.filter((p) => p.name.trim()).length + d.existing_principles.length} of its own</td></tr>
@@ -1783,11 +1833,11 @@ function Review({ d, lib, purpose, problems }) {
 // the steps and the repository are on Home, phase by phase or for all phases (owner, 8 Nov 2026); Tasks, a scratchpad (D298)
 // phase 13.1 (D303 to D307): Base, Charter, Standards, Governance log
 const TABS = [["home", "Home"], ["phases", "Phases"], ["report", "Project report"], ["base", "Base"], ["charter", "Charter"], ["archrepo", "Enterprise Repository (Project Scope)"], ["content", "Content framework"],
-  ["tasks", "Tasks"], ["models", "Models"], ["organisation", "Organisation"], ["stakeholders", "Stakeholders"], ["principles", "Principles"],
-  ["standards", "Standards"], ["governance", "Governance log"], ["reference", "Reference"], ["viewpoints", "Viewpoints"], ["reports", "Model reports"], ["quality", "Quality"], ["calendar", "Calendar"], ["sheets", "Sheets"],
+  ["tasks", "Tasks"], ["models", "Models"], ["organisation", "Organisation"], ["stakeholders", "Stakeholders"], ["questions", "Key questions"], ["canvas", "Business model canvas"], ["business", "Business artifacts"], ["principles", "Principles"],
+  ["standards", "Standards"], ["governance", "Governance log"], ["reference", "Reference library (Project Scope)"], ["library", "Library"], ["viewpoints", "Viewpoints"], ["reports", "Model reports"], ["quality", "Quality"], ["calendar", "Calendar"], ["sheets", "Sheets"],
   ["analysis", "Gaps and comparison"], ["signoff", "Sign-off"]];
 
-function ProjectPage({ id, tab }) {
+function ProjectPage({ id, tab, sub }) {
   const { data: p, error } = useApi(`/api/v1/projects/${id}`);
   const [msg, setMsg] = useState("");
   const [finish, setFinish] = useState(false);
@@ -1795,6 +1845,8 @@ function ProjectPage({ id, tab }) {
   if (error) return <div className="page"><p className="status bad">{error}</p><a href="#/work">Architecture work</a></div>;
   if (!p) return <div className="page"><p className="quiet">Loading...</p></div>;
   const mine = p.signoffs.filter((s) => s.mine).length;
+  // answers waiting for a stakeholder's acceptance (D341): shown on the Key questions tab
+  const waitingQs = (p?.key_questions || []).filter((q) => q.status === "answered").length;
   return (
     <div className="page">
       <div className="row-gap project-head">
@@ -1825,7 +1877,7 @@ function ProjectPage({ id, tab }) {
         catch (e) { setMsg(e.message); }
       } : null} />
       <div className="tabs" role="tablist">
-        {TABS.filter(([k]) => (k !== "archrepo" || partOn("repository")) && (k !== "reference" || partOn("references"))).map(([k, l]) => <a key={k} href={`#/projects/${id}/${k}`} className={`tab${tab === k ? " on" : ""}`}>{l}{k === "signoff" && mine ? ` (${mine})` : ""}</a>)}
+        {TABS.filter(([k]) => (k !== "archrepo" || partOn("repository")) && (k !== "reference" || partOn("references"))).map(([k, l]) => <a key={k} href={`#/projects/${id}/${k}`} className={`tab${tab === k ? " on" : ""}`}>{l}{k === "signoff" && mine ? ` (${mine})` : ""}{k === "questions" && waitingQs ? ` (${waitingQs})` : ""}</a>)}
       </div>
       <div className="tab-panel">
         {["home", "about", "overview"].includes(tab) && <Landing p={p} />}
@@ -1837,6 +1889,10 @@ function ProjectPage({ id, tab }) {
         {tab === "reports" && <ProjectReports p={p} part="models" />}
         {tab === "reference" && <ReferenceTab p={p} />}
         {tab === "stakeholders" && <StakeholderMatrix p={p} />}
+        {tab === "questions" && <KeyQuestionsPanel p={p} />}
+        {tab === "canvas" && <CanvasTab p={p} />}
+        {tab === "business" && <ProjectBusinessArtifacts p={p} />}
+        {tab === "library" && <ProjectLibraryTab p={p} entry={sub} />}
         {tab === "tasks" && <TasksTab p={p} />}
         {tab === "content" && <ContentFrameworkTab p={p} />}
         {tab === "archrepo" && <RepositoryMap p={p} />}

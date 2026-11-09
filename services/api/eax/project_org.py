@@ -42,11 +42,14 @@ def listing(conn, project: Any, user) -> dict:
                          WHERE s.project_id = :p AND NOT EXISTS (SELECT 1 FROM proj.org_people o WHERE o.stakeholder_id = s.id)
                          ORDER BY s.sort_order, s.id""", p=p["id"])
     members = _rows(conn, "SELECT lower(username) AS username, role FROM proj.members WHERE project_id = :p ORDER BY username", p=p["id"])
+    from . import skills as sk
+    have = sk.of(conn, [r["username"] for r in rows])          # a user's skills are their own, from their profile (D353)
+    for r in rows:
+        r["skills"] = have.get((r["username"] or "").lower(), [])
     listed = {r["username"] for r in rows if r["username"]}
     return {"people": rows, "roles": list(ROLES), "members": sorted({m["username"] for m in members}),
             "not_listed": sorted({m["username"] for m in members} - listed), "stakeholders_not_listed": sh,
-            "skills": sorted({k for r in _rows(conn, "SELECT DISTINCT unnest(skills) AS k FROM proj.org_people") for k in [r["k"]] if k},
-                             key=str.lower),
+            "skills": sk.all_tags(conn),
             "may_edit": _may(conn, p, user)}
 
 
@@ -55,11 +58,8 @@ def _clean(conn, p: dict, d: dict) -> dict:
     if not name:
         raise EditError("Give the person's name.")
     username = (d.get("username") or "").strip().lower()[:120]
-    skills = d.get("skills") or []
-    if isinstance(skills, str):
-        skills = skills.split(",")
-    skills = list(dict.fromkeys(" ".join(str(k).split())[:60] for k in skills if str(k).strip()))[:30]    # skills as tags (D302)
-    return {"name": name, "role": " ".join((d.get("role") or "").split())[:120], "username": username, "skills": skills}
+    # skills are no longer kept here: each user gives their own on their profile (D353); this column stays empty
+    return {"name": name, "role": " ".join((d.get("role") or "").split())[:120], "username": username, "skills": []}
 
 
 def add(conn, project: Any, user, d: dict) -> dict:

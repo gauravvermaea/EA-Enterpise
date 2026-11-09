@@ -378,6 +378,10 @@ def detail(conn, project: Any, user) -> dict:
     pend = p.get("pending_goals")
     out["pending_goals"] = pend if isinstance(pend, list) else __import__("json").loads(pend or "[]")
     out["viewpoints"] = pw.viewpoint_status(conn, p)
+    from . import key_questions as kq
+    kq_list = kq.listing(conn, p)
+    out["key_questions"], out["placeholder_viewpoints"] = kq_list["questions"], kq_list["placeholders"]
+    out["placeholder_file_types"] = kq_list["file_types"]
     out["model_types"] = pw.model_types(conn, p)
     out["signoffs"] = pw.signoffs(conn, p, user)
     open_by_doc = {r["document"]: r for r in out["signoffs"] if r["state"] == "open"}
@@ -514,9 +518,12 @@ def create(conn, user, d: dict, sample: bool = False) -> dict:
     reader_roles(conn, p, user)
     from . import governance as gov
     gov.charter_from_wizard(conn, p, user, d.get("charter"))      # the wizard's Charter step (owner, 8 Nov 2026)
+    own_codes = {}
     for v in d.get("own_viewpoints") or []:
         if (v.get("name") or "").strip():
-            pw.add_viewpoint(conn, p["guid"], user, v)
+            own_codes[str(v.get("key") or "")] = pw.add_viewpoint(conn, p["guid"], user, v)["code"]
+    from . import key_questions as kq
+    kq.from_wizard(conn, p, user, d, own_codes, editing=False)      # the questions the work answers (owner, 9 Nov 2026)
     note = pw.write_goals(conn, project_row(conn, p["guid"]), user, d.get("goals"))
     from . import stakeholders as sh
     sh.from_wizard(conn, p, user, d.get("stakeholders"))     # the template's suggestions, or the parent's (D294)

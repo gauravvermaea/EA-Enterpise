@@ -1,4 +1,4 @@
-"""Brings the built-in viewpoints (VP-01 to VP-26) and the report audiences in line with eax/report_defs.py
+"""Brings the built-in viewpoints (VP-01 to VP-49) and the report audiences in line with eax/report_defs.py
 (build phase 8.2, D161). Run by the seed on every start as the installer's login; idempotent. An
 organisation's own viewpoints (not built in) are left alone.
 """
@@ -32,14 +32,15 @@ def catalog_sql() -> str:
     for i, v in enumerate(VIEWPOINTS, 1):
         out.append(
             "INSERT INTO core.viewpoints (code, name, category, purpose, concerns, stakeholders, element_types, relationship_types,"
-            " heat_attribute, audiences, is_builtin, source, sort_order) VALUES ("
+            " heat_attribute, audiences, is_builtin, source, sort_order, default_view, togaf_artifact) VALUES ("
             + ", ".join(_lit(x) for x in (v["code"], v["name"], v["category"], v["purpose"], v["concerns"], v["stakeholders"],
                                           v["element_types"], v["relationship_types"], v["heat_attribute"], v["audiences"],
-                                          True, v["source"], i))
+                                          True, v["source"], i, v["default_view"], v["togaf_artifact"]))
             + ") ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name, category = EXCLUDED.category, purpose = EXCLUDED.purpose,"
               " concerns = EXCLUDED.concerns, stakeholders = EXCLUDED.stakeholders, element_types = EXCLUDED.element_types,"
               " relationship_types = EXCLUDED.relationship_types, heat_attribute = EXCLUDED.heat_attribute,"
-              " audiences = EXCLUDED.audiences, is_builtin = true, source = EXCLUDED.source, sort_order = EXCLUDED.sort_order, modified_at = now();\n")
+              " audiences = EXCLUDED.audiences, is_builtin = true, source = EXCLUDED.source, sort_order = EXCLUDED.sort_order,"
+              " default_view = EXCLUDED.default_view, togaf_artifact = EXCLUDED.togaf_artifact, modified_at = now();\n")
     out.append("DELETE FROM core.viewpoints WHERE is_builtin AND code NOT IN ("
                + ", ".join(_lit(v["code"]) for v in VIEWPOINTS) + ");\n")
     links = sorted({(r["code"], a) for r in REPORTS for a in r["audiences"]})

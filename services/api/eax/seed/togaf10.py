@@ -28,6 +28,11 @@ TYPES = [
     ("Capability", "Capability", "Strategy", "CAP", "business.capabilities", "An ability the enterprise has or needs"),
     ("ValueStream", "Value Stream", "Strategy", "VST", "business.value_streams", "The end-to-end stages that create value for a stakeholder"),
     ("CourseOfAction", "Course of Action", "Strategy", "COA", "business.courses_of_action", "A chosen approach to reach a goal"),
+    # EA Explorer extensions for the business architecture artifacts (owner, 9 Nov 2026, D345)
+    ("ValueStreamStage", "Value Stream Stage", "Strategy", "VSS", "business.value_streams",
+     "EA Explorer extension: a stage of a value stream, in order, with its entry and exit criteria"),
+    ("BusinessScenario", "Business Scenario", "Motivation", "BSC", "vision.architecture_vision",
+     "EA Explorer extension: a business problem in its setting, the actors and the outcome wanted"),
     ("Actor", "Actor", "Business", "ACT", "business.roles_actors", "A person, organisation or system that takes part in the business"),
     ("Role", "Role", "Business", "ROL", "business.roles_actors", "A part an actor plays, with its responsibilities"),
     ("OrganisationUnit", "Organisation Unit", "Business", "ORG", "business.functions_org_units", "A unit of the organisation with its own goals and resources"),
@@ -35,6 +40,8 @@ TYPES = [
     ("BusinessService", "Business Service", "Business", "BSV", "business.services_contracts", "A service the business offers, with defined boundaries"),
     ("Contract", "Contract", "Business", "CTR", "business.services_contracts", "An agreement on a service between parties"),
     ("Product", "Product", "Business", "PRD", "business.services_contracts", "What is offered to customers: services and the terms of their use"),
+    ("ProductLifecycleStage", "Product Lifecycle Stage", "Business", "PLS", "business.services_contracts",
+     "EA Explorer extension: a stage in a product's life, in order, with its entry and exit criteria"),
     ("Process", "Process", "Business", "PRC", "business.processes_events", "A sequence of activities that produces a result"),
     ("Event", "Event", "Business", "EVT", "business.processes_events", "Something that happens and starts or changes behaviour"),
     ("Control", "Control", "Business", "CTL", "business.processes_events", "A check in a process that keeps it within rules"),
@@ -88,6 +95,12 @@ ALLOWED = [
     ("Standard", "Association", "LogicalApplicationComponent"), ("Standard", "Association", "DataEntity"),
     ("Guideline", "Association", "Process"), ("Specification", "Association", "PhysicalApplicationComponent"),
     ("Requirement", "Association", "Gap"),
+    # D345
+    ("ValueStream", "Composition", "ValueStreamStage"), ("ValueStreamStage", "Triggering", "ValueStreamStage"),
+    ("Capability", "Serving", "ValueStreamStage"), ("Product", "Composition", "ProductLifecycleStage"),
+    ("ProductLifecycleStage", "Triggering", "ProductLifecycleStage"), ("BusinessScenario", "Association", "Stakeholder"),
+    ("BusinessScenario", "Association", "Actor"), ("BusinessScenario", "Association", "Driver"), ("BusinessScenario", "Association", "Goal"),
+    ("BusinessScenario", "Association", "Requirement"), ("BusinessScenario", "Association", "Process"),
 ]
 
 

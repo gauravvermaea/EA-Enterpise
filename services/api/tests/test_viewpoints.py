@@ -13,7 +13,8 @@ WEB = pathlib.Path(__file__).resolve().parents[2] / "web" / "src"
 
 
 def test_viewpoints_use_archimate4_types():
-    types = {t[0] for t in A.ENTITY_TYPES}
+    from eax.seed import togaf10
+    types = {t[0] for t in A.ENTITY_TYPES} | {t[0] for t in togaf10.TYPES}   # the TOGAF viewpoints name both metamodels' types (D345)
     rels = {r[0] for r in A.REL_TYPES}
     attrs = {a[0] for a in A.ATTRS}
     on_demand = {"Gap", "GapStatus"}   # VP-26 (D185): the Gap type and its attributes come with a model's first Gap entities
@@ -22,9 +23,9 @@ def test_viewpoints_use_archimate4_types():
         assert set(v["relationship_types"]) <= rels, v["code"]
         assert v["heat_attribute"] in attrs | on_demand, v["code"]
         assert v["concerns"] and v["stakeholders"] and v["purpose"], v["code"]
-    assert [v["code"] for v in VIEWPOINTS] == [f"VP-{i:02d}" for i in range(1, 27)]
+    assert [v["code"] for v in VIEWPOINTS] == [f"VP-{i:02d}" for i in range(1, 50)]
     cats = {v["category"].split(":")[0] for v in VIEWPOINTS}
-    assert cats == {"Basic", "Motivation", "Strategy", "Implementation and migration"}
+    assert cats == {"Basic", "Motivation", "Strategy", "Implementation and migration", "TOGAF business architecture"}
 
 
 def test_demo_estate_keeps_to_the_metamodel():
@@ -43,7 +44,8 @@ def test_demo_estate_keeps_to_the_metamodel():
 
 def test_catalog_sql_loads_every_viewpoint_and_audience():
     sql = catalog_sql()
-    assert sql.count("INSERT INTO core.viewpoints") == 26
+    assert sql.count("INSERT INTO core.viewpoints") == 49
+    assert "togaf_artifact" in sql and "'Business Capabilities catalog'" in sql
     assert all(f"'{c}'" in sql for c, _n, _g in AUDIENCES)
     links = sql[sql.index("INSERT INTO core.report_audience_links"):]
     assert all(f"('{r['code']}'," in links for r in REPORTS)

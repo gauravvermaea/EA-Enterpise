@@ -176,6 +176,7 @@ def show_logins() -> None:
         ("PostgreSQL Keycloak", "keycloak", g("EAX_KEYCLOAK_DB_PASSWORD"), "database keycloak"),
         ("PostgreSQL Superset", "superset", g("EAX_SUPERSET_DB_PASSWORD"), "database superset"),
         ("PostgreSQL Mayan", "mayan", g("EAX_MAYAN_DB_PASSWORD"), "database mayan"),
+        ("PostgreSQL Library", "eax_library", g("EAX_LIBRARY_DB_PASSWORD"), "database eaxlibrary"),
         ("Mayan broker (Valkey)", "(none)", g("EAX_DMS_BROKER_PASSWORD"), "password only"),
         ("MCP server (development token)", "(bearer)", g("EAX_MCP_DEV_TOKEN"), "https://localhost/mcp or http://localhost/mcp"),
         ("Keycloak client secrets", "superset/mayan", g("EAX_SUPERSET_OIDC_SECRET"), "OIDC clients"),

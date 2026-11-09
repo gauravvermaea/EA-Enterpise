@@ -28,7 +28,7 @@ Migration `0031_project_bases` (after 0029 content framework and 0030 the refere
 - **Architecture charter (D307)**: a page of sections (purpose, scope, authority, governance and board, principles and
   standards applied, roles, method, compliance and review), from the base; a Project Admin or Lead Architect changes and
   approves it (a change after approval makes it a draft).
-- **Skills** as tags on the Organisation tab (filter by skill).
+- **Skills** as tags on the Organisation tab (filter by skill). *Changed 9 Nov 2026 (D353): each user adds their own skills on My profile; the Organisation tab shows a linked user's skills from there.*
 - **Project admin › Project bases**: the hierarchy drawn as a tree like the model hierarchy (graph, or a list); choose a base or project to see its principles, standards, steps,
   document types with templates, and charter in one place.
 - **Architecture work**: Tiles, List and **Hierarchy** (a drawn tree, or indented) for projects and models; a **Repository** view for projects,
@@ -61,7 +61,7 @@ Migration `0031_project_bases` (after 0029 content framework and 0030 the refere
 4. Principles and Standards: base items show 🔒 and cannot be changed; add your own, also under a new group "AI".
 5. Governance log: log a decision and a dispensation against a standard; add a kind "Assumption" and log one.
 6. Charter: change a section, approve, change again (draft again).
-7. Organisation: give people skills; filter by skill.
+7. Organisation: the linked users' skills (from My profile, D353); filter by skill.
 8. Architecture work: Hierarchy for projects and for models; Repository shows the empty placeholder.
 9. Make a new project: it is under the Organisation base with its principles, standards and charter.
 10. Back up a project and restore it as new: standards, governance log, charter and its base come back.

@@ -42,6 +42,8 @@ export function ViewpointsByPhase({ p, fixed }) {
   const phase = fixed || phase0;
   const [pick, setPick] = useState({});          // viewpoint code -> the model chosen to see it in
   const [msg, setMsg] = useState("");
+  const qs = p.key_questions || [];
+  const answers = (code) => qs.map((q, i) => (q.viewpoints.includes(code) ? { n: i + 1, q } : null)).filter(Boolean);
   const list = p.viewpoints.filter((v) => phase === "*" || v.phase === phase);
   async function move(v, ph) {
     setMsg("");
@@ -56,7 +58,7 @@ export function ViewpointsByPhase({ p, fixed }) {
       {!fixed && <PhaseTabs p={p} phase={phase} setPhase={setPhase} count={(c) => p.viewpoints.filter((v) => v.phase === c).length} />}
       {fixed && !list.length && <p className="quiet small">No viewpoint is placed in this phase.</p>}
       <table className="grid-table vp-table">
-        <thead><tr><th>Viewpoint</th><th>Concerns · stakeholders</th><th>See it in</th><th /><th>Phase</th></tr></thead>
+        <thead><tr><th>Viewpoint</th><th>Concerns · stakeholders</th><th>Answers</th><th>See it in</th><th /><th>Phase</th></tr></thead>
         <tbody>
           {list.map((v) => {
             const models = [...(v.models || [])].sort((a, b) => a.missing.length - b.missing.length);
@@ -66,6 +68,7 @@ export function ViewpointsByPhase({ p, fixed }) {
               <tr key={v.code}>
                 <td><b>{v.code}</b> {v.name}{v.own && <span className="chip">project's own</span>}</td>
                 <td className="small quiet">{v.concerns}{v.stakeholders ? ` · ${v.stakeholders}` : ""}</td>
+                <td className="small">{answers(v.code).map((a) => <a key={a.n} className="chip" title={a.q.question} href={`#/projects/${p.id}/questions`}>Q{a.n}</a>)}</td>
                 <td>{models.length ? <select value={chosen} onChange={(e) => setPick({ ...pick, [v.code]: e.target.value })}>
                   {models.map((x) => <option key={x.model} value={x.model}>{x.missing.length ? "· " : "✓ "}{x.name}{x.missing.length ? ` (lacks ${x.missing.length})` : ""}</option>)}
                 </select> : <span className="quiet small">The project has no model yet.</span>}
@@ -77,7 +80,7 @@ export function ViewpointsByPhase({ p, fixed }) {
               </tr>
             );
           })}
-          {!list.length && <tr><td colSpan={5} className="quiet small">{p.viewpoints.length ? "No viewpoint in this phase." : "No viewpoints chosen: ✎ Edit › Viewpoints."}</td></tr>}
+          {!list.length && <tr><td colSpan={6} className="quiet small">{p.viewpoints.length ? "No viewpoint in this phase." : "No viewpoints chosen: ✎ Edit › Viewpoints."}</td></tr>}
         </tbody>
       </table>
       {msg && <p className="small status">{msg}</p>}

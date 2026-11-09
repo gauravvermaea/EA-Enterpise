@@ -15,12 +15,12 @@ One reference library for the whole organisation, beside each project's own Refe
   version can be downloaded.
 - **Who:** everyone signed in reads it; Super Admins add, change, move and delete.
 - **Where:** its own area tile and menu, **Reference library**, beside Architecture work.
-- **Projects:** a project's Reference tab can pick an entry of the organisation's library and add it as a link;
+- **Projects:** a project's Reference library (Project Scope) tab can pick an entry of the organisation's library and add it as a link;
   the link always opens the library's current version.
 
 ## Where
 - Its own area tile and the menu (*References*; *Reference library* in the second menu): `#/reference-library`.
-- A project's Reference tab: a tab *📚 Enterprise reference library* and a button *📚 From the enterprise library* that
+- A project's Reference library (Project Scope) tab: a tab *📚 Enterprise reference library* and a button *📚 From the enterprise library* that
   links entries into the project's Reference area (the link opens the library's entry).
 
 ## Checks (when built)
@@ -28,4 +28,4 @@ One reference library for the whole organisation, beside each project's own Refe
 2. As any other user: browse, filter by tag, search for a word that is only inside the PDF; open and download.
 3. Upload a new version; download the earlier one.
 4. As a non Super Admin: no add, change or delete buttons, and the API refuses them.
-5. In a project's Reference tab, link an entry from the organisation's library; open it.
+5. In a project's Reference library (Project Scope) tab, link an entry from the organisation's library; open it.

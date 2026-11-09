@@ -75,7 +75,11 @@
   "specification": "gov.specifications",
   "Control": "gov.standards",
   "Grouping": "gov.specifications",
-  "Meaning": "vision.principles_drivers"
+  "Meaning": "vision.principles_drivers",
+  "valuestreamstage": "business.value_streams",
+  "productlifecyclestage": "business.services_contracts",
+  "businessscenario": "vision.architecture_vision",
+  "control": "business.processes_events"
  },
  "document_types": {
   "Actor Role Catalogue": "business.roles_actors",

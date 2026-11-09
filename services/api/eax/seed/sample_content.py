@@ -4,6 +4,7 @@ once. Every name, figure and link is invented (the companies are the fictitious 
 * Karoo Re cloud migration (sample), mid-way: governance records in every approval state, people with skills, calendar
   events, phases and steps done, its charter approved, a deliverable placed in the content framework, two tracking
   sheets (an application portfolio and migration costs).
+* The test users' own skills (D353), as each would add them on My profile; a few have none yet.
 * Protea build or buy (sample): marked complete, every phase complete.
 * Fynbos Pet Insurance launch (sample): left as just set up.
 * The organisation: the Architecture Board's members, organisation calendar events, links in the reference library's
@@ -46,6 +47,7 @@ def run() -> list[str]:
     today = date.today()
     try:
         with pj.connections(True) as conn:
+            user_skills(conn)
             karoo = conn.execute(text("SELECT guid::text FROM proj.projects WHERE name = :n"), {"n": KAROO}).scalar()
             if karoo and not conn.execute(text("SELECT 1 FROM proj.gov_records WHERE title = :t"), {"t": MARK}).first():
                 _karoo(conn, karoo, sa, pa, la, ma, ar, today, gv, po, cl, cf, ts, pj)
@@ -139,14 +141,14 @@ def _karoo(conn, karoo, sa, pa, la, ma, ar, today, gv, po, cl, cf, ts, pj) -> No
     gv.approve_with_evidence(conn, karoo, pa, cap, "Assessment workshop with the architecture team.")
     # its charter approved
     gv.save_charter(conn, karoo, sa, {"approve": True})
-    # the project's people and their skills (names invented)
-    for name, role, user, skills in (("Thandi Nkosi", "Lead architect", "user_lead_architect", ["TOGAF", "Cloud", "Insurance"]),
-                                     ("Pieter van Wyk", "Project admin", "user_project_admin", ["Planning", "Governance"]),
-                                     ("Aisha Patel", "Application architect", "user_architect", ["Integration", "Cloud", "APIs"]),
-                                     ("Sipho Dlamini", "Data architect", "user_model_admin", ["Data modelling", "Data governance"]),
-                                     ("Lerato Mokoena", "Security architect", "", ["Security", "Identity", "Cloud"]),
-                                     ("Johan Botha", "Business sponsor's delegate", "user_stakeholder", ["Claims", "Insurance"])):
-        po.add(conn, karoo, sa, {"name": name, "role": role, "username": user, "skills": skills})
+    # the project's people (names invented); a linked user's skills come from their own profile (D353)
+    for name, role, user in (("Thandi Nkosi", "Lead architect", "user_lead_architect"),
+                             ("Pieter van Wyk", "Project admin", "user_project_admin"),
+                             ("Aisha Patel", "Application architect", "user_architect"),
+                             ("Sipho Dlamini", "Data architect", "user_model_admin"),
+                             ("Lerato Mokoena", "Security architect (vendor, not a user)", ""),
+                             ("Johan Botha", "Business sponsor's delegate", "user_stakeholder")):
+        po.add(conn, karoo, sa, {"name": name, "role": role, "username": user})
     # its calendar
     nxt = today + timedelta(days=(0 - today.weekday()) % 7)
     for ev in ({"topic": "Weekly architecture sync", "starts_on": str(nxt), "at_time": "09:30", "minutes": 45, "repeat": "weekly", "weekdays": [0],
@@ -197,3 +199,25 @@ def _karoo(conn, karoo, sa, pa, la, ma, ar, today, gv, po, cl, cf, ts, pj) -> No
              ("2027 Q3", "Data centre exit", "900 000", "", "", "Planned")]
     s2 = ts.create(conn, karoo, pa, {"name": "Migration costs", "columns": cc, "description": "Sample: budget against actual by quarter."})
     ts.update(conn, karoo, pa, s2["id"], {"add": [dict(zip(cc, c, strict=True)) for c in costs]})
+
+
+# the test users' own skills, as each would add them on My profile (D353); a few have none yet, to show that state
+USER_SKILLS = {
+    "user_lead_architect": ["TOGAF", "ArchiMate", "Enterprise architecture", "Cloud", "Insurance", "Architecture governance"],
+    "user_architect": ["Application architecture", "Integration", "APIs", "Cloud", "ArchiMate"],
+    "user_model_admin": ["Data modelling", "Data governance", "Data architecture", "ArchiMate"],
+    "user_project_admin": ["Project management", "Planning", "Architecture governance"],
+    "user_stakeholder": ["Claims", "Insurance", "Business process"],
+    "user_global_architect": ["Enterprise architecture", "Business architecture", "Capability mapping", "TOGAF"],
+    "user_model_creator": ["Metamodel design", "ArchiMate", "TOGAF"],
+    "user_library_admin": ["Reference models", "Knowledge management"],
+    "user_super_admin": ["Platform administration", "Security", "Identity"],
+    "user_report_viewer": ["Reporting", "Portfolio management"],
+}
+
+
+def user_skills(conn) -> None:
+    """Made once per user: a user who already has skills keeps them."""
+    for user, tags in USER_SKILLS.items():
+        conn.execute(text("""INSERT INTO proj.user_skills (username, skills, modified_by) VALUES (:u, CAST(:s AS text[]), :u)
+                              ON CONFLICT (username) DO NOTHING"""), {"u": user, "s": tags})

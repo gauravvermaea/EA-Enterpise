@@ -1,7 +1,7 @@
 # Build phases in detail
 
 Every phase with what it delivers, its version and its state; each has its own notes page. The short list is on the
-[README](../README.md#build-phases).
+[README](../README.md#build-phases). What EA Explorer does today, area by area: [capabilities.md](capabilities.md).
 
 
 Each phase has its own notes: what it delivers, a demo, checks, how to upgrade and what is not in it.
@@ -48,8 +48,8 @@ Each phase has its own notes: what it delivers, a demo, checks, how to upgrade a
 ## Planned phases (from the build plan)
 | Phase | Name |
 | --- | --- |
-| 15.2 | Reference library with wiki pages: an open-source wiki beside the links and documents ([phase-15.2.md](phase-15.2.md), D334) |
-| 15.3 | Business architecture artifacts: Business Model Canvas, value proposition canvas, capability map and value streams, motivation and strategy, customer journey, stakeholder map; canvases as views of the model, with gaps ([phase-15.3.md](phase-15.3.md), D268, D335) |
+| 15.2 | The library: the enterprise library and project libraries with simple pages, links and the odd file, search, history and undo, pluggable; a separate service with its own database ([phase-15.2.md](phase-15.2.md), D346 to D351) — built |
+| 15.3 | Business architecture artifacts: Business Model Canvas, value proposition canvas, capability map and value streams, motivation and strategy, customer journey, stakeholder map; canvases as views of the model, with gaps ([phase-15.3.md](phase-15.3.md), D268, D335) — in part built 9 Nov 2026: Business Model Canvases (D344), the TOGAF Phase B artifacts with their viewpoints and six extension types (D345), key questions (D341 to D343); waiting for the owner's test |
 | 16.3 | Guided wizards (D339): improve data quality, compliance review, migration plan from gaps, collect data from people, load data, first-run setup ([phase-16.3.md](phase-16.3.md); 15.1 closed as covered by phase 13, D338) — built 8 Nov 2026, waiting for the owner's test |
 | 19, 20 | Work copies and merge back, parts 1 and 2 |
 | 21 | Dedupe within a model |
@@ -57,11 +57,11 @@ Each phase has its own notes: what it delivers, a demo, checks, how to upgrade a
 | 23 | Portfolio, lifecycle and impact |
 | 24 | Report trends, schedules, feeds and the report designer |
 | 25 | Security hardening |
-| 26, 27 | MCP server: read tools; proposals into staging |
-| 28, 29 | draw.io integration, parts 1 and 2 (with the standard ArchiMate notation, D288) |
+| 26, 27 | MCP server: more read tools; proposals into staging (the server, its 79 tools and 3 prompts are built: [mcp.md](mcp.md)) |
+| 28, 29 | Drawn views in draw.io, parts 1 and 2 ([phase-28.md](phase-28.md), D288, D354, D355): design agreed 9 Nov 2026 — views drawn with the standard ArchiMate notation from the model's own entities, relationships added as uncommitted changes, "view" everywhere. Built already: the diagrams drawn from the repository (network, layers, impact, maps, matrices, value streams, roadmaps, viewpoints), each opening in draw.io |
 | 30, 31 | Standard views, parts 1 and 2 |
 | 33, 33.1 | ArchiMate exchange and migration; conformance check |
-| 34, 34.1 | Integrations: collection, CMDB, reconciliation; ETL, more sources and outbound |
+| 34, 34.1 | Integrations: collection, CMDB, reconciliation; ETL, more sources and outbound. Built already: the REST API (OpenAPI), signed webhooks, Excel and CSV loads, model packages, the MCP server |
 | 35, 35.1 | Operations insight; maintenance and optimisation |
 | 36 to 36.3, 8.5 | Deployment kinds and scripts; upgrades, releases and tests; test automation; security, scale and continuity; scaling out (with the infrastructure stories: [load balancing](story-load-balancing.md), [real-time mirrors](story-real-time-mirrors.md), D334) |
 | 37 | Hardening and release candidate |

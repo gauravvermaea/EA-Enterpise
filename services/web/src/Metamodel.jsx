@@ -36,6 +36,7 @@ import ModelPeople from "./ModelPeople";
 import ModelReports from "./ModelReports";
 import SheetsTab from "./Sheets";
 import ViewpointsTab from "./Viewpoints";
+import { ModelBusinessArtifacts } from "./BusinessArchitecture";
 import ChangesTab, { LiveCommits, usePendingCount } from "./Changes";
 import MergeTab from "./Merge";
 import { TagPage, TagsTab } from "./Versions";
@@ -488,7 +489,7 @@ function ModelPage({ model, view, itemId, sub }) {
   // every tab the model page always had (the owner wants them all here); Model admin has the same admin tabs and the wizards
   const tabs = [
     ...(holdsContent ? [["types", "Entity types", m.entity_type_count], ["entry", "Data entry", null], ["grid", "Grid", null], ["rels", "Relationship types", null],
-      ["graph", "Graph", null], ["viewpoints", "Viewpoints", null], ["checks", "Failing checks", null]] : []),
+      ["graph", "Graph", null], ["viewpoints", "Viewpoints", null], ["business", "Business viewpoints", null], ["checks", "Failing checks", null]] : []),
     ...(m.kind === "project" ? [["quality", "Quality", null]] : []),
     ...(m.kind === "project" ? [["changes", pending ? `Changes (${pending})` : "Changes", null], ["merge", "Merge", null]] : []),
     ...(holdsContent ? [["tags", "Tags", null], ["import", "Import and export", null]] : []),
@@ -555,6 +556,7 @@ function ModelPage({ model, view, itemId, sub }) {
         : tab === "rels" ? (itemId ? <RelationshipsOfType model={model} m={m} relTypeId={itemId} /> : <RelationshipTypesTab model={model} m={m} />)
         : tab === "graph" ? <GraphTab model={model} kind={itemId} />
         : tab === "viewpoints" ? <ViewpointsTab model={model} m={m} code={itemId} sub={sub} />
+        : tab === "business" ? <ModelBusinessArtifacts model={model} />
         : tab === "checks" ? <FailingChecks model={model} m={m} />
         : tab === "quality" ? <QualityTab model={model} m={m} drill={itemId} value={sub} />
         : tab === "hierarchy" ? <ModelLineageTab model={model} m={m} />

@@ -210,8 +210,9 @@ def metamodel_sql(model_key: str, origin_key: str | None) -> str:
     rows = []
     for i, (code, name, domain, aspect, prefix) in enumerate(A.ENTITY_TYPES, 1):
         i_d, o = ids("entity_type", code)
-        rows.append([i_d, o, m, gid(model_key, "layer", domain), code, name, aspect, prefix, snake(code), i * 10])
-    out.append(insert("entity_type", ["id", "origin_id", "model_id", "layer_id", "code", "name", "aspect",
+        rows.append([i_d, o, m, gid(model_key, "layer", domain), code, name, A.EXTENSION_DESCRIPTIONS.get(code, ""), aspect, prefix,
+                     snake(code), i * 10])
+    out.append(insert("entity_type", ["id", "origin_id", "model_id", "layer_id", "code", "name", "description", "aspect",
                                       "id_prefix", "table_name", "sort_order"], rows))
 
     # relationship types
@@ -858,8 +859,9 @@ def seed_sql(with_template: bool = True, with_sample: bool = True, with_insuranc
             insert("model", ["id", "name", "description", "kind_code", "source_model_id", "metamodel_name", "is_locked",
                              "owner"], [[
                 TEMPLATE_ID, "ArchiMate 4",
-                "The ArchiMate 4 root metamodel: 42 elements, 11 relationship types and the allowed "
-                "relationships. Read-only; new models start from it.",
+                "The ArchiMate 4 root metamodel: the 42 elements of the specification, 6 EA Explorer extensions for the "
+                "business architecture artifacts (Value Stream Stage, Product Lifecycle Stage, Business Scenario, Control, "
+                "Contract, Measure), 11 relationship types and the allowed relationships. Read-only; new models start from it.",
                 "template", EMPTY_ID, "ArchiMate 4", True, "EA Explorer"]]),
             metamodel_sql(TEMPLATE_KEY, None),
         ]

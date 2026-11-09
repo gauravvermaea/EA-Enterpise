@@ -127,11 +127,12 @@ _CORE = _CORE_ACT + _BEH + _PASS + ["Product"]
 ARCHIMATE = "ArchiMate 4 Specification, Appendix C (The Open Group)"   # where VP-01 to VP-25 come from (D235)
 
 
-def _vp(n, name, category, purpose, concerns, stakeholders, elements, rels=None, heat="Lifecycle", audiences=()):
+def _vp(n, name, category, purpose, concerns, stakeholders, elements, rels=None, heat="Lifecycle", audiences=(), view="", togaf=""):
     return {"code": f"VP-{n:02d}", "name": name, "category": category, "purpose": purpose, "concerns": concerns,
             "source": ARCHIMATE if n <= 25 else "",
-            "stakeholders": stakeholders, "element_types": list(dict.fromkeys(elements + ["Grouping"])),
-            "relationship_types": rels or _ALL_RELS, "heat_attribute": heat, "audiences": list(audiences)}
+            "stakeholders": stakeholders, "element_types": list(dict.fromkeys(elements + (["Grouping"] if n <= 26 else []))),
+            "relationship_types": rels or _ALL_RELS, "heat_attribute": heat, "audiences": list(audiences),
+            "default_view": view, "togaf_artifact": togaf}
 
 
 VIEWPOINTS: list[dict] = [
@@ -139,7 +140,7 @@ VIEWPOINTS: list[dict] = [
         "Who is in the organisation, how it is structured and where people work",
         "Enterprise, Process and Domain Architects, managers, employees, shareholders",
         ["BusinessActor", "Role", "Collaboration", "Location", "BusinessInterface"], heat="Owner",
-        audiences=["coo", "bu_head", "business_architect", "enterprise_architect"]),
+        audiences=["coo", "bu_head", "business_architect", "enterprise_architect"], togaf="Organization Map"),
     _vp(2, "Application Structure", "Basic: composition", "Designing",
         "How applications are built from components and interfaces, and the data they hold",
         "Application and Solution Architects", ["ApplicationComponent", "ApplicationInterface", "Collaboration", "DataObject"],
@@ -190,7 +191,7 @@ VIEWPOINTS: list[dict] = [
         ["BusinessActor", "Role", "Collaboration", "Location", "BusinessInterface", "Process", "Function",
          "Event", "Service", "BusinessObject", "ApplicationComponent", "ApplicationInterface",
          "DataObject"],
-        audiences=["process_owner", "coo", "business_architect"]),
+        audiences=["process_owner", "coo", "business_architect"], togaf="Process Flow diagram"),
     _vp(11, "Application Cooperation", "Basic: cooperation", "Designing",
         "How applications work together: flows, interfaces and the services they offer each other",
         "Enterprise, Process, Application, and Domain Architects",
@@ -243,12 +244,12 @@ VIEWPOINTS: list[dict] = [
     _vp(19, "Capability Map", "Strategy", "Designing, deciding",
         "The capabilities of the enterprise, their structure and the resources and outcomes linked to them",
         "Business Managers, Enterprise and Business Architects", ["Outcome", "Capability", "Resource"], heat="Maturity",
-        audiences=["ceo", "coo", "cio", "business_architect", "bu_head"]),
+        audiences=["ceo", "coo", "cio", "business_architect", "bu_head"], view="heat", togaf="Business Capability Map"),
     _vp(20, "Value Stream", "Strategy", "Designing, deciding",
         "The stages that create value for a stakeholder, and the capabilities that enable each stage",
         "Business Managers, Enterprise and Business Architects",
-        ["ValueStream", "Capability", "Value", "Outcome", "Stakeholder"], heat="Maturity",
-        audiences=["ceo", "coo", "business_architect", "product_owner"]),
+        ["ValueStream", "Capability", "Value", "Outcome", "Stakeholder", "ValueStreamStage"], heat="Maturity",
+        audiences=["ceo", "coo", "business_architect", "product_owner"], togaf="Value Stream Map"),
     _vp(21, "Outcome Realization", "Strategy", "Designing, deciding",
         "How capabilities, value streams, resources and the core elements produce the outcomes and value the business wants",
         "Business Managers, Enterprise and Business Architects",
@@ -256,7 +257,8 @@ VIEWPOINTS: list[dict] = [
          "Collaboration", "BusinessInterface", "ApplicationComponent", "ApplicationInterface",
          "Node", "Device", "SystemSoftware", "TechnologyInterface", "CommunicationNetwork", "Path",
          "Equipment", "Facility", "DistributionNetwork", "Service", "Process", "Function", "Event",
-         "BusinessObject", "DataObject", "Artifact", "Material", "Product"], heat="Maturity", audiences=["ceo", "enterprise_architect", "portfolio_manager"]),
+         "BusinessObject", "DataObject", "Artifact", "Material", "Product", "ValueStreamStage"], heat="Maturity",
+        audiences=["ceo", "enterprise_architect", "portfolio_manager"], togaf="Goal/Outcome/Service diagram"),
     _vp(22, "Resource Map", "Strategy", "Designing, deciding",
         "The resources of the enterprise, the capabilities they serve and the work packages that change them",
         "Business Managers, Enterprise and Business Architects",
@@ -289,8 +291,75 @@ VIEWPOINTS: list[dict] = [
          "SystemSoftware", "Process", "Service", "BusinessActor", "Requirement"],
         rels=["Association", "Realization", "Aggregation", "Composition", "Influence"], heat="GapStatus",
         audiences=["enterprise_architect", "architecture_board", "portfolio_manager"]),
+] + [
+    # The TOGAF business architecture catalogues, matrices and diagrams (owner, 9 Nov 2026, D345): EA Explorer's own
+    # viewpoints, each named after the TOGAF artifact and opening in its usual form. Element types of both ArchiMate 4
+    # (with the EA Explorer extensions) and the TOGAF 10 content metamodel, so each works on models of either.
+    _vp(n, name, "TOGAF business architecture", purpose, concerns, stakeholders, elements, rels=rels, heat=heat,
+        audiences=aud, view=view, togaf=name)
+    for n, name, view, purpose, concerns, stakeholders, elements, rels, heat, aud in [
+        (27, "Organization/Actor catalog", "catalog", "Informing", "Who takes part in the business: the organisation units and actors, and where they are",
+         "Business Architects, managers", ["BusinessActor", "OrganisationUnit", "Actor", "Location"], None, "Owner", ["coo", "business_architect"]),
+        (28, "Role catalog", "catalog", "Informing", "The roles in the business and their responsibilities",
+         "Business Architects, HR, managers", ["Role"], None, "Owner", ["coo", "business_architect"]),
+        (29, "Driver/Goal/Outcome catalog", "catalog", "Deciding, informing", "What drives the enterprise, the goals it sets and the outcomes that show progress",
+         "CxOs, Enterprise and Business Architects", ["Driver", "Goal", "Outcome"], _MOT_RELS, "Priority", ["ceo", "enterprise_architect"]),
+        (30, "Business Service/Function catalog", "catalog", "Designing, informing", "The services the business offers and the functions that provide them",
+         "Business Architects, process owners", ["Service", "BusinessService", "Function"], None, "Criticality", ["business_architect", "process_owner"]),
+        (31, "Business Capabilities catalog", "catalog", "Deciding, informing", "Every capability, with its level, maturity, importance and investment",
+         "CxOs, Business Architects", ["Capability"], None, "Maturity", ["ceo", "coo", "business_architect"]),
+        (32, "Value Stream catalog", "catalog", "Informing", "The value streams the enterprise runs and who they serve",
+         "Business Architects, product owners", ["ValueStream"], None, "Owner", ["business_architect", "product_owner"]),
+        (33, "Value Stream Stages catalog", "catalog", "Designing, informing", "Each value stream's stages in order, with their entry and exit criteria and the value they add",
+         "Business Architects, process owners", ["ValueStreamStage"], None, "Owner", ["business_architect", "process_owner"]),
+        (34, "Location catalog", "catalog", "Informing", "Where the business works and where its technology is",
+         "Business and Technology Architects", ["Location"], None, "Owner", ["business_architect", "technology_architect"]),
+        (35, "Process/Event/Control/Product catalog", "catalog", "Designing, informing", "The processes, the events that start them, the controls on them and the products they deliver",
+         "Process owners, Business Architects, risk", ["Process", "Event", "Control", "Product"], None, "Lifecycle", ["process_owner", "business_architect", "cro"]),
+        (36, "Contract/Measure catalog", "catalog", "Deciding, informing", "The contracts behind services, and the measures that tell whether outcomes are met",
+         "Procurement, Business Architects, managers", ["Contract", "Measure"], None, "Owner", ["procurement", "business_architect"]),
+        (37, "Business Interaction matrix", "matrix", "Designing", "Which organisation units and actors use or provide which business services",
+         "Business Architects", ["BusinessActor", "OrganisationUnit", "Actor", "Service", "BusinessService"],
+         ["Serving", "Flow", "Assignment", "Association"], "Owner", ["business_architect", "coo"]),
+        (38, "Actor/Role matrix", "matrix", "Designing", "Which actors play which roles",
+         "Business Architects, HR", ["BusinessActor", "Actor", "Role"], ["Assignment", "Association"], "Owner", ["business_architect"]),
+        (39, "Value Stream/Capability matrix", "matrix", "Deciding", "Which capabilities enable each value stream and stage",
+         "Business Architects, CxOs", ["ValueStream", "ValueStreamStage", "Capability"], ["Serving", "Realization", "Association"], "Maturity",
+         ["business_architect", "coo"]),
+        (40, "Strategy/Capability matrix", "matrix", "Deciding", "Which capabilities each course of action builds or changes",
+         "CxOs, Business Architects", ["CourseOfAction", "Capability"], ["Realization", "Association", "Influence"], "Maturity",
+         ["ceo", "business_architect"]),
+        (41, "Capability/Organization matrix", "matrix", "Deciding", "Which organisation units hold or use each capability",
+         "CxOs, Business Architects", ["Capability", "BusinessActor", "OrganisationUnit"], ["Assignment", "Serving", "Association"], "Owner",
+         ["coo", "business_architect"]),
+        (42, "Organization Decomposition diagram", "diagram", "Informing", "How the organisation breaks down into units and actors",
+         "Business Architects, managers", ["BusinessActor", "OrganisationUnit", "Actor"], ["Composition", "Aggregation"], "Owner",
+         ["coo", "business_architect"]),
+        (43, "Functional Decomposition diagram", "diagram", "Designing", "How the business functions break down",
+         "Business Architects", ["Function"], ["Composition", "Aggregation"], "Owner", ["business_architect"]),
+        (44, "Event diagram", "diagram", "Designing", "The events that start business processes and who handles them",
+         "Process owners, Business Architects", ["Event", "Process", "BusinessActor", "Actor", "Role"], ["Triggering", "Flow", "Assignment"],
+         "Owner", ["process_owner", "business_architect"]),
+        (45, "Business Footprint diagram", "diagram", "Deciding, informing", "How goals trace to the organisation, its functions and services, and the applications behind them",
+         "CxOs, Enterprise and Business Architects", ["Goal", "Outcome", "BusinessActor", "OrganisationUnit", "Function", "Service", "BusinessService",
+                                                     "ApplicationComponent", "LogicalApplicationComponent", "PhysicalApplicationComponent"],
+         None, "Owner", ["ceo", "enterprise_architect", "business_architect"]),
+        (46, "Business Service/Information diagram", "diagram", "Designing", "The information each business service uses and who uses the service",
+         "Business and Data Architects", ["Service", "BusinessService", "BusinessObject", "DataEntity", "BusinessActor", "Actor"],
+         ["Access", "Serving", "Association"], "DataClassification", ["business_architect", "data_architect"]),
+        (47, "Information Map", "diagram", "Designing, informing", "The business's information concepts and how they relate",
+         "Business and Data Architects, data stewards", ["BusinessObject", "DataEntity"],
+         ["Composition", "Aggregation", "Association", "Specialization", "Access"], "DataClassification",
+         ["data_architect", "data_steward", "business_architect"]),
+        (48, "Product Lifecycle diagram", "diagram", "Designing, deciding", "The stages of each product's life, from design to withdrawal",
+         "Product owners, Business Architects", ["Product", "ProductLifecycleStage"], ["Composition", "Triggering"], "Owner",
+         ["product_owner", "business_architect"]),
+        (49, "Business Scenario", "diagram", "Designing, informing", "A business problem, the actors in it, and the goals and requirements it leads to",
+         "Business Architects, stakeholders", ["BusinessScenario", "Stakeholder", "BusinessActor", "Actor", "Role", "Driver", "Goal", "Outcome",
+                                               "Requirement", "Process"], ["Influence", "Association"], "Owner", ["business_architect", "enterprise_architect"]),
+    ]
 ]
-assert len(VIEWPOINTS) == 26
+assert len(VIEWPOINTS) == 49
 
 
 def _f(code, family, group, title, view, about, audiences, **extra):
@@ -472,3 +541,17 @@ assert len(_codes) == len(set(_codes))
 _aud = {a for a, _n, _g in AUDIENCES}
 assert all(set(r["audiences"]) <= _aud for r in REPORTS), [r["code"] for r in REPORTS if not set(r["audiences"]) <= _aud]
 assert all(r["audiences"] for r in REPORTS), [r["code"] for r in REPORTS if not r["audiences"]]
+
+
+# The reports that go with each TOGAF business architecture viewpoint (owner, 9 Nov 2026, D352): shown beside it on the
+# Business viewpoints tab of a model and of a project. Each viewpoint is also a dashboard of its own (its code).
+# Only what can be made from a model's elements and relationships: the Business Model Canvas is a project's own (D344).
+VIEWPOINT_REPORTS: dict[str, list[str]] = {
+    "VP-01": ["SR-07", "TM-09"], "VP-10": ["SR-05", "SR-13", "TM-12"], "VP-19": ["SR-02", "SR-16", "SR-20"],
+    "VP-20": ["SR-14"], "VP-21": ["TC-03", "SR-08"], "VP-27": ["SR-07"], "VP-28": ["TC-09"], "VP-29": ["TC-03", "SR-08"],
+    "VP-30": ["TC-06", "TM-12"], "VP-31": ["SR-02", "SR-16"], "VP-32": ["SR-14"], "VP-33": ["SR-14"],
+    "VP-34": ["TC-05", "TM-05"], "VP-35": ["SR-05", "TC-06"], "VP-36": ["TC-07"], "VP-37": ["TM-01"],
+    "VP-38": ["TM-02", "SR-13"], "VP-39": ["SR-14"], "VP-40": ["TM-08"], "VP-41": ["TM-09"], "VP-42": ["SR-07"],
+    "VP-43": ["TC-06"], "VP-44": ["SR-05"], "VP-45": ["SR-09", "SR-02"], "VP-46": ["TC-06", "TM-06"],
+    "VP-47": ["SR-04", "TM-06"], "VP-48": ["TC-06"], "VP-49": ["SR-05"],
+}

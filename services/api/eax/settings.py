@@ -61,6 +61,16 @@ REGISTRY: dict[str, tuple] = {
                         "The Architecture Repository, at organisation and project level. Needs Projects. The data is kept."),
     "part_references": ("system", "References", "bool", True, None,
                         "The organisation's reference library and the projects' references. Needs Projects. The data is kept."),
+    # the library (owner, 9 Nov 2026, phase 15.2, D350): EA Explorer's own, the organisation's own somewhere else, or none.
+    # Projects keep their own library whatever is chosen (a project admin may point theirs at a link of its own).
+    "library_mode": ("system", "Enterprise library", "choice", "ours", ["ours", "link", "off"],
+                     "ours: EA Explorer's library. link: the organisation's own library at the link below (opened in a new tab). "
+                     "off: no enterprise library. Project libraries stay either way."),
+    "library_link": ("system", "Enterprise library link", "url", "", (0, 500),
+                     "With link: where the organisation's own library is (https://…)."),
+    "library_search_link": ("system", "Enterprise library search link", "url", "", (0, 500),
+                            "Optional, with link: the library's search page with {q} where the words go, "
+                            "for example https://intranet.example.org/search?q={q}."),
 }
 PARTS = ("projects", "repository", "references")
 
@@ -182,7 +192,25 @@ def check(key: str, value: Any) -> Any:
     s = s.strip()
     if not lo <= len(s) <= hi:
         raise EditError(f"{label}: {lo} to {hi} characters.")
+    if typ == "url" and s:
+        if not re.match(r"^https?://[^\s/]+", s, re.I):
+            raise EditError(f"{label}: a web address starting with https:// or http://.")
+        if key == "library_search_link" and "{q}" not in s:
+            raise EditError(f"{label}: put {{q}} where the search words go.")
     return s
+
+
+def library(conn=None) -> dict:
+    """The enterprise library as the screens and the library service see it (D350): mode ours, link or off. Off when
+    the library service is switched off (EAX_SERVICE_LIBRARY) and EA Explorer's own is chosen, or when Projects is off."""
+    v = values(conn)
+    mode = v.get("library_mode") or "ours"
+    link, search = (v.get("library_link") or "").strip(), (v.get("library_search_link") or "").strip()
+    service = os.environ.get("EAX_SERVICE_LIBRARY", "on").strip().lower() not in ("off", "false", "0", "no", "disabled")
+    if mode == "link" and not link:
+        mode = "ours"
+    return {"mode": mode if parts(conn)["projects"] else "off", "link": link if mode == "link" else "",
+            "search_link": search if mode == "link" else "", "service": service and parts(conn)["projects"]}
 
 
 def update(conn, user, changes: dict) -> dict:

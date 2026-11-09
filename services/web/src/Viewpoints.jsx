@@ -133,10 +133,11 @@ function ViewpointPage({ model, m, code, sub }) {
   const { data, error } = useApi(`/api/v1/models/${model}/viewpoints/${encodeURIComponent(code)}`);
   const reports = useApi(`/api/v1/models/${model}/reports`);
   const [editing, setEditing] = useState(null);
-  const s = SUBS.some(([k]) => k === sub) ? sub : "diagram";
   if (error) return <p className="status bad">{error}</p>;
   if (!data) return <p>Loading the viewpoint...</p>;
   const vp = data.viewpoint;
+  // the form it opens in: the one asked for, else the viewpoint's own (a TOGAF catalogue opens as a catalog, D345)
+  const s = SUBS.some(([k]) => k === sub) ? sub : SUBS.some(([k]) => k === vp.default_view) ? vp.default_view : "diagram";
   const dash = reports.data?.reports.find((r) => r.code === vp.code);
   const curate = can("library.curate");
   return (
@@ -147,6 +148,8 @@ function ViewpointPage({ model, m, code, sub }) {
           <h2>{vp.code} {vp.name} <span className="quiet vp-cat">{vp.category}</span></h2>
           {vp.source && <p className="vp-source-line"><span className="vp-source">ArchiMate 4</span> From the {vp.source}: its name, purpose,
             stakeholders and elements are the specification's; the concerns are described in our own words.</p>}
+          {vp.togaf_artifact && <p className="vp-source-line"><span className="vp-source togaf">TOGAF</span> Gives the TOGAF business architecture
+            artifact <b>{vp.togaf_artifact}</b>{vp.code > "VP-26" ? " (EA Explorer's viewpoint for it)" : ""}.</p>}
           <p><strong>Concerns:</strong> {vp.concerns}</p>
           <p className="quiet"><strong>Stakeholders:</strong> {vp.stakeholders} · <strong>Purpose:</strong> {vp.purpose}</p>
           <p className="quiet"><strong>Elements:</strong> {vp.element_types.map(spaced).join(", ")}

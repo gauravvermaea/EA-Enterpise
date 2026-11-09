@@ -112,6 +112,9 @@ function Field({ s, value, onChange, disabled }) {
       </select>
     ) : <input value={value ?? ""} onChange={(e) => onChange(e.target.value)} disabled={disabled} />;
   }
+  if (s.type === "url") {
+    return <input type="url" value={value ?? ""} placeholder="https://" onChange={(e) => onChange(e.target.value)} disabled={disabled} style={{ width: 380 }} />;
+  }
   return <input value={value ?? ""} onChange={(e) => onChange(e.target.value)} disabled={disabled} style={{ width: 200 }} />;
 }
 

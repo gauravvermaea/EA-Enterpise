@@ -94,6 +94,7 @@ def model_reports(conn, model: Any) -> dict[str, Any]:
     out["reports_url"] = base
     from .report_about import about
     out["reports"] = [{**r, **about(r), "url": f"{base}/login/keycloak?next=/superset/dashboard/{r['slug']}/"} for r in REPORTS]
-    from .report_defs import AUDIENCES
+    from .report_defs import AUDIENCES, VIEWPOINT_REPORTS
+    out["viewpoint_reports"] = VIEWPOINT_REPORTS
     out["audiences"] = [{"code": c, "name": n, "group": grp} for c, n, grp in AUDIENCES]
     return out

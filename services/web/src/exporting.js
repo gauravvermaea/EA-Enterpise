@@ -96,6 +96,7 @@ const notReady = (status) => `<!doctype html><meta charset="utf-8"><title>draw.i
 <p>${status === "off" ? "An administrator can switch them on (Administration &gt; System settings &gt; Services)."
     : "EA Explorer starts draw.io after sign-in and the screens. Close this tab and press <b>Open in draw.io</b> again in a moment."}</p></body>`;
 
+// xml: the diagram, or a promise of it (fetched after the tab opens)
 export async function openDrawioXml(title, xml) {
   const tab = window.open("", "_blank");          // opened at once, while the click counts, so no pop-up blocker stops it
   if (!tab) return false;
@@ -105,6 +106,9 @@ export async function openDrawioXml(title, xml) {
     tab.document.write(notReady(part.status));
     tab.document.close();
     return false;
+  }
+  if (xml && typeof xml.then === "function") {   // the XML still being fetched (the tab is open already, so no pop-up blocker)
+    try { xml = await xml; } catch (e) { tab.document.write(`<p style="font:15px sans-serif;margin:40px">${String(e.message || e)}</p>`); tab.document.close(); return false; }
   }
   const name = `${String(title || "diagram").replace(/[\\/:*?"<>|]+/g, "-").slice(0, 120)}.drawio`;
   const packed = await compressed(xml).catch(() => null);

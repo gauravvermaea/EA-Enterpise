@@ -94,7 +94,7 @@ maintenance page until it has finished.
 | `eax logins` | Prints every user name and password (laptop only). |
 | `eax trust [--remove]` | Windows: adds the local certificate to the trusted root certificates, so the browser stops warning about `https://localhost`. `--remove` takes it out again. |
 | `eax down` | Stops and removes the containers. The data (Docker volumes and the work folder) is kept. |
-| `eax services` | The optional services (reports, documents, drawio, mcp, change_log, backups): whether each is on in the config file, and its containers' state. |
+| `eax services` | The optional services (reports, documents, drawio, mcp, change_log, backups, library): whether each is on in the config file, and its containers' state. |
 | `eax service <name> on\|off` | Switches an optional service on or off. It keeps a dated copy of the config file, writes the switch, then starts or stops the service's containers. Also in System admin › System settings › Services. |
 | `eax servers [n]` | How many API and job servers run. With n (1 to 16), it writes `EAX_API_SERVERS` (a dated copy first) and adds or removes servers without a restart. |
 | `eax maintenance on\|off` | Shows the maintenance page to everyone, or stops showing it. Restores and upgrades switch it themselves. |
@@ -251,7 +251,7 @@ A person's roles on a model stay on that model's People tab.
 
   Each setting is shown with its value and help; choose one to change it. These run in the API (start it first if it
   is down).
-- *Optional services on or off*: reports, documents, draw.io, MCP, change log, backups. This is the same as
+- *Optional services on or off*: reports, documents, draw.io, MCP, change log, backups, library. This is the same as
   `eax service`, with a dated copy of the config file first.
 
 **11 Background tasks and job servers.**

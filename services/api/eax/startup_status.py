@@ -30,6 +30,7 @@ PARTS = [  # key, name, what it is, its check, its containers (in start order)
     ("reports", "Reports", "Apache Superset", hc.check_reports, ["reports-init", "reports"]),
     ("documents", "Documents", "Mayan EDMS", hc.check_dms, ["dms-broker", "dms"]),
     ("drawio", "Diagrams", "draw.io", hc.check_drawio, ["drawio"]),
+    ("library", "Library", "the library service", hc.check_library, ["library"]),
 ]
 CORE = ["db", "setup", "proxy", "web", "keycloak", "api"]     # the first tier: started before anyone can sign in
 

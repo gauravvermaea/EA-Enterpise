@@ -4,6 +4,11 @@ EA Explorer ships an MCP (Model Context Protocol) server so you can use **your o
 (Claude, ChatGPT, an IDE assistant, a local model) with the repository. No model is shipped or
 hosted. The start page has an **MCP server** page with ready-to-copy connection settings.
 
+It has **79 tools** and **3 guided prompts** (build a project, build a model, fill a model): a language model can read
+and analyse the repository and **build in it** (models, entities, relationships, projects, key questions, canvases),
+always as the signed-in person and with their permissions; what it adds stays that person's uncommitted change until
+committed, and metamodel drafts and quality rules wait for a person's review.
+
 | | Laptop | Server |
 | --- | --- | --- |
 | Address | `http://localhost/mcp` or `https://localhost/mcp` (both through nginx) | `https://<EAX_HOSTNAME>/mcp` |
@@ -93,7 +98,7 @@ cannot tell who is asking. The laptop development token signs in as a Super Admi
 | `compare_metamodel_versions(model, from_version, to_version?)` | What differs in the metamodel between two versions (`to_version` defaults to the current one) |
 | `list_failing_checks(model, entity_type?)` | Every entity failing a check (rules, mandatory values, relationships outside the metamodel), with counts by type, rule and severity |
 | `search_entities(text, model?, entity_type?, attribute?, tag?)` | Search every model you may read (or one) in names, display IDs, descriptions, tags and attribute values; optionally one type, one attribute or one tag; each result says where it matched (phase 7) |
-| `list_viewpoints(model?)` | The viewpoints (VP-01 to VP-25 and the organisation's own); with a model, how many of its entities each shows (phase 8.2) |
+| `list_viewpoints(model?)` | The viewpoints (VP-01 to VP-49 and the organisation's own); with a model, how many of its entities each shows (phase 8.2) |
 | `view_through_viewpoint(model, viewpoint)` | A model through one viewpoint: its elements with every value, and the relationships the viewpoint shows (phase 8.2) |
 | `value_stream_map(model)` | Value streams, their stages in order and the capabilities enabling each, with their values (phase 8.2) |
 | `roadmap(model)` | Work packages, deliverables and plateaus with dates and what each delivers (phase 8.2) |
@@ -160,6 +165,9 @@ always asks for your yes before it makes a model or a project.
 | `add_project_step` · `complete_project_step` · `repeat_project_step` | Steps at any time; completions kept as sub steps |
 | `add_document_class` · `set_document_class_needed` · `set_document_tags` | Document classes and tags |
 | `accept_document(project, document, evidence)` · `send_document_for_approval` | Accepted with evidence, or approval by the sign-off people (quorum) |
+
+| `save_key_question(project, question, asked_by?, approach?, viewpoints?, ...)` · `answer_key_question(project, question_id, answer, documents?, ...)` · `key_question_decision(project, question_id, decision, note?, stakeholder?)` | A project's key questions (D341, D342): add or change one with the viewpoints that answer it, answer it with links to the artifacts, record the stakeholder's acceptance |
+| `business_model_canvas(project, canvas?, compare_with?)` · `change_business_model_canvas(project, action, ...)` | A project's Business Model Canvases (D344): list, read block by block, compare two; add, change or cross out items, make a working copy, make a clean canvas from one |
 
 Documents themselves (Word, Excel) are still uploaded on the project's Repository tab.
 

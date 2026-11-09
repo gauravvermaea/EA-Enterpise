@@ -34,6 +34,7 @@ DB_ROLES = {    # service password -> its login in PostgreSQL
     "EAX_KEYCLOAK_DB_PASSWORD": ("keycloak", "Keycloak's database login"),
     "EAX_SUPERSET_DB_PASSWORD": ("superset", "Reports' (Superset) database login"),
     "EAX_MAYAN_DB_PASSWORD": ("mayan", "Documents' (Mayan) database login"),
+    "EAX_LIBRARY_DB_PASSWORD": ("eax_library", "The library's database login"),
 }
 MENU = [
     "Status: what is running, what is not",

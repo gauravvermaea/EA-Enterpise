@@ -132,6 +132,12 @@ export function partOn(part) {
   return me?.parts?.[part] !== false;
 }
 
+// The enterprise library (System settings, D350): mode ours, link (the organisation's own, elsewhere) or off; service:
+// whether the library service runs (project libraries need it too)
+export function libraryInfo() {
+  return me?.library || { mode: "ours", link: "", search_link: "", service: true };
+}
+
 export function myInfo() {
   return me;
 }

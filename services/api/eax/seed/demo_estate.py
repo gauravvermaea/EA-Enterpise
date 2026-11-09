@@ -1,7 +1,7 @@
 """Laptop demo model "Protea Insurance (demo estate)" (build phase 8.2, D161).
 
 A fictitious South African insurer with a whole estate on ArchiMate 4, so every viewpoint (VP-01 to
-VP-25), standard report, TOGAF catalogue and matrix and dependency report has something to show:
+VP-25, and the business architecture viewpoints with the EA Explorer extensions, D345), standard report, TOGAF catalogue and matrix and dependency report has something to show:
 motivation, strategy, business, application, technology and implementation and migration, with
 values for the attributes the reports use (lifecycle, criticality, cost in USD, TIME, fit scores,
 end of life, data classification, maturity...). Every company, product and vendor name is invented.
@@ -85,12 +85,15 @@ CAPS = {
     "Technology Management": ["Infrastructure Management", "Security Management", "Data Management"],
 }
 MATURITY = ["1 - Initial", "2 - Managed", "3 - Defined", "4 - Measured", "5 - Optimised"]
+IMPORTANCE, INVESTMENT = ["High", "Medium", "Low"], ["Invest", "Sustain", "Reduce"]   # D345: the capability map's heat
 for i, (l1, l2s) in enumerate(CAPS.items()):
     ent("Capability", l1, f"Ability to manage {l1.lower()}", Owner="COO", CapabilityLevel=1,
-        Maturity=MATURITY[(i + 1) % 4 + 1], Criticality=5 if i < 6 else 4, Lifecycle="Production")
+        Maturity=MATURITY[(i + 1) % 4 + 1], Criticality=5 if i < 6 else 4, Lifecycle="Production",
+        Importance=IMPORTANCE[0 if i < 5 else 1], Investment=INVESTMENT[i % 3])
     for j, l2 in enumerate(l2s):
         ent("Capability", l2, f"Ability for {l2.lower()}", parent=l1, Owner="COO", CapabilityLevel=2,
-            Maturity=MATURITY[(i + j) % 5], Criticality=(i + j) % 5 + 1, Lifecycle="Production")
+            Maturity=MATURITY[(i + j) % 5], Criticality=(i + j) % 5 + 1, Lifecycle="Production",
+            Importance=IMPORTANCE[(i + j) % 3], Investment=INVESTMENT[(i * 2 + j) % 3])
 for name, desc in [("Skilled claims assessors", "People who assess claims"),
                    ("Actuarial team", "Pricing and valuation skills"),
                    ("Customer data", "What the insurer knows about its customers"),
@@ -104,10 +107,24 @@ for name, desc in [("Digitise claims", "Move claims online end to end"),
 VSTREAMS = {"Acquire a Customer": ["Attract", "Quote", "Buy", "Onboard"],
             "Settle a Claim": ["Lodge", "Assess", "Approve", "Pay"],
             "Renew a Policy": ["Remind", "Review", "Renew"]}
+# the stages are Value Stream Stages (D345: an EA Explorer extension), in order, with entry and exit criteria
+STAGE_DETAIL = {"Attract": ("A prospect shows interest", "The prospect asks for a quote", "Awareness of the right cover"),
+                "Quote": ("A quote is asked for", "A priced quote is accepted", "A fair price, at once"),
+                "Buy": ("The quote is accepted", "The policy is paid for and issued", "Cover in place"),
+                "Onboard": ("The policy is issued", "The customer uses self-service", "Knowing how to use the cover"),
+                "Lodge": ("Something insured is lost or damaged", "The claim is registered", "Being heard straight away"),
+                "Assess": ("The claim is registered", "The claim is valued", "A clear, fair assessment"),
+                "Approve": ("The claim is valued", "Payment is authorised", "A decision without delay"),
+                "Pay": ("Payment is authorised", "The money is in the claimant's account", "Being made whole"),
+                "Remind": ("Sixty days before renewal", "The customer is told the new terms", "No surprises"),
+                "Review": ("The customer has the new terms", "The terms are agreed or changed", "Cover that still fits"),
+                "Renew": ("The terms are agreed", "The renewed policy is in force", "Continued cover")}
 for vs, stages in VSTREAMS.items():
     ent("ValueStream", vs, f"End to end: {vs.lower()}", Owner="COO", Lifecycle="Production")
-    for s in stages:
-        ent("ValueStream", f"{vs}: {s}", f"Stage {s.lower()} of {vs.lower()}", parent=vs, Owner="COO", Lifecycle="Production")
+    for n, s in enumerate(stages, start=1):
+        entry, exit_, value = STAGE_DETAIL[s]
+        ent("ValueStreamStage", f"{vs}: {s}", f"Stage {s.lower()} of {vs.lower()}", parent=vs, Owner="COO",
+            StageOrder=n, EntryCriteria=entry, ExitCriteria=exit_, ValueItem=value)
 
 # business
 for name, _loc in [("Executive Committee", "Cape Town Head Office"), ("Claims Department", "Johannesburg Operations Centre"),
@@ -142,6 +159,38 @@ for name, cls in [("Customer", "Confidential"), ("Policy", "Confidential"), ("Cl
     ent("BusinessObject", name, f"Business object: {name.lower()}", Owner="Data Office", DataClassification=cls)
 for name in ["Motor Cover", "Home Cover", "Funeral Plan", "Life Cover", "Business Cover"]:
     ent("Product", name, f"Insurance product: {name.lower()}", Owner="Product Management", Lifecycle="Production")
+# D345 (EA Explorer extensions): a product's lifecycle stages, business scenarios, controls, contracts and measures
+LIFECYCLE = [("Design", "A need is found and approved", "The product is priced and approved"),
+             ("Launch", "The product is approved", "The first thousand policies are sold"),
+             ("Grow", "A thousand policies sold", "Sales growth below 5% a year"),
+             ("Mature", "Growth below 5% a year", "A decision to replace or withdraw"),
+             ("Withdraw", "The decision to withdraw", "The last policy runs off")]
+for prod in ("Motor Cover", "Funeral Plan"):
+    for n, (st, entry, exit_) in enumerate(LIFECYCLE, start=1):
+        ent("ProductLifecycleStage", f"{prod}: {st}", f"{st} stage of {prod.lower()}", parent=prod, Owner="Product Management",
+            StageOrder=n, EntryCriteria=entry, ExitCriteria=exit_)
+ent("BusinessScenario", "Claim lodged online after a hailstorm", "A storm brings ten times the usual claims in a day",
+    Owner="Claims Operations", Problem="After a hailstorm thousands of motor and home claims arrive at once; the contact centre "
+    "cannot take them and claimants wait days to be heard.", Environment="Claims are lodged by telephone and keyed into the "
+    "claims platform; assessors are booked by hand.", DesiredOutcome="Claimants lodge online with photos in minutes and simple "
+    "claims are settled the same day.")
+ent("BusinessScenario", "Broker binds cover through an API", "A broker's own system quotes and binds Protea cover",
+    Owner="Broker Services", Problem="Brokers rekey quotes into the broker portal, so they place business with insurers that "
+    "connect to their systems.", Environment="Brokers use their own platforms; Protea offers only a web portal.",
+    DesiredOutcome="Brokers quote and bind from their own systems through Protea's API.")
+for name, desc, pr in [("Four-eyes approval of large claims", "Claims over R250 000 need a second approver", "Must"),
+                       ("Sanctions screening at onboarding", "Every new customer is screened against sanctions lists", "Must"),
+                       ("Premium reconciliation each month", "Collected premiums agree with the policy book", "Should")]:
+    ent("Control", name, desc, Owner="Risk and Compliance Office", Priority=pr)
+for name, vendor, start, end, cost in [("Cloud hosting agreement", "Atlas Cloud Services", "2024-04-01", "2027-03-31", 6400000),
+                                       ("Policy administration licence", "Kestrel Software", "2021-07-01", "2026-06-30", 4100000),
+                                       ("Repairer panel agreement", "Panel of repairers", "2025-01-01", "2027-12-31", 0)]:
+    ent("Contract", name, f"Contract: {name.lower()}", Owner="Procurement", Vendor=vendor, StartDate=start, EndDate=end,
+        AnnualCost=cost)
+for name, how, target in [("Days to settle a claim", "Median days from lodgement to payment", "7 days by 2028"),
+                          ("Share of claims lodged online", "Online claims as a share of all claims", "70% by 2028"),
+                          ("Expense ratio", "Operating expense as a share of premium", "28% by 2028")]:
+    ent("Measure", name, f"Measure: {name.lower()}", Owner="Strategy Office", Measure=how, Target=target)
 
 # application
 APPS = [
@@ -382,8 +431,27 @@ for stage, caps in CAP_VS.items():
     for c in caps:
         rel(c, "Serving", stage)
 for vs, stages in VSTREAMS.items():
+    rel(vs, "Composition", *[f"{vs}: {s}" for s in stages])
     for a, b in zip(stages, stages[1:], strict=False):
         rel(f"{vs}: {a}", "Flow", f"{vs}: {b}")
+# D345: lifecycle stages, scenarios, controls, contracts, measures
+for prod in ("Motor Cover", "Funeral Plan"):
+    rel(prod, "Composition", *[f"{prod}: {st}" for st, *_ in LIFECYCLE])
+    for (a, *_), (b, *_) in zip(LIFECYCLE, LIFECYCLE[1:], strict=False):
+        rel(f"{prod}: {a}", "Triggering", f"{prod}: {b}")
+rel("Claim lodged online after a hailstorm", "Influence", "Settle claims faster", "Online first notice of loss")
+rel("Claim lodged online after a hailstorm", "Association", "Policyholders", "Lodge Claim", "Claims Department")
+rel("Broker binds cover through an API", "Influence", "Grow digital sales")
+rel("Broker binds cover through an API", "Association", "Brokers", "Quote Policy", "Broker Management")
+rel("Four-eyes approval of large claims", "Influence", "Approve Claim")
+rel("Sanctions screening at onboarding", "Influence", "Onboard Customer")
+rel("Premium reconciliation each month", "Influence", "Collect Premium")
+rel("Cloud hosting agreement", "Association", "Cloud Landing Zone")
+rel("Policy administration licence", "Association", "Policy Administration System")
+rel("Repairer panel agreement", "Association", "Claims Settlement")
+rel("Days to settle a claim", "Influence", "Online first notice of loss")
+rel("Share of claims lodged online", "Influence", "Online first notice of loss")
+rel("Expense ratio", "Association", "Lower the cost to serve")
 
 # business
 for actor, roles in {"Claims Department": ["Claims Assessor"], "Underwriting Department": ["Underwriter"],

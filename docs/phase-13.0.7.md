@@ -71,7 +71,8 @@ Defaults are set by admins and inherited: built in › admin › parent project 
     **Repository area** field (built in shown first). An entity's ✎ Edit shows its type's Repository area (no more
     Repository Area attribute on each entity).
 11. Repository (top menu): click every item; each opens its screen. Decision log, Compliance and Capability assessments,
-    Skills and Organisation structure are read-only lists of the projects you are on.
+    Organisation structure is a read-only list of the projects you are on. The Skills repository lists every EA Explorer user
+    with the skills they gave themselves on My profile (D353).
 12. Architecture work › Models › 🗺 By level, and the level filter: models under Strategic, Segment, Capability (from their
     project's depth) and Transition (their role).
 13. A project › Enterprise Repository (Project Scope): every item stays in the project; Foundation, Common systems,

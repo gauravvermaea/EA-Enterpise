@@ -150,6 +150,7 @@ $Services = [ordered]@{
     "mcp"        = @("EAX_SERVICE_MCP", @("api"))
     "change_log" = @("EAX_SERVICE_CHANGE_LOG", @("api"))
     "backups"    = @("EAX_SERVICE_BACKUPS", @("backup"))
+    "library"    = @("EAX_SERVICE_LIBRARY", @("library"))
 }
 function Test-ServiceOn([string]$Name) {
     $default = if ($Name -eq "mcp") { Get-Setting "EAX_MCP_ENABLED" "on" } else { "on" }
@@ -417,6 +418,7 @@ function Show-Logins {
         @("PostgreSQL Keycloak",              "keycloak",                                     (Get-Setting "EAX_KEYCLOAK_DB_PASSWORD"),    "database keycloak"),
         @("PostgreSQL Superset",              "superset",                                     (Get-Setting "EAX_SUPERSET_DB_PASSWORD"),    "database superset"),
         @("PostgreSQL Mayan",                 "mayan",                                        (Get-Setting "EAX_MAYAN_DB_PASSWORD"),       "database mayan"),
+        @("PostgreSQL Library",               "eax_library",                                  (Get-Setting "EAX_LIBRARY_DB_PASSWORD"),     "database eaxlibrary"),
         @("Mayan broker (Valkey)",            "(none)",                                       (Get-Setting "EAX_DMS_BROKER_PASSWORD"),     "password only"),
         @("MCP server (development token)",   "(bearer)",                                     (Get-Setting "EAX_MCP_DEV_TOKEN"),           "https://localhost/mcp or http://localhost/mcp"),
         @("Keycloak client secrets",          "superset/mayan",                               (Get-Setting "EAX_SUPERSET_OIDC_SECRET"),    "OIDC clients"),

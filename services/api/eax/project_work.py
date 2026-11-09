@@ -350,7 +350,8 @@ VIEWPOINT_PHASE = {
     "VP-23": "F", "VP-24": "F", "VP-25": "E", "VP-26": "E",
     "VP-16": "RM",
 }
-VIEWPOINT_PHASE_BY_CATEGORY = {"Motivation": "A", "Strategy": "A", "Implementation and migration": "E"}
+VIEWPOINT_PHASE_BY_CATEGORY = {"Motivation": "A", "Strategy": "A", "Implementation and migration": "E",
+                               "TOGAF business architecture": "B"}   # D345
 
 
 def set_viewpoint_phase(conn, project: Any, user, code: str, phase: str) -> dict:
@@ -451,6 +452,13 @@ def update(conn, user, project: Any, d: dict) -> dict:
     for v in wanted - own:
         conn.execute(text("INSERT INTO proj.project_viewpoints (project_id, viewpoint) VALUES (:p, :v) ON CONFLICT DO NOTHING"),
                      {"p": p["id"], "v": v})
+    # viewpoints made for the project in this edit (they were only made when the project was created before)
+    own_codes = {}
+    for v in d.get("own_viewpoints") or []:
+        if (v.get("name") or "").strip():
+            own_codes[str(v.get("key") or "")] = add_viewpoint(conn, p["guid"], user, v)["code"]
+    from . import key_questions as kq
+    kq.from_wizard(conn, p, user, d, own_codes, editing=True)      # key questions and placeholders (owner, 9 Nov 2026)
     # principles: the library ones chosen; own ones added; removed ones (by id) go (inherited ones stay)
     libs_wanted = {int(x) for x in d.get("principles") or [] if str(x).isdigit()}
     have = {r["library_id"] for r in _rows(conn, "SELECT library_id FROM proj.principles WHERE project_id = :p AND library_id IS NOT NULL AND inherited_from IS NULL", p=p["id"])}

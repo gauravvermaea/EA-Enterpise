@@ -4,6 +4,7 @@
 // reference library and the model library: those offer both the project's and the organisation's, in a small menu.
 // The organisation's read-only views across projects (decisions, compliance and capability assessments, people and
 // skills) show only the projects the person is on (a Super Admin: all); records are changed inside each project.
+import { SkillsRepository } from "./Skills";
 import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "./auth";
 import { fmtDateTime } from "./fmt";
@@ -47,7 +48,7 @@ function orgParts(base) {
       { label: "Performance measurement", href: "#/repository/measures", note: "completion, governance, sign-off, coverage, data quality" },
     ] },
     capability: { title: "Architecture capability", colour: "#1f7a3a", items: [
-      { label: "Skills repository", href: "#/repository/skills", note: "people on the projects, by skill" },
+      { label: "Skills repository", href: "#/repository/skills", note: "every user and the skills they gave themselves" },
       { label: "Organisation structure", href: "#/repository/people", note: "who works on each project, by role" },
       { label: "Architecture charter", href: ob && `${ob}/charter`, note: "the Organisation base's charter" },
     ] },
@@ -316,7 +317,7 @@ function PeopleList({ data, q, setQ, skill, setSkill, bySkill }) {
               {ps.map((r) => <div key={r.id} className="level-item">{r.name} <span className="small quiet">{r.role} · <a href={`#/projects/${r.project_id}/organisation`}>{r.project}</a></span></div>)}
             </div> : null;
           })}
-          {!data.skills.length && <p className="quiet">No skills recorded yet (skills are tags on each project's Organisation tab).</p>}
+          {!data.skills.length && <p className="quiet">No skills yet: each user adds theirs on My profile.</p>}
         </div>
       ) : (
         <table className="grid-table">
@@ -457,7 +458,7 @@ export default function ArchitectureRepositoryPage() {
   return (
     <section className="page">
       <h1>{title ? <><a href="#/repository">Architecture repository</a> › {title}</> : "Architecture repository"}</h1>
-      {GOV[sub] ? <GovAcross kind={sub} /> : sub === "people" ? <PeopleAcross /> : sub === "skills" ? <PeopleAcross bySkill />
+      {GOV[sub] ? <GovAcross kind={sub} /> : sub === "people" ? <PeopleAcross /> : sub === "skills" ? <SkillsRepository />
         : sub === "calendar" ? <CalendarView cal="org" /> : sub === "sheets" ? <TrackingSheets scope="org" /> : sub === "board" ? <Board /> : sub === "measures" ? <Measures />
           : sub.startsWith("reference/") ? <ReferencePart part={sub.split("/")[1]} /> : <ScopedMap />}
     </section>

@@ -26,7 +26,15 @@ class MeView(MethodView):
         return {"username": u.username, "email": u.email, "name": u.name, "roles": u.roles,
                 "keycloak_roles": u.keycloak_roles, "permissions": permissions.describe(u.roles),
                 "sees_every_model": permissions.sees_every_model(u.roles), "models": models,
-                "break_glass": u.break_glass, "parts": _parts()}
+                "break_glass": u.break_glass, "parts": _parts(), "library": _library()}
+
+
+def _library() -> dict:
+    from .. import settings as st
+    try:
+        return st.library()
+    except Exception:  # noqa: BLE001
+        return {"mode": "ours", "link": "", "search_link": "", "service": True}
 
 
 def _parts() -> dict:

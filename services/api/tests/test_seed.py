@@ -7,7 +7,9 @@ from eax.seed import build
 
 
 def test_counts():
-    assert len(A.ENTITY_TYPES) == 42
+    assert len(A.SPEC_TYPES) == 42                     # the ArchiMate 4 Specification's elements
+    assert len(A.ENTITY_TYPES) == 42 + len(A.EXTENSIONS)   # and the EA Explorer extensions (D345)
+    assert all(A.EXTENSION_DESCRIPTIONS[c].startswith("EA Explorer extension") for c, *_ in A.EXTENSIONS)
     assert len(A.REL_TYPES) == 11
 
 

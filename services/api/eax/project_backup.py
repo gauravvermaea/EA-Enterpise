@@ -4,6 +4,7 @@ A project backup is one zip file (eax-project-backup/1):
   backup.json                what it is: the project, when, by whom, what it holds
   project/<table>.json       the project's rows: the project, its people and sign-off, models, viewpoints, libraries,
                              principles, folders, document classes (items), steps and sub steps, documents and their history,
+                             key questions and placeholder viewpoints,
                              approval requests and decisions
   models/<guid>.eaxbackup.zip  a model backup (as Model admin makes) of each model the project works on (added, derived
                              or created); a model it only refers to is named, not copied
@@ -79,10 +80,21 @@ TABLES = [
     ("cf_type_areas", "project_id = :p", {}),
     ("cf_entity_areas", "project_id = :p", {}),
     ("repo_tag_docs", "tag_id IN (SELECT id FROM proj.repo_tags WHERE project_id = :p)", {"tag_id": "repo_tags", "document_id": "documents"}),
+    ("key_questions", "project_id = :p", {"evidence_document_id": "documents"}),
+    ("question_links", "question_id IN (SELECT id FROM proj.key_questions WHERE project_id = :p)",
+     {"question_id": "key_questions", "document_id": "documents"}),
+    ("question_events", "question_id IN (SELECT id FROM proj.key_questions WHERE project_id = :p)", {"question_id": "key_questions"}),
+    ("placeholder_viewpoints", "project_id = :p", {"document_id": "documents"}),
+    ("question_viewpoints", "question_id IN (SELECT id FROM proj.key_questions WHERE project_id = :p)", {"question_id": "key_questions"}),
+    ("canvases", "project_id = :p", {"source_id": "canvases"}),
+    ("canvas_items", "canvas_id IN (SELECT id FROM proj.canvases WHERE project_id = :p)", {"canvas_id": "canvases"}),
+    ("canvas_documents", "canvas_id IN (SELECT id FROM proj.canvases WHERE project_id = :p)",
+     {"canvas_id": "canvases", "document_id": "documents"}),
+    ("canvas_events", "canvas_id IN (SELECT id FROM proj.canvases WHERE project_id = :p)", {"canvas_id": "canvases"}),
     ("signoff_decisions", """request_id IN (SELECT r.id FROM proj.signoff_requests r JOIN proj.documents d ON d.id = r.document_id
                                              WHERE d.project_id = :p)""", {"request_id": "signoff_requests"}),
 ]
-NEW_GUID = {"projects", "items", "documents", "signoff_requests", "steps", "stakeholders", "stakeholder_notes", "tasks", "org_people", "standards", "gov_records", "gov_approvals", "cal_events", "sheets", "repo_tags"}   # tables whose guid is made new (when they have one)
+NEW_GUID = {"projects", "items", "documents", "signoff_requests", "steps", "stakeholders", "stakeholder_notes", "tasks", "org_people", "standards", "gov_records", "gov_approvals", "cal_events", "sheets", "repo_tags", "key_questions", "placeholder_viewpoints", "canvases", "canvas_items"}   # tables whose guid is made new (when they have one)
 
 
 def folder() -> Path:
@@ -183,15 +195,43 @@ def project_file(core, pc, user, p: dict, why: str = "", with_models: bool = Tru
                 z.writestr(f"documents/{d['guid']}/{d['file_name']}", content)
             except Exception as exc:  # noqa: BLE001 - Documents down or the file gone: the row is kept, the file said missing
                 skipped_docs.append(f"{d['file_name']}: {str(exc)[:120]}")
+        library = _library_out(str(p["guid"]))
+        if library.get("data"):
+            z.writestr("library/library.json", json.dumps(library.pop("data"), ensure_ascii=False))
         info = {"format": FORMAT, "format_version": FORMAT_VERSION, "version": __version__, "created": _stamp(), "by": user.username, "why": why,
                 "project": {"id": str(p["guid"]), "name": p["name"]},
                 "counts": {t: len(v) for t, v in rows.items()}, "models": model_files,
-                "documents_missing": skipped_docs, "links": _links(pc, rows)}
+                "documents_missing": skipped_docs, "links": _links(pc, rows), "library": library}
         z.writestr("backup.json", json.dumps(info, indent=2, ensure_ascii=False))
         z.writestr("README.txt", f"EA Explorer project backup ({FORMAT}): the project's rows, the models it works on "
                                  "(model backups) and the latest version of each document. Restore it on the project page "
                                  "(Admin › Back up and restore) or in Project admin; it comes back as a new project.\n")
     return buf.getvalue(), info
+
+
+def _library_out(project_guid: str) -> dict:
+    """The project's library (phase 15.2): its folders, pages, links and files, from the library service. The library
+    being off or not answering leaves it out of the file, said in backup.json."""
+    from . import library_client as lc
+    try:
+        data = lc.export_project(project_guid)
+    except lc.LibraryDown as exc:
+        return {"included": False, "why": str(exc)}
+    if not data:
+        return {"included": False, "why": "the project has no library content"}
+    return {"included": True, "entries": len(data.get("entries") or []), "folders": len(data.get("folders") or []), "data": data}
+
+
+def _library_in(data: dict | None, guid: str, name: str, user, over: bool, guid_map: dict) -> str:
+    """The project's library back (after the project's rows): a sentence for the result, or ''."""
+    if not data:
+        return ""
+    from . import library_client as lc
+    try:
+        r = lc.import_project(guid, name, data, user.username, keep_sharing=over, guid_map=guid_map)
+        return f" Its library: {r.get('entries', 0)} entries in {r.get('folders', 0)} folders."
+    except lc.LibraryDown as exc:
+        return f" Its library was not put back ({exc}); restore the file again once the library is running."
 
 
 def _documents_up() -> bool:
@@ -402,6 +442,7 @@ def restore(core, pc, user, path: Path, new_name: str = "", over: bool = False, 
         data = {t: json.loads(z.read(f"project/{t}.json")) if f"project/{t}.json" in names else []
                 for t in ["projects"] + [t for t, _w, _m in TABLES]}
         upgraded = upgrade(data, info)             # an older file: its rows brought up to this installation's form
+        lib_data = json.loads(z.read("library/library.json")) if "library/library.json" in names else None
         load = lambda t: data.get(t) or []  # noqa: E731
         old = load("projects")[0]
         notes: list[str] = []
@@ -499,6 +540,8 @@ def restore(core, pc, user, path: Path, new_name: str = "", over: bool = False, 
         for table, _w, remap in TABLES:
             ids[table] = {}
             rows = load(table)
+            if table == "canvases":         # a canvas before the ones made from it
+                rows = sorted(rows, key=lambda r: r.get("id") or 0)
             if table == "steps":            # a step before its sub steps
                 rows = sorted(rows, key=lambda r: (r.get("parent_step_id") is not None, r.get("id") or 0))
             for r in rows:
@@ -525,7 +568,7 @@ def restore(core, pc, user, path: Path, new_name: str = "", over: bool = False, 
                     elif vals[col] is not None:
                         vals[col] = ids[target].get(vals[col])
                         lost = lost or vals[col] is None
-                if lost and table not in ("steps", "tasks", "org_people"):   # what it hangs on is not back (a document left out): it goes too
+                if lost and table not in ("steps", "tasks", "org_people", "placeholder_viewpoints", "key_questions", "canvases"):   # not a placeholder or a question: its file or evidence is simply gone
                     continue
                 if table == "principles":
                     vals["inherited_from"] = project_of.get(str(r.get("inherited_from")))
@@ -571,12 +614,22 @@ def restore(core, pc, user, path: Path, new_name: str = "", over: bool = False, 
         backed = {str(d["guid"]) for d in load("documents")}
         trash = [mid for g, mid in current.items() if g not in backed]
         _write_pending(guid, files, trash, evidence)
+    # the library's pages point at the project, its documents and its canvases by guid: at the new ones
+    guid_map = {str(old["guid"]): guid}
+    if doc_guid:
+        guid_map.update(doc_guid)
+    if not over:
+        for r in load("canvases"):
+            nid = ids.get("canvases", {}).get(r["id"])
+            if nid and r.get("guid"):
+                guid_map[str(r["guid"])] = str(pc.execute(text("SELECT guid FROM proj.canvases WHERE id = :i"), {"i": nid}).scalar())
+    lib_note = _library_in(lib_data, guid, name, user, over, guid_map)
     about = (f" The file is from EA Explorer {about_file(info)['version']} (project backup format {format_of(info)}); upgraded: "
              + "; ".join(upgraded) + ".") if upgraded else ""
     if over:
         msg = (f"{name} put back as it was ({'over itself' if live else 'made again'}): {len(ids['documents'])} documents, "
                f"{len(ids['steps'])} steps{f'; {len(trash)} documents added since go to the trash in Documents' if trash else ''}."
-               f"{(' ' + '; '.join(notes) + '.') if notes else ''}{about}")
+               f"{(' ' + '; '.join(notes) + '.') if notes else ''}{lib_note}{about}")
         return msg, {"project": guid, "project_id": new_p, "files": files, "upgraded": upgraded}
     # the goals and outcomes are entities tagged with the project: tagged with the new one (a model made again here is the
     # project's own, its old tag is replaced; a model linked again keeps the old project's tag too)
@@ -594,7 +647,7 @@ def restore(core, pc, user, path: Path, new_name: str = "", over: bool = False, 
            f"{len(model_map)} models, {len(ids['steps'])} steps. Its repository is being built again.")
     if notes:
         msg += " " + "; ".join(notes) + "."
-    return msg + about, {"project": guid, "project_id": new_p, "files": files, "upgraded": upgraded}
+    return msg + lib_note + about, {"project": guid, "project_id": new_p, "files": files, "upgraded": upgraded}
 
 
 def _local_projects(pc, by_id: dict) -> dict[str, int]:

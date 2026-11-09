@@ -33,7 +33,7 @@ def _rows(conn, sql: str, **p) -> list[dict]:
 def list_viewpoints(conn, model: Any = None) -> list[dict]:
     """Every viewpoint; with a model, how many of its entities each viewpoint shows there."""
     vps = _rows(conn, """SELECT guid AS id, code, name, category, purpose, concerns, stakeholders, element_types,
-                                relationship_types, heat_attribute, audiences, is_builtin, source, created_by, modified_at
+                                relationship_types, heat_attribute, audiences, is_builtin, source, default_view, togaf_artifact, created_by, modified_at
                            FROM core.viewpoints ORDER BY is_builtin DESC, sort_order, code""")
     if model is not None:
         m = repo.get_model(conn, model)
@@ -41,15 +41,17 @@ def list_viewpoints(conn, model: Any = None) -> list[dict]:
             SELECT t.code, count(e.id) AS n FROM core.entity_types t
               JOIN core.entities e ON e.entity_type_id = t.id AND NOT e.is_deleted
              WHERE t.model_id = :m AND NOT t.is_deleted GROUP BY t.code""", m=m["_id"])}
+        defined = {r["code"] for r in _rows(conn, "SELECT code FROM core.entity_types WHERE model_id = :m AND NOT is_deleted", m=m["_id"])}
         for v in vps:
             v["entities"] = sum(counts.get(c, 0) for c in v["element_types"])
             v["types_present"] = [c for c in v["element_types"] if counts.get(c)]
+            v["types_defined"] = [c for c in v["element_types"] if c in defined]     # in the model's metamodel (D345)
     return vps
 
 
 def get_viewpoint(conn, code: str) -> dict:
     rows = _rows(conn, """SELECT guid AS id, code, name, category, purpose, concerns, stakeholders, element_types,
-                                 relationship_types, heat_attribute, audiences, is_builtin, source, created_by, modified_at
+                                 relationship_types, heat_attribute, audiences, is_builtin, source, default_view, togaf_artifact, created_by, modified_at
                             FROM core.viewpoints WHERE code = :c OR guid::text = :c""", c=str(code))
     if not rows:
         raise EditError(f"No viewpoint {code}.", 404)
@@ -166,13 +168,13 @@ def model_viewpoint(conn, model: Any, code: str) -> dict:
 
 # ---------------------------------------------------------------- business maps
 def value_stream_map(conn, model: Any) -> dict:
-    """Value streams with their stages (child value streams, in flow order) and the capabilities that serve
-    each stage (or the stream itself), with every attribute value of each capability."""
+    """Value streams with their stages (Value Stream Stages, D345, or child value streams, in flow order) and the
+    capabilities that serve each stage (or the stream itself), with every attribute value of each capability."""
     m = repo.get_model(conn, model)
     vs = _rows(conn, """
         SELECT e.id AS _id, e.guid AS id, e.name, e.description, e.parent_entity_id AS _parent
           FROM core.entities e JOIN core.entity_types t ON t.id = e.entity_type_id
-         WHERE e.model_id = :m AND NOT e.is_deleted AND t.code = 'ValueStream' ORDER BY e.name""", m=m["_id"])
+         WHERE e.model_id = :m AND NOT e.is_deleted AND t.code IN ('ValueStream', 'ValueStreamStage') ORDER BY e.name""", m=m["_id"])
     by_id = {v["_id"]: v for v in vs}
     flows = _rows(conn, """
         SELECT r.source_entity_id AS a, r.target_entity_id AS b FROM core.relationships r

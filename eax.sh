@@ -238,15 +238,16 @@ run_compose() {
 }
 
 # ------------------------------------------------------------------ optional services (D191)
-SERVICE_NAMES="reports documents drawio mcp change_log backups"
+SERVICE_NAMES="reports documents drawio mcp change_log backups library"
 service_setting() {
   case "$1" in reports) echo EAX_SERVICE_REPORTS ;; documents) echo EAX_SERVICE_DOCUMENTS ;; drawio) echo EAX_SERVICE_DRAWIO ;;
-    mcp) echo EAX_SERVICE_MCP ;; change_log) echo EAX_SERVICE_CHANGE_LOG ;; backups) echo EAX_SERVICE_BACKUPS ;; *) return 1 ;; esac
+    mcp) echo EAX_SERVICE_MCP ;; change_log) echo EAX_SERVICE_CHANGE_LOG ;; backups) echo EAX_SERVICE_BACKUPS ;;
+    library) echo EAX_SERVICE_LIBRARY ;; *) return 1 ;; esac
 }
 # compose services in start order (mcp and change_log run inside the api container)
 service_containers() {
   case "$1" in reports) echo "reports-init reports" ;; documents) echo "dms-broker dms" ;; drawio) echo drawio ;;
-    mcp|change_log) echo api ;; backups) echo backup ;; esac
+    mcp|change_log) echo api ;; backups) echo backup ;; library) echo library ;; esac
 }
 service_on() {
   local d=on v
@@ -482,6 +483,7 @@ show_logins() {
   printf '%-34s %-14s %-16s %s\n' "PostgreSQL Keycloak" "keycloak" "$(setting EAX_KEYCLOAK_DB_PASSWORD)" "database keycloak"
   printf '%-34s %-14s %-16s %s\n' "PostgreSQL Superset" "superset" "$(setting EAX_SUPERSET_DB_PASSWORD)" "database superset"
   printf '%-34s %-14s %-16s %s\n' "PostgreSQL Mayan" "mayan" "$(setting EAX_MAYAN_DB_PASSWORD)" "database mayan"
+  printf '%-34s %-14s %-16s %s\n' "PostgreSQL Library" "eax_library" "$(setting EAX_LIBRARY_DB_PASSWORD)" "database eaxlibrary"
   printf '%-34s %-14s %-16s %s\n' "Mayan broker (Valkey)" "(none)" "$(setting EAX_DMS_BROKER_PASSWORD)" "password only"
   printf '%-34s %-14s %-16s %s\n' "MCP server (development token)" "(bearer)" "$(setting EAX_MCP_DEV_TOKEN)" "https://localhost/mcp or http://localhost/mcp"
   printf '%-34s %-14s %-16s %s\n' "Keycloak client secrets" "superset/mayan" "$(setting EAX_SUPERSET_OIDC_SECRET)" "OIDC clients"

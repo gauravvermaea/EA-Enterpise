@@ -33,6 +33,10 @@ draw.io, nginx, React screens. How it is built: [docs/architecture.md](docs/arch
   and its launcher `eax.cmd` (Windows), `eax.sh` (Linux, macOS), and the Python `eaxcli/` with `eaxpy.py` and its
   launchers `eaxpy.cmd`, `eaxpy.ps1`, `eaxpy.sh`. Every change to a command goes into all of them in the same change,
   and `docs/command-line-and-console.md` is kept up to date with it.
+- **Every feature comes with seed data that shows it (owner, 9 Nov 2026)**: whatever a feature adds (a screen, a
+  status, a workflow), the laptop sample data (`eax/seed/`, loaded by `eax/seed/later.py`) gets content for it, in each
+  of its states, in the sample projects and models it belongs to, so it can be seen and tried straight after a clean
+  restart. Made once (skipped when already there); invented names only.
 - **Avoid logic in the database where possible (D248)**: rules, calculations and checks go in Python; no new triggers or
   database functions for them. Heavy calculations run as background jobs and are stored; screens show the last result
   with its date (only a single entity is checked at once).

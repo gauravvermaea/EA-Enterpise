@@ -31,6 +31,7 @@ SERVICES = {
     "mcp": ("EAX_SERVICE_MCP", ["api"]),
     "change_log": ("EAX_SERVICE_CHANGE_LOG", ["api"]),
     "backups": ("EAX_SERVICE_BACKUPS", ["backup"]),
+    "library": ("EAX_SERVICE_LIBRARY", ["library"]),
 }
 CORE = ["db", "setup", "proxy", "web", "keycloak", "api"]
 STARTUP_PY = ("import json,urllib.request as u; d=json.load(u.urlopen('http://localhost:8000/api/startup',timeout=20)); "

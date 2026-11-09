@@ -8,6 +8,11 @@ the `eax` commands (backups and restores included) and the phase table.
 | Document | What it covers |
 | --- | --- |
 | [README](../README.md) | Quick start on a laptop, the `eax` commands, the work folder, certificates, the phase table |
+| [Drawn views in draw.io (design)](phase-28.md) | Phases 28 and 29: views drawn in draw.io from the model's own entities, the rules, where views live, entity type looks (D354, D355) |
+| [What EA Explorer does today](capabilities.md) | Every area (metamodel, diagrams, reports, AI, governance, projects, documents, integration, operations): what is built today and what is planned, with its phase |
+| [Business architecture artifacts](business-architecture.md) | The TOGAF Phase B catalogues, matrices and diagrams as viewpoints, the extension types they need, the Business viewpoints tab of a model and the Business artifacts tab of a project (D345, D352) |
+| [Business Model Canvas](business-model-canvas.md) | A project's canvases: current, target, working copies and scenarios; compare, clean up, export (D344) |
+| [Key questions and placeholder viewpoints](key-questions.md) | The questions a project's work answers: viewpoints mapped to each, placeholders where none fits, the answer (rich text with links to the artifacts) and the stakeholder's acceptance (D341, D342) |
 | [Command line and console](command-line-and-console.md) | Every `eax` command in detail, and the console (`eax console`) item by item: for getting EA Explorer back up |
 | [Operations](operations.md) | Health, services on and off, backups and restores (console and command line), the maintenance page, upgrades, logs and diagnostics |
 | [Licences](licences.md) | The open-source components EA Explorer uses and their licences |
@@ -79,7 +84,7 @@ Every phase in detail, with versions and the planned ones: [build-phases.md](bui
 | 13.5 | [The console: eax console](phase-13.5.md) | closed |
 | 13.8 | [Sample content for the sample projects and the organisation](phase-13.8.md) | closed |
 | 13.9 | [The eax command in Python, run by uv](phase-13.9.md) | closed |
-| 15.2 | [Reference library with pages: an open-source wiki beside links and documents](phase-15.2.md) | requested for later |
+| 15.2 | [The library: organisation and project libraries with pages, a separate service](phase-15.2.md) | built (D346 to D351) |
 | 16.3 | [Guided wizards: data quality, compliance review, migration plan, collect and load data, first-run setup](phase-16.3.md) | built, waiting for the owner's test |
 | 15.3 | [Business architecture artifacts: canvases as views of the model, with gaps](phase-15.3.md) | design session half done |
 | story | [Load balancing: servers go up and down with the load](story-load-balancing.md) (production deployment, phase 36) | later |

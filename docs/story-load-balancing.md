@@ -18,3 +18,11 @@ when it is busy, fewer when it is quiet.
   backups) run on one runner only (queueing locks already do this).
 - Files kept on local disk today (uploads waiting, task files, the TOGAF folder) move to shared storage.
 - Fits with 13.7 (the database itself is mirrored, not scaled this way).
+
+## The library service (owner, 9 Nov 2026, D346)
+The library (phase 15.2) is a separate microservice with its own database (`eaxlibrary`), schema, migrations and API.
+On a laptop or a single server its database shares the PostgreSQL server (separate database and login). **In
+production its database runs in its own PostgreSQL container or server**, and the service itself scales like the API
+(stateless; tokens; built in 0.15.1, D351). Its settings already allow it: `EAX_LIBRARY_DB_HOST` and `_PORT` point
+it at another server, and `EAX_LIBRARY_URL` tells the main API where the service is. To settle with the rest of scale-out: where its database runs in each kind of deployment, its
+backups and mirrors (with [real-time mirrors](story-real-time-mirrors.md)), and how many copies of the service run.

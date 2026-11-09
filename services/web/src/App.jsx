@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
-import { apiFetch, can, currentUser, isBreakGlass, keycloak, keycloakReachable, myInfo, partOn, roleName, roles, signOut, signedIn as isSignedIn } from "./auth";
+import { apiFetch, can, currentUser, isBreakGlass, keycloak, keycloakReachable, libraryInfo, myInfo, partOn, roleName, roles, signOut, signedIn as isSignedIn } from "./auth";
 import BreakGlass from "./BreakGlass";
 import { config } from "./config";
 import StartPage, { EverythingElse } from "./StartPage";
 import { AreaMenu, ArchitectureWork } from "./Areas";
 import ArchitectureRepositoryPage from "./ArchitectureRepository";
 import ReferenceLibraryPage from "./ReferenceLibrary";
+import EnterpriseLibraryPage from "./Libraries";
+import MyProfile from "./Skills";
 import ModelAdmin from "./ModelAdmin";
 import Metamodel from "./Metamodel";
 import Mcp from "./Mcp";
@@ -97,7 +99,7 @@ export default function App() {
             <>
               <span className={isBreakGlass() ? "break-glass-user" : ""}
                 title={`EA Explorer roles: ${roles().join(", ") || "none"}${info?.keycloak_roles ? `\nKeycloak roles: ${info.keycloak_roles.join(", ")}` : ""}`}>
-                {user?.name || user?.preferred_username}
+                <a href="#/my-profile" className="user-name" title="My profile: my skills">{user?.name || user?.preferred_username}</a>
                 <small className="role-chip">{roles().length ? roles().map(roleName).join(", ") : "no role"}</small>
               </span>
               <button onClick={signOut}>Sign out</button>
@@ -116,6 +118,9 @@ export default function App() {
           {partOn("projects") && <a href="#/work" className={/^#\/(projects|work|project-admin)/.test(route) ? "on" : ""}>Projects</a>}
           {partOn("repository") && <a href="#/repository" className={route.startsWith("#/repository") ? "on" : ""}>Repository</a>}
           <a href="#/library" className={route.startsWith("#/library") ? "on" : ""}>Library</a>
+          {partOn("projects") && libraryInfo().mode !== "off" && (libraryInfo().mode === "link"
+            ? <a href={libraryInfo().link} target="_blank" rel="noreferrer" title="The organisation's own library">Enterprise library ↗</a>
+            : <a href="#/enterprise-library" className={route.startsWith("#/enterprise-library") ? "on" : ""}>Enterprise library</a>)}
           {partOn("references") && <a href="#/reference-library" className={route.startsWith("#/reference-library") ? "on" : ""}>Reference library</a>}
           <a href="#/compare" className={route === "#/compare" || route.startsWith("#/compare?") ? "on" : ""}>Compare</a>
           <a href="#/compare/gaps" className={route.startsWith("#/compare/gaps") ? "on" : ""}>Gap analysis</a>
@@ -141,6 +146,8 @@ export default function App() {
           : route.startsWith("#/work") ? <ArchitectureWork />
           : route.startsWith("#/repository") ? <ArchitectureRepositoryPage />
           : route.startsWith("#/reference-library") ? <ReferenceLibraryPage route={route} />
+          : route.startsWith("#/enterprise-library") ? <EnterpriseLibraryPage route={route} />
+          : route.startsWith("#/my-profile") ? <MyProfile />
           : route.startsWith("#/more") ? <EverythingElse />
           : route.startsWith("#/model-admin") ? <ModelAdmin route={route} />
           : route.startsWith("#/project-admin") ? <ProjectAdmin route={route} />
@@ -167,6 +174,7 @@ function partOff(route) {
   if (/^#\/(projects|project-admin)/.test(route) && !partOn("projects")) return "projects";
   if (route.startsWith("#/repository") && !partOn("repository")) return "repository";
   if (route.startsWith("#/reference-library") && !partOn("references")) return "references";
+  if (route.startsWith("#/enterprise-library") && !partOn("projects")) return "projects";
   return "";
 }
 

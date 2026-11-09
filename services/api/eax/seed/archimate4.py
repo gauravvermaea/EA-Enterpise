@@ -64,6 +64,25 @@ ENTITY_TYPES = [
     ("Plateau", "Plateau", "Implementation & Migration", "Composite", "PLT"),
 ]
 assert len(ENTITY_TYPES) == 42
+SPEC_TYPES = [t[0] for t in ENTITY_TYPES]   # the 42 elements of the ArchiMate 4 Specification
+
+# EA Explorer extensions (owner, 9 Nov 2026, D345): the TOGAF business architecture artifacts ArchiMate has no element
+# for. Marked as extensions (their description says so); an ArchiMate exchange leaves them out. (code, name, domain,
+# aspect, ID prefix, what it is)
+EXTENSIONS = [
+    ("ValueStreamStage", "Value Stream Stage", "Strategy", "Behaviour", "VSS",
+     "A stage of a value stream: its order, entry and exit criteria and the value it adds; part of a value stream, enabled by capabilities"),
+    ("ProductLifecycleStage", "Product Lifecycle Stage", "Business", "Behaviour", "PLS",
+     "A stage in a product's life, from launch to withdrawal, in order, with its entry and exit criteria"),
+    ("BusinessScenario", "Business Scenario", "Motivation", "Motivation", "BSC",
+     "A business problem in its setting: the problem, the environment, the actors and the outcome wanted"),
+    ("Control", "Control", "Business", "Passive Structure", "CTL", "A check in a process that keeps it within its rules"),
+    ("Contract", "Contract", "Business", "Passive Structure", "CTR", "An agreement on a service between parties: its terms and dates"),
+    ("Measure", "Measure", "Motivation", "Motivation", "MEA", "An indicator, with its target, that tells whether an outcome is met"),
+]
+EXTENSION_NOTE = "EA Explorer extension (not an element of the ArchiMate 4 Specification): "
+ENTITY_TYPES = ENTITY_TYPES + [t[:5] for t in EXTENSIONS]
+EXTENSION_DESCRIPTIONS = {t[0]: EXTENSION_NOTE + t[5] for t in EXTENSIONS}
 
 # (RelCode, Name, Category, Directed, Description)
 REL_TYPES = [
@@ -93,6 +112,7 @@ G = {
     "MOTIVATION": ["Stakeholder", "Driver", "Assessment", "Goal", "Outcome", "Principle", "Requirement",
                    "Meaning", "Value"],
     "IMPLEMENTATION": ["WorkPackage", "Deliverable", "Plateau"],
+    "EXTENSIONS": [t[0] for t in EXTENSIONS],
     "TECH_NODE": ["Node", "Device", "SystemSoftware", "Equipment", "Facility"],
 }
 G["ACTIVE"] = G["INT_ACTIVE"] + G["EXT_ACTIVE"] + G["NETWORK"]
@@ -192,6 +212,19 @@ allow("ValueStream", "Flow", "ValueStream", "")
 allow("Capability", "Flow", "Capability", "")
 allow("G:INT_ACTIVE", "Flow", "G:INT_ACTIVE", "Active structure flow (derived)")
 
+# the EA Explorer extensions (D345): stages make up a value stream or a product's life and follow one another;
+# capabilities serve stages; a scenario, control, contract or measure links to anything by association
+allow("ValueStream", "Composition", "ValueStreamStage", "EA Explorer extension")
+allow("ValueStreamStage", "Triggering", "ValueStreamStage", "EA Explorer extension")
+allow("ValueStreamStage", "Flow", "ValueStreamStage", "EA Explorer extension")
+allow("Capability", "Serving", "ValueStreamStage", "EA Explorer extension")
+allow("ValueStreamStage", "Realization", "Value", "EA Explorer extension")
+allow("Product", "Composition", "ProductLifecycleStage", "EA Explorer extension")
+allow("ProductLifecycleStage", "Triggering", "ProductLifecycleStage", "EA Explorer extension")
+allow("Control", "Influence", "Process", "EA Explorer extension")
+allow("Contract", "Realization", "Service", "EA Explorer extension")
+allow("Measure", "Influence", "Outcome", "EA Explorer extension")
+allow("BusinessScenario", "Influence", "G:MOTIVATION", "EA Explorer extension")
 allow("*", "Association", "*", "Association is always allowed")
 
 # ---------------------------------------------------------------- lists
@@ -205,6 +238,8 @@ LISTS = {
     "DataClassification": ["Public", "Internal", "Confidential", "Restricted"],
     "Priority": ["Must", "Should", "Could", "Won't"],
     "Maturity": ["1 - Initial", "2 - Managed", "3 - Defined", "4 - Measured", "5 - Optimised"],
+    "Importance": ["High", "Medium", "Low"],
+    "Investment": ["Invest", "Sustain", "Reduce"],
     "DomainList": ["Business", "Application", "Technology"],
     "YesNo": ["Y", "N"],
     "DataType": ["Text", "LongText", "Integer", "Decimal", "Currency", "Percent", "Date", "Boolean",
@@ -260,6 +295,17 @@ ATTRS = [
     ("EndDate", "End Date", "Date", "", "", "End date"),
     ("Measure", "Measure", "Text", "", "", "How achievement is measured"),
     ("Url", "URL", "URL", "", "", "Link to documentation"),
+    # the business architecture artifacts (D345)
+    ("Importance", "Importance", "List", "Importance", "", "How much the capability matters to the strategy"),
+    ("Investment", "Investment", "List", "Investment", "", "Where the capability's investment goes: invest, sustain or reduce"),
+    ("StageOrder", "Stage Order", "Integer", "", "", "The stage's place in its value stream or lifecycle: 1, 2, 3..."),
+    ("EntryCriteria", "Entry Criteria", "LongText", "", "", "What must be true to start the stage"),
+    ("ExitCriteria", "Exit Criteria", "LongText", "", "", "What must be true to finish the stage"),
+    ("ValueItem", "Value Item", "Text", "", "", "The value the stage adds for the stakeholder"),
+    ("Problem", "Problem", "LongText", "", "", "The business problem the scenario describes"),
+    ("Environment", "Environment", "LongText", "", "", "The setting: the business and technical environment"),
+    ("DesiredOutcome", "Desired Outcome", "LongText", "", "", "What the scenario should achieve"),
+    ("Target", "Target", "Text", "", "", "The value the measure should reach, and by when"),
 ]
 
 ALL_TYPES = [t[0] for t in ENTITY_TYPES]
@@ -294,6 +340,16 @@ for t in ["Goal", "Outcome"]:
 for t in ["ApplicationComponent", "SystemSoftware", "Product", "Service", "Requirement", "Principle",
           "Deliverable"]:
     MAP[t].append(("Url", "N", "Links"))
+# the business architecture artifacts (D345)
+MAP["Capability"] += [("Importance", "N", "Assessment"), ("Investment", "N", "Assessment")]
+for t in ["ValueStreamStage", "ProductLifecycleStage"]:
+    MAP[t] += [("StageOrder", "N", "Stage"), ("EntryCriteria", "N", "Stage"), ("ExitCriteria", "N", "Stage")]
+MAP["ValueStreamStage"].append(("ValueItem", "N", "Stage"))
+MAP["BusinessScenario"] += [("Problem", "N", "Scenario"), ("Environment", "N", "Scenario"), ("DesiredOutcome", "N", "Scenario")]
+MAP["Control"] += [("Priority", "N", "General"), ("Url", "N", "Links")]
+MAP["Contract"] += [("Vendor", "N", "Sourcing"), ("StartDate", "N", "Schedule"), ("EndDate", "N", "Schedule"),
+                    ("AnnualCost", "N", "Financial"), ("Url", "N", "Links")]
+MAP["Measure"] += [("Measure", "N", "General"), ("Target", "N", "General")]
 
 # ---------------------------------------------------------------- rules
 # AttrCode, TypeCode('' = all), RuleType, Param1, Param2, Severity, Message

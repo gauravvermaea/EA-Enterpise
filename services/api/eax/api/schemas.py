@@ -64,6 +64,8 @@ class Me(Schema):
     break_glass = fields.Boolean()
     parts = fields.Dict(keys=fields.String(), values=fields.Boolean(),
                         metadata={"description": "Which parts are on: projects, repository, references (D329)"})
+    library = fields.Dict(metadata={"description": "The enterprise library (D350): mode (ours, link, off), link, search_link "
+                                                   "(with {q}), service (whether the library service is on)"})
 
 
 class JobRequestIn(Schema):

@@ -1,9 +1,22 @@
 # EA Explorer
 
-A free, open-source enterprise architecture repository:
-a governed metamodel, an architecture repository, diagrams (draw.io), reports (Apache Superset),
-documents (Mayan EDMS), sign-in through Keycloak, and an MCP server so you can connect your own
-language model. Everything runs in Docker containers from one config file.
+A free, open-source enterprise architecture platform you run yourself:
+- **a governed metamodel**: ArchiMate 4 and the TOGAF 10 content metamodel built in, your own metamodels edited,
+  versioned, reviewed and pushed down to the models that use them;
+- **the repository and its pictures**: networks, layers, impact, capability and hierarchy maps, matrices, value
+  stream maps and roadmaps drawn from the data itself (always current), each opening in draw.io;
+- **reports and analysis**: 30 standard reports, 49 viewpoints (diagram, catalogue, heat map, matrix), gap,
+  comparison and common analysis, data quality, and Apache Superset for your own;
+- **TOGAF ADM projects**: 14 project templates, the TOGAF 10 library, key questions accepted by stakeholders, Business
+  Model Canvases, the Architecture Repository, documents (Mayan EDMS) and libraries;
+- **governance**: private changes until committed, child models merged back, reviews, approvals and sign-off, a full
+  change log;
+- **bring your own AI**: an MCP server with 79 tools that reads, analyses and builds as the signed-in person;
+- **integration and operations**: a REST API, signed webhooks, Excel and CSV loads, one `eax` command, health,
+  tagged backups and restores; single sign-on through Keycloak.
+
+Everything runs in Docker containers from one config file. **What it does today, area by area, and what is still
+planned: [docs/capabilities.md](docs/capabilities.md).**
 
 **All the documentation, listed with what each covers: [docs/index.md](docs/index.md).** Backup and restore
 commands: [below](#backup-and-restore-from-the-command-line) and in [docs/operations.md](docs/operations.md#backup-and-restore-from-the-command-line-d227).
@@ -37,11 +50,13 @@ The major phases; each line covers its sub-phases. **In detail (every sub-phase,
 | 10 | Administration console; import and export sheets | closed |
 | 12 | Validation and data quality; start-up in two tiers | closed |
 | 13 | Architecture projects: library, wizard, repository, sign-off, content framework, bases, governance, charter, the Architecture Repository, tracking sheets, the console, eaxpy | accepted and closed (8 Nov 2026) |
-| 15, 16 | Organisation-wide repository; guided wizards | planned |
-| 19 to 24 | Collaboration at scale: work copies and merges, dedupe, ownership, portfolio and impact, report trends | planned |
-| 25 to 27 | Security hardening; MCP server read tools and proposals | planned |
-| 28 to 31 | Diagrams (draw.io) and standard views | planned |
-| 33, 34 | ArchiMate exchange and conformance; integrations | planned |
+| 15.2 | The enterprise library and project libraries (a separate service) | built, waiting for test |
+| 15.3 (part) | Business architecture: Business Model Canvases, the TOGAF Phase B artifacts and their viewpoints; key questions | built, waiting for test (the rest of 15.3 planned) |
+| 16.3 | Guided wizards | built, waiting for test |
+| 19 to 24 | Collaboration at scale (adds to the commits, child models and merges built in 8 and 13): project-wide work copies, dedupe, ownership, portfolio and impact, report trends and designer | planned |
+| 25 to 27 | Security hardening; MCP proposals into staging (the MCP server and its 79 tools are built) | planned |
+| 28 to 31 | Drawing in draw.io with ArchiMate notation, written back to the repository; saved standard views (the diagrams drawn from the repository are built) | planned |
+| 33, 34 | ArchiMate exchange and conformance; collection from other systems and CMDB reconciliation (the API, webhooks and Excel loads are built) | planned |
 | 35 to 38 | Operations, deployment, enterprise readiness, release candidate, pilot and version 1.0 | planned |
 | 39, 40 | Industry models and documentation; organisation maturity | planned |
 
