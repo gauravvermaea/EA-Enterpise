@@ -2,10 +2,12 @@
 // #/projects/<id>/edit (the wizard on a live project, D275), #/projects/<id>/<tab> (a project: its landing page with the
 // ADM crop circle, about, repository, steps, sign-off, principles).
 // A project starts from its models (one is the project's model: its goals and outcomes are Goal and Outcome entities
-// there, D274), then its purpose, scope, sponsor and asks, notes and files, template libraries, viewpoints, principles,
+// there, D274), then its purpose, scope, sponsor and asks, notes and files, template libraries, views, principles,
 // the ADM steps and deliverables phase by phase (templates chosen from several libraries, or a placeholder to build
 // later), its people and who signs off. Documents are edited outside in Office: check out, download, edit, check in.
 // Deliverables are signed off (D276); a finished project is frozen, or merged into another (D277).
+import OtherDocsTab from "./OtherDocs";
+import ScenariosTab from "./Scenarios";
 import PinButton from "./PinButton";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import AdmWheel from "./AdmWheel";
@@ -33,9 +35,12 @@ import { ComplianceWizard } from "./GuidedWizards";
 import { CanvasTab } from "./Canvas";
 import { ProjectBusinessArtifacts } from "./BusinessArchitecture";
 import { ProjectLibraryTab } from "./Libraries";
+import { ViewEvidenceList } from "./DrawnView";
+import { isRetiredProject, liveProjects, ShowRetired, useShowRetired } from "./ModelMarks";
 import { KeyQuestionsPanel, KeyQuestionsStep, makePlaceholderFiles, newKey, QuestionMapping } from "./KeyQuestions";
 import { TemplateBrowserDialog } from "./TemplateBrowser";
-import { ProjectBackupPanel, ProjectCompare, ProjectGaps, ProjectReports, RestoreProjectFile, ViewpointsByPhase } from "./ProjectTabs";
+import { ProjectBackupPanel, ProjectCompare, ProjectGaps, ProjectReports, RestoreProjectFile, ViewsByPhase } from "./ProjectTabs";
+import PageNav from "./PageNav";
 
 const ROLE_NAMES = { "project-admin": "Project Admin", "lead-architect": "Lead Architect", architect: "Architect",
   "model-admin": "Model Admin", "model-sub-admin": "Model Sub Admin", stakeholder: "Stakeholder" };
@@ -95,9 +100,9 @@ export function ProjectAdmin({ route }) {
 // set-up first (projects need it), then a new project of each kind (the project templates) or blank, then the wizards
 // that run on a project you choose.
 const PROJECT_WIZARDS = [
-  { k: "edit", title: "✎ Edit a project", text: "The set-up wizard again on a running project: models, scope, goals and outcomes, sponsor, notes, libraries, viewpoints, steps, deliverables, people and sign-off", to: (id) => `#/projects/${id}/edit`, runs: true },
+  { k: "edit", title: "✎ Edit a project", text: "The set-up wizard again on a running project: models, scope, goals and outcomes, sponsor, notes, libraries, views, steps, deliverables, people and sign-off", to: (id) => `#/projects/${id}/edit`, runs: true },
   { k: "finish", title: "Finish a project", text: "Freeze it, or merge it into another project; each of its models kept, merged into its parent, merged and frozen, or frozen", to: (id) => `#/project-admin/${id}?finish=1`, runs: true },
-  { k: "derive", title: "Derive a new project", text: "A new project filled in from one you choose: scope, goals, steps, deliverables, viewpoints, libraries; its models referred to or derived from", to: (id) => `#/projects/new?parent=${id}` },
+  { k: "derive", title: "Derive a new project", text: "A new project filled in from one you choose: scope, goals, steps, deliverables, views, libraries; its models referred to or derived from", to: (id) => `#/projects/new?parent=${id}` },
   { k: "library", title: "Make a project a library project", text: "Offer its reference material to every new project, or stop offering it (Super Admins)", to: (id) => `#/project-admin/${id}?library=1`, sup: true },
   { k: "as-template", title: "Save a project as a template", text: "Its decisions as a new kind of project in the gallery (Super Admins)", to: (id) => `#/project-admin/${id}?template=1`, sup: true },
   { k: "compliance", title: "Architecture compliance review", text: "Review a solution against the project's principles and standards: a verdict and note for each, the result and any dispensations in its governance log", to: (id) => `#/project-admin/${id}?compliance=1` },
@@ -241,11 +246,13 @@ function useWhileBuilding(projects) {
 
 function AdminProjects() {
   const { data, error } = useApi("/api/v1/projects");
+  const [showRetired, setShowRetired] = useShowRetired();
   useWhileBuilding(data?.projects);
   if (error) return <p className="status bad">{error}</p>;
   if (!data) return <p className="quiet">Loading...</p>;
   const runs = (p) => !(p.my_roles || []).length || (p.my_roles || []).some((r) => r === "project-admin" || r === "lead-architect");
-  const mine = data.projects.filter(runs);
+  const every = data.projects.filter(runs);
+  const mine = showRetired ? every : liveProjects(every);       // frozen and merged projects out of the way (D360)
   return (
     <div>
       <div className="row-gap">
@@ -255,11 +262,12 @@ function AdminProjects() {
       </div>
       {!data.setup?.done && <SetupNeeded manage={data.may_manage} />}
       <h3>Projects you run</h3>
-      {!mine.length && <p className="quiet">None: you are Project Admin or Lead Architect on no project.</p>}
+      <ShowRetired count={every.filter(isRetiredProject).length} show={showRetired} setShow={setShowRetired} />
+      {!mine.length && <p className="quiet">{every.length ? "Only frozen or merged ones." : "None: you are Project Admin or Lead Architect on no project."}</p>}
       {mine.length > 0 && <table className="grid-table">
         <thead><tr><th>Project</th><th>Purpose</th><th>Status</th><th>Your roles</th><th className="num">Models</th><th className="num">Documents</th><th>Complete</th><th>Repository</th></tr></thead>
         <tbody>{mine.map((p) => (
-          <tr key={p.id}><td><a href={`#/project-admin/${p.id}`}><b>{p.name}</b></a></td><td>{p.purpose}</td><td><StatusChip status={p.status} /></td>
+          <tr key={p.id} className={isRetiredProject(p) ? "is-retired" : undefined}><td><a href={`#/project-admin/${p.id}`}><b>{p.name}</b></a></td><td>{p.purpose}</td><td><StatusChip status={p.status} /></td>
             <td className="small">{(p.my_roles || []).map((r) => ROLE_NAMES[r] || r).join(", ") || <span className="quiet">Super Admin</span>}</td>
             <td className="num">{p.models}</td><td className="num">{p.documents}</td><td><Completion c={p.completion} /></td><td><RepoState state={p.repo_state} /></td></tr>))}</tbody>
       </table>}
@@ -337,11 +345,11 @@ function AdminProject({ id }) {
         {" "}on {fmtDateTime(p.finished_at)} by {p.finished_by}: read only. {p.finish_note}</div>}
       <RepoHelp p={p} onRebuild={runs && !p.frozen ? rebuild : null} />
       <div className="wiz-grid">
-        <AdminCard title="✎ Edit the project" text="The set-up wizard again on the project as it is: models, scope, goals and outcomes, sponsor, notes, libraries, viewpoints, steps, deliverables, people and sign-off"
+        <AdminCard title="✎ Edit the project" text="The set-up wizard again on the project as it is: models, scope, goals and outcomes, sponsor, notes, libraries, views, steps, deliverables, people and sign-off"
           ok={runs && !p.frozen} why={frozen || why} href={`#/projects/${id}/edit`} />
         <AdminCard title="Finish the project" text="Freeze it, or merge it into another project; each of its models kept or merged into its parent"
           ok={p.may_finish} why={frozen || why} onClick={() => setFinish(true)} />
-        <AdminCard title="Derive a new project" text="A new project filled in from this one: scope, goals, steps, deliverables, viewpoints and libraries; its models to refer to or derive from"
+        <AdminCard title="Derive a new project" text="A new project filled in from this one: scope, goals, steps, deliverables, views and libraries; its models to refer to or derive from"
           ok href={`#/projects/new?parent=${id}`} />
         <AdminCard title="Save as a project template" text="Its decisions as a new kind of project in the gallery (Super Admins)" ok={sup} why="Needs the Super Admin role" onClick={asTemplate} />
         <AdminCard title={p.is_library ? "No longer a library project" : "Make it a library project"}
@@ -428,7 +436,7 @@ function Gallery() {
       <div className="small"><a href="#/project-admin">Project admin</a> ›</div>
       <h2>New architecture project</h2>
       <p className="quiet">Choose the kind of project: its wizard comes with the decisions already taken (the models and their roles, the
-        purpose and scope, the phases, deliverables and viewpoints) and asks only the rest. Everything can still be changed, here or later with ✎ Edit.</p>
+        purpose and scope, the phases, deliverables and views) and asks only the rest. Everything can still be changed, here or later with ✎ Edit.</p>
       <div className="template-grid">
         {lib.project_templates.map((t) => (
           <a key={t.code} className="template-card" href={`#/projects/new?template=${t.code}`}>
@@ -457,7 +465,7 @@ function applyTemplate(x, t, lib) {
     scope: { ...x.scope, depth: s.depth || x.scope.depth, domains: s.domains?.length ? s.domains : x.scope.domains },
     picks: Object.fromEntries(lib.items.map((i) => [i.id, inScope(i)])),
     removed: Object.fromEntries(Object.entries(s.removed_steps || {}).map(([k, v]) => [Number(k), v || "Not needed in this kind of project"])),
-    viewpoints: s.viewpoints || x.viewpoints,
+    views: s.views || x.views,
     goals: s.goals === false ? [] : x.goals,
     stakeholders: (s.stakeholders || []).map((r) => ({ ...r })),     // the kind of project's suggested stakeholders (D294)
   };
@@ -591,14 +599,14 @@ export function RepoHelp({ p, onRebuild }) {
 
 // ---------------------------------------------------------------- the wizard (new, and the edit workflow)
 // the models first (owner, 7 Nov 2026); a new model's suggested name follows the project's name once it is given in Basics
-const STEPS = ["Models", "Primary working model", "Basics", "Scope", "Goals and outcomes", "Sponsor", "Stakeholders", "Notes and files", "Reference", "Template libraries", "Key questions", "Viewpoints",
+const STEPS = ["Models", "Primary working model", "Basics", "Scope", "Goals and outcomes", "Sponsor", "Stakeholders", "Notes and files", "Reference", "Template libraries", "Key questions", "Views",
   "Principles", "Charter", "Phase by phase", "People and sign-off", "Review"];
 const EMPTY = {
   name: "", purpose: "", own_purpose: "", description: "", parent: "", models: [],
   scope: { breadth: "", depth: "", domains: [], start: "", end: "", horizon: "", notes: "" },
   sponsor: { name: "", role: "", contact: "", asks: [], notes_html: "" }, notes_html: "", goals_notes_html: "", files: [], goals: [],
-  viewpoints: [], own_viewpoints: [], existing_vps: [], removed_viewpoints: [],
-  key_questions: [], placeholder_viewpoints: [], removed_placeholders: [],
+  views: [], own_views: [], existing_vps: [], removed_views: [],
+  key_questions: [], placeholder_views: [], removed_placeholders: [],
   principles: [], own_principles: [], existing_principles: [], removed_principles: [],
   removed: {}, own_steps: [], picks: null, kinds: {}, templates: {}, placeholders: {}, notes: {}, areas: {}, own_items: [], members: [], signoff: { "": [] }, signoff_quorum: "",
   libraries: null, template: "", stakeholders: [],
@@ -626,16 +634,16 @@ function fromProject(p, lib, derive) {
     outcomes: g.outcomes.map((o) => ({ ...(derive ? {} : { id: o.id }), name: o.name, description: o.description, measure: o.measure, target_date: o.target_date })) }));
   const base = {
     scope: { ...EMPTY.scope, ...p.scope }, removed, own_steps: ownSteps, own_steps_seen: ownSteps.filter((s) => s.id).map((s) => s.id), picks, kinds, templates, placeholders, notes, areas, own_items: ownItems,
-    viewpoints: p.viewpoints.filter((v) => !v.own).map((v) => v.code), libraries: p.libraries.map((l) => l.id),
-    // the questions the work answers and the viewpoints answering each (owner, 9 Nov 2026); a derived project gets them as new
+    views: p.views.filter((v) => !v.own).map((v) => v.code), libraries: p.libraries.map((l) => l.id),
+    // the questions the work answers and the views answering each (owner, 9 Nov 2026); a derived project gets them as new
     key_questions: (p.key_questions || []).map((q) => ({ ...(derive ? { key: newKey() } : { id: q.id, status: q.status }), question: q.question, asked_by: q.asked_by,
-      approach: q.approach, viewpoints: q.viewpoints })),
-    placeholder_viewpoints: (p.placeholder_viewpoints || []).map((x) => ({ code: x.code, existing: !derive, key: x.code, name: x.name,
+      approach: q.approach, views: q.views })),
+    placeholder_views: (p.placeholder_views || []).map((x) => ({ code: x.code, existing: !derive, key: x.code, name: x.name,
       description: x.description, kind: x.kind, file_type: x.file_type, file_name: derive ? "" : x.file_name })),
   };
   if (derive) {
     const keep = ["name", "organisation", "role_title", "category", "email", "phone", "concerns", "power", "interest", "disrupt", "understanding_now",
-      "understanding_needed", "commitment_now", "commitment_needed", "support_needed", "frequency", "channel", "owner", "notes_html", "viewpoints"];
+      "understanding_needed", "commitment_now", "commitment_needed", "support_needed", "frequency", "channel", "owner", "notes_html", "views"];
     return { ...base, parent: p.id, goals: [],
       // its stakeholders come too (their ratings and notes, not the discussions; D294)
       stakeholders: (p.stakeholders || []).map((s) => ({ ...Object.fromEntries(keep.map((k) => [k, s[k]])),
@@ -650,7 +658,7 @@ function fromProject(p, lib, derive) {
       role: m.role || "", seq: m.role_seq || null })),
     template: p.template?.code || "",
     sponsor: { ...EMPTY.sponsor, ...p.sponsor }, notes_html: p.notes_html || "", goals_notes_html: p.goals_notes_html || "", goals,
-    existing_vps: p.viewpoints.filter((v) => v.own),
+    existing_vps: p.views.filter((v) => v.own),
     key_questions_seen: (p.key_questions || []).map((q) => q.id),
     principles: p.principles.filter((r) => r.library_id && !r.inherited_from).map((r) => r.library_id),
     existing_principles: p.principles.filter((r) => !r.library_id && !r.inherited_from),
@@ -701,7 +709,7 @@ function Wizard({ parent, editId, template, startAt }) {
           goals: x.goals.length ? x.goals : got.derived_goals, stakeholders: got.stakeholders.length ? got.stakeholders : x.stakeholders,
           reference: undefined };      // offered again, with the parent's reference material
       });
-      setMsg(`Started from ${p.name}: its scope, steps, deliverables, viewpoints and libraries are filled in, and its models are listed as referred to (change each to add, derive or create). Its principles are inherited.`);
+      setMsg(`Started from ${p.name}: its scope, steps, deliverables, views and libraries are filled in, and its models are listed as referred to (change each to add, derive or create). Its principles are inherited.`);
     } catch (e) { setMsg(e.message); }
   }
   if (error || liveErr) return <div className="page"><p className="status bad">{error || liveErr}</p></div>;
@@ -741,9 +749,9 @@ function Wizard({ parent, editId, template, startAt }) {
       name: d.name.trim(), purpose, description: d.description, parent: d.parent || undefined, template: d.template || undefined,
       scope: d.scope, sponsor: d.sponsor, notes_html: d.notes_html, goals_notes_html: d.goals_notes_html,
       goals: d.goals.filter((g) => g.name.trim()),
-      viewpoints: d.viewpoints, own_viewpoints: d.own_viewpoints.filter((v) => v.name.trim()), removed_viewpoints: d.removed_viewpoints,
+      views: d.views, own_views: d.own_views.filter((v) => v.name.trim()), removed_views: d.removed_views,
       key_questions: d.key_questions.filter((q) => q.question.trim()), key_questions_seen: d.key_questions_seen || [],
-      placeholder_viewpoints: d.placeholder_viewpoints.filter((x) => x.name.trim()), removed_placeholders: d.removed_placeholders || [],
+      placeholder_views: d.placeholder_views.filter((x) => x.name.trim()), removed_placeholders: d.removed_placeholders || [],
       libraries: d.libraries,
       models: d.models.map((m) => ({ ...(m.id ? { id: m.id, how: m.how, home: m.home }
         : ["added", "referred"].includes(m.how) ? { how: m.how, model: m.model, home: m.home }
@@ -791,7 +799,7 @@ function Wizard({ parent, editId, template, startAt }) {
       const id = out.project.id;
       const left = d.files.length ? await uploadFiles(id) : [];
       // the empty files of new file placeholders (owner, 9 Nov 2026)
-      const phMsg = d.placeholder_viewpoints.some((x) => x.kind === "file" && !x.file_name) ? await makePlaceholderFiles(id) : "";
+      const phMsg = d.placeholder_views.some((x) => x.kind === "file" && !x.file_name) ? await makePlaceholderFiles(id) : "";
       refreshAll();
       if (left.length || phMsg) setMsg([left.length ? `Not uploaded: ${left.join(", ")}. Add them on the project's About tab.` : "", phMsg].filter(Boolean).join(" "));
       if (window.location.hash === from && !left.length && !phMsg) window.location.hash = `#/projects/${id}`;
@@ -803,7 +811,7 @@ function Wizard({ parent, editId, template, startAt }) {
     <div className="page wizard">
       <h2>{editId ? `Change ${live?.name}` : `New architecture project${tpl ? `: ${tpl.name}` : ""}`}</h2>
       {!editId && <div className="small"><a href="#/projects/new">← All kinds of project</a></div>}
-      {editId && <p className="small quiet">The project as it should be: add or remove models, viewpoints, steps, deliverables and artifacts, people and
+      {editId && <p className="small quiet">The project as it should be: add or remove models, views, steps, deliverables and artifacts, people and
         libraries. Documents already in the repository stay; new folders and templates are added in the background.</p>}
       {!editId && (
         <div className="row-gap small kind-row">
@@ -833,7 +841,7 @@ function Wizard({ parent, editId, template, startAt }) {
         {at === "Template libraries" && <Libraries d={d} set={set} lib={lib} />}
         {at === "Key questions" && <KeyQuestionsStep d={d} set={set}
           names={[...(d.stakeholders || []), ...(live?.stakeholders || [])].map((x) => x.name).filter(Boolean)} />}
-        {at === "Viewpoints" && <ViewpointsStep d={d} set={set} lib={lib} />}
+        {at === "Views" && <ViewsStep d={d} set={set} lib={lib} />}
         {at === "Charter" && <CharterStep d={d} set={set} lib={lib} editId={editId} />}
         {at === "Principles" && <Principles d={d} set={set} lib={lib} parentName={(plist?.projects || []).find((p) => p.id === d.parent)?.name} />}
         {at === "Phase by phase" && <PhaseByPhase d={d} set={set} lib={lib} phase={phase} setPhase={setPhase} />}
@@ -1189,7 +1197,7 @@ function Basics({ d, set, lib, projects, onDerive, edit }) {
             <option value="">From scratch</option>
             {projects.map((p) => <option key={p.id} value={p.id}>Derive from {p.name}{p.status !== "active" ? ` (${p.status})` : ""}</option>)}
           </select>
-          <span className="small quiet">A derived project starts with its parent's scope, goals, steps, deliverables and artifacts, viewpoints and libraries
+          <span className="small quiet">A derived project starts with its parent's scope, goals, steps, deliverables and artifacts, views and libraries
             (change any of them), inherits its principles, and lists its models as referred to: choose for each to refer to it, add it, derive a child
             or create a separate one. A frozen project can be a parent too.</span>
         </label>
@@ -1374,54 +1382,54 @@ function Libraries({ d, set, lib }) {
   );
 }
 
-function ViewpointsStep({ d, set, lib }) {
-  // a viewpoint taken away no longer answers the key questions it was mapped to
-  const unmap = (ref) => set("key_questions", d.key_questions.map((q) => ({ ...q, viewpoints: (q.viewpoints || []).filter((r) => r !== ref) })));
-  const answers = (ref) => d.key_questions.filter((q) => q.question.trim() && (q.viewpoints || []).includes(ref)).length;
+function ViewsStep({ d, set, lib }) {
+  // a view taken away no longer answers the key questions it was mapped to
+  const unmap = (ref) => set("key_questions", d.key_questions.map((q) => ({ ...q, views: (q.views || []).filter((r) => r !== ref) })));
+  const answers = (ref) => d.key_questions.filter((q) => q.question.trim() && (q.views || []).includes(ref)).length;
   const toggleVp = (c) => {
-    if (d.viewpoints.includes(c)) unmap(c);
-    set("viewpoints", d.viewpoints.includes(c) ? d.viewpoints.filter((x) => x !== c) : [...d.viewpoints, c]);
+    if (d.views.includes(c)) unmap(c);
+    set("views", d.views.includes(c) ? d.views.filter((x) => x !== c) : [...d.views, c]);
   };
-  const upd = (i, k, v) => set("own_viewpoints", d.own_viewpoints.map((x, j) => (j === i ? { ...x, [k]: v } : x)));
+  const upd = (i, k, v) => set("own_views", d.own_views.map((x, j) => (j === i ? { ...x, [k]: v } : x)));
   return (
     <div>
       <QuestionMapping d={d} set={set} lib={lib} />
-      <h3>The viewpoints</h3>
-      <p className="quiet small">The views this project's stakeholders need, from the viewpoint library. On the project's page each shows whether its
-        element types are in one of the project's models' metamodels (open it there) or still to build. Chosen: <b>{d.viewpoints.length}</b> of {lib.viewpoints.length}.</p>
+      <h3>The views</h3>
+      <p className="quiet small">The views this project's stakeholders need, from the view library. On the project's page each shows whether its
+        element types are in one of the project's models' metamodels (open it there) or still to build. Chosen: <b>{d.views.length}</b> of {lib.views.length}.</p>
       <div className="row-gap">
-        <button onClick={() => set("viewpoints", lib.viewpoints.map((v) => v.code))}>Select all</button>
-        <button onClick={() => set("viewpoints", [])}>Clear all</button>
+        <button onClick={() => set("views", lib.views.map((v) => v.code))}>Select all</button>
+        <button onClick={() => set("views", [])}>Clear all</button>
       </div>
       <div className="vp-choices">
-        {lib.viewpoints.map((v) => (
-          <label key={v.code} className={`choice small${d.viewpoints.includes(v.code) ? " on" : ""}`} title={`${v.purpose}\n\nShows: ${(v.element_types || []).join(", ")}`}>
-            <input type="checkbox" checked={d.viewpoints.includes(v.code)} onChange={() => toggleVp(v.code)} /> {v.code} {v.name}
+        {lib.views.map((v) => (
+          <label key={v.code} className={`choice small${d.views.includes(v.code) ? " on" : ""}`} title={`${v.purpose}\n\nShows: ${(v.element_types || []).join(", ")}`}>
+            <input type="checkbox" checked={d.views.includes(v.code)} onChange={() => toggleVp(v.code)} /> {v.code} {v.name}
             {answers(v.code) > 0 && <span className="quiet"> · answers {answers(v.code)}</span>}
           </label>
         ))}
       </div>
-      <h3>The project's own viewpoints</h3>
+      <h3>The project's own views</h3>
       {d.existing_vps.map((v) => (
         <div key={v.code} className="own-row small"><b>{v.code}</b> {v.name} <span className="quiet">{v.state}</span>
-          <label><input type="checkbox" checked={d.removed_viewpoints.includes(v.code)}
-            onChange={(e) => { if (e.target.checked) unmap(v.code); set("removed_viewpoints", e.target.checked ? [...d.removed_viewpoints, v.code] : d.removed_viewpoints.filter((x) => x !== v.code)); }} /> take out</label></div>
+          <label><input type="checkbox" checked={d.removed_views.includes(v.code)}
+            onChange={(e) => { if (e.target.checked) unmap(v.code); set("removed_views", e.target.checked ? [...d.removed_views, v.code] : d.removed_views.filter((x) => x !== v.code)); }} /> take out</label></div>
       ))}
-      {d.own_viewpoints.map((v, i) => (
+      {d.own_views.map((v, i) => (
         <div key={i} className="goal-box">
           <div className="own-row">
             <input placeholder="Name, e.g. Claims journey" value={v.name} onChange={(e) => upd(i, "name", e.target.value)} />
             <input placeholder="Concerns it answers" value={v.concerns} onChange={(e) => upd(i, "concerns", e.target.value)} style={{ flex: 2 }} />
             <input placeholder="Stakeholders" value={v.stakeholders} onChange={(e) => upd(i, "stakeholders", e.target.value)} />
-            <button className="linkish" onClick={() => { unmap(`own:${v.key}`); set("own_viewpoints", d.own_viewpoints.filter((_x, j) => j !== i)); }}>Remove</button>
+            <button className="linkish" onClick={() => { unmap(`own:${v.key}`); set("own_views", d.own_views.filter((_x, j) => j !== i)); }}>Remove</button>
           </div>
-          <input className="wide" placeholder="Element types it shows, separated by commas, e.g. BusinessProcess, BusinessActor, Journey step"
-            value={v.types_text} onChange={(e) => set("own_viewpoints", d.own_viewpoints.map((x, j) => (j === i ? { ...x, types_text: e.target.value,
+          <input className="wide" placeholder="Element types it shows, separated by commas, e.g. Process, BusinessActor, Journey step"
+            value={v.types_text} onChange={(e) => set("own_views", d.own_views.map((x, j) => (j === i ? { ...x, types_text: e.target.value,
               element_types: e.target.value.split(",").map((t) => t.trim()).filter(Boolean) } : x)))} />
-          <p className="small quiet">Types the project's models' metamodels have make it ready to use; others make it a viewpoint to build.</p>
+          <p className="small quiet">Types the project's models' metamodels have make it ready to use; others make it a view to build.</p>
         </div>
       ))}
-      <button onClick={() => set("own_viewpoints", [...d.own_viewpoints, { key: newKey(), name: "", concerns: "", stakeholders: "", element_types: [], types_text: "" }])}>+ Make a viewpoint for the project</button>
+      <button onClick={() => set("own_views", [...d.own_views, { key: newKey(), name: "", concerns: "", stakeholders: "", element_types: [], types_text: "" }])}>+ Make a view for the project</button>
     </div>
   );
 }
@@ -1812,9 +1820,9 @@ function Review({ d, lib, purpose, problems }) {
           <tr><th>Notes and files</th><td>{d.notes_html ? "notes written" : <span className="quiet">no notes</span>}{d.files.length ? ` · ${d.files.length} files to upload` : ""}</td></tr>
           <tr><th>Template libraries</th><td>{d.libraries.map((id) => lib.libraries.find((l) => l.id === id)?.name).filter(Boolean).join(", ") || <span className="quiet">none</span>}</td></tr>
           <tr><th>Key questions</th><td>{d.key_questions.filter((q) => q.question.trim()).length
-            ? `${d.key_questions.filter((q) => q.question.trim()).length} (${d.key_questions.filter((q) => q.question.trim() && !(q.viewpoints || []).length).length} not answered by a viewpoint yet)`
-            : <span className="quiet">none</span>}{d.placeholder_viewpoints.filter((x) => x.name.trim()).length ? ` · ${d.placeholder_viewpoints.filter((x) => x.name.trim()).length} placeholder viewpoints` : ""}</td></tr>
-          <tr><th>Viewpoints</th><td>{d.viewpoints.join(", ") || <span className="quiet">none</span>}{d.own_viewpoints.filter((v) => v.name.trim()).length ? ` + ${d.own_viewpoints.filter((v) => v.name.trim()).length} of its own` : ""}</td></tr>
+            ? `${d.key_questions.filter((q) => q.question.trim()).length} (${d.key_questions.filter((q) => q.question.trim() && !(q.views || []).length).length} not answered by a view yet)`
+            : <span className="quiet">none</span>}{d.placeholder_views.filter((x) => x.name.trim()).length ? ` · ${d.placeholder_views.filter((x) => x.name.trim()).length} placeholder views` : ""}</td></tr>
+          <tr><th>Views</th><td>{d.views.join(", ") || <span className="quiet">none</span>}{d.own_views.filter((v) => v.name.trim()).length ? ` + ${d.own_views.filter((v) => v.name.trim()).length} of its own` : ""}</td></tr>
           <tr><th>Charter</th><td>{Object.keys(d.charter || {}).length ? `${Object.keys(d.charter).length} section${Object.keys(d.charter).length === 1 ? "" : "s"} changed` : <span className="quiet">as the base's</span>} (a draft until approved)</td></tr>
           <tr><th>Principles</th><td>{d.principles.length} from the library, {d.own_principles.filter((p) => p.name.trim()).length + d.existing_principles.length} of its own</td></tr>
           <tr><th>Steps</th><td>{lib.steps.length - removed.length} kept, {removed.length} removed (crossed out), {d.own_steps.filter((x) => x.name.trim()).length} of its own</td></tr>
@@ -1833,9 +1841,24 @@ function Review({ d, lib, purpose, problems }) {
 // the steps and the repository are on Home, phase by phase or for all phases (owner, 8 Nov 2026); Tasks, a scratchpad (D298)
 // phase 13.1 (D303 to D307): Base, Charter, Standards, Governance log
 const TABS = [["home", "Home"], ["phases", "Phases"], ["report", "Project report"], ["base", "Base"], ["charter", "Charter"], ["archrepo", "Enterprise Repository (Project Scope)"], ["content", "Content framework"],
-  ["tasks", "Tasks"], ["models", "Models"], ["organisation", "Organisation"], ["stakeholders", "Stakeholders"], ["questions", "Key questions"], ["canvas", "Business model canvas"], ["business", "Business artifacts"], ["principles", "Principles"],
-  ["standards", "Standards"], ["governance", "Governance log"], ["reference", "Reference library (Project Scope)"], ["library", "Library"], ["viewpoints", "Viewpoints"], ["reports", "Model reports"], ["quality", "Quality"], ["calendar", "Calendar"], ["sheets", "Sheets"],
-  ["analysis", "Gaps and comparison"], ["signoff", "Sign-off"]];
+  ["tasks", "Tasks"], ["models", "Models"], ["organisation", "Organisation"], ["stakeholders", "Stakeholders"], ["questions", "Key questions"], ["canvas", "Business model canvas"], ["business", "Business artifacts"], ["otherdocs", "Other views and documents"], ["principles", "Principles"],
+  ["standards", "Standards"], ["governance", "Governance log"], ["library", "Library"], ["views", "Views"], ["reports", "Model reports"], ["quality", "Quality"], ["calendar", "Calendar"], ["sheets", "Sheets"],
+  ["analysis", "Gaps and comparison"], ["scenarios", "Scenarios"], ["signoff", "Sign-off"]];
+
+// the project page's groups (D478), the same in the Grouped and Menu styles
+const PROJECT_GROUPS = [
+  ["overview", "Overview", "⌂", ["home", "report", "tasks", "calendar", "signoff"]],
+  ["plan", "Plan", "◷", ["phases", "charter", "base", "content"]],
+  ["business", "Business", "◎", ["organisation", "stakeholders", "questions", "canvas", "business"]],
+  ["architecture", "Architecture", "◫", ["models", "archrepo", "views", "reports", "quality", "analysis", "scenarios"]],
+  ["governance", "Governance", "⚖", ["principles", "standards", "governance"]],
+  ["documents", "Documents", "▤", ["library", "otherdocs", "sheets"]],
+];
+// the Scenarios tab (phase 27.1, D490): only in a project with a scenario model
+const hasScenarios = (p) => (p?.models || []).some((m) => m.role === "scenario");
+// older or inner names of a tab (they open the same tab)
+const projectTabOf = (tab) => (["about", "overview", ""].includes(tab || "") ? "home" : ["repository", "steps"].includes(tab) ? "phases"
+  : tab === "reference" ? "library" : ["gaps", "compare"].includes(tab) ? "analysis" : tab);
 
 function ProjectPage({ id, tab, sub }) {
   const { data: p, error } = useApi(`/api/v1/projects/${id}`);
@@ -1876,23 +1899,24 @@ function ProjectPage({ id, tab, sub }) {
         try { const r = await apiFetch(`/api/v1/projects/${id}/repository`, { method: "POST" }); setMsg(r.message); setTimeout(refreshAll, 4000); }
         catch (e) { setMsg(e.message); }
       } : null} />
-      <div className="tabs" role="tablist">
-        {TABS.filter(([k]) => (k !== "archrepo" || partOn("repository")) && (k !== "reference" || partOn("references"))).map(([k, l]) => <a key={k} href={`#/projects/${id}/${k}`} className={`tab${tab === k ? " on" : ""}`}>{l}{k === "signoff" && mine ? ` (${mine})` : ""}{k === "questions" && waitingQs ? ` (${waitingQs})` : ""}</a>)}
-      </div>
+      <PageNav page="project" tabs={TABS.filter(([k]) => (k !== "archrepo" || partOn("repository")) && (k !== "scenarios" || hasScenarios(p))).map(([k, l]) => [k, l, k === "signoff" ? mine || null : k === "questions" ? waitingQs || null : null])}
+        groups={PROJECT_GROUPS} active={projectTabOf(tab)} href={(k) => `#/projects/${id}/${k}`} ctx={{ id, p }}
+        subLabel={tab === "reference" ? "Reference" : tab === "gaps" ? "Gap analyses" : tab === "compare" ? "Compare two models" : ""}
+        crumbs={[{ label: "Architecture work", href: "#/work" }, { label: p.name, href: `#/projects/${id}` }]}>
       <div className="tab-panel">
         {["home", "about", "overview"].includes(tab) && <Landing p={p} />}
         {["phases", "repository", "steps"].includes(tab) && <PhasesTab key={tab} p={p} start={tab === "steps" ? "steps" : "documents"} />}
         {tab === "steps" && <StepsTab p={p} />}
         {tab === "signoff" && <SignoffTab p={p} />}
         {tab === "principles" && <PrinciplesTab p={p} />}
-        {tab === "viewpoints" && <ViewpointsByPhase p={p} />}
+        {tab === "views" && <><ViewEvidenceList p={p} /><ViewsByPhase p={p} /></>}
+        {tab === "otherdocs" && <OtherDocsTab p={p} />}
         {tab === "reports" && <ProjectReports p={p} part="models" />}
-        {tab === "reference" && <ReferenceTab p={p} />}
         {tab === "stakeholders" && <StakeholderMatrix p={p} />}
         {tab === "questions" && <KeyQuestionsPanel p={p} />}
         {tab === "canvas" && <CanvasTab p={p} />}
         {tab === "business" && <ProjectBusinessArtifacts p={p} />}
-        {tab === "library" && <ProjectLibraryTab p={p} entry={sub} />}
+        {["library", "reference"].includes(tab) && <ProjectLibraryHub p={p} sub={tab === "reference" ? "reference" : sub} />}
         {tab === "tasks" && <TasksTab p={p} />}
         {tab === "content" && <ContentFrameworkTab p={p} />}
         {tab === "archrepo" && <RepositoryMap p={p} />}
@@ -1907,7 +1931,9 @@ function ProjectPage({ id, tab, sub }) {
         {tab === "sheets" && <TrackingSheets scope={p.id} />}
         {tab === "models" && <ProjectModels p={p} />}
         {["analysis", "gaps", "compare"].includes(tab) && <AnalysisTab p={p} start={tab} />}
+        {tab === "scenarios" && <ScenariosTab p={p} />}
       </div>
+      </PageNav>
       {finish && <FinishDialog p={p} onClose={() => setFinish(false)} />}
     </div>
   );
@@ -1943,7 +1969,7 @@ function ProjectModels({ p }) {
   return (
     <div>
       <p className="quiet">The models this project works on or refers to: each one's role in the project, what kind of model it is and how it joined.
-        Open one to work in it (data entry, grids, diagrams, viewpoints, reports).</p>
+        Open one to work in it (data entry, grids, diagrams, views, reports).</p>
       {p.may_admin && !p.frozen && <p><a className="button primary" href={`#/projects/${p.id}/edit?step=Models`}>＋ Add or make a model</a></p>}
       {!p.models.length ? <p className="quiet">No models yet.</p> : (
         <table className="grid-table">
@@ -1966,7 +1992,7 @@ function ProjectModels({ p }) {
 }
 
 // Home (owner, 8 Nov 2026): the ADM cycle and About. A phase clicked on the cycle shows how far it is, with a button to
-// open it on the Phases tab, where its documents, steps and viewpoints are.
+// open it on the Phases tab, where its documents, steps and views are.
 function Landing({ p }) {
   const stats = useMemo(() => phaseStats(p), [p]);
   const [sel, setSel] = useState(() => (p.phases.find((ph) => ph.code === "A") ? "A" : p.phases[0]?.code));
@@ -1999,7 +2025,7 @@ function Landing({ p }) {
 }
 
 // The Phases tab (owner, 8 Nov 2026): a tab for each phase (and across the cycle); in each, its Documents, the document
-// classes Not added to the project, its Steps and its Viewpoints.
+// classes Not added to the project, its Steps and its Views.
 function PhasesTab({ p, start = "documents" }) {
   const qs = new URLSearchParams(window.location.hash.split("?")[1] || "");
   const pick = qs.get("phase");
@@ -2011,7 +2037,7 @@ function PhasesTab({ p, start = "documents" }) {
   const steps = p.steps.filter((s) => codes.includes(s.phase));
   const notAdded = p.items.filter((i) => !i.chosen && codes.includes(i.phase));
   const nDocs = p.documents.filter((d) => p.items.some((i) => i.id === d.item_id && i.chosen && codes.includes(i.phase))).length;
-  const vps = p.viewpoints.filter((v) => codes.includes(v.phase)).length;
+  const vps = p.views.filter((v) => codes.includes(v.phase)).length;
   const loose = p.documents.filter((d) => !d.item_id && !d.folder.startsWith("00_Project") && !d.folder.startsWith("05_Reference_Library")
     && ph && d.folder.startsWith(ph.workspace));
   // the phase tabs: C's two parts sit under one C tab
@@ -2043,8 +2069,8 @@ function PhasesTab({ p, start = "documents" }) {
             Templates/documents not in use <span className="small quiet">{notAdded.length}</span></button>
           <button role="tab" aria-selected={part === "steps"} className={`tab${part === "steps" ? " on" : ""}`} onClick={() => setPart("steps")}>
             Steps <span className="small quiet">{steps.filter((s) => !s.removed && !s.parent && s.done_at).length} of {steps.filter((s) => !s.removed && !s.parent).length} done</span></button>
-          <button role="tab" aria-selected={part === "viewpoints"} className={`tab${part === "viewpoints" ? " on" : ""}`} onClick={() => setPart("viewpoints")}>
-            Viewpoints <span className="small quiet">{vps}</span></button>
+          <button role="tab" aria-selected={part === "views"} className={`tab${part === "views" ? " on" : ""}`} onClick={() => setPart("views")}>
+            Views <span className="small quiet">{vps}</span></button>
         </div>
         {part === "documents" && <section>
           <RepoTable key={sel} p={p} codes={codes} phase={sel} />
@@ -2059,7 +2085,7 @@ function PhasesTab({ p, start = "documents" }) {
           <StepList p={p} list={steps} phase={sel === "X" ? "" : sel} />
           {!steps.length && <p className="quiet small">No steps in this part of the cycle.</p>}
         </section>}
-        {part === "viewpoints" && <section>{sel === "X" ? <ViewpointList p={p} /> : <ViewpointsByPhase p={p} fixed={codes[0]} />}</section>}
+        {part === "views" && <section>{sel === "X" ? <ViewList p={p} /> : <ViewsByPhase p={p} fixed={codes[0]} />}</section>}
       </div>
     </div>
   );
@@ -2118,30 +2144,30 @@ function PhaseDone({ p, codes }) {
   );
 }
 
-function ViewpointList({ p }) {
+function ViewList({ p }) {
   const [adding, setAdding] = useState(false);
   const [v, setV] = useState({ name: "", concerns: "", stakeholders: "", types: [] });
   const [msg, setMsg] = useState("");
   async function add() {
     setMsg("");
-    try { const r = await apiFetch(`/api/v1/projects/${p.id}/viewpoints`, { method: "POST", body: JSON.stringify({ ...v, element_types: v.types }) }); setMsg(r.message); setAdding(false); refreshAll(); }
+    try { const r = await apiFetch(`/api/v1/projects/${p.id}/views`, { method: "POST", body: JSON.stringify({ ...v, element_types: v.types }) }); setMsg(r.message); setAdding(false); refreshAll(); }
     catch (e) { setMsg(e.message); }
   }
   return (
     <div>
-      {!p.viewpoints.length && <p className="quiet small">No viewpoints chosen.</p>}
+      {!p.views.length && <p className="quiet small">No views chosen.</p>}
       <ul className="vp-status">
-        {p.viewpoints.map((x) => (
+        {p.views.map((x) => (
           <li key={x.code} className={x.state === "ready" ? "ready" : "build"}>
             <b>{x.code}</b> {x.name}{x.own && <span className="chip">project's own</span>}{" "}
             {x.state === "ready"
-              ? <a href={`#/metamodel/${x.model}/viewpoints/${encodeURIComponent(x.code)}`}>Open in {x.model_name}</a>
+              ? <a href={`#/metamodel/${x.model}/views/${encodeURIComponent(x.code)}`}>Open in {x.model_name}</a>
               : <span className="small">to build: {x.missing.length ? `${x.missing.join(", ")} not in the models' metamodels` : "no model yet"}
                 {x.model && <> · <a href={`#/metamodel/${x.model}/metamodel`}>add the types in {x.model_name}</a></>}</span>}
           </li>
         ))}
       </ul>
-      {p.may_contribute && !adding && <button className="linkish small" onClick={() => setAdding(true)}>+ Make a viewpoint for the project</button>}
+      {p.may_contribute && !adding && <button className="linkish small" onClick={() => setAdding(true)}>+ Make a view for the project</button>}
       {adding && (
         <div className="goal-box">
           <div className="own-row">
@@ -3496,7 +3522,7 @@ function LibraryProjects() {
         <table className="grid-table">
           <thead><tr><th>Library project</th><th className="num">Reference items</th><th>Status</th><th /></tr></thead>
           <tbody>{libs.map((p) => (
-            <tr key={p.id}><td><a href={`#/projects/${p.id}/reference`}><b>{p.name}</b></a><div className="small quiet">{p.description}</div></td>
+            <tr key={p.id}><td><a href={`#/projects/${p.id}/library/reference`}><b>{p.name}</b></a><div className="small quiet">{p.description}</div></td>
               <td className="num">{p.reference_items}</td><td><StatusChip status={p.status} /></td>
               <td className="small">{sup ? <button className="linkish" onClick={() => setDlg({ project: p })}>No longer a library project…</button> : null}</td></tr>
           ))}</tbody>
@@ -3677,7 +3703,7 @@ function TemplateView({ t, roles, may, onClose, onChange }) {
             ))}
           </Row>
           <Row label="Goals and outcomes">{s.goals ? `yes, into the ${roles?.[s.primary] || s.primary || "project's"} model` : "no"}</Row>
-          <Row label="Viewpoints">{list(s.viewpoints)}</Row>
+          <Row label="Views">{list(s.views)}</Row>
           <Row label="Steps left out">{list(s.skip)}</Row>
           <Row label="Suggested stakeholders">{(s.stakeholders || []).length ? (s.stakeholders || []).map((x) => `${x.name}${x.role_title ? ` (${x.role_title})` : ""}`).join(", ") : <span className="quiet">none</span>}</Row>
           <Row label="Reference links">{(s.reference || []).length ? (s.reference || []).map((r, i) => <div key={i}>{r.title || r.url} <span className="quiet">{r.url}</span></div>) : <span className="quiet">none</span>}</Row>
@@ -3707,10 +3733,10 @@ function ProjectTemplatesAdmin({ may }) {
     <div>
       <h3>Project templates</h3>
       <p className="small quiet">The kinds of project offered on + New project: each a wizard with its decisions taken (models by role, purpose,
-        scope, phases, viewpoints, goals, suggested stakeholders, reference links). Make a new one, change one, retire one, or save a project as a new
+        scope, phases, views, goals, suggested stakeholders, reference links). Make a new one, change one, retire one, or save a project as a new
         one (on the project: Save as a project template).</p>
       {may && <p><button className="primary" onClick={() => setEdit({ name: "", icon: "📁", description: "", text: JSON.stringify({
-        purpose: "project", depth: "", domains: [], phases: null, viewpoints: [], goals: true, primary: null, skip: [], finish: "",
+        purpose: "project", depth: "", domains: [], phases: null, views: [], goals: true, primary: null, skip: [], finish: "",
         slots: [{ role: "current", label: "Current state", starts: ["existing"], min: 1 }], stakeholders: [], reference: [] }, null, 1) })}>＋ New template</button></p>}
       <table className="grid-table small">
         <thead><tr><th>Template</th><th>Models by role</th><th>Goals into</th><th>Changed</th><th /></tr></thead>
@@ -3740,7 +3766,7 @@ function ProjectTemplatesAdmin({ may }) {
             <label className="field">Name <input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></label>
             <label className="field">Icon <input value={edit.icon} onChange={(e) => setEdit({ ...edit, icon: e.target.value })} /></label>
             <label className="field">Description <textarea rows={2} value={edit.description} onChange={(e) => setEdit({ ...edit, description: e.target.value })} /></label>
-            <label className="field">Its decisions (JSON: slots, purpose, depth, domains, phases or items, viewpoints, goals, primary, skip, finish)
+            <label className="field">Its decisions (JSON: slots, purpose, depth, domains, phases or items, views, goals, primary, skip, finish)
               <textarea rows={14} className="mono" value={edit.text} onChange={(e) => setEdit({ ...edit, text: e.target.value })} /></label>
             <div className="row-gap"><button className="primary" onClick={() => { try { save(edit, { spec: JSON.parse(edit.text) }); } catch (e) { setMsg(`Not JSON: ${e.message}`); } }}>Save</button>
               <button onClick={() => setEdit(null)}>Cancel</button></div>
@@ -3751,3 +3777,22 @@ function ProjectTemplatesAdmin({ may }) {
   );
 }
 
+
+
+// One Library tab (owner, 9 Nov 2026, D400): the project's pages (the library service), its Reference area (folder
+// 05_Reference_Library, TOGAF's Reference Library) and a way into the enterprise reference library. #/projects/<p>/library
+// is the pages (an entry: library/<entry>); library/reference the Reference area; the old #/projects/<p>/reference opens it.
+function ProjectLibraryHub({ p, sub }) {
+  const ref = sub === "reference" && partOn("references");
+  return (
+    <div>
+      <div className="tabs sub" role="tablist">
+        <a role="tab" aria-selected={!ref} className={`tab${!ref ? " on" : ""}`} href={`#/projects/${p.id}/library`}>Project pages</a>
+        {partOn("references") && <a role="tab" aria-selected={ref} className={`tab${ref ? " on" : ""}`} href={`#/projects/${p.id}/library/reference`}
+          title="This project's reference material: TOGAF's Reference Library, folder 05_Reference_Library">Reference</a>}
+        <a className="tab" href="#/reference-library" title="The organisation's reference library, for everyone">📚 Enterprise reference library ↗</a>
+      </div>
+      {ref ? <ReferenceTab p={p} /> : <ProjectLibraryTab p={p} entry={sub === "reference" ? "" : sub} />}
+    </div>
+  );
+}

@@ -9,8 +9,11 @@ def test_migration():
     sql = (ROOT / "migrations/sql/0032_repository_tags.sql").read_text(encoding="utf-8")
     for x in ("CREATE TABLE proj.repo_tags", "CREATE TABLE proj.repo_tag_docs", "offered_templates bigint[]", "'0.15.1'"):
         assert x in sql, x
-    assert "TRIGGER" not in sql.upper() and "FUNCTION" not in sql.upper()          # D248: no logic in the database
-    assert 'version = "0.15.1"' in (ROOT / "version.toml").read_text()
+    # D248: no logic in the database. The one exception: the existing typed-views function is restated with the
+    # columns renamed from layer to domain (D391); no new logic
+    sql_ = sql.replace("CREATE OR REPLACE FUNCTION rpt.refresh_typed_views()", "").replace("SELECT rpt.refresh_typed_views();", "")
+    assert "TRIGGER" not in sql_.upper() and "FUNCTION" not in sql_.upper()
+    assert 'version = "0.1' in (ROOT / "version.toml").read_text()
     v = (ROOT / "migrations/versions/0032_repository_tags.py").read_text(encoding="utf-8")
     assert 'down_revision = "0031_project_bases"' in v
 
@@ -39,7 +42,7 @@ def test_screen():
 
 
 def test_phases_tab_and_tree():
-    """Home keeps the cycle and About; a Phases tab has a tab per phase with Documents, Not added, Steps, Viewpoints; the
+    """Home keeps the cycle and About; a Phases tab has a tab per phase with Documents, Not added, Steps, Views; the
     template library is browsed folder after folder, with a tick on what was picked (owner, 8 Nov 2026)."""
     js = (ROOT.parent / "web/src/Projects.jsx").read_text(encoding="utf-8")
     for x in ('["phases", "Phases"]', "function PhasesTab", "function NotAddedClasses", "Templates/documents not in use <span", "/phases?phase=${sel}"):

@@ -55,4 +55,5 @@ def test_migration_api_and_screens():
     assert "pypdf" in (ROOT / "requirements.txt").read_text()
     assert "<ReferenceLibraryPage route={route} />" in (WEB / "App.jsx").read_text()
     r = (WEB / "References.jsx").read_text()
-    assert "Enterprise reference library" in r and "<EnterprisePicker" in r
+    assert "<EnterprisePicker" in r
+    assert "Enterprise reference library" in (WEB / "Projects.jsx").read_text()      # a sub-tab of the project's Library (D400)

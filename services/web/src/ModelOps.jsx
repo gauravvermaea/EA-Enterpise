@@ -9,12 +9,14 @@
 //   Drafts, DraftPage  metamodel drafts (made by AI through MCP, or uploaded): review, trim, apply, reject
 // The server decides (and the database enforces) what is allowed; the screens only offer it.
 import { useEffect, useMemo, useState } from "react";
+import { openHelp } from "./help/help";
 import { createPortal } from "react-dom";
 import { apiDownload, apiFetch, apiUpload, can, canOn, myInfo, needsRole } from "./auth";
 import { refreshAll, useApi } from "./ModelViews";
 import { fmtDateTime } from "./fmt";
 import { runTask, startDownload, trackTask, useTask } from "./tasks";
 import { IconPicker, saveIcon } from "./ModelIcon";
+import { isRetiredModel, liveModels } from "./ModelMarks";
 
 const go = (path) => { window.location.hash = path; };
 const post = (path, body, method = "POST") => apiFetch(path, { method, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -35,7 +37,9 @@ export function Modal({ title, onClose, children, actions, wide }) {
   return createPortal(
     <div className="ed-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="ed-dialog" role="dialog" aria-modal="true" aria-label={title} style={wide ? { width: "min(900px, 100%)" } : undefined}>
-        <div className="ed-head"><h2>{title}</h2><button className="linkish" onClick={onClose} aria-label="Close">✕</button></div>
+        <div className="ed-head"><h2>{title}</h2>
+          <button className="linkish help-q" onClick={() => openHelp({ popup: title })} title="Help for this pop-up (F1)" aria-label="Help for this pop-up">?</button>
+          <button className="linkish" onClick={onClose} aria-label="Close">✕</button></div>
         {children}
         {actions && <div className="ed-actions">{actions}</div>}
       </div>
@@ -62,7 +66,8 @@ const COPIES = [
 ];
 
 export function NewModelDialog({ from, onClose, preset = {}, admin = false }) {
-  const { data: models } = useApi("/api/v1/models?archived=false");
+  const { data: models_ } = useApi("/api/v1/models?archived=false");
+  const models = models_ && liveModels(models_).concat(from ? models_.filter((x) => x.id === from && isRetiredModel(x)) : []);
   const curator = can("library.curate");
   const creator = can("models.create");
   const fromProjectAdmin = from && from.kind === "project" && canOn(from.id, "model.derive");
@@ -247,7 +252,7 @@ export function NewModelButton({ admin = false }) {
 
 // ------------------------------------------------------------------ download a package
 const CONTENT_LEVELS = [
-  ["metamodel", "Without data: the metamodel only", "Layers, types, attributes, pick lists, relationship types, rules"],
+  ["metamodel", "Without data: the metamodel only", "Domains, types, attributes, pick lists, relationship types, rules"],
   ["content", "With the data", "The metamodel and every entity, value and relationship as they are now"],
   ["history", "Deep: the data with its full history", "As above, plus every change to every entity and the metamodel's version history: readable sheets, and loaded again on upload"],
 ];
@@ -476,7 +481,7 @@ export function UploadWizard({ onClose }) {
 }
 
 const CHANGE = { added: "Added", removed: "Removed", changed: "Changed" };
-const SECTION = { layers: "Layer", pick_lists: "Pick list", attributes: "Attribute", entity_types: "Entity type",
+const SECTION = { domains: "Domain", pick_lists: "Pick list", attributes: "Attribute", entity_types: "Entity type",
   relationship_types: "Relationship type", allowed: "Allowed relationship", rules: "Rule", meta: "Metamodel" };
 
 function Differences({ list }) {
@@ -959,7 +964,8 @@ export function Drafts() {
 }
 
 function NewDraftDialog({ onClose }) {
-  const { data: models } = useApi("/api/v1/models?archived=false");
+  const { data: models_ } = useApi("/api/v1/models?archived=false");
+  const models = models_ && liveModels(models_);
   const [kind, setKind] = useState("root");
   const [name, setName] = useState("");
   const [base, setBase] = useState("");
@@ -1032,7 +1038,7 @@ function NewDraftDialog({ onClose }) {
   );
 }
 
-const SECTIONS = [["layers", "Layers"], ["pick_lists", "Pick lists"], ["attributes", "Attributes"], ["entity_types", "Entity types"],
+const SECTIONS = [["domains", "Domains"], ["pick_lists", "Pick lists"], ["attributes", "Attributes"], ["entity_types", "Entity types"],
   ["relationship_types", "Relationship types"], ["allowed", "Allowed relationships"], ["rules", "Rules"]];
 
 function itemText(section, x) {
@@ -1041,7 +1047,7 @@ function itemText(section, x) {
   return x.name && x.name !== x.code ? `${x.name}` : x.code;
 }
 function itemMore(section, x) {
-  if (section === "entity_types") return [x.layer, (x.attributes || []).length && `${x.attributes.length} attributes`].filter(Boolean).join(" · ");
+  if (section === "entity_types") return [x.domain, (x.attributes || []).length && `${x.attributes.length} attributes`].filter(Boolean).join(" · ");
   if (section === "attributes") return [x.data_type, x.pick_list].filter(Boolean).join(" · ");
   if (section === "pick_lists") return (x.values || []).map((v) => (typeof v === "string" ? v : v.value || v.code)).join(", ");
   if (section === "relationship_types") return x.description || "";

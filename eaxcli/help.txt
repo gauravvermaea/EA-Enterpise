@@ -1,0 +1,345 @@
+; The help of the eax command (D331): the one source for all four forms (eax.ps1 and eax.cmd, eax.sh, eaxpy).
+; eax.ps1, eax.sh and eaxcli/help.py each read this file and print the same text (tests/test_eax_help.py checks it).
+; Keep it plain ASCII (Windows PowerShell 5.1 reads it too).
+;
+; How it is written, line by line:
+;   ;  a comment                     ## Section          a group of commands
+;   ### name|alias args               a command (its first name is the one listed; aliases do the same)
+;   >  the one-line summary           $  an example       :  a note under a section heading
+;   @internal name text               a command the scripts use themselves (not for typing; only in help --all)
+;   @footer                           what follows is printed at the end of the overview and of help --all
+;   [win] [unix] [ps1] [sh] [py]      at the start of a line: only on Windows / Linux and macOS / one form
+;   {eax} is how the command is typed here; work/... paths get backslashes on Windows. Anything else is detail.
+EA Explorer helper. Usage: {eax} <command> [options]
+[ps1](.\eax is the launcher; the long form is: powershell -NoProfile -ExecutionPolicy Bypass -File .\eax.ps1 <command>)
+[sh](On Windows: .\eax <command>)
+[py](The launcher fetches uv into work/tools the first time and runs this Python program with it; D331)
+First time: {eax} init, then {eax} up.   Every day: {eax} up to start, {eax} stop to stop (your data is kept).
+
+## Starting and stopping
+: To delete the data as well, see "Deleting everything and starting again" below (cleanup, clean-restart).
+
+### up|run [service...] [--wait-all]
+> Starts EA Explorer. Keeps the databases, documents and settings from last time.
+The everyday start; run is the same as up. It builds our images, pulls the others and starts in two tiers (D255):
+the core first (sign-in, the database, the API and the screens; you can sign in when it says ready), then Reports,
+Documents, draw.io and the sample data in the background. Afterwards it prints the addresses and, on a laptop,
+the logins.
+  --wait-all     start everything and wait until all of it is up (also on debug, restart and the clean-* commands).
+  service...     start only those services and what they need: "up api proxy" starts the database, the API and
+                 nginx only (about 1 GB); the API is then at https://localhost/api/docs.
+Running up on a running installation is an upgrade: everyone sees the maintenance page until it has finished.
+$ {eax} up
+$ {eax} up --wait-all
+$ {eax} up api proxy
+
+### stop|down
+> Stops EA Explorer (removes the containers). Keeps all data: databases, documents, settings, backups.
+Nothing is deleted: the Docker volumes and the work folder stay, so the next {eax} up carries on where you left off.
+Use it before shutting the computer down, or to free memory. down is the same as stop.
+$ {eax} stop
+
+### restart [--wait-all]
+> Stops EA Explorer and starts it again (stop, then up). Keeps all data.
+Use it when something is stuck. Each step writes its own log. To start again with empty databases, use
+clean-restart instead.
+$ {eax} restart
+
+### status
+> Lists every container with its state and health, then the disks. Changes nothing.
+Stopped containers are listed too. Then the file systems: Docker's disk, the work and backups folders, and this
+computer's drive (size, used, free).
+$ {eax} status
+
+## Getting started (the first time)
+
+### init [laptop|server]
+> Creates the config file work/eaexplorer.env and the work folders. Never overwrites a config file.
+Made from the template for the deployment kind (laptop if not given). Nothing is generated: on a laptop every
+password is P^55w0rd1234&; on a server, replace every change-me value in work/eaexplorer.env before starting.
+$ {eax} init
+$ {eax} init server
+
+### deploy [--console|--web] [--kind laptop|server|aws|azure|digitalocean] [--plan] [--yes]
+> Guided deployment: this laptop, a server (here or over SSH), AWS, Azure or DigitalOcean.
+The deployment wizard (D498). It first asks whether to carry on here in the console or in a web page it opens in your
+browser (served by eax itself, before EA Explorer is up); --console or --web skip that question. Then it asks where:
+  laptop         this computer: makes the config file if there is none, starts EA Explorer, checks it is healthy.
+  server         a Linux server: this one, or another one over SSH from here (a user who may use sudo, signed in
+                 with your SSH key). Docker is installed if it is missing; the release is downloaded onto it.
+  aws, azure, digitalocean
+                 creates the machine from your cloud credentials (the aws, az or doctl command must be installed
+                 here): the machine, a data disk, the firewall, a fixed address, storage for off-site backups, the
+                 DNS names; or uses a machine you already have, over SSH.
+For a server or a cloud machine it makes the config file with every password generated, your certificate or a
+self-signed one, starts EA Explorer, checks it is healthy and shows the address and the first sign-in. It can also
+keep the passwords in a key vault (see secrets) and move an existing installation there from one of its
+infrastructure backups. Every step is in work/logs/eax-<time>-deploy.log (passwords masked); a step that fails
+asks: retry, back to the answers, or quit. Cloud credentials are used for this run only unless you ask to keep them.
+  --plan         show every step and every command it would run, and run nothing.
+  --kind K       answer the first question; --answers file.json or --set key=value answer others (the answers'
+                 names are shown before it starts); --yes runs without asking (every answer given or default).
+Not set up yet? The installer downloads EA Explorer first and then runs this: see docs/deployment.md.
+$ {eax} deploy
+$ {eax} deploy --web
+$ {eax} deploy --console --kind aws --plan
+$ {eax} deploy --console --kind server --set where=ssh --set ssh_target=ubuntu@203.0.113.10 --set hostname=ea.example.org
+
+### check
+> Checks that Docker is running and the config and compose files are valid. Starts nothing.
+$ {eax} check
+
+## Everyday use
+
+### url
+> Prints the addresses to open (and the logins on a laptop).
+
+### logins
+> Prints every user name and password (laptop only).
+
+### trust [--remove]
+> Makes the browser trust EA Explorer's local certificate (no more warnings on https://localhost).
+[win]It adds work/data/tls/ca.crt to your Windows trusted root certificates.
+[unix]It adds work/data/tls/ca.crt to this computer's trusted certificates (macOS: your login keychain; Linux: it
+[unix]prints the commands, which need sudo).
+Run it once after the first start: clean-run and clean-restart keep the certificate. --remove takes EA Explorer's
+certificates out again.
+$ {eax} trust
+$ {eax} trust --remove
+
+### services
+> Lists the optional services, whether each is on in the config file, and its containers' state.
+The optional services: reports, documents, drawio, mcp, change_log, backups, library, views.
+
+### service <name> on|off
+> Switches one optional service on or off, then starts or stops its containers.
+It keeps a dated copy of the config file in work/config-history first. Everything is on unless switched off
+(D191). Also in System admin > System settings > Services.
+$ {eax} service reports off
+$ {eax} service reports on
+
+### servers [n]
+> Shows how many API and job servers run; with n (1 to 16), sets the number without a restart.
+With n it writes EAX_API_SERVERS (a dated copy of the config file first) and adds or removes servers now; nginx
+spreads the API calls across them (D249). Also on Administration > Containers.
+$ {eax} servers
+$ {eax} servers 3
+
+### standby [status|promote]
+> The database standby (EAX_COMPOSE_EXTRA=standby): how far behind it is, or make it the primary.
+With EAX_COMPOSE_EXTRA=standby and EAX_REPLICATION_PASSWORD in the config file, db-standby follows the primary
+continuously (phase 36.3, D527). status shows the primary's replication and how far behind the standby is. promote
+makes the standby the primary after the primary is lost (it asks you to type PROMOTE); then set EAX_DB_HOST to it
+and run {eax} up. A standby is not a backup: the nightly backups stay.
+$ {eax} standby
+$ {eax} standby promote
+
+### maintenance on|off
+> Shows (or stops showing) the maintenance page to everyone.
+Served by the proxy. Restores and up (an upgrade) switch it on and off themselves.
+$ {eax} maintenance on
+$ {eax} maintenance off
+
+### secrets [show|push|pull] [--to|--from provider:name]
+> Keeps the passwords in a key vault (a file, AWS, Azure) or takes them back from it.
+The passwords and keys in work/eaexplorer.env can be kept in a key vault as well (D504): file:<path> (a file outside
+the installation, readable by its owner only; also on a DigitalOcean Droplet), aws:<secret name> (Secrets Manager,
+one secret holding them all) or azure:<vault name> (Key Vault, one secret each). The config file says which
+(EAX_SECRETS_FROM). Docker Compose still reads them from the config file when it starts.
+  show           where they are kept (the default).
+  push           the config file's values into the vault (eax deploy does this once when you choose a vault).
+  pull           the vault's values into the config file (a dated copy of the file first, in work/config-history),
+                 e.g. after rebuilding the server or rotating a password; then restart.
+$ {eax} secrets
+$ {eax} secrets push --to aws:eaexplorer/prod
+$ {eax} secrets pull
+
+### import [source|--all] [--as user]
+> Takes the files other systems dropped in their delivery folders; each waits for review in the screens.
+Without a source it lists every import source (a model's Import and export tab > Deliveries), its folder and how many
+deliveries wait. With a source (its name, folder or id) or --all it takes the files in the source's folder in the
+API's import folder, deliveries/<model>/<source>/incoming (the eax-imports volume, or EAX_IMPORT_DIR, which IT may map
+to SFTP or a share). A CSV set with master.csv becomes one delivery; each workbook, .zip or CSV one each. Each is
+previewed, then a Committer accepts or declines it on the model's Deliveries tab. --as names who took them (the log).
+Needs the api container running. The formats: docs/import-formats.md.
+$ {eax} import
+$ {eax} import "Configuration database"
+$ {eax} import --all
+
+### update [--status] [--retry] [--channel prod|rc|latest] [--to <version>] [--at <time>] [--url <link>] [--yes]
+> Moves to a newer release from the git repository: a full backup first, then one release at a time.
+Without options it is guided: it shows the installed version and the channels, lists the versions above the installed
+one (forward only) with their release notes, and asks which one, now or at a time, and to type YES. Prod (tags vX.Y.Z
+on the release branch) is always offered; RC (tags vX.Y.Z-rc.N) and Latest (every commit on main) only once enabled in
+System admin > Updates. First a full backup (every database, every file, the config file and the code as it is, local
+changes included; pinned), then the maintenance page while each release on the way is built here, started and checked.
+A failed step stops and asks: --retry runs it again, or roll back. The update runs in its own updater container, so it
+carries on while EA Explorer restarts. --status shows the installed version, the update running, the schedule and the
+history. --url sets the repository link (EAX_UPDATE_GIT_URL). --at 22:00 (or a date and time) schedules it; signed-in
+people see a banner beforehand. Also on System admin > Updates (Super Admins and IT Admins).
+$ {eax} update
+$ {eax} update --status
+$ {eax} update --channel prod --to 0.20.0 --at 22:00
+$ {eax} update --retry
+
+### rollback [--yes]
+> Back to the version before the last update: its code and its pre-update backup put back.
+Work done since the update is lost; the current state is backed up first and kept. The failed version is marked in the
+history. Asks you to type YES unless --yes is given.
+$ {eax} rollback
+
+## Finding problems
+
+### logs [service]
+> Follows the logs of every container, or of one. Ctrl+C stops following; nothing is stopped.
+$ {eax} logs
+$ {eax} logs api
+
+### diag
+> Saves a diagnostics report into this run's log: the file to send when asking for help.
+Docker versions, memory and disk, image settings, every container's state, the last 300 log lines of each
+container, and the compose configuration (passwords masked).
+$ {eax} diag
+
+### debug [service...] [--wait-all]
+> Starts like up but does not stop on a failure, then records the containers' output until Ctrl+C.
+It saves a diagnostics report, then keeps recording every container's output to
+work/logs/containers-<date-time>.log. The containers keep running after Ctrl+C. "debug api" starts and records
+the API (and PostgreSQL) only.
+$ {eax} debug
+$ {eax} debug api
+
+### test [api|ui|db|security|all] [--quick]
+> Runs the automated tests on a separate test database: API, browser, database and security checks.
+Builds the test runner (the first time takes a few minutes), then the operations helper runs it (phase 36.1, D367). It
+makes its own test database (eaxtest) and its own copy of the API on it, so your data is never touched. Suites:
+  api        every endpoint, with no token and as every test role: allowed and refused, never a server error.
+  ui         the main journeys in a real browser (Chromium); a screenshot and video of each one that fails.
+  db         database checks: the version, keys, sound references, the reporting login only reads.
+  security   headers and cookies, the Python dependencies, an OWASP ZAP baseline scan and Trivy image scans.
+  --quick    leave out the second tier of the sample data (faster; fewer projects to test).
+Results: System admin > Health > Tests, MCP (test_results), and work/tests/<run>. On a server, set
+EAX_TEST_USERS=on and EAX_TEST_USER_PASSWORD (a staging server) to test every role.
+$ {eax} test
+$ {eax} test api db
+$ {eax} test security
+
+## Backups and restores
+
+### backup [tag]
+> Takes an infrastructure backup now: every database, the document files, the certificate and config.
+Also the release and image versions. Into work/backups/infrastructure (D216, D226).
+$ {eax} backup
+$ {eax} backup before-upgrade
+
+### backups [words]
+> Lists every backup (infrastructure and application); with words, only the ones that match.
+Words are looked for in the tag, name and maker.
+$ {eax} backups
+$ {eax} backups before-upgrade
+
+### restore [name|tag|latest] [--what full|app|app+data|db|files] [--yes]
+> Restores an infrastructure backup. Asks what to restore, then for RESTORE to confirm.
+Unless --yes is given. By name, by tag (the newest with it) or latest (the newest good one); without one it lists them to choose from.
+  full       everything
+  app        the config file
+  app+data   the config file, the repository and document databases and the document files
+  db         every database
+  files      the document files and the certificate
+A backup of the current state is taken first; nothing live changes until all is restored cleanly; it can be run
+again. Works when the console is down (starts db, backup and ops).
+$ {eax} restore latest
+$ {eax} restore before-upgrade --what db
+
+### restores
+> Lists every restore (infrastructure and model) with its status.
+
+### restore-log <id>
+> Shows a restore's whole log (also in work/backups/restores/<id>).
+$ {eax} restore-log 12
+
+### delete-backup <name>
+> Deletes an infrastructure backup (unpin it first if it is pinned).
+
+### delete-restore <id>
+> Forgets a finished restore and its log.
+
+### stop-backup
+> Stops the backups running; the partial backup is deleted. A restore cannot be stopped.
+Infrastructure backups stop at once; application backups after the model they are on.
+
+### app-backup [tag]
+> Backs up every model now (an application backup), into work/backups/application.
+$ {eax} app-backup month-end
+
+### restore-model
+> Restores one model from an application backup, as a new model or over itself.
+Lists the backups and the models in them to choose from. Needs the api container running.
+
+### restore-app [run|tag|latest] [--yes]
+> Restores every model of an application backup, each over itself (each backed up first).
+Models no longer there are made again; newer models stay as they are. Needs the api container running.
+$ {eax} restore-app latest
+
+## Deleting everything and starting again
+: These DELETE data. To stop without deleting anything, use stop.
+
+### cleanup [--all] [--yes] [--certificate]
+> Stops EA Explorer and DELETES the work folder (config, logs, backups); --all: the databases too.
+Deletes: the config file, every log, the laptop data folders, and every backup and restore log. With --all it also
+deletes the Docker volumes, so the databases and documents start empty. Keeps: the local certificate
+(work/data/tls; --certificate deletes it too) and work/tools. Asks you to type yes unless --yes is given.
+$ {eax} cleanup
+$ {eax} cleanup --all
+
+### clean-restart [laptop|server] [--wait-all]
+> Stops EA Explorer, DELETES everything (databases included) and starts fresh. Does not ask.
+For testing a new version: stop (down), then cleanup --all --yes, init and up. Rebuilds our images and starts with
+empty databases and the sample data. The trusted certificate is kept.
+$ {eax} clean-restart
+$ {eax} clean-restart --wait-all
+
+### clean-run [laptop|server] [--wait-all]
+> DELETES everything (databases included), then starts fresh: cleanup --all, init, up. Does not ask.
+$ {eax} clean-run
+$ {eax} clean-run server
+
+### clean-debug [laptop|server] [--wait-all]
+> The same as clean-run, but ends with debug instead of up. Does not ask.
+
+## When something is wrong
+
+### console [--server https://host] [--insecure]
+> A numbered menu for getting EA Explorer back up, for anyone (D330).
+Status, start, restart, stop, problems and logs, back up, restore (guided), reset a password (a person,
+Keycloak's administrator, break-glass, the database logins), users and roles, settings and switches, background
+tasks, health and data quality, the maintenance page, a diagnostics file, and a prompt for every eax command. On
+this machine nobody signs in; anything that changes or replaces data asks you to type YES. With --server it works
+on another installation through its API (sign in with Keycloak, your roles).
+$ {eax} console
+$ {eax} console --server https://ea.example.org
+
+## Help and documentation
+
+### help [command|--all]
+> This overview; one command in full, with examples; or --all for every command in full.
+Also: {eax} <command> --help (or -h, or /?).
+$ {eax} help stop
+$ {eax} help --all
+
+### document [--console|--web]
+> Every command in full, with examples: in the console (page by page) or as a web page in your browser.
+Asks which unless --console or --web is given. The web page is made from the same help, as one file with nothing to
+download: work/docs/eax-commands.html (contents, search, the commands that delete data marked). In the console:
+choose a group by number, search by a word with s, q to quit; Enter shows the next page.
+$ {eax} document
+$ {eax} document --web
+$ {eax} document --console
+
+@internal start-later Run by up itself: starts Reports, Documents, draw.io and the sample data in the background.
+
+@footer
+{eax} help <command> shows one command in full, with examples. {eax} help --all shows every command in full.
+Every command and the console in detail: docs/command-line-and-console.md.
+Logs: every command except help and cleanup writes its full output to work/logs/eax-<date-time>-<command>.log.
+When a Docker step fails, a diagnostics report is added to that log, so the log is all you need to send.

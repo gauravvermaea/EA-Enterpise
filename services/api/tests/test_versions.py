@@ -16,12 +16,12 @@ WEB = ROOT.parent / "web" / "src"
 
 def _side(label, entities, rels=(), spec=None):
     ents = {e["guid"]: {"kind": "entity", "deleted": False, "description": "", "display_id": "", "status": "published", "tags": [],
-                        "parent": None, "origin": None, "values": {}, "layer": "Application", "entity_type": "Application Component",
+                        "parent": None, "origin": None, "values": {}, "domain": "Application", "entity_type": "Application Component",
                         "type_code": "ApplicationComponent", **e} for e in entities}
     rel = {r["guid"]: {"kind": "relationship", "name": "", "type_code": "Flow", "relationship_type": "Flow", "verb": "flows to",
                        "origin": None, **r} for r in rels}
-    spec = spec or {"layers": [{"code": "App", "name": "Application"}], "attributes": [{"code": "Owner", "name": "Owner"}],
-                    "entity_types": [{"code": "ApplicationComponent", "name": "Application Component", "layer": "App",
+    spec = spec or {"domains": [{"code": "App", "name": "Application"}], "attributes": [{"code": "Owner", "name": "Owner"}],
+                    "entity_types": [{"code": "ApplicationComponent", "name": "Application Component", "domain": "App",
                                       "attributes": [{"attribute": "Owner"}]}],
                     "relationship_types": [{"code": "Flow", "name": "Flow"}], "pick_lists": [], "allowed": [], "rules": []}
     return {"kind": "model", "model_id": "m", "model": label, "label": label, "commit": 1, "metamodel_version": 1, "spec": spec,
@@ -91,7 +91,7 @@ def test_gap_downloads():
             "compared_by": "someone", "baseline": {"label": "Baseline", "commit": 1, "metamodel_version": 1},
             "target": {"label": "Target", "commit": 2, "metamodel_version": 1},
             "totals": {"kept": 1, "changed": 0, "new": 1, "eliminated": 1}, "undecided": 1,
-            "items": [{"status": s, "togaf_cell": gp.TOGAF_CELLS[s], "layer": "Application", "entity_type": "ApplicationComponent",
+            "items": [{"status": s, "togaf_cell": gp.TOGAF_CELLS[s], "domain": "Application", "entity_type": "ApplicationComponent",
                        "entity_type_name": "Application Component", "name": n, "baseline_name": b, "target_name": t, "changes": [],
                        "resolution": r, "note": "", "work_packages": [], "gap_entity": None, "gone": False}
                       for s, n, b, t, r in (("kept", "CRM", "CRM", "CRM", ""), ("new", "Portal", None, "Portal", "Build"),
@@ -128,7 +128,7 @@ def test_web_has_tags_and_compare():
 def test_gap_results_compared_and_tags():
     assert gp.run_tag("Apps, 2026  to 2028", 3) == "gap-run: apps 2026 to 2028 #3"
     assert gp.analysis_tag("Apps") == "gap-analysis: apps"
-    i = lambda k, n, s, r="": {"key": k, "entity_type": "AC", "entity_type_name": "Application Component", "layer": "Application",  # noqa: E731
+    i = lambda k, n, s, r="": {"key": k, "entity_type": "AC", "entity_type_name": "Application Component", "domain": "Application",  # noqa: E731
                                "name": n, "status": s, "resolution": r, "note": "", "changes": []}
     pairs = [gp._pair(i("a", "CRM", "new"), i("a", "CRM", "kept")), gp._pair(None, i("b", "Portal", "new")),
              gp._pair(i("c", "Billing", "eliminated", "Retire"), i("c", "Billing", "eliminated", "Replace")),
@@ -142,14 +142,14 @@ def test_gap_results_compared_and_tags():
     assert "/gap-runs/compare" in src and "Two gap results compared" in src and "format=csv" in src
     assert "Filter results by name" in src and "/api/v1/gap-runs/${r.id}" in src   # filter and delete (D189)
     csv = gp.runs_to_csv(res).decode("utf-8-sig").splitlines()
-    assert csv[1].startswith("What happened,Layer") and csv[2].startswith("Gap closed")
+    assert csv[1].startswith("What happened,Domain") and csv[2].startswith("Gap closed")
 
 
 def test_sides_with_different_types_and_attributes():
-    spec_r = {"layers": [{"code": "App", "name": "Application"}], "attributes": [{"code": "Owner", "name": "Owner"}, {"code": "Cost", "name": "Cost"}],
-              "entity_types": [{"code": "ApplicationComponent", "name": "Application Component", "layer": "App",
+    spec_r = {"domains": [{"code": "App", "name": "Application"}], "attributes": [{"code": "Owner", "name": "Owner"}, {"code": "Cost", "name": "Cost"}],
+              "entity_types": [{"code": "ApplicationComponent", "name": "Application Component", "domain": "App",
                                 "attributes": [{"attribute": "Owner"}, {"attribute": "Cost"}]},
-                               {"code": "Node", "name": "Node", "layer": "App", "attributes": []}],
+                               {"code": "Node", "name": "Node", "domain": "App", "attributes": []}],
               "relationship_types": [{"code": "Flow", "name": "Flow"}], "pick_lists": [], "allowed": [], "rules": []}
     left = _side("L", [{"guid": "a", "name": "CRM", "values": {"Owner": "Sales"}}])
     right = _side("R", [{"guid": "a", "name": "CRM", "values": {"Owner": "Sales", "Cost": "10"}},

@@ -57,10 +57,10 @@ def fields_for(left: dict, right: dict) -> dict:
     for k, side in (("left", left), ("right", right)):
         for e in side["snapshot"]["entities"].values():
             count[k][e["type_code"]] = count[k].get(e["type_code"], 0) + 1
-    layers = {}
+    domains = {}
     for spec in (left["spec"], right["spec"]):
-        for lay in spec.get("layers") or []:
-            layers.setdefault(lay["code"], lay["name"])
+        for lay in spec.get("domains") or []:
+            domains.setdefault(lay["code"], lay["name"])
     rel_names = {r["code"]: r["name"] for spec in (left["spec"], right["spec"]) for r in spec.get("relationship_types") or []}
     type_names = {c: t["name"] for c, t in {**rt, **lt}.items()}
     # the relationships each type takes part in: allowed by either metamodel, or there in either side's content
@@ -84,7 +84,7 @@ def fields_for(left: dict, right: dict) -> dict:
                 if g in ents:
                     used.setdefault(ents[g]["type_code"], set()).add((r["type_code"], d))
     out = []
-    for code in sorted(set(lt) | set(rt), key=lambda c: ((lt.get(c) or rt.get(c)).get("layer") or "", (lt.get(c) or rt.get(c))["name"])):
+    for code in sorted(set(lt) | set(rt), key=lambda c: ((lt.get(c) or rt.get(c)).get("domain") or "", (lt.get(c) or rt.get(c))["name"])):
         t = lt.get(code) or rt.get(code)
         # the two sides need not have the same types or attributes: every attribute of either side is offered; one that
         # only one side's type has is marked and left out by default (it would show every entity as changed)
@@ -108,7 +108,7 @@ def fields_for(left: dict, right: dict) -> dict:
                            "label": f"{rel_names.get(rcode, rcode)} {'to' if d == 'out' else 'from'}",
                            "others": sorted(type_names.get(o, o) for o in others),
                            "used": (rcode, d) in used.get(code, set()), "default": True})
-        out.append({"code": code, "name": t["name"], "layer": layers.get(t.get("layer"), t.get("layer") or ""),
+        out.append({"code": code, "name": t["name"], "domain": domains.get(t.get("domain"), t.get("domain") or ""),
                     "left": count["left"].get(code, 0), "right": count["right"].get(code, 0),
                     "in_left": code in lt, "in_right": code in rt,
                     "default": bool(count["left"].get(code) or count["right"].get(code)), "fields": fields})
@@ -208,11 +208,11 @@ def compare(left: dict, right: dict, settings: dict | None = None) -> dict:
     matched_right = set(m.values())
 
     def add(status, code, lft, rgt, changes=None, renamed=False):
-        t = tinfo.get(code) or {"name": code, "layer": ""}
-        s = summary.setdefault(code, {"entity_type": code, "name": t["name"], "layer": t["layer"], "kept": 0, "changed": 0,
+        t = tinfo.get(code) or {"name": code, "domain": ""}
+        s = summary.setdefault(code, {"entity_type": code, "name": t["name"], "domain": t["domain"], "kept": 0, "changed": 0,
                                        "new": 0, "eliminated": 0})
         s[status] += 1
-        items.append({"status": status, "entity_type": code, "entity_type_name": t["name"], "layer": t["layer"],
+        items.append({"status": status, "entity_type": code, "entity_type_name": t["name"], "domain": t["domain"],
                       "name": (rgt or lft)["name"], "renamed": renamed, "changes": changes or [],
                       "left": {k: lft[k] for k in ("guid", "name", "display_id")} if lft else None,
                       "right": {k: rgt[k] for k in ("guid", "name", "display_id")} if rgt else None})
@@ -287,12 +287,12 @@ def compare(left: dict, right: dict, settings: dict | None = None) -> dict:
                 rels.append({"status": "new", "type": x["type_code"], "relationship_type": x["relationship_type"],
                              "source": x["source_name"], "target": x["target_name"], "name_left": "", "name_right": x.get("name") or ""})
     meta = mo.spec_diff(left["spec"], right["spec"]) if st.get("metamodel", True) else []
-    items.sort(key=lambda i: (STATUS_ORDER.index(i["status"]), i["layer"] or "", i["entity_type_name"], i["name"].lower()))
+    items.sort(key=lambda i: (STATUS_ORDER.index(i["status"]), i["domain"] or "", i["entity_type_name"], i["name"].lower()))
     rels.sort(key=lambda r: (STATUS_ORDER.index(r["status"]), r["relationship_type"], r["source"], r["target"]))
     totals = {s: sum(x[s] for x in summary.values()) for s in ("kept", "changed", "new", "eliminated")}
     rtotals = {s: sum(1 for r in rels if r["status"] == s) for s in ("kept", "changed", "new", "eliminated")}
     return {"left": _label(left), "right": _label(right), "settings": st, "totals": totals, "relationship_totals": rtotals,
-            "summary": sorted(summary.values(), key=lambda s: (s["layer"] or "", s["name"])), "items": items, "relationships": rels,
+            "summary": sorted(summary.values(), key=lambda s: (s["domain"] or "", s["name"])), "items": items, "relationships": rels,
             "metamodel": meta}
 
 
@@ -392,15 +392,15 @@ def to_xlsx(result: dict, title: str = "Comparison") -> bytes:
     ws.append(["Metamodel differences", len(result["metamodel"])])
     ws.append([])
     start = ws.max_row + 1
-    ws.append(["Layer", "Entity type", "Kept", "Changed", "New", "Eliminated"])
+    ws.append(["Domain", "Entity type", "Kept", "Changed", "New", "Eliminated"])
     for c in ws[start]:
         c.font, c.fill = bold, head
     for s in result["summary"]:
-        ws.append([s["layer"], s["name"], s["kept"], s["changed"], s["new"], s["eliminated"]])
+        ws.append([s["domain"], s["name"], s["kept"], s["changed"], s["new"], s["eliminated"]])
     ws.column_dimensions["A"].width, ws.column_dimensions["B"].width = 22, 40
-    sheet(wb.create_sheet("Entities"), ["Status", "Layer", "Entity type", "Name", "Left ID", "Left name", "Right ID", "Right name",
+    sheet(wb.create_sheet("Entities"), ["Status", "Domain", "Entity type", "Name", "Left ID", "Left name", "Right ID", "Right name",
                                         "Fields changed"],
-          [[i["status"], i["layer"], i["entity_type_name"], i["name"], (i["left"] or {}).get("display_id"), (i["left"] or {}).get("name"),
+          [[i["status"], i["domain"], i["entity_type_name"], i["name"], (i["left"] or {}).get("display_id"), (i["left"] or {}).get("name"),
             (i["right"] or {}).get("display_id"), (i["right"] or {}).get("name"), ", ".join(c["label"] for c in i["changes"])]
            for i in result["items"]], 0)
     sheet(wb.create_sheet("Field changes"), ["Entity type", "Entity", "Field", "Left (baseline)", "Right (target)"],

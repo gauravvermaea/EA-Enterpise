@@ -175,7 +175,7 @@ def _store_items(conn, analysis_id: int, result: dict, user) -> None:
                            entity_type_name = EXCLUDED.entity_type_name, layer = EXCLUDED.layer, name = EXCLUDED.name,
                            status = EXCLUDED.status, baseline_name = EXCLUDED.baseline_name, target_name = EXCLUDED.target_name,
                            changes = EXCLUDED.changes, gone = false""",
-              a=analysis_id, k=k, t=i["entity_type"], tn=i["entity_type_name"], l=i["layer"] or "", n=i["name"], s=i["status"],
+              a=analysis_id, k=k, t=i["entity_type"], tn=i["entity_type_name"], l=i["domain"] or "", n=i["name"], s=i["status"],
               bg=(i["left"] or {}).get("guid"), bn=(i["left"] or {}).get("name"), tg=(i["right"] or {}).get("guid"),
               tgn=(i["right"] or {}).get("name"), c=json.dumps(i["changes"], default=str))
     _exec(conn, "UPDATE core.gap_items SET gone = true WHERE analysis_id = :a AND NOT (match_key = ANY (CAST(:k AS text[])))",
@@ -185,7 +185,7 @@ def _store_items(conn, analysis_id: int, result: dict, user) -> None:
 def _new_run(conn, analysis_id: int, user) -> int:
     """Keeps this result of the analysis as its next numbered run."""
     a = _one(conn, "SELECT baseline, target FROM core.gap_analyses WHERE id = :i", i=analysis_id)
-    items = _rows(conn, """SELECT match_key AS key, entity_type, entity_type_name, layer, name, status, resolution, note, changes
+    items = _rows(conn, """SELECT match_key AS key, entity_type, entity_type_name, domain AS domain, name, status, resolution, note, changes
                              FROM core.gap_items WHERE analysis_id = :a AND NOT gone ORDER BY id""", a=analysis_id)
     for i in items:
         i["changes"] = cm._json(i["changes"])
@@ -258,7 +258,7 @@ def model_of(conn, analysis: Any) -> str:
 def get(conn, model: Any, analysis: Any) -> dict:
     m = repo.get_model(conn, model)
     a = _analysis(conn, m, analysis)
-    items = _rows(conn, """SELECT i.guid AS id, i.entity_type, i.entity_type_name, i.layer, i.name, i.status, i.baseline_guid,
+    items = _rows(conn, """SELECT i.guid AS id, i.entity_type, i.entity_type_name, i.layer AS domain, i.name, i.status, i.baseline_guid,
                                   i.baseline_name, i.target_guid, i.target_name, i.changes, i.note, i.resolution, i.work_packages,
                                   i.gap_entity, i.gone, i.modified_by, i.modified_at
                              FROM core.gap_items i WHERE i.analysis_id = :a
@@ -504,7 +504,7 @@ def compare_runs(conn, run_a: Any, run_b: Any) -> dict:
         if id(j) not in used:
             rows.append(_pair(None, j))
     order = ("New gap", "Gap closed", "Status changed", "Resolution changed", "Unchanged gap", "Not a gap in either")
-    rows.sort(key=lambda r: (order.index(r["change"]), r["layer"], r["entity_type_name"], r["name"].lower()))
+    rows.sort(key=lambda r: (order.index(r["change"]), r["domain"], r["entity_type_name"], r["name"].lower()))
     counts = {c: sum(1 for r in rows if r["change"] == c) for c in order}
     label = lambda r: f"{r['analysis']} #{r['number']} ({str(r['compared_at'])[:16].replace('T', ' ')})"  # noqa: E731
     return {"a": {"label": label(a), "baseline": cm._json(a["baseline"]).get("label"), "target": cm._json(a["target"]).get("label"),
@@ -530,7 +530,7 @@ def _pair(i: dict | None, j: dict | None) -> dict:
     else:
         change = "Unchanged gap"
     x = j or i
-    return {"entity_type_name": x["entity_type_name"], "layer": x.get("layer") or "", "name": x["name"],
+    return {"entity_type_name": x["entity_type_name"], "domain": x.get("domain") or "", "name": x["name"],
             "status_a": (i or {}).get("status") or "", "status_b": (j or {}).get("status") or "",
             "resolution_a": (i or {}).get("resolution") or "", "resolution_b": (j or {}).get("resolution") or "",
             "note_a": (i or {}).get("note") or "", "note_b": (j or {}).get("note") or "",
@@ -538,7 +538,7 @@ def _pair(i: dict | None, j: dict | None) -> dict:
             "fields_b": ", ".join(c["label"] for c in (j or {}).get("changes") or []), "change": change}
 
 
-RUN_COLUMNS = [("What happened", "change"), ("Layer", "layer"), ("Entity type", "entity_type_name"), ("Element", "name"),
+RUN_COLUMNS = [("What happened", "change"), ("Domain", "domain"), ("Entity type", "entity_type_name"), ("Element", "name"),
                ("Status A", "status_a"), ("Status B", "status_b"), ("Resolution A", "resolution_a"),
                ("Resolution B", "resolution_b"), ("Fields changed A", "fields_a"), ("Fields changed B", "fields_b"),
                ("Note A", "note_a"), ("Note B", "note_b")]
@@ -578,13 +578,13 @@ def runs_to_xlsx(res: dict) -> bytes:
         ws.append([k, v])
     ws.column_dimensions["A"].width, ws.column_dimensions["B"].width = 26, 60
     cs = wb.create_sheet("Comparison")
-    cols = ["What happened", "Layer", "Entity type", "Element", "Status A", "Status B", "Resolution A", "Resolution B",
+    cols = ["What happened", "Domain", "Entity type", "Element", "Status A", "Status B", "Resolution A", "Resolution B",
             "Fields changed A", "Fields changed B", "Note A", "Note B"]
     cs.append(cols)
     for c in cs[1]:
         c.font, c.fill = bold, head
     for r in res["rows"]:
-        cs.append([r["change"], r["layer"], r["entity_type_name"], r["name"], r["status_a"], r["status_b"], r["resolution_a"],
+        cs.append([r["change"], r["domain"], r["entity_type_name"], r["name"], r["status_a"], r["status_b"], r["resolution_a"],
                    r["resolution_b"], r["fields_a"], r["fields_b"], r["note_a"], r["note_b"]])
         if r["change"] in fills:
             for c in cs[cs.max_row]:
@@ -616,15 +616,15 @@ def _ensure_gap_type(conn, m: dict, user) -> int | None:
                                    "values": RESOLUTIONS})
     for code, name, dt, pl, desc in want_attrs:
         spec["attributes"].append({"code": code, "name": name, "data_type": dt, "pick_list": pl, "unit": "", "description": desc})
-    layer = (types.get("workpackage") or {}).get("layer") or (spec["layers"][0]["code"] if spec["layers"] else None)
-    if not layer:
-        raise EditError("The metamodel has no layer to put a Gap entity type in.", 409)
+    domain = (types.get("workpackage") or {}).get("domain") or (spec["domains"][0]["code"] if spec["domains"] else None)
+    if not domain:
+        raise EditError("The metamodel has no domain to put a Gap entity type in.", 409)
     items = [{"attribute": c, "required": False, "section": "Gap", "default": None, "help": d} for c, _n, _t, _p, d in GAP_ATTRS]
     if gap:
         have = {i["attribute"].lower() for i in gap.get("attributes") or []}
         gap.setdefault("attributes", []).extend(i for i in items if i["attribute"].lower() not in have)
     else:
-        spec["entity_types"].append({"code": "Gap", "name": "Gap", "layer": layer, "id_prefix": "GAP", "aspect": "",
+        spec["entity_types"].append({"code": "Gap", "name": "Gap", "domain": domain, "id_prefix": "GAP", "aspect": "",
                                      "description": "A difference between a baseline and a target architecture (TOGAF gap analysis)",
                                      "status": "published", "attributes": items})
     rel = next((r for r in spec["relationship_types"] if r["code"].lower() == "association"), None)
@@ -808,8 +808,8 @@ def migration_plan(conn, model: Any, user, analysis: Any, packages: list[dict]) 
                     f"gaps and the elements they are about." + (f" {len(left)} gaps are in no work package yet." if left else "")}
 
 
-def suggest_packages(conn, model: Any, analysis: Any, by: str = "layer") -> dict:
-    """A first grouping of the gaps that are not kept, for the wizard to start from: by layer, by entity type, by
+def suggest_packages(conn, model: Any, analysis: Any, by: str = "domain") -> dict:
+    """A first grouping of the gaps that are not kept, for the wizard to start from: by domain, by entity type, by
     resolution, or one package per gap; gaps already in a work package are left out."""
     m = repo.get_model(conn, model)
     a = _analysis(conn, m, analysis)
@@ -817,14 +817,14 @@ def suggest_packages(conn, model: Any, analysis: Any, by: str = "layer") -> dict
     todo = [i for i in data["items"] if not i["gone"] and i["status"] != "kept" and not i["work_packages"]]
     groups: dict[str, list[dict]] = {}
     for i in todo:
-        k = {"layer": i["layer"] or "Other", "type": i["entity_type_name"], "resolution": i["resolution"] or "Not decided",
-             "each": i["name"]}.get(by, i["layer"] or "Other")
+        k = {"domain": i["domain"] or "Other", "type": i["entity_type_name"], "resolution": i["resolution"] or "Not decided",
+             "each": i["name"]}.get(by, i["domain"] or "Other")
         groups.setdefault(k, []).append(i)
     status = lambda i: {"new": "New", "changed": "Changed", "eliminated": "Eliminated"}.get(i["status"], i["status"])  # noqa: E731
     return {"analysis": {"id": str(a["guid"]), "name": data["name"]}, "by": by, "resolutions": RESOLUTIONS,
             "packages": [{"name": (f"{k}: {data['name']}" if by != "each" else f"Work on {k}")[:200], "wave": "", "start": "", "end": "",
                           "resolution": "", "gaps": [i["id"] for i in v]} for k, v in sorted(groups.items())],
-            "gaps": [{"id": i["id"], "name": i["name"], "type": i["entity_type_name"], "layer": i["layer"], "status": status(i),
+            "gaps": [{"id": i["id"], "name": i["name"], "type": i["entity_type_name"], "domain": i["domain"], "status": status(i),
                       "resolution": i["resolution"] or ""} for i in todo],
             "already": sum(1 for i in data["items"] if not i["gone"] and i["work_packages"])}
 
@@ -856,9 +856,9 @@ def to_xlsx(data: dict) -> bytes:
         ws.append(row)
     ws["A1"].font = Font(bold=True, size=14)
     ws.column_dimensions["A"].width, ws.column_dimensions["B"].width = 24, 90
-    sheet(wb.create_sheet("Gaps"), ["Status", "TOGAF", "Layer", "Entity type", "Element", "Baseline", "Target", "Fields changed",
+    sheet(wb.create_sheet("Gaps"), ["Status", "TOGAF", "Domain", "Entity type", "Element", "Baseline", "Target", "Fields changed",
                                     "Resolution", "Note", "Work packages", "Gap entity"],
-          [[i["status"], i["togaf_cell"], i["layer"], i["entity_type_name"], i["name"], i["baseline_name"], i["target_name"],
+          [[i["status"], i["togaf_cell"], i["domain"], i["entity_type_name"], i["name"], i["baseline_name"], i["target_name"],
             ", ".join(c["label"] for c in i["changes"]), i["resolution"], i["note"], ", ".join(w["name"] for w in i["work_packages"]),
             "yes" if i["gap_entity"] else ""] for i in live], 0)
     # the TOGAF gap matrix, one block per entity type: baseline elements down, target elements across
@@ -898,7 +898,7 @@ def _by_type(items: list[dict]) -> list[tuple[str, list[dict]]]:
     out: dict[str, list[dict]] = {}
     for i in items:
         out.setdefault(i["entity_type"], []).append(i)
-    return sorted(out.items(), key=lambda kv: (kv[1][0]["layer"] or "", kv[1][0]["entity_type_name"]))
+    return sorted(out.items(), key=lambda kv: (kv[1][0]["domain"] or "", kv[1][0]["entity_type_name"]))
 
 
 def _overview(data: dict) -> list[list]:

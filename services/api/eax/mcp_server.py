@@ -20,6 +20,9 @@ import hmac
 import json
 import logging
 import os
+import re
+import sys
+import time
 from contextvars import ContextVar
 from typing import Any
 
@@ -40,7 +43,7 @@ log = logging.getLogger("eax.mcp")
 _actor: ContextVar[str] = ContextVar("eax_mcp_actor", default="unknown")
 
 INSTRUCTIONS = """EA Explorer is an enterprise architecture repository (ArchiMate 4 metamodel).
-A model holds a metamodel (layers, entity types, attributes, relationship types, allowed
+A model holds a metamodel (domains, entity types, attributes, relationship types, allowed
 relationships) and content (entities and relationships). Template models hold a metamodel only.
 Start with list_models, then get_metamodel or list_entities for a model. Models, entity types and
 entities can be given by guid or by name. check_entities shows what breaks the validation rules;
@@ -49,7 +52,17 @@ assignments allow. You may draft metamodels, read your notifications and request
 to other people (list_my_notifications, list_my_requests, send_request).
 You can also BUILD: make models (empty, a copy, a copy at a tag, a child), add entities and relationships, and set up
 and run architecture projects (TOGAF ADM: steps, document classes, approvals). Call how_to_build first, and always
-get the person's yes before creating models or projects."""
+get the person's yes before creating models or projects.
+MODEL OPERATIONS (D458): copy_model, find_duplicates and merge_duplicates, override_parent, refresh_from_parent,
+decide_merge_request, model_wizard, common_analysis, change_entities. Every tool that changes something answers first
+with a PREVIEW and a confirm token: show the person the preview, and call the same tool again with the same arguments
+and confirm=<token> only when they agree. The model is tagged first, so it can be restored. Pass why (the person's
+request in a line) to these tools. ANALYSIS: impact_analysis, application_rationalisation, cost_rollup_analysis,
+technology_risk_analysis, single_points_of_failure, heat_map_data, what_changed, kpi_trend, find_orphans, tidy_names.
+The prompts (copy_and_clean_up, analyse_a_model, build_from_material, draw_a_view, write_a_report, governance_check,
+plan_an_adm_project, survey_from_words) give the order of work.
+CITE: answers carry links (/#/metamodel/<model>/entity/<id> and the like, relative to the EA Explorer address): give
+them with the facts so the person can check them. You act only with the person's own rights."""
 
 mcp = MCPServer(name="EA Explorer", instructions=INSTRUCTIONS, version=__version__)
 
@@ -66,19 +79,77 @@ def _clean(value: Any) -> Any:
     return json.loads(json.dumps(strip(value), default=str))
 
 
+# phases 26/27 (D482): what the current call did, for the AI activity log (eax.mcp_activity)
+_call: ContextVar[dict | None] = ContextVar("eax_mcp_call", default=None)
+
+
+def note_call(**what) -> None:
+    """Marks the current call: wrote=True, previewed=True, or changes=[{what, model, link}] (added to)."""
+    c = _call.get()
+    if c is None:
+        return
+    for k, v in what.items():
+        if k == "changes":
+            c.setdefault("changes", []).extend(v or [])
+        else:
+            c[k] = v
+
+
+def may_write() -> str | None:
+    """None when the person may change things through MCP now, else why not (a read-only machine credential)."""
+    machine = _machine.get()
+    if machine is not None and getattr(machine, "scopes", {}).get("mcp") != "read-write":
+        return f"This credential ('{machine.name}') may only read through MCP: ask for read-write on MCP to change things."
+    return None
+
+
+_GUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+
+
+def cite(value: Any, model_guid: str | None = None) -> Any:
+    """Citations (D482): entities, models and drawn views in an answer carry a link back into EA Explorer, relative to
+    the installation's address (/#/...). Entities are recognised by a guid id with a display_id; models by kind."""
+    if isinstance(value, list):
+        return [cite(v, model_guid) for v in value]
+    if not isinstance(value, dict):
+        return value
+    out = {k: cite(v, model_guid) for k, v in value.items()}
+    ident = str(out.get("id") or "")
+    if "link" not in out and _GUID.match(ident):
+        if out.get("kind") in ("project", "template", "reference") and "name" in out:
+            out["link"] = f"/#/metamodel/{ident}"
+        elif "display_id" in out and model_guid:
+            out["link"] = f"/#/metamodel/{model_guid}/entity/{ident}"
+    return out
+
+
 async def _run(fn, *args, begin: bool = False, **kwargs) -> Any:
     """Runs a repository function in a worker thread (the database driver is synchronous)."""
     if permissions.current.get() is None:  # fail closed: never read without knowing who asks
         return {"error": "Sign in required."}
+    if begin and (why := may_write()):
+        return {"error": why}
+    caller = sys._getframe(1).f_locals          # the tool's own arguments: its model, for citations
+    model_arg = caller.get("model") if isinstance(caller.get("model"), str) else None
 
     def work():
         engine = get_engine()
         with (engine.begin() if begin else engine.connect()) as conn:
-            return fn(conn, *args, **kwargs)
+            out = fn(conn, *args, **kwargs)
+            guid = None
+            if model_arg and not (isinstance(out, dict) and out.get("error")):
+                try:
+                    guid = str(repo.get_model(conn, model_arg)["id"])
+                except Exception:  # noqa: BLE001 - citations are a help, never a reason to fail
+                    guid = None
+            return out, guid
     try:
-        result = _clean(await anyio.to_thread.run_sync(work))
+        raw, guid = await anyio.to_thread.run_sync(work)
+        result = cite(_clean(raw), guid)
     except (repo.NotFound, EditError) as exc:
         return {"error": str(exc)}
+    if begin and not (isinstance(result, dict) and result.get("error")):
+        note_call(wrote=True)
     # one JSON document per call: lists are wrapped, so clients get them in one piece
     return {"count": len(result), "items": result} if isinstance(result, list) else result
 
@@ -111,7 +182,7 @@ async def list_library() -> Any:
 
 @mcp.tool()
 async def get_metamodel(model: str) -> Any:
-    """The metamodel of a model: its layers with their entity types (and how many entities each has),
+    """The metamodel of a model: its domains with their entity types (and how many entities each has),
     and its relationship types. `model` is the model's guid or name."""
     return await _run(repo.get_metamodel, model)
 
@@ -127,20 +198,21 @@ async def describe_entity_type(model: str, entity_type: str) -> Any:
 @mcp.tool()
 async def allowed_relationships(model: str, source_type: str, target_type: str) -> Any:
     """Which relationship types the metamodel allows from one entity type to another, for example
-    from Application Component to Capability."""
+    from Application Component to Capability, each with its multiplicity (source_multiplicity: how many sources one
+    target may have; target_multiplicity: how many targets one source may have; n, * or n..m; empty: any)."""
     return await _run(repo.allowed_relationships, model, source_type, target_type)
 
 
 @mcp.tool()
-async def get_metamodel_diagram(model: str, layers: list[str] | None = None, entity_type: str | None = None,
+async def get_metamodel_diagram(model: str, domains: list[str] | None = None, entity_type: str | None = None,
                                 relationship_types: list[str] | None = None, include_generic: bool = False,
                                 include_connected: bool = False, with_attributes: bool = True) -> Any:
     """The metamodel as a Mermaid ER diagram (erDiagram text you can render or show the user).
-    Give `entity_type` to focus on one type and the types it may connect to, or `layers` (names) for
-    those layers only; with neither you get every layer, which is large. Relationship types default
+    Give `entity_type` to focus on one type and the types it may connect to, or `domains` (names) for
+    those domains only; with neither you get every domain, which is large. Relationship types default
     to all but Association and Specialization (`include_generic` adds them). `include_connected`
-    adds the types in other layers that the chosen layers connect to."""
-    return await _run(repo.metamodel_mermaid, model, layers=layers, entity_type=entity_type,
+    adds the types in other domains that the chosen domains connect to."""
+    return await _run(repo.metamodel_mermaid, model, domains=domains, entity_type=entity_type,
                       relationship_types=relationship_types, include_generic=include_generic,
                       include_connected=include_connected, with_attributes=with_attributes)
 
@@ -148,7 +220,7 @@ async def get_metamodel_diagram(model: str, layers: list[str] | None = None, ent
 @mcp.tool()
 async def list_entities(model: str, entity_type: str | None = None) -> Any:
     """Every entity of a model, or only those of one entity type: guid, display ID, name, type,
-    layer and number of relationships."""
+    domain and number of relationships."""
     return await _run(repo.list_entities, model, entity_type)
 
 
@@ -274,37 +346,37 @@ async def search_entities(text: str, model: str | None = None, entity_type: str 
     return await _run(workspace.search, text, model, entity_type, attribute, tag)
 
 
-# ---------------------------------------------------------------- viewpoints and maps (build phase 8.2, D161)
+# ---------------------------------------------------------------- views and maps (build phase 8.2, D161)
 @mcp.tool()
-async def list_viewpoints(model: str | None = None) -> Any:
-    """The viewpoints: VP-01 to VP-25 from the ArchiMate 4 Specification (their "source" says so), VP-26 Gap (EA
+async def list_views(model: str | None = None) -> Any:
+    """The views: VP-01 to VP-25 from the ArchiMate 4 Specification (their "source" says so), VP-26 Gap (EA
     Explorer's own) and the organisation's own: concerns, stakeholders, element and relationship types; with a model,
-    how many of its entities each viewpoint shows."""
-    from . import viewpoints
-    return await _run(viewpoints.list_viewpoints, model)
+    how many of its entities each view shows."""
+    from . import views
+    return await _run(views.list_views, model)
 
 
 @mcp.tool()
-async def view_through_viewpoint(model: str, viewpoint: str) -> Any:
-    """A model through one viewpoint (for example VP-11 Application Cooperation): its elements with every
-    attribute value, and the relationships between them that the viewpoint shows."""
-    from . import viewpoints
-    return await _run(viewpoints.model_viewpoint, model, viewpoint)
+async def model_through_view(model: str, view: str) -> Any:
+    """A model through one view (for example VP-11 Application Cooperation): its elements with every
+    attribute value, and the relationships between them that the view shows."""
+    from . import views
+    return await _run(views.model_view, model, view)
 
 
 @mcp.tool()
 async def value_stream_map(model: str) -> Any:
     """A model's value streams, their stages in order and the capabilities that enable each stage, with the
     capabilities' attribute values (maturity, criticality...)."""
-    from . import viewpoints
-    return await _run(viewpoints.value_stream_map, model)
+    from . import views
+    return await _run(views.value_stream_map, model)
 
 
 @mcp.tool()
 async def roadmap(model: str) -> Any:
     """A model's work packages, deliverables and plateaus with their start and end dates and what each delivers."""
-    from . import viewpoints
-    return await _run(viewpoints.roadmap, model)
+    from . import views
+    return await _run(views.roadmap, model)
 
 
 # ---------------------------------------------------------------- tags, comparison, gap analyses (phase 8.3, D172)
@@ -370,10 +442,10 @@ def _drafting(fn, action: str, *args):
 
 @mcp.tool()
 async def get_metamodel_spec(model: str) -> Any:
-    """A model's whole metamodel as one JSON document (format eax-metamodel/1): layers, pick_lists,
-    attributes (code, name, data_type, pick_list, unit), entity_types (code, name, layer, id_prefix,
+    """A model's whole metamodel as one JSON document (format eax-metamodel/1): domains, pick_lists,
+    attributes (code, name, data_type, pick_list, unit), entity_types (code, name, domain, id_prefix,
     attributes: [{attribute, required, section, default, help}]), relationship_types (code, name, verb,
-    directed), allowed ({source, relationship, target}) and rules ({entity_type, attribute | field,
+    directed), allowed ({source, relationship, target, note, source_multiplicity, target_multiplicity}) and rules ({entity_type, attribute | field,
     rule_type, param1, param2, severity, message}). Use it as the pattern for drafts."""
     return await _run(model_ops.metamodel_spec, model)
 
@@ -392,12 +464,13 @@ async def start_metamodel_draft(name: str, kind: str = "root", base: str | None 
 
 @mcp.tool()
 async def draft_set_item(draft: str, section: str, item: dict) -> Any:
-    """Add an item to a draft, or replace the one with the same code. section: layers {code, name, colour
+    """Add an item to a draft, or replace the one with the same code. section: domains {code, name, colour
     (six hex digits)}, pick_lists {code, name, values: [..]}, attributes {code, name, data_type (text,
-    long_text, integer, decimal, currency, percent, date, boolean, list, url, email, entity_ref),
-    pick_list (for list), unit}, entity_types {code, name, layer, id_prefix (capitals), description,
+    long_text, integer, decimal, currency, percent, date, boolean, list, url (a Link: one or more lines "address | note"), email, entity_ref),
+    pick_list (for list), unit}, entity_types {code, name, domain, id_prefix (capitals), description,
     attributes: [{attribute, required, section}]}, relationship_types {code, name, verb, directed},
-    allowed {source, relationship, target} or rules {entity_type, attribute | field (name, description,
+    allowed {source, relationship, target, source_multiplicity, target_multiplicity (each n, * or n..m, or
+    empty; only where a constraint really binds)} or rules {entity_type, attribute | field (name, description,
     display_id), rule_type (mandatory, min_length, max_length, min_value, max_value, range, regex,
     date_range, date_order, required_if, unique, has_relationship), param1, param2, severity, message}.
     Returns the draft's checks: fix every error before a person can apply it."""
@@ -602,6 +675,29 @@ async def draft_quality_rule(model: str, code: str, name: str, kind: str, entity
     return await _run(run, begin=save)
 
 
+# phase 25: the machine credential a request came with, if any (its MCP level says whether tools may change things)
+_machine: ContextVar[object | None] = ContextVar("eax_mcp_machine", default=None)
+
+
+def _authenticate_machine(headers: dict) -> tuple[permissions.Principal, object] | None:
+    """A token, API key or trusted client certificate (phase 25, D366): its owner, if it may use MCP."""
+    from . import machine_access as ma
+    header = headers.get("authorization", "")
+    bearer = header.split(" ", 1)[1].strip() if header.lower().startswith("bearer ") else None
+    shown = ma.presented({"X-API-Key": headers.get("x-api-key", ""), ma.CERT_HEADER: headers.get(ma.CERT_HEADER.lower(), "")}, bearer)
+    if not shown:
+        return None
+    try:
+        with get_engine().begin() as conn:
+            machine, roles = ma.authenticate(conn, *shown)
+            if machine.refusal("GET", "/mcp"):
+                return None
+            ma.note_use(conn, machine, "POST", "/mcp", 200, headers.get("x-real-ip", ""), None)
+    except ma.Refused:
+        return None
+    return permissions.Principal(machine.owner, tuple(roles)), machine
+
+
 def _authenticate(header: str) -> permissions.Principal | None:
     """Who a bearer token belongs to, with their EA Explorer roles (mapped from Keycloak's), or None.
     The laptop development token is a Super Admin."""
@@ -618,6 +714,44 @@ def _authenticate(header: str) -> permissions.Principal | None:
     return permissions.Principal(user.username, tuple(user.roles), user.break_glass)
 
 
+# ---------------------------------------------------------------- OAuth remote connector (D483)
+def external_base(headers: dict) -> str:
+    """The installation's address as the client reached it (the proxy says which host, port and scheme)."""
+    host = (headers.get("x-forwarded-host") or headers.get("host") or "").split(",")[0].strip()
+    proto = (headers.get("x-forwarded-proto") or "https").split(",")[0].strip()
+    port = (headers.get("x-forwarded-port") or "").strip()
+    if not host:
+        return get_settings().public_base_url
+    if port and ":" not in host and not ((proto == "https" and port == "443") or (proto == "http" and port == "80")):
+        host = f"{host}:{port}"
+    return f"{proto}://{host}"
+
+
+def discovery(path: str, headers: dict) -> tuple[int, dict] | None:
+    """The OAuth metadata an AI app reads to add EA Explorer as a remote connector (MCP authorization, RFC 9728 and
+    RFC 8414): the protected resource (this /mcp) names Keycloak's realm as its authorization server; the authorization
+    server's own metadata is given here too for apps that look on the MCP host. People then sign in through Keycloak in
+    the browser; the token carries their own roles. None for any other path."""
+    if not path.startswith("/.well-known/"):
+        return None
+    base = external_base(headers)
+    issuer = f"{base}/auth/realms/{get_settings().realm}"
+    if path.startswith("/.well-known/oauth-protected-resource"):
+        return 200, {"resource": f"{base}/mcp", "authorization_servers": [issuer],
+                     "scopes_supported": ["openid", "profile", "email", "offline_access"],
+                     "bearer_methods_supported": ["header"], "resource_name": "EA Explorer",
+                     "resource_documentation": f"{base}/#/mcp"}
+    if path.startswith("/.well-known/oauth-authorization-server") or path.startswith("/.well-known/openid-configuration"):
+        oidc = f"{issuer}/protocol/openid-connect"
+        return 200, {"issuer": issuer, "authorization_endpoint": f"{oidc}/auth", "token_endpoint": f"{oidc}/token",
+                     "jwks_uri": f"{oidc}/certs", "userinfo_endpoint": f"{oidc}/userinfo",
+                     "registration_endpoint": f"{issuer}/clients-registrations/openid-connect",
+                     "response_types_supported": ["code"], "grant_types_supported": ["authorization_code", "refresh_token"],
+                     "code_challenge_methods_supported": ["S256"], "token_endpoint_auth_methods_supported": ["none"],
+                     "scopes_supported": ["openid", "profile", "email", "offline_access"]}
+    return 404, {"error": "not found"}
+
+
 class BearerAuth:
     """ASGI middleware: every HTTP request needs a valid bearer token."""
 
@@ -628,19 +762,35 @@ class BearerAuth:
         if scope["type"] != "http":  # lifespan events pass through
             return await self.app(scope, receive, send)
         headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}
-        user = await anyio.to_thread.run_sync(_authenticate, headers.get("authorization", ""))
+        found_meta = discovery(scope.get("path", ""), headers)
+        if found_meta is not None:                  # OAuth discovery (D483): public, no sign-in
+            status, doc = found_meta
+            await send({"type": "http.response.start", "status": status,
+                        "headers": [(b"content-type", b"application/json"), (b"cache-control", b"public, max-age=300")]})
+            await send({"type": "http.response.body", "body": json.dumps(doc).encode()})
+            return
+        machine = None
+        found = await anyio.to_thread.run_sync(_authenticate_machine, headers)
+        if found:
+            user, machine = found
+        else:
+            user = await anyio.to_thread.run_sync(_authenticate, headers.get("authorization", ""))
         if not user:
             body = json.dumps({"error": "Sign in required: send Authorization: Bearer <token> "
-                                        "(a Keycloak access token, or EAX_MCP_DEV_TOKEN on a laptop)."}).encode()
+                                        "(a Keycloak access token, an EA Explorer token or API key that may use MCP, "
+                                        "or EAX_MCP_DEV_TOKEN on a laptop)."}).encode()
+            meta = f"{external_base(headers)}/.well-known/oauth-protected-resource/mcp"
             await send({"type": "http.response.start", "status": 401,
                         "headers": [(b"content-type", b"application/json"),
-                                    (b"www-authenticate", f'Bearer realm="{get_settings().realm}"'.encode())]})
+                                    (b"www-authenticate",
+                                     f'Bearer realm="{get_settings().realm}", resource_metadata="{meta}"'.encode())]})
             await send({"type": "http.response.body", "body": body})
             return
-        token, who = _actor.set(user.username), permissions.current.set(user)
+        token, who, mach = _actor.set(user.username), permissions.current.set(user), _machine.set(machine)
         try:
             return await self.app(scope, receive, send)
         finally:
+            _machine.reset(mach)
             permissions.current.reset(who)
             _actor.reset(token)
 
@@ -662,5 +812,68 @@ app = BearerAuth(mcp.streamable_http_app(stateless_http=True, json_response=True
 log.info("EA Explorer MCP server %s ready at /mcp", __version__)
 
 
-# the tools to build with (projects, models, content) and their prompts (owner, 7 Nov 2026)
-from . import mcp_build  # noqa: E402,F401
+# the tools to build with (projects, models, content, 7 Nov 2026); model operations, analysis and the rest of the capability
+# list (phases 26/27, D458, D459, D482 to D489); scenario planning (phase 27.1, D364, D490 to D495)
+from . import (  # noqa: E402,F401
+    mcp_analysis,
+    mcp_build,
+    mcp_more,
+    mcp_ops,
+    mcp_scenarios,
+)
+
+
+# ---------------------------------------------------------------- the AI activity log (D482)
+def _log_call(user, tool: str, arguments: dict, result: Any, started: float, state: dict) -> None:
+    from . import mcp_activity
+    machine = _machine.get()
+    try:
+        with get_engine().begin() as conn:
+            mcp_activity.record(conn, username=user.username, tool=tool, arguments=arguments, result=result,
+                                ms=int((time.monotonic() - started) * 1000), wrote=bool(state.get("wrote")),
+                                previewed=bool(state.get("previewed")), changes=state.get("changes"),
+                                credential=getattr(machine, "name", "") if machine is not None else "")
+    except Exception as exc:  # noqa: BLE001 - the log never stops a call
+        log.warning("AI activity not kept for %s: %s", tool, exc)
+
+
+def _plain(result: Any) -> Any:
+    """A tool's converted answer back as JSON for the log (its structured content, or its text)."""
+    sc = getattr(result, "structuredContent", None) or getattr(result, "structured_content", None)
+    if sc is not None:
+        return sc.get("result", sc) if isinstance(sc, dict) else sc
+    content = getattr(result, "content", None)
+    if content:
+        texts = [getattr(c, "text", "") for c in content]
+        joined = "".join(t for t in texts if t)
+        try:
+            return json.loads(joined)
+        except ValueError:
+            return joined
+    return result
+
+
+def _with_activity_log(manager) -> None:
+    """Every tool call is kept in the AI activity log, whatever the tool (one place, not in each tool)."""
+    original = manager.call_tool
+
+    async def call_tool(name, arguments, context=None, convert_result=False, **kw):
+        user = permissions.current.get()
+        state: dict = {}
+        token = _call.set(state)
+        started = time.monotonic()
+        try:
+            result = await original(name, arguments, context, convert_result=convert_result, **kw)
+        except Exception as exc:
+            if user is not None:
+                await anyio.to_thread.run_sync(_log_call, user, name, arguments or {}, {"error": str(exc)[:300]}, started, state)
+            raise
+        finally:
+            _call.reset(token)
+        if user is not None:
+            await anyio.to_thread.run_sync(_log_call, user, name, arguments or {}, _plain(result), started, state)
+        return result
+    manager.call_tool = call_tool
+
+
+_with_activity_log(mcp._tool_manager)

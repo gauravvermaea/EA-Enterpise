@@ -6,9 +6,10 @@
 //                      coloured by type or by an attribute, with today marked
 // Click a capability or a bar to open its entity page. Both save as CSV.
 import { useMemo, useState } from "react";
-import { downloadCsv, openDrawio } from "./exporting";
+import { downloadCsv } from "./exporting";
+import { PictureActions } from "./DrawnView";
 import { useApi } from "./ModelViews";
-import { Legend, heatScale } from "./Viewpoints";
+import { Legend, heatScale } from "./Views";
 
 export function ValueStreamMap({ model }) {
   const { data, error } = useApi(`/api/v1/models/${model}/maps/value-streams`);
@@ -41,7 +42,7 @@ export function ValueStreamMap({ model }) {
         <label>Colour by <select value={chosen} onChange={(e) => setAttr(e.target.value)}>
           {data.attributes.map((a) => <option key={a} value={a}>{a}</option>)}</select></label>
         <button onClick={csv}>CSV</button>
-        <button onClick={() => vsDrawio(streams, chosen, scale)} title="The value stream map, opened in draw.io in a new tab">Open in draw.io</button>
+        <PictureActions model={model} picture={() => vsPicture(streams, chosen, scale)} />
       </div>
       <Legend legend={scale.legend} attribute={chosen} />
       {as === "map" ? streams.map((v) => (
@@ -96,10 +97,11 @@ export function ValueStreamMap({ model }) {
   );
 }
 
-// draw.io: each value stream as a row of stages with the enabling capabilities under each, linked to their entities
-function vsDrawio(streams, attr, scale) {
+// the value stream map as a picture (D407, D408): each value stream a row of its stages (in the value stream notation),
+// the enabling capabilities stacked under each stage, coloured by the chosen attribute
+function vsPicture(streams, attr, scale) {
   const nodes = [];
-  const SW = 180, SH = 40, CH = 38, GAP = 8;
+  const SW = 180, SH = 50, CH = 50, GAP = 10, CGAP = 10;
   let y = 0;
   for (const v of streams) {
     nodes.push({ id: `v_${v.id}`, label: v.name, x: 0, y, w: 600, h: 26, shape: "text", fontSize: 15, bold: true });
@@ -107,34 +109,44 @@ function vsDrawio(streams, attr, scale) {
     let tallest = 0;
     v.stages.forEach((s, i) => {
       const x = i * (SW + GAP);
-      nodes.push({ id: `s_${v.id}_${s.id}`, label: s.name, x, y, w: SW, h: SH, fill: "f5deaa", stroke: "c9a85a", bold: true, align: "center",
-        ea_type: "Value Stream", ea_id: s.id });
-      s.capabilities.forEach((c, k) => nodes.push({ id: `c_${s.id}_${c.id}`, label: c.name, sub: c.values[attr] || "", x, y: y + SH + GAP + k * (CH + 6),
-        w: SW, h: CH, fill: scale.colour(c.values[attr]) || "f6f7f9", fontSize: 11, ea_type: "Capability", ea_id: c.id }));
+      nodes.push({ id: `s_${v.id}_${s.id}`, label: s.name, x, y, w: SW, h: SH, fill: "efbd5d", stroke: "b8862a", bold: true, align: "center",
+        ea_type: "ValueStream", ea_id: s.id });
+      s.capabilities.forEach((c, k) => {
+        const col = scale.colour(c.values[attr]);
+        nodes.push({ id: `c_${s.id}_${c.id}`, label: c.name, sub: c.values[attr] || "", x, y: y + SH + 2 * GAP + k * (CH + CGAP),
+          w: SW, h: CH, fill: col || "f6f7f9", heatFill: col, fontSize: 11, ea_type: "Capability", ea_id: c.id });
+      });
       tallest = Math.max(tallest, s.capabilities.length);
     });
-    y += SH + GAP + tallest * (CH + 6) + 30;
+    y += SH + 2 * GAP + tallest * (CH + CGAP) + 30;
   }
-  scale.legend.forEach(([val, c], i) => nodes.push({ id: `l_${i}`, label: `${attr}: ${val}`, x: i * 150, y, w: 140, h: 24, fill: c, fontSize: 11, align: "center" }));
-  openDrawio(`Value stream map by ${attr}`, nodes, []);
+  scale.legend.forEach(([val, c], i) => nodes.push({ id: `l_${i}`, label: `${attr}: ${val}`, x: i * 160, y, w: 150, h: 30, fill: c, fontSize: 11, align: "center" }));
+  // a capability enabling two stages is one entity: on a drawn view it is drawn once per stage (a second box of it)
+  return { title: `Value stream map by ${attr}`, nodes, edges: [] };
 }
 
 const TYPE_COLOUR = { Plateau: "#8e7cc3", WorkPackage: "#2f7d9b", Deliverable: "#e69138" };
 const DAY = 86400000;
 
-// draw.io: the roadmap as a timeline: year marks, then one bar per item placed by its dates
-function roadmapDrawio(items, lo, hi, years, colour) {
-  const LW = 230, TW = 1100, RH = 30;
+// the roadmap as a picture (D407, D408): year marks and lines, then one bar per item placed by its dates (in its type's
+// notation, coloured as the screen colours it)
+function roadmapPicture(items, lo, hi, years, colour, by) {
+  const LW = 240, TW = 1100, RH = 40;
   const xOf = (ms) => LW + ((ms - lo) / (hi - lo)) * TW;
   const t = (d) => new Date(`${d}T00:00:00Z`).getTime();
-  const nodes = years.map((y) => ({ id: `y_${y}`, label: String(y), x: xOf(Date.UTC(y, 0, 1)), y: 0, w: 60, h: 20, shape: "text", fontSize: 12 }));
+  const bottom = 40 + items.length * RH;
+  const nodes = years.flatMap((y) => [
+    { id: `y_${y}`, label: String(y), x: xOf(Date.UTC(y, 0, 1)) + 4, y: 0, w: 60, h: 24, shape: "text", fontSize: 12, keepSize: true },
+    { id: `yl_${y}`, label: "", x: xOf(Date.UTC(y, 0, 1)), y: 24, w: 1, h: bottom - 24, fill: "d9dee5", stroke: "d9dee5", keepSize: true },
+  ]);
   items.forEach((i, k) => {
-    const y = 30 + k * RH;
-    nodes.push({ id: `l_${i.id}`, label: i.name, x: 0, y, w: LW - 10, h: RH - 6, shape: "text", fontSize: 11 });
-    nodes.push({ id: i.id, label: i.name, x: xOf(t(i.start_date)), y, w: Math.max(8, xOf(t(i.end_date) + DAY) - xOf(t(i.start_date))), h: RH - 8,
-      fill: colour(i).replace("#", ""), fontColor: "ffffff", fontSize: 10, ea_type: i.entity_type, ea_id: i.id });
+    const y = 40 + k * RH;
+    nodes.push({ id: `l_${i.id}`, label: i.name, x: 0, y, w: LW - 20, h: RH - 10, shape: "text", fontSize: 11, keepSize: true });
+    nodes.push({ id: i.id, label: i.name, x: xOf(t(i.start_date)), y, w: Math.max(30, xOf(t(i.end_date) + DAY) - xOf(t(i.start_date))), h: RH - 10,
+      fill: colour(i).replace("#", ""), heatFill: by === "type" ? null : colour(i).replace("#", ""), fontSize: 10, ea_type: i.type_code || i.entity_type, ea_id: i.id,
+      keepSize: true });
   });
-  openDrawio("Roadmap", nodes, []);
+  return { title: "Roadmap", nodes, edges: [] };
 }
 
 export function Roadmap({ model }) {
@@ -166,7 +178,7 @@ export function Roadmap({ model }) {
         </select></label>
         {colourBy === "type" ? Object.entries(TYPE_COLOUR).map(([k, c]) => <span key={k} className="legend-chip"><span className="heat-swatch" style={{ background: c }} />{k.replace("WorkPackage", "Work package")}</span>)
           : <Legend legend={scale.legend} attribute={colourBy === "priority" ? "Priority" : "Architecture state"} />}
-        <button onClick={() => roadmapDrawio(items, lo, hi, years, colour)} title="The roadmap, opened in draw.io in a new tab">Open in draw.io</button>
+        <PictureActions model={model} picture={() => roadmapPicture(items, lo, hi, years, colour, colourBy)} />
         <button onClick={() => downloadCsv([["Type", "ID", "Name", "Start", "End", "Owner", "Priority", "Architecture state", "Delivers"],
           ...data.items.map((i) => [i.entity_type, i.display_id, i.name, i.start_date || "", i.end_date || "", i.owner || "", i.priority || "",
             i.architecture_state || "", i.delivers.map((d) => d.name).join("; ")])], "Roadmap")}>CSV</button>

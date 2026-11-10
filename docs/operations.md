@@ -37,7 +37,7 @@ tiers**, so you can sign in as soon as the core is ready (usually one to two min
 
 | Tier | What | When |
 | --- | --- | --- |
-| **1st, the core** | `db` (PostgreSQL), `setup`, `proxy` (nginx), `web` (the screens), `keycloak` (sign-in), `api` (every copy) with the database upgrade and the built-in models (ArchiMate 4, the insurance reference model, viewpoints, the laptop test users' roles) | `eax up` waits for it: the API and Keycloak must say *healthy* |
+| **1st, the core** | `db` (PostgreSQL), `setup`, `proxy` (nginx), `web` (the screens), `keycloak` (sign-in), `api` (every copy) with the database upgrade and the built-in models (ArchiMate 4, the insurance reference model, views, the laptop test users' roles) | `eax up` waits for it: the API and Keycloak must say *healthy* |
 | **2nd, after the core** | `reports-init` and `reports` (Superset), `dms-broker` and `dms` (Mayan), `drawio`, `backup`, `ops` (the operations helper) | started in the background as soon as the core is ready |
 | **2nd, inside the API** | the sample insurance model, the laptop test models (Fynbos, Karoo Re, Lean EA and the models in each state), the demo estate Protea Insurance, the data quality samples, the History tab samples, the demo estate's tags, gap analyses and sheets, then **each model's first data quality measurement** | loaded one step at a time by `eax/seed/later.py`, after the API has started; each model appears as soon as its step is done |
 
@@ -120,13 +120,18 @@ disk, mount it at `work/backups`, D226), both listed on **Administration > Backu
 
 ```
 infrastructure/20261106T010000Z-nightly/          one infrastructure backup (tagged)
-  databases/<name>.dump  globals.sql              every database (pg_dump custom format) and the logins and roles
+  databases/<name>.dump  globals.sql              every database (pg_dump custom format) and the logins and roles:
+                                                  eaexplorer, keycloak, superset, mayan, eaxlibrary, eaxviews
+  databases/HOSTS  globals-<name>.sql             the library's or views' database when it is on a server of its own
   files/documents.tar.gz  files/tls.tar.gz        Mayan's document files, the site certificate
+  files/reports.tar.gz                            the reports' home (Superset's secret key and uploads)
+  files/imports.tar.gz  files/exports.tar.gz      the API's import and export folders
   config/eaexplorer.env  services.env             the config file as it was
   code/release.json  docker-compose.yml  deploy/  the release version, image names and digests, the compose files
   SHA256SUMS  manifest.json  [PINNED]
 application/20261106T093000Z-end-of-quarter/      one application backup: every model and every project
   manifest.json  models/<model>.eaxbackup.zip  projects/<project>.eaxproject.zip
+  organisation.eaxorg.zip                         what belongs to no model or project (D410)
 application/models/<model guid>/...               a model's own backups (made on its Backups tab)
 application/projects/<project guid>/...           a project's own backups (its About tab, or Administration > Backups)
 application/uploaded/...                          files brought from another installation
@@ -138,8 +143,21 @@ application/uploaded/...                          files brought from another ins
 * **Infrastructure**: on its schedule and on demand (`.\eax backup <tag>` or Back up now). The operations helper runs
   it; people keep working. It holds **all of Documents**: Mayan's database (`databases/mayan.dump`) and every version
   of every document file (`files/documents.tar.gz`); the Holds column shows **✓ Documents**. Restoring it with
-  *full* or *app+data* (on the screen, or `.\eax restore <name> --what full|app+data`), or *files* (Documents' files with its own database, and the certificate),
+  *full* or *app+data* (on the screen, or `.\eax restore <name> --what full|app+data`), or *files* (Documents' files with its own database, the certificate, the reports' home, the import and export folders),
   puts Documents back as it was.
+* **What each backup carries** (owner, 10 Nov 2026, D410):
+
+  | Backup | Carries |
+  |---|---|
+  | Infrastructure | Every database (the main one, Keycloak's, Superset's, Mayan's, the library's and the views', each from the server it is on), the logins and roles, Documents' files, the certificate, the reports' home, the import and export folders, the config file, the release and compose files. Its `manifest.json` lists what is in it (`contents`) and what is not and why: `eax-pgdata` (the databases are in it as dumps), `eax-rendered` and `eax-kc-import` (made again from the config file at every start) |
+  | Model backup (and package) | Entities, relationships, the metamodel (with each end's multiplicity and each type's notation and colour), the history, every drawn view with its versions, the model's own views, the entities' own icons, an Excel workbook; put back over itself, its views and icons come back too; into another installation, each view's shapes are bound to the new model's entities |
+  | Project backup | The project's rows (documents with their files from Documents, canvases, key questions, stakeholders, placeholder views, the links from views to evidence, ...), its models, its library |
+  | Organisation part (in a full application backup) | The organisation's own views and project templates, people's skills, the architecture board, the enterprise library, the organisation reference library (its rows and files) |
+
+  A restore puts back databases first, then the file sets, then starts the services. On a new server the logins and
+  roles a database needs are made from the backup first. Backups made before 10 Nov 2026 still restore: they have no
+  reports' home or import and export folders (what is there now stays, and the restore says so), and an application
+  backup without the organisation part restores its models and projects as before.
 * **Application**: on demand (Back up every model now). A **model backup file** (`.eaxbackup.zip`) holds the deep model
   package (metamodel, content, history), the model as an Excel workbook, and what is needed to put the model back over
   itself. Model Admins back up their own model on its **Backups** tab. A full application backup also holds **every
@@ -279,6 +297,24 @@ and no query crosses from `proj` into the other schemas (models are kept by thei
 stop EA Explorer, copy it (`pg_dump -n proj` into the new database), set `EAX_PROJECTS_DB_URL` and start again. The
 seed then keeps the project library up to date there. Backups (D216) cover the repository's database only: a moved
 `proj` database needs its own backups until that is added.
+
+## Machine access (phase 25, D366)
+Tokens, API keys and client certificates are managed on **System admin › Machine access** ([phase-25.md](phase-25.md)).
+Client certificates use mutual TLS on the proxy's own port, `EAX_MTLS_PORT` (9443 unless set in `work/eaexplorer.env`):
+open it in the firewall only for the systems that need it. Browsers never use that port. If a credential leaks, revoke it
+there (or disable its service account): it stops at once.
+
+## Operations insight and housekeeping (phase 35, D371)
+**System admin › Operations** ([phase-35.md](phase-35.md)) shows usage, idle models (a report only), stale work, database
+health and the archive. Prometheus reads `https://<host>/api/metrics` with a token that may read Administration (an IT
+Admin's, or a service account with the IT Admin role).
+
+Housekeeping runs every night at 02:40 but changes nothing until an IT Admin or Super Admin confirms a dry run of the
+retention rules (Operations › Housekeeping); changing a rule asks for a new dry run. The defaults only archive (loads and
+task files after 90 days, notifications after a year); nothing is deleted until an admin sets a rule to delete. Old
+history versions are kept unless a Super Admin sets an age in years; then versions older than that are removed after a
+confirmed dry run, never the current ones or any a tag, baseline, merge starting point, drawn view evidence or governance
+record needs (D445).
 
 ## Moving to a server
 

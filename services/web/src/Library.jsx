@@ -1,6 +1,6 @@
 // The model library (phase 2, redesigned in 0.3.1, D101): a browser on the left with every library model
 // (root metamodels and reference models, grouped, with a search and a filter), and the chosen model on
-// the right: what it is built on, its layers and types, its counts and its pack.
+// the right: what it is built on, its domains and types, its counts and its pack.
 // Phase 4 (D108, D118): create a model from a library model, download a library model as one package
 // (zip or Excel), upload a package (perhaps renamed, to test with a second copy), and, for Library Admins,
 // publish, withdraw and restore. Pack files wait for Mayan (phase 13, D117); the industry packs are filled
@@ -131,7 +131,7 @@ function Detail({ m, all }) {
 
       <div className="lib-facts">
         <Fact label="Built on" value={source ? source.name : "Nothing (top of the hierarchy)"} href={source && `#/library/${source.id}`} />
-        <Fact label="Layers" value={m.layers.length} />
+        <Fact label="Domains" value={m.domains.length} />
         <Fact label="Entity types" value={m.entity_type_count} />
         <Fact label="Relationship types" value={m.relationship_type_count} />
         {!isRoot && <Fact label="Entities" value={m.entity_count} />}
@@ -156,10 +156,10 @@ function Detail({ m, all }) {
       {tab === "contents" && (
         <div className="lib-contents">
           <div>
-            <h3>Layers</h3>
-            {m.layers.length ? (
-              <ul className="lib-layers">
-                {m.layers.map((l) => (
+            <h3>Domains</h3>
+            {m.domains.length ? (
+              <ul className="lib-domains">
+                {m.domains.map((l) => (
                   <li key={l.name}><Swatch colour={l.colour} /> {l.name} <span className="quiet">{l.types} types</span></li>
                 ))}
               </ul>
@@ -173,7 +173,7 @@ function Detail({ m, all }) {
                   {types.map((c) => (
                     <tr key={c.entity_type}>
                       <td><Swatch colour={c.colour} /> {c.entity_type}</td>
-                      {isRoot ? <td className="quiet">{c.layer}</td> : (
+                      {isRoot ? <td className="quiet">{c.domain}</td> : (
                         <>
                           <td className="lib-bar"><span style={{ width: `${(100 * c.count) / max}%`, background: `#${c.colour}` }} /></td>
                           <td className="num">{c.count}</td>

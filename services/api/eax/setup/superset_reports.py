@@ -22,7 +22,8 @@ from pathlib import Path
 import yaml
 
 from ..report_about import about
-from ..report_defs import REPORTS, VIEWPOINTS
+from ..report_defs import REPORTS
+from ..report_defs import VIEWS as VIEW_DEFS
 from .superset_sample import DB_UUID
 from .superset_sample import bundle_files as sample_files
 
@@ -38,13 +39,13 @@ def uid(*parts: str) -> str:
 
 # the report views and their columns (name, Superset type)
 VIEWS: dict[str, list[tuple[str, str]]] = {
-    "catalogue": [("model_id", "BIGINT"), ("model_name", "TEXT"), ("layer", "TEXT"), ("entity_type_code", "TEXT"), ("entity_type", "TEXT"), ("report_view", "TEXT"), ("attribute_code", "TEXT"), ("attribute", "TEXT"), ("data_type", "TEXT"), ("pick_list", "TEXT"), ("pick_list_values", "TEXT"), ("required", "BOOLEAN"), ("report_column", "TEXT")],
-    "entities": [("model_id", "BIGINT"), ("model_name", "TEXT"), ("entity_id", "BIGINT"), ("entity_guid", "UUID"), ("display_id", "TEXT"), ("name", "TEXT"), ("description", "TEXT"), ("entity_type_code", "TEXT"), ("entity_type", "TEXT"), ("layer_code", "TEXT"), ("layer", "TEXT"), ("parent_id", "BIGINT"), ("parent_name", "TEXT"), ("status", "TEXT"), ("origin_guid", "UUID"), ("created_at", "TIMESTAMP WITH TIME ZONE"), ("created_by", "TEXT"), ("modified_at", "TIMESTAMP WITH TIME ZONE"), ("modified_by", "TEXT"), ("link", "TEXT")],
+    "catalogue": [("model_id", "BIGINT"), ("model_name", "TEXT"), ("domain", "TEXT"), ("entity_type_code", "TEXT"), ("entity_type", "TEXT"), ("report_view", "TEXT"), ("attribute_code", "TEXT"), ("attribute", "TEXT"), ("data_type", "TEXT"), ("pick_list", "TEXT"), ("pick_list_values", "TEXT"), ("required", "BOOLEAN"), ("report_column", "TEXT")],
+    "entities": [("model_id", "BIGINT"), ("model_name", "TEXT"), ("entity_id", "BIGINT"), ("entity_guid", "UUID"), ("display_id", "TEXT"), ("name", "TEXT"), ("description", "TEXT"), ("entity_type_code", "TEXT"), ("entity_type", "TEXT"), ("type_domain_code", "TEXT"), ("type_domain", "TEXT"), ("parent_id", "BIGINT"), ("parent_name", "TEXT"), ("status", "TEXT"), ("origin_guid", "UUID"), ("created_at", "TIMESTAMP WITH TIME ZONE"), ("created_by", "TEXT"), ("modified_at", "TIMESTAMP WITH TIME ZONE"), ("modified_by", "TEXT"), ("link", "TEXT")],
     "entity_pairs": [("model_id", "BIGINT"), ("model_name", "TEXT"), ("a_id", "BIGINT"), ("a_name", "TEXT"), ("a_type_code", "TEXT"), ("a_type", "TEXT"), ("b_id", "BIGINT"), ("b_name", "TEXT"), ("b_type_code", "TEXT"), ("b_type", "TEXT"), ("relationship_type_code", "TEXT"), ("relationship_type", "TEXT"), ("verb", "TEXT"), ("access_type", "TEXT"), ("direction", "TEXT")],
-    "entity_std": [("model_id", "BIGINT"), ("model_name", "TEXT"), ("entity_id", "BIGINT"), ("entity_guid", "UUID"), ("display_id", "TEXT"), ("name", "TEXT"), ("description", "TEXT"), ("entity_type_code", "TEXT"), ("entity_type", "TEXT"), ("layer_code", "TEXT"), ("layer", "TEXT"), ("parent_id", "BIGINT"), ("parent_name", "TEXT"), ("status", "TEXT"), ("origin_guid", "UUID"), ("created_at", "TIMESTAMP WITH TIME ZONE"), ("created_by", "TEXT"), ("modified_at", "TIMESTAMP WITH TIME ZONE"), ("modified_by", "TEXT"), ("link", "TEXT"), ("role", "TEXT"), ("owner", "TEXT"), ("lifecycle", "TEXT"), ("criticality", "NUMERIC"), ("annual_cost", "NUMERIC"), ("vendor", "TEXT"), ("version", "TEXT"), ("hosting", "TEXT"), ("go_live_date", "DATE"), ("retirement_date", "DATE"), ("data_classification", "TEXT"), ("maturity", "TEXT"), ("capability_level", "NUMERIC"), ("process_level", "NUMERIC"), ("domain", "TEXT"), ("priority", "TEXT"), ("measure", "TEXT"), ("architecture_state", "TEXT"), ("landscape_level", "TEXT"), ("start_date", "DATE"), ("end_date", "DATE"), ("time_classification", "TEXT"), ("functional_fit", "NUMERIC"), ("technical_fit", "NUMERIC")],
+    "entity_std": [("model_id", "BIGINT"), ("model_name", "TEXT"), ("entity_id", "BIGINT"), ("entity_guid", "UUID"), ("display_id", "TEXT"), ("name", "TEXT"), ("description", "TEXT"), ("entity_type_code", "TEXT"), ("entity_type", "TEXT"), ("type_domain_code", "TEXT"), ("type_domain", "TEXT"), ("parent_id", "BIGINT"), ("parent_name", "TEXT"), ("status", "TEXT"), ("origin_guid", "UUID"), ("created_at", "TIMESTAMP WITH TIME ZONE"), ("created_by", "TEXT"), ("modified_at", "TIMESTAMP WITH TIME ZONE"), ("modified_by", "TEXT"), ("link", "TEXT"), ("role", "TEXT"), ("owner", "TEXT"), ("lifecycle", "TEXT"), ("criticality", "NUMERIC"), ("annual_cost", "NUMERIC"), ("vendor", "TEXT"), ("version", "TEXT"), ("hosting", "TEXT"), ("go_live_date", "DATE"), ("retirement_date", "DATE"), ("data_classification", "TEXT"), ("maturity", "TEXT"), ("capability_level", "NUMERIC"), ("process_level", "NUMERIC"), ("domain", "TEXT"), ("priority", "TEXT"), ("measure", "TEXT"), ("architecture_state", "TEXT"), ("landscape_level", "TEXT"), ("start_date", "DATE"), ("end_date", "DATE"), ("time_classification", "TEXT"), ("functional_fit", "NUMERIC"), ("technical_fit", "NUMERIC")],
     "mo_pick_list_counts": [("model_id", "BIGINT"), ("model_name", "TEXT"), ("entity_type", "TEXT"), ("attribute", "TEXT"), ("value", "TEXT"), ("entities", "BIGINT")],
     "mo_recent_changes": [("model_id", "BIGINT"), ("model_name", "TEXT"), ("at", "TIMESTAMP WITH TIME ZONE"), ("changed_by", "TEXT"), ("kind", "TEXT"), ("operation", "TEXT"), ("entity", "TEXT"), ("entity_type", "TEXT"), ("label", "TEXT")],
-    "mo_type_counts": [("model_id", "BIGINT"), ("model_name", "TEXT"), ("model_kind", "TEXT"), ("layer", "TEXT"), ("entity_type", "TEXT"), ("entities", "BIGINT")],
+    "mo_type_counts": [("model_id", "BIGINT"), ("model_name", "TEXT"), ("model_kind", "TEXT"), ("domain", "TEXT"), ("entity_type", "TEXT"), ("entities", "BIGINT")],
     "models": [("model_id", "BIGINT"), ("model_guid", "UUID"), ("model_name", "TEXT"), ("model_kind", "TEXT"), ("version_label", "TEXT"), ("industry", "TEXT"), ("owner", "TEXT"), ("lifecycle", "TEXT"), ("is_draft", "BOOLEAN"), ("is_locked", "BOOLEAN"), ("library_state", "TEXT"), ("metamodel_name", "TEXT"), ("metamodel_version", "INTEGER"), ("source_model", "TEXT"), ("parent_model", "TEXT"), ("created_at", "TIMESTAMP WITH TIME ZONE"), ("modified_at", "TIMESTAMP WITH TIME ZONE"), ("source_model_id", "BIGINT")],
     "relationships": [("model_id", "BIGINT"), ("model_name", "TEXT"), ("relationship_guid", "UUID"), ("relationship_type_code", "TEXT"), ("relationship_type", "TEXT"), ("verb", "TEXT"), ("source_id", "BIGINT"), ("source_name", "TEXT"), ("source_type_code", "TEXT"), ("source_type", "TEXT"), ("target_id", "BIGINT"), ("target_name", "TEXT"), ("target_type_code", "TEXT"), ("target_type", "TEXT"), ("name", "TEXT"), ("access_type", "TEXT"), ("allowed", "BOOLEAN")],
     "sr01_application_inventory": [("model_id", "BIGINT"), ("model_name", "TEXT"), ("entity_type", "TEXT"), ("display_id", "TEXT"), ("name", "TEXT"), ("description", "TEXT"), ("owner", "TEXT"), ("lifecycle", "TEXT"), ("criticality", "NUMERIC"), ("annual_cost", "NUMERIC"), ("vendor", "TEXT"), ("version", "TEXT"), ("hosting", "TEXT"), ("go_live_date", "DATE"), ("retirement_date", "DATE"), ("architecture_state", "TEXT"), ("time_classification", "TEXT"), ("functional_fit", "NUMERIC"), ("technical_fit", "NUMERIC"), ("status", "TEXT"), ("link", "TEXT")],
@@ -64,17 +65,17 @@ VIEWS: dict[str, list[tuple[str, str]]] = {
     "sr24_single_points": [("model_id", "BIGINT"), ("model_name", "TEXT"), ("role", "TEXT"), ("entity_type", "TEXT"), ("name", "TEXT"), ("criticality", "NUMERIC"), ("lifecycle", "TEXT"), ("dependants", "BIGINT"), ("with_no_alternative", "BIGINT"), ("link", "TEXT")],
     "sr25_rationalisation": [("model_id", "BIGINT"), ("model_name", "TEXT"), ("capability", "TEXT"), ("application", "TEXT"), ("applications", "BIGINT"), ("overlaps_with", "TEXT")],
     "sr26_completeness": [("model_id", "BIGINT"), ("model_name", "TEXT"), ("entity_type", "TEXT"), ("display_id", "TEXT"), ("name", "TEXT"), ("owner", "TEXT"), ("attributes", "BIGINT"), ("filled", "BIGINT"), ("required", "BIGINT"), ("required_missing", "BIGINT"), ("missing_required", "TEXT"), ("completeness", "NUMERIC"), ("link", "TEXT")],
-    "sr27_orphans": [("model_id", "BIGINT"), ("model_name", "TEXT"), ("layer", "TEXT"), ("entity_type", "TEXT"), ("display_id", "TEXT"), ("name", "TEXT"), ("parent", "TEXT"), ("modified_at", "TIMESTAMP WITH TIME ZONE"), ("modified_by", "TEXT"), ("link", "TEXT")],
+    "sr27_orphans": [("model_id", "BIGINT"), ("model_name", "TEXT"), ("domain", "TEXT"), ("entity_type", "TEXT"), ("display_id", "TEXT"), ("name", "TEXT"), ("parent", "TEXT"), ("modified_at", "TIMESTAMP WITH TIME ZONE"), ("modified_by", "TEXT"), ("link", "TEXT")],
     "sr28_duplicates": [("model_id", "BIGINT"), ("model_name", "TEXT"), ("entity_type", "TEXT"), ("name", "TEXT"), ("display_id", "TEXT"), ("similar_name", "TEXT"), ("similar_display_id", "TEXT"), ("similarity", "NUMERIC"), ("link", "TEXT")],
     "sr29_change_activity": [("model_id", "BIGINT"), ("model_name", "TEXT"), ("at", "TIMESTAMP WITH TIME ZONE"), ("week", "TIMESTAMP WITH TIME ZONE"), ("changed_by", "TEXT"), ("kind", "TEXT"), ("operation", "TEXT"), ("entity_type", "TEXT"), ("label", "TEXT")],
     "sr30_source_comparison": [("model_id", "BIGINT"), ("model_name", "TEXT"), ("compared_with", "TEXT"), ("status", "TEXT"), ("entity_type", "TEXT"), ("name", "TEXT"), ("name_in_source", "TEXT"), ("what_changed", "TEXT"), ("link", "TEXT")],
     "sr_matrix": [("model_id", "BIGINT"), ("model_name", "TEXT"), ("a_role", "TEXT"), ("a_type", "TEXT"), ("a_name", "TEXT"), ("b_role", "TEXT"), ("b_type", "TEXT"), ("b_name", "TEXT"), ("relationship_type", "TEXT"), ("verb", "TEXT"), ("direction", "TEXT"), ("cell", "TEXT")],
-    # phase 8.2 (D161): viewpoints, TOGAF catalogues and matrices, dependency reports (migrations/sql/0012_viewpoints.sql)
+    # phase 8.2 (D161): views, TOGAF catalogues and matrices, dependency reports (migrations/sql/0012_viewpoints.sql)
     "dr_entity_choices": [('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('entity_type', 'TEXT'), ('entity_label', 'TEXT')],
-    "dr_fan": [('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('entity_type', 'TEXT'), ('layer', 'TEXT'), ('display_id', 'TEXT'), ('name', 'TEXT'), ('criticality', 'NUMERIC'), ('lifecycle', 'TEXT'), ('dependants', 'BIGINT'), ('depends_on', 'BIGINT'), ('link', 'TEXT')],
+    "dr_fan": [('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('entity_type', 'TEXT'), ('domain', 'TEXT'), ('display_id', 'TEXT'), ('name', 'TEXT'), ('criticality', 'NUMERIC'), ('lifecycle', 'TEXT'), ('dependants', 'BIGINT'), ('depends_on', 'BIGINT'), ('link', 'TEXT')],
     "dr_impact_chain": [('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('technology', 'TEXT'), ('technology_type', 'TEXT'), ('technology_lifecycle', 'TEXT'), ('end_of_life', 'DATE'), ('risk', 'TEXT'), ('application', 'TEXT'), ('application_criticality', 'NUMERIC'), ('behaviour', 'TEXT'), ('capability', 'TEXT'), ('value_stream', 'TEXT'), ('link', 'TEXT')],
     "dr_steps": [('steps', 'INTEGER')],
-    "tc_locations": [('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('location', 'TEXT'), ('description', 'TEXT'), ('item_type', 'TEXT'), ('item', 'TEXT'), ('item_layer', 'TEXT'), ('relationship_type', 'TEXT'), ('link', 'TEXT')],
+    "tc_locations": [('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('location', 'TEXT'), ('description', 'TEXT'), ('item_type', 'TEXT'), ('item', 'TEXT'), ('item_domain', 'TEXT'), ('relationship_type', 'TEXT'), ('link', 'TEXT')],
     "tc_measures": [('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('entity_type', 'TEXT'), ('display_id', 'TEXT'), ('name', 'TEXT'), ('description', 'TEXT'), ('owner', 'TEXT'), ('priority', 'TEXT'), ('measure', 'TEXT'), ('contributors', 'BIGINT'), ('link', 'TEXT')],
     "tc_motivation_chain": [('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('driver', 'TEXT'), ('assessment', 'TEXT'), ('goal', 'TEXT'), ('outcome', 'TEXT'), ('requirement', 'TEXT'), ('goal_measure', 'TEXT'), ('goal_priority', 'TEXT')],
     "tc_principles": [('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('display_id', 'TEXT'), ('name', 'TEXT'), ('description', 'TEXT'), ('owner', 'TEXT'), ('priority', 'TEXT'), ('status', 'TEXT'), ('supports_goals', 'TEXT'), ('realised_by_requirements', 'TEXT'), ('link', 'TEXT')],
@@ -86,10 +87,10 @@ VIEWS: dict[str, list[tuple[str, str]]] = {
     "tm_capability_org": [('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('capability', 'TEXT'), ('organisation', 'TEXT'), ('organisation_type', 'TEXT'), ('through', 'TEXT'), ('via', 'TEXT')],
     "tm_data_security": [('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('data_type', 'TEXT'), ('data', 'TEXT'), ('classification', 'TEXT'), ('classification_rank', 'INTEGER'), ('accessed_by_type', 'TEXT'), ('accessed_by', 'TEXT'), ('access', 'TEXT'), ('link', 'TEXT')],
     "type_pairs": [('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('a_id', 'BIGINT'), ('a_name', 'TEXT'), ('a_type_code', 'TEXT'), ('a_type', 'TEXT'), ('b_id', 'BIGINT'), ('b_name', 'TEXT'), ('b_type_code', 'TEXT'), ('b_type', 'TEXT'), ('relationship_type_code', 'TEXT'), ('relationship_type', 'TEXT'), ('verb', 'TEXT'), ('access_type', 'TEXT'), ('direction', 'TEXT')],
-    "viewpoints": [('viewpoint_code', 'TEXT'), ('viewpoint', 'TEXT'), ('name', 'TEXT'), ('category', 'TEXT'), ('purpose', 'TEXT'), ('concerns', 'TEXT'), ('stakeholders', 'TEXT'), ('element_types', 'TEXT'), ('relationship_types', 'TEXT'), ('heat_attribute', 'TEXT'), ('is_builtin', 'BOOLEAN'), ('sort_order', 'INTEGER')],
-    "vp_element_values": [('viewpoint_code', 'TEXT'), ('viewpoint', 'TEXT'), ('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('entity_type', 'TEXT'), ('name', 'TEXT'), ('attribute_code', 'TEXT'), ('attribute', 'TEXT'), ('value', 'TEXT'), ('is_heat_attribute', 'BOOLEAN'), ('link', 'TEXT')],
-    "vp_elements": [('viewpoint_code', 'TEXT'), ('viewpoint', 'TEXT'), ('viewpoint_category', 'TEXT'), ('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('entity_id', 'BIGINT'), ('display_id', 'TEXT'), ('name', 'TEXT'), ('description', 'TEXT'), ('entity_type_code', 'TEXT'), ('entity_type', 'TEXT'), ('layer', 'TEXT'), ('parent', 'TEXT'), ('status', 'TEXT'), ('owner', 'TEXT'), ('lifecycle', 'TEXT'), ('criticality', 'NUMERIC'), ('annual_cost', 'NUMERIC'), ('vendor', 'TEXT'), ('maturity', 'TEXT'), ('data_classification', 'TEXT'), ('priority', 'TEXT'), ('architecture_state', 'TEXT'), ('time_classification', 'TEXT'), ('link', 'TEXT')],
-    "vp_relationships": [('viewpoint_code', 'TEXT'), ('viewpoint', 'TEXT'), ('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('source_name', 'TEXT'), ('source_type', 'TEXT'), ('relationship_type', 'TEXT'), ('verb', 'TEXT'), ('target_name', 'TEXT'), ('target_type', 'TEXT'), ('name', 'TEXT'), ('allowed', 'BOOLEAN'), ('relationships', 'INTEGER')],
+    "viewpoints": [('view_code', 'TEXT'), ('view', 'TEXT'), ('name', 'TEXT'), ('category', 'TEXT'), ('purpose', 'TEXT'), ('concerns', 'TEXT'), ('stakeholders', 'TEXT'), ('element_types', 'TEXT'), ('relationship_types', 'TEXT'), ('heat_attribute', 'TEXT'), ('is_builtin', 'BOOLEAN'), ('sort_order', 'INTEGER')],
+    "vp_element_values": [('view_code', 'TEXT'), ('view', 'TEXT'), ('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('entity_type', 'TEXT'), ('name', 'TEXT'), ('attribute_code', 'TEXT'), ('attribute', 'TEXT'), ('value', 'TEXT'), ('is_heat_attribute', 'BOOLEAN'), ('link', 'TEXT')],
+    "vp_elements": [('view_code', 'TEXT'), ('view', 'TEXT'), ('view_category', 'TEXT'), ('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('entity_id', 'BIGINT'), ('display_id', 'TEXT'), ('name', 'TEXT'), ('description', 'TEXT'), ('entity_type_code', 'TEXT'), ('entity_type', 'TEXT'), ('domain', 'TEXT'), ('parent', 'TEXT'), ('status', 'TEXT'), ('owner', 'TEXT'), ('lifecycle', 'TEXT'), ('criticality', 'NUMERIC'), ('annual_cost', 'NUMERIC'), ('vendor', 'TEXT'), ('maturity', 'TEXT'), ('data_classification', 'TEXT'), ('priority', 'TEXT'), ('architecture_state', 'TEXT'), ('time_classification', 'TEXT'), ('link', 'TEXT')],
+    "vp_relationships": [('view_code', 'TEXT'), ('view', 'TEXT'), ('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('source_name', 'TEXT'), ('source_type', 'TEXT'), ('relationship_type', 'TEXT'), ('verb', 'TEXT'), ('target_name', 'TEXT'), ('target_type', 'TEXT'), ('name', 'TEXT'), ('allowed', 'BOOLEAN'), ('relationships', 'INTEGER')],
 }
 
 
@@ -157,11 +158,12 @@ THRESHOLD_FILTERS = {"sr16_capability_heat": [("Medium from", "medium_from"), ("
 # gap analyses (phase 8.3, D172)
 VIEWS.update({
     "gap_analyses": [('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('analysis_guid', 'UUID'), ('gap_analysis', 'TEXT'), ('description', 'TEXT'), ('template', 'TEXT'), ('baseline', 'TEXT'), ('target', 'TEXT'), ('baseline_model', 'TEXT'), ('baseline_tag', 'TEXT'), ('target_model', 'TEXT'), ('target_tag', 'TEXT'), ('compared_at', 'TIMESTAMP WITH TIME ZONE'), ('compared_by', 'TEXT'), ('kept', 'BIGINT'), ('changed', 'BIGINT'), ('new', 'BIGINT'), ('eliminated', 'BIGINT'), ('undecided', 'BIGINT'), ('link', 'TEXT')],
-    "gap_items": [('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('gap_analysis', 'TEXT'), ('template', 'TEXT'), ('baseline', 'TEXT'), ('target', 'TEXT'), ('compared_at', 'TIMESTAMP WITH TIME ZONE'), ('entity_type', 'TEXT'), ('entity_type_name', 'TEXT'), ('layer', 'TEXT'), ('name', 'TEXT'), ('status', 'TEXT'), ('togaf_cell', 'TEXT'), ('baseline_name', 'TEXT'), ('target_name', 'TEXT'), ('fields_changed', 'INTEGER'), ('changed_fields', 'TEXT'), ('note', 'TEXT'), ('resolution', 'TEXT'), ('work_packages', 'TEXT'), ('work_package_count', 'INTEGER'), ('has_gap_entity', 'BOOLEAN'), ('link', 'TEXT')],
+    "gap_items": [('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('gap_analysis', 'TEXT'), ('template', 'TEXT'), ('baseline', 'TEXT'), ('target', 'TEXT'), ('compared_at', 'TIMESTAMP WITH TIME ZONE'), ('entity_type', 'TEXT'), ('entity_type_name', 'TEXT'), ('domain', 'TEXT'), ('name', 'TEXT'), ('status', 'TEXT'), ('togaf_cell', 'TEXT'), ('baseline_name', 'TEXT'), ('target_name', 'TEXT'), ('fields_changed', 'INTEGER'), ('changed_fields', 'TEXT'), ('note', 'TEXT'), ('resolution', 'TEXT'), ('work_packages', 'TEXT'), ('work_package_count', 'INTEGER'), ('has_gap_entity', 'BOOLEAN'), ('link', 'TEXT')],
+    "kpi_trends": [('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('taken_at', 'TIMESTAMP WITH TIME ZONE'), ('period', 'DATE'), ('reason', 'TEXT'), ('tag_name', 'TEXT'), ('kpi_code', 'TEXT'), ('kpi', 'TEXT'), ('kpi_kind', 'TEXT'), ('dimension', 'TEXT'), ('value', 'NUMERIC'), ('is_latest', 'BOOLEAN')],
     "quality_runs": [('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('run_at', 'TIMESTAMP WITH TIME ZONE'), ('run_by', 'TEXT'), ('trigger', 'TEXT'), ('score', 'NUMERIC'), ('completeness', 'NUMERIC'), ('passing', 'NUMERIC'), ('fresh', 'NUMERIC'), ('entities', 'INTEGER'), ('incomplete', 'INTEGER'), ('failing', 'INTEGER'), ('errors', 'INTEGER'), ('stale', 'INTEGER'), ('orphans', 'INTEGER'), ('seals_valid', 'INTEGER'), ('seals_broken', 'INTEGER'), ('is_latest', 'BOOLEAN'), ('link', 'TEXT')],
     "quality_findings": [('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('run_at', 'TIMESTAMP WITH TIME ZONE'), ('display_id', 'TEXT'), ('name', 'TEXT'), ('entity_type', 'TEXT'), ('owner', 'TEXT'), ('responsible', 'TEXT'), ('kind', 'TEXT'), ('rule', 'TEXT'), ('rule_name', 'TEXT'), ('severity', 'TEXT'), ('message', 'TEXT'), ('link', 'TEXT')],
     "quality_groups": [('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('run_at', 'TIMESTAMP WITH TIME ZONE'), ('grouped_by', 'TEXT'), ('name', 'TEXT'), ('entities', 'INTEGER'), ('completeness', 'NUMERIC'), ('incomplete', 'INTEGER'), ('failing', 'INTEGER'), ('errors', 'INTEGER'), ('stale', 'INTEGER'), ('orphans', 'INTEGER'), ('link', 'TEXT')],
-    "gap_matrix": [('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('gap_analysis', 'TEXT'), ('entity_type_name', 'TEXT'), ('layer', 'TEXT'), ('baseline_element', 'TEXT'), ('target_element', 'TEXT'), ('togaf_cell', 'TEXT'), ('status', 'TEXT'), ('resolution', 'TEXT'), ('link', 'TEXT')],
+    "gap_matrix": [('model_id', 'BIGINT'), ('model_name', 'TEXT'), ('gap_analysis', 'TEXT'), ('entity_type_name', 'TEXT'), ('domain', 'TEXT'), ('baseline_element', 'TEXT'), ('target_element', 'TEXT'), ('togaf_cell', 'TEXT'), ('status', 'TEXT'), ('resolution', 'TEXT'), ('link', 'TEXT')],
 })
 LINKED = {v for v, cols in VIEWS.items() if any(c == "link" for c, _ in cols)}
 DTTM = {"TIMESTAMP WITH TIME ZONE", "DATE"}
@@ -184,7 +186,7 @@ def _open_column(public_url: str) -> dict:
 
 
 # summed metrics, made on every dataset that has the column
-SUMS = {"entities": "Entities", "annual_cost": "Annual cost", "applications": "Applications",
+SUMS = {"value": "Value", "entities": "Entities", "annual_cost": "Annual cost", "applications": "Applications",
         "dependants": "Dependants", "with_no_alternative": "With no alternative", "required_missing": "Required values missing"}
 AVERAGES = {"completeness": "Completeness %", "criticality": "Criticality (average)", "technical_fit": "Technical fit (average)",
             "functional_fit": "Functional fit (average)", "similarity": "Similarity"}
@@ -309,7 +311,7 @@ def _standard_charts(report: dict) -> list[dict]:  # noqa: C901 - one branch per
                             order="a_name", filters=flt)]
     if code == "MO":
         return [
-            pivot_chart("MO/types", "Entities by layer and type", "mo_type_counts", ["layer", "entity_type"], ["model_name"],
+            pivot_chart("MO/types", "Entities by domain and type", "mo_type_counts", ["domain", "entity_type"], ["model_name"],
                         metric="entities", about="How many entities of each type, per model"),
             table_chart("MO/models", "Models", "models",
                         ["model_name", "model_kind", "version_label", "industry", "owner", "lifecycle", "is_draft",
@@ -419,9 +421,9 @@ def _standard_charts(report: dict) -> list[dict]:  # noqa: C901 - one branch per
         ]
     if code == "SR-27":
         return [
-            pivot_chart("SR-27/types", "Orphans by layer and type", view, ["layer", "entity_type"], ["model_name"]),
+            pivot_chart("SR-27/types", "Orphans by domain and type", view, ["domain", "entity_type"], ["model_name"]),
             table_chart("SR-27/list", "Entities with no relationships", view,
-                        ["model_name", "layer", "entity_type", "display_id", "name", "modified_at", "modified_by"], order="entity_type"),
+                        ["model_name", "domain", "entity_type", "display_id", "name", "modified_at", "modified_by"], order="entity_type"),
         ]
     if code == "SR-28":
         return [
@@ -449,7 +451,7 @@ def _standard_charts(report: dict) -> list[dict]:  # noqa: C901 - one branch per
 # Filters people can set on a dashboard (owner, 4 Nov 2026: let people tailor reports where possible):
 # the Model filter (several models), drop-downs for the common columns the report has, number ranges for
 # its measures, threshold pickers for heatmaps and banded reports, and a time range for change reports.
-COMMON_SELECTS = [("Type", "entity_type"), ("Layer", "layer"), ("Owner", "owner"), ("Lifecycle", "lifecycle"),
+COMMON_SELECTS = [("Type", "entity_type"), ("Domain", "domain"), ("Owner", "owner"), ("Lifecycle", "lifecycle"),
                   ("Vendor", "vendor"), ("Changed by", "changed_by"), ("Status", "status"), ("Risk band", "band")]
 RANGES = {
     "SR-01": [("Criticality", "criticality"), ("Annual cost", "annual_cost")],
@@ -520,8 +522,8 @@ def dashboard(report: dict, charts: list[dict]) -> dict:
             f"**How to use it:** {a['use']}\n\n**How to read it:** {a['read']}\n\n"
             "**Models:** choose one or more in the Model filter on the left; it lists the models you have in EA Explorer, and "
             "inside them you see all their data. *Open* goes to the entity.")
-    if report.get("family") == "Viewpoint":
-        vp = next(v for v in VIEWPOINTS if v["code"] == report["viewpoint"])
+    if report.get("family") == "View":
+        vp = next(v for v in VIEW_DEFS if v["code"] == report["view_code"])
         note += (f"\n\n**Concerns:** {vp['concerns']}. **Stakeholders:** {vp['stakeholders']}. **Purpose:** {vp['purpose']}.  \n"
                  f"**Elements:** {', '.join(vp['element_types'])}.")
     position["ROW-0"] = {"type": "ROW", "id": "ROW-0", "children": ["MARKDOWN-0"], "parents": ["ROOT_ID", "GRID_ID"],
@@ -598,15 +600,16 @@ def build_report_bundles(folder: Path, db_password: str, db_name: str = "eaexplo
 
 
 
-# ================================================================ phase 8.2 (D161): viewpoints, TOGAF, dependencies, audiences
+# ================================================================ phase 8.2 (D161): views, TOGAF, dependencies, audiences
 # SQL datasets that are not views: DR-01 runs the dependency walk for the entity and the number of steps chosen
 # in the dashboard's filters (read with filter_values() from rpt.dr_entity_choices and rpt.dr_steps).
 _LABEL = "{{ ((filter_values('entity_label', None, True) or [''])[0]) | replace(\"'\", \"''\") }}"
 _STEPS = "{{ ((filter_values('steps', None, True) or [4])[0]) | int }}"
 VIRTUAL: dict[str, tuple[str, list[tuple[str, str]]]] = {
-    "dr_dependencies": (f"SELECT * FROM rpt.f_dependencies('{_LABEL}', {_STEPS})", [
+    "dr_dependencies": ("SELECT model_id, model_name, chosen_entity, direction, depth, entity, entity_type, layer AS domain, lifecycle, "
+                        f"criticality, last_relationship, path, link FROM rpt.f_dependencies('{_LABEL}', {_STEPS})", [
         ("model_id", "BIGINT"), ("model_name", "TEXT"), ("chosen_entity", "TEXT"), ("direction", "TEXT"), ("depth", "INTEGER"),
-        ("entity", "TEXT"), ("entity_type", "TEXT"), ("layer", "TEXT"), ("lifecycle", "TEXT"), ("criticality", "NUMERIC"),
+        ("entity", "TEXT"), ("entity_type", "TEXT"), ("domain", "TEXT"), ("lifecycle", "TEXT"), ("criticality", "NUMERIC"),
         ("last_relationship", "TEXT"), ("path", "TEXT"), ("link", "TEXT")]),
 }
 for _v, (_sql, _cols) in VIRTUAL.items():
@@ -655,14 +658,14 @@ def _in(column: str, values: list[str]) -> dict:
             "sqlExpression": None}
 
 
-def _viewpoint_charts(report: dict) -> list[dict]:
+def _view_charts(report: dict) -> list[dict]:
     code = report["code"]
-    vp = next(v for v in VIEWPOINTS if v["code"] == report["viewpoint"])
-    flt = [_filter("viewpoint_code", code)]
+    vp = next(v for v in VIEW_DEFS if v["code"] == report["view_code"])
+    flt = [_filter("view_code", code)]
     heat = ATTRIBUTE_NAMES.get(vp["heat_attribute"], vp["heat_attribute"])
     return [
-        pivot_chart(f"{code}/types", "Elements by layer and type", "vp_elements", ["layer", "entity_type"], ["lifecycle"],
-                    filters=flt, width=6, about="How many elements of each type the viewpoint shows, by lifecycle"),
+        pivot_chart(f"{code}/types", "Elements by domain and type", "vp_elements", ["domain", "entity_type"], ["lifecycle"],
+                    filters=flt, width=6, about="How many elements of each type the view shows, by lifecycle"),
         pivot_chart(f"{code}/heat", "Heat map: elements coloured by an attribute", "vp_element_values", ["entity_type", "name"],
                     ["value"], filters=flt, width=6,
                     about=f"Choose the attribute in the Colour by filter (default {heat}); darker cells hold more"),
@@ -671,7 +674,7 @@ def _viewpoint_charts(report: dict) -> list[dict]:
         pivot_chart(f"{code}/matrix", "Matrix: source against target", "vp_relationships", ["source_type", "source_name"],
                     ["target_name"], metric="count", filters=flt, about="Each cell counts the relationships between the two"),
         table_chart(f"{code}/catalog", "Catalog", "vp_elements",
-                    ["model_name", "layer", "entity_type", "display_id", "name", "description", "owner", "lifecycle",
+                    ["model_name", "domain", "entity_type", "display_id", "name", "description", "owner", "lifecycle",
                      "criticality", "maturity", "data_classification", "priority", "architecture_state", "parent"],
                     order="entity_type", filters=flt),
         table_chart(f"{code}/relationships", "Relationships", "vp_relationships",
@@ -706,8 +709,8 @@ def _togaf_charts(report: dict) -> list[dict]:  # noqa: C901 - one branch per re
                 table_chart("TC-04/list", title, view, ["model_name", "display_id", "name", "priority", "owner", "realises",
                                                         "realised_by", "realisations"], order="priority")]
     if code == "TC-05":
-        return [pivot_chart("TC-05/matrix", "What is where", view, ["location"], ["item_layer"], about=about),
-                table_chart("TC-05/list", title, view, ["model_name", "location", "item_type", "item", "item_layer",
+        return [pivot_chart("TC-05/matrix", "What is where", view, ["location"], ["item_domain"], about=about),
+                table_chart("TC-05/list", title, view, ["model_name", "location", "item_type", "item", "item_domain",
                                                         "relationship_type"], order="location")]
     if code == "TC-06":
         return [treemap_chart("TC-06/tree", "Products and what they bundle", view, ["product", "part_type", "part"], about=about),
@@ -745,7 +748,7 @@ def _dependency_charts(report: dict) -> list[dict]:
         return [pivot_chart("DR-01/depth", "Upstream and downstream by type and steps away", v, ["direction", "entity_type"],
                             ["depth"], about="Choose the entity and the number of steps in the filters on the left"),
                 table_chart("DR-01/list", title, v, ["model_name", "chosen_entity", "direction", "depth", "entity", "entity_type",
-                                                     "layer", "lifecycle", "criticality", "last_relationship", "path"],
+                                                     "domain", "lifecycle", "criticality", "last_relationship", "path"],
                             order="depth")]
     if code == "DR-02":
         return [pivot_chart("DR-02/matrix", "Row type against column type", view, ["a_name"], ["b_name"],
@@ -762,11 +765,11 @@ def _dependency_charts(report: dict) -> list[dict]:
                                                                   "behaviour", "capability", "value_stream"], order="risk")]
     if code == "DR-04":
         v = "dr_fan_heat"
-        return [pivot_chart("DR-04/bands", "Entities by type and band", v, ["layer", "entity_type"], ["band"],
+        return [pivot_chart("DR-04/bands", "Entities by type and band", v, ["domain", "entity_type"], ["band"],
                             about="Set Watch from and Hot spot from in the filter bar"),
                 bar_chart("DR-04/bar", "Most depended on", v, "name", metric="dependants", group=["entity_type"], width=6),
                 bar_chart("DR-04/bar2", "Depending on the most", v, "name", metric="depends_on", group=["entity_type"], width=6),
-                table_chart("DR-04/list", "Dependency counts", v, ["model_name", "layer", "entity_type", "display_id", "name",
+                table_chart("DR-04/list", "Dependency counts", v, ["model_name", "domain", "entity_type", "display_id", "name",
                                                                    "dependants", "depends_on", "band", "criticality", "lifecycle"],
                             order="dependants", desc=True)]
     raise ValueError(f"no charts for {code}")
@@ -821,21 +824,21 @@ def _gap_charts(report: dict) -> list[dict]:
                                                                   "undecided"], order="compared_at", desc=True, about=about),
                 bar_chart("GR-01/bar", "Gaps by analysis", "gap_items", "gap_analysis", group=["status"], filters=gaps)]
     if code == "GR-02":
-        return [pivot_chart("GR-02/pivot", "Gaps by layer, type and status", "gap_items", ["gap_analysis", "layer", "entity_type_name"],
+        return [pivot_chart("GR-02/pivot", "Gaps by domain, type and status", "gap_items", ["gap_analysis", "domain", "entity_type_name"],
                             ["status"], about=about),
                 bar_chart("GR-02/bar", "Gaps by entity type", "gap_items", "entity_type_name", group=["status"], filters=gaps, width=6),
-                treemap_chart("GR-02/tree", "Where the gaps are", "gap_items", ["layer", "entity_type_name", "status"], width=6)]
+                treemap_chart("GR-02/tree", "Where the gaps are", "gap_items", ["domain", "entity_type_name", "status"], width=6)]
     if code == "GR-03":
         return [pivot_chart("GR-03/matrix", "TOGAF gap matrix: baseline down, target across", "gap_matrix",
                             ["gap_analysis", "entity_type_name", "baseline_element"], ["target_element"], about=about),
-                table_chart("GR-03/cells", "The matrix cells", "gap_matrix", ["model_name", "gap_analysis", "layer", "entity_type_name",
+                table_chart("GR-03/cells", "The matrix cells", "gap_matrix", ["model_name", "gap_analysis", "domain", "entity_type_name",
                                                                              "baseline_element", "target_element", "togaf_cell",
                                                                              "resolution"], order="entity_type_name")]
     if code == "GR-04":
         return [pivot_chart("GR-04/resolution", "Gaps by resolution", "gap_items", ["gap_analysis", "status"], ["resolution"],
                             filters=gaps, about=about),
                 table_chart("GR-04/list", "Gaps, their resolutions and work packages", "gap_items",
-                            ["model_name", "gap_analysis", "layer", "entity_type_name", "name", "status", "togaf_cell", "resolution",
+                            ["model_name", "gap_analysis", "domain", "entity_type_name", "name", "status", "togaf_cell", "resolution",
                              "work_packages", "note", "changed_fields", "has_gap_entity"], order="gap_analysis", filters=gaps)]
     if code == "GR-05":
         flt = [_filter("entity_type_code", "Gap")]
@@ -884,14 +887,28 @@ def _quality_charts(report: dict) -> list[dict]:
     raise ValueError(f"no charts for {code}")
 
 
+def _kpi_charts(report: dict) -> list[dict]:
+    """KR-01: KPI trends (phase 24, D365). Choose the KPI with the filter; one line per model (and per dimension)."""
+    latest = [_filter("is_latest", "true")]
+    return [line_chart("KR-01/trend", "The KPI over time", "kpi_trends", "taken_at", metric="value",
+                       group=["model_name", "dimension"], grain="P1D", about=report["about"]),
+            table_chart("KR-01/now", "The latest values", "kpi_trends", ["model_name", "kpi", "dimension", "value", "taken_at",
+                                                                         "reason", "tag_name"],
+                        order="kpi", filters=latest),
+            table_chart("KR-01/all", "Every value kept", "kpi_trends", ["model_name", "period", "reason", "tag_name", "kpi",
+                                                                        "dimension", "value"], order="period", desc=True)]
+
+
 def charts_for(report: dict) -> list[dict]:
     family = report.get("family", "Standard")
+    if family == "KPI trends":
+        return _kpi_charts(report)
     if family == "Data quality":
         return _quality_charts(report)
     if family == "Gap analysis":
         return _gap_charts(report)
-    if family == "Viewpoint":
-        return _viewpoint_charts(report)
+    if family == "View":
+        return _view_charts(report)
     if family in ("TOGAF catalogue", "TOGAF matrix"):
         return _togaf_charts(report)
     if family == "Dependency":
@@ -912,8 +929,8 @@ def dashboard_filters(report: dict, charts: list[dict]) -> list[dict]:
     first = dataset_for(charts[0])
     out = [_native(slug, "Model", "filter_select", first, "model_name", n,
                    "The models to show: the models you have in EA Explorer (several at a time)")]
-    if family == "Viewpoint":
-        vp = next(v for v in VIEWPOINTS if v["code"] == report["viewpoint"])
+    if family == "View":
+        vp = next(v for v in VIEW_DEFS if v["code"] == report["view_code"])
         heat = ATTRIBUTE_NAMES.get(vp["heat_attribute"], vp["heat_attribute"])
         colour = _native(slug, "Colour by", "filter_select", "vp_element_values", "attribute", n,
                          "The attribute that colours the heat map", multi=False)
@@ -923,6 +940,12 @@ def dashboard_filters(report: dict, charts: list[dict]) -> list[dict]:
                 _native(slug, "Lifecycle", "filter_select", "vp_elements", "lifecycle", n),
                 _native(slug, "Owner", "filter_select", "vp_elements", "owner", n)]
         return out
+    if family == "KPI trends":
+        kpi = _native(slug, "KPI", "filter_select", first, "kpi", n, "The KPI to show", multi=False)
+        kpi["defaultDataMask"] = {"extraFormData": {"filters": [{"col": "kpi", "op": "IN", "val": ["Entities"]}]},
+                                  "filterState": {"value": ["Entities"]}, "ownState": {}}
+        return out + [kpi, _native(slug, "Dimension", "filter_select", first, "dimension", n),
+                      _native(slug, "Kept", "filter_select", first, "reason", n, "Monthly, or on a tag")]
     if family == "Data quality":
         for label, column in (("Entity type", "entity_type"), ("Owner", "owner"), ("Kind", "kind"), ("Severity", "severity"),
                               ("Grouped by", "grouped_by")):
@@ -930,7 +953,7 @@ def dashboard_filters(report: dict, charts: list[dict]) -> list[dict]:
                 out.append(_native(slug, label, "filter_select", first, column, n))
         return out
     if family == "Gap analysis" and first != "entity_std":
-        for label, column in (("Gap analysis", "gap_analysis"), ("Status", "status"), ("Layer", "layer"),
+        for label, column in (("Gap analysis", "gap_analysis"), ("Status", "status"), ("Domain", "domain"),
                               ("Entity type", "entity_type_name"), ("Resolution", "resolution")):
             if column in {c for c, _ in VIEWS[first]}:
                 out.append(_native(slug, label, "filter_select", first, column, n))

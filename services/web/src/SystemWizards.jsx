@@ -11,6 +11,7 @@ import { Field, Modal } from "./ModelOps";
 import { RestoreAll, RestoreInfra, RestoreModel, when } from "./Backups";
 import { trackTask } from "./tasks";
 import { FirstRunPanel } from "./GuidedWizards";
+import { liveModels } from "./ModelMarks";
 
 const post = (path, body) => apiFetch(path, { method: "POST", body: JSON.stringify(body || {}) });
 
@@ -90,7 +91,8 @@ function PersonPick({ person, setPerson }) {
 }
 
 function GiveAccess({ onClose }) {
-  const { data: models } = useApi("/api/v1/models?archived=false");
+  const { data: models_ } = useApi("/api/v1/models?archived=false");
+  const models = models_ && liveModels(models_);
   const [step, setStep] = useState(0);
   const [person, setPerson] = useState(null);
   const [role, setRole] = useState("architect");

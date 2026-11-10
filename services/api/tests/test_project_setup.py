@@ -57,7 +57,7 @@ def test_background_kinds_and_routes():
     src = (ROOT / "eax" / "api" / "projects.py").read_text()
     for route in ('"/projects/<string:project>/files"', '"/projects/<string:project>/documents/<string:doc>/kind"',
                   '"/projects/<string:project>/documents/<string:doc>/signoff"', '"/projects/<string:project>/signoffs/<string:request_id>/decide"',
-                  '"/projects/<string:project>/signoffs/<string:request_id>/record"', '"/projects/<string:project>/viewpoints"',
+                  '"/projects/<string:project>/signoffs/<string:request_id>/record"', '"/projects/<string:project>/views"',
                   '"/projects/<string:project>/finish"'):
         assert route in src
     assert 'start("project.updated"' in src and 'start("project.finished"' in src

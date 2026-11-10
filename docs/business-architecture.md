@@ -1,27 +1,27 @@
 # Business architecture artifacts
 
-Owner, 9 Nov 2026 (D345). The business architecture artifacts TOGAF recommends for Phase B, each given by a viewpoint
+Owner, 9 Nov 2026 (D345). The business architecture artifacts TOGAF recommends for Phase B, each given by a view
 of a model, with the metamodel types they need. The Business Model Canvas is separate: a project's own canvases
 ([business-model-canvas.md](business-model-canvas.md), D344). Use cases are left out: they are UML, not ArchiMate.
 
 ## Where to find them
 
-* **A model's Business viewpoints tab** (Models › a model; D352): only what can be made from the model's elements and
-  relationships. Every artifact mapped to its **viewpoint** (the link shows it in its usual form: a catalogue as a
-  catalog, a matrix as a matrix...) and to its **reports**: the viewpoint's own dashboard and the standard reports that
-  go with it (`VIEWPOINT_REPORTS` in `eax/report_defs.py`, for example the Business Capabilities catalog with SR-02 and
+* **A model's Business views tab** (Models › a model; D352): only what can be made from the model's elements and
+  relationships. Every artifact mapped to its **view** (the link shows it in its usual form: a catalogue as a
+  catalog, a matrix as a matrix...) and to its **reports**: the view's own dashboard and the standard reports that
+  go with it (`VIEW_REPORTS` in `eax/report_defs.py`, for example the Business Capabilities catalog with SR-02 and
   SR-16). Then what it shows and how many elements the model has for it (✓ green), whether it has the types but no
   elements yet (amber), or needs types the model's metamodel lacks (red). No Business Model Canvas here: it is not made
   from a model.
 * **A project's Business artifacts tab**: everything business architecture in the project: its **Business Model
   Canvases** (kind, status, items and marks), its **Phase B deliverables and artifacts** with their documents, and the
-  **business viewpoints** of any of the project's models (as on the model's tab).
-* **The Viewpoints tab** of a model: the new viewpoints sit in the category *TOGAF business architecture*; each
-  viewpoint that gives a TOGAF artifact says so.
+  **business views** of any of the project's models (as on the model's tab).
+* **The Views tab** of a model: the new views sit in the category *TOGAF business architecture*; each
+  view that gives a TOGAF artifact says so.
 
-## The artifacts and their viewpoints
+## The artifacts and their views
 
-| Kind | Artifact | Viewpoint |
+| Kind | Artifact | View |
 |---|---|---|
 | Catalogue | Organization/Actor catalog | VP-27 |
 | | Role catalog | VP-28 |
@@ -54,7 +54,7 @@ of a model, with the metamodel types they need. The Business Model Canvas is sep
 | Deliverables | Architecture Definition Document and Architecture Requirements Specification (business), Statement of Architecture Work | the project's documents (templates in the library) |
 | | Architecture Roadmap (business work packages) | VP-24, VP-25, the migration plan wizard |
 
-VP-27 to VP-49 are EA Explorer's own viewpoints; each names element types of both ArchiMate 4 and the TOGAF 10 content
+VP-27 to VP-49 are EA Explorer's own views; each names element types of both ArchiMate 4 and the TOGAF 10 content
 metamodel, so it works on models of either.
 
 ## Metamodel additions: EA Explorer extensions
@@ -82,14 +82,14 @@ streams in models made before).
 Protea Insurance (demo estate) has content for every artifact: its value stream stages are Value Stream Stages with
 order, entry and exit criteria and value; two products with five lifecycle stages each; two business scenarios; three
 controls, three contracts and three measures; importance and investment on every capability. Six project templates
-choose some of the new viewpoints (transformation, new product, operating model, capability planning, document as-is,
+choose some of the new views (transformation, new product, operating model, capability planning, document as-is,
 due diligence), so their sample projects show them.
 
 ## To test
 
-1. Clean restart. Models › Protea Insurance (demo estate) › **Business viewpoints**: every artifact green, each with its
-   viewpoint and reports (Dashboard and the SR, TC or TM reports, opening in the reporting tool).
+1. Clean restart. Models › Protea Insurance (demo estate) › **Business views**: every artifact green, each with its
+   view and reports (Dashboard and the SR, TC or TM reports, opening in the reporting tool).
 2. Open VP-33 (a catalogue opens as a catalog), VP-39 (a matrix), VP-48 (a diagram), VP-19 as a heat map by Importance.
-3. Models › Karoo Digital (lean) › Business viewpoints: most artifacts red (its metamodel lacks the types).
-4. A project › **Business artifacts**: its canvases, its Phase B deliverables, and the business viewpoints of each of its models.
+3. Models › Karoo Digital (lean) › Business views: most artifacts red (its metamodel lacks the types).
+4. A project › **Business artifacts**: its canvases, its Phase B deliverables, and the business views of each of its models.
 5. Metamodel tab of Protea: the six extension types, each described as an EA Explorer extension.

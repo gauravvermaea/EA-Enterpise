@@ -1,11 +1,11 @@
 """Key questions (owner, 9 Nov 2026): every piece of a project's work answers a stakeholder's question.
 
     a key question     the question, who asks it, and the answer we expect or how we will answer it
-    its viewpoints     the viewpoints that answer it: many to many (a question may need several viewpoints; a viewpoint
-                       may answer several questions). A library viewpoint mapped to a question is chosen for the project
-    a placeholder      stands in where no viewpoint fits: a text (a name and what it will show), or an empty file of a
+    its views     the views that answer it: many to many (a question may need several views; a view
+                       may answer several questions). A library view mapped to a question is chosen for the project
+    a placeholder      stands in where no view fits: a text (a name and what it will show), or an empty file of a
                        type (docx, pptx, xlsx, pdf, drawio, md, txt) put in the project's files to fill in later.
-                       Placeholders stay in the project (PH-01 ...): never in the organisation's viewpoints
+                       Placeholders stay in the project (PH-01 ...): never in the organisation's views
 
     its status         open, then answered (a contributor writes the answer), then accepted by the stakeholder: in the
                        application by a project member with the Stakeholder role, or recorded by a contributor (who,
@@ -13,7 +13,7 @@
                        open; changing an accepted question or its answer takes the acceptance away. Every step is kept
                        (question_events)
 
-Set in the project wizard (the Key questions step, then the Viewpoints step maps them), and on the project's Key
+Set in the project wizard (the Key questions step, then the Views step maps them), and on the project's Key
 questions tab by anyone who contributes. Rules are here, never in the database (D248).
 """
 
@@ -52,21 +52,21 @@ def listing(conn, p: dict) -> dict:
                              WHERE q.project_id = :p ORDER BY l.sort_order, l.id""", p=p["id"]):
         links.setdefault(r.pop("question_id"), []).append(r)
     maps: dict[int, list[str]] = {}
-    for r in _rows(conn, """SELECT qv.question_id, qv.viewpoint FROM proj.question_viewpoints qv
-                             JOIN proj.key_questions q ON q.id = qv.question_id WHERE q.project_id = :p ORDER BY qv.viewpoint""", p=p["id"]):
-        maps.setdefault(r["question_id"], []).append(r["viewpoint"])
+    for r in _rows(conn, """SELECT qv.question_id, qv.view FROM proj.question_views qv
+                             JOIN proj.key_questions q ON q.id = qv.question_id WHERE q.project_id = :p ORDER BY qv.view""", p=p["id"]):
+        maps.setdefault(r["question_id"], []).append(r["view"])
     phs = _rows(conn, """SELECT ph.guid::text AS id, ph.code, ph.name, ph.description, ph.kind, ph.file_type, ph.created_by, ph.created_at,
                                 d.guid::text AS document, d.file_name, d.folder
-                           FROM proj.placeholder_viewpoints ph LEFT JOIN proj.documents d ON d.id = ph.document_id
+                           FROM proj.placeholder_views ph LEFT JOIN proj.documents d ON d.id = ph.document_id
                           WHERE ph.project_id = :p ORDER BY ph.code""", p=p["id"])
     questions = [{"id": q["id_guid"], "seq": q["sort_order"], "question": q["question"], "asked_by": q["asked_by"], "approach": q["approach"],
-                  "viewpoints": maps.get(q["id"], []), "created_by": q["created_by"], "created_at": q["created_at"],
+                  "views": maps.get(q["id"], []), "created_by": q["created_by"], "created_at": q["created_at"],
                   "changed_by": q["changed_by"], "changed_at": q["changed_at"],
                   **{k: q[k] for k in ("status", "answer", "answered_by", "answered_at", "accepted_by", "accepted_at", "accept_note",
                                        "accept_recorded_by", "evidence", "evidence_name")},
                   "links": links.get(q["id"], []), "history": events.get(q["id"], [])} for q in qs]
     for ph in phs:
-        ph["answers"] = [q["id"] for q in questions if ph["code"] in q["viewpoints"]]
+        ph["answers"] = [q["id"] for q in questions if ph["code"] in q["views"]]
     counts = {k: sum(1 for q in questions if q["status"] == k) for k in STATUSES}
     return {"questions": questions, "placeholders": phs, "file_types": blank_files.TYPES, "counts": counts}
 
@@ -105,40 +105,40 @@ def _plain(html: str) -> str:
     return re.sub(r"<[^>]+>|&nbsp;", " ", html or "").strip()
 
 
-# ---------------------------------------------------------------- the viewpoints a question maps to
+# ---------------------------------------------------------------- the views a question maps to
 def _known(conn, p: dict) -> tuple[set[str], set[str]]:
-    """The codes the project has (its viewpoints and placeholders) and the organisation's library codes."""
-    have = {r["v"] for r in _rows(conn, "SELECT viewpoint AS v FROM proj.project_viewpoints WHERE project_id = :p", p=p["id"])}
-    have |= {r["code"] for r in _rows(conn, "SELECT code FROM proj.placeholder_viewpoints WHERE project_id = :p", p=p["id"])}
+    """The codes the project has (its views and placeholders) and the organisation's library codes."""
+    have = {r["v"] for r in _rows(conn, "SELECT view AS v FROM proj.project_views WHERE project_id = :p", p=p["id"])}
+    have |= {r["code"] for r in _rows(conn, "SELECT code FROM proj.placeholder_views WHERE project_id = :p", p=p["id"])}
     lib = {r["code"] for r in _rows(pj.core(conn), "SELECT code FROM core.viewpoints")}
     return have, lib
 
 
-def set_viewpoints(conn, p: dict, question_id: int, codes: list[str]) -> list[str]:
-    """The viewpoints that answer a question, as they should be. A viewpoint of the organisation's library not yet the
+def set_views(conn, p: dict, question_id: int, codes: list[str]) -> list[str]:
+    """The views that answer a question, as they should be. A view of the organisation's library not yet the
     project's is chosen for it; a code that is neither the project's nor the library's is refused."""
     have, lib = _known(conn, p)
     codes = list(dict.fromkeys(c for c in (str(x).strip() for x in codes or []) if c))
     unknown = [c for c in codes if c not in have and c not in lib]
     if unknown:
-        raise EditError(f"No such viewpoint: {', '.join(unknown)}.")
+        raise EditError(f"No such view: {', '.join(unknown)}.")
     for c in codes:
         if c not in have and not c.startswith("PH-"):
-            conn.execute(text("INSERT INTO proj.project_viewpoints (project_id, viewpoint) VALUES (:p, :v) ON CONFLICT DO NOTHING"),
+            conn.execute(text("INSERT INTO proj.project_views (project_id, view) VALUES (:p, :v) ON CONFLICT DO NOTHING"),
                          {"p": p["id"], "v": c})
-    conn.execute(text("DELETE FROM proj.question_viewpoints WHERE question_id = :q AND NOT (viewpoint = ANY (CAST(:c AS text[])))"),
+    conn.execute(text("DELETE FROM proj.question_views WHERE question_id = :q AND NOT (view = ANY (CAST(:c AS text[])))"),
                  {"q": question_id, "c": codes})
     for c in codes:
-        conn.execute(text("INSERT INTO proj.question_viewpoints (question_id, viewpoint) VALUES (:q, :v) ON CONFLICT DO NOTHING"),
+        conn.execute(text("INSERT INTO proj.question_views (question_id, view) VALUES (:q, :v) ON CONFLICT DO NOTHING"),
                      {"q": question_id, "v": c})
     return codes
 
 
 def tidy(conn, p: dict) -> None:
-    """Mappings to a viewpoint the project no longer has (taken out in the wizard) go."""
+    """Mappings to a view the project no longer has (taken out in the wizard) go."""
     have, _lib = _known(conn, p)
-    conn.execute(text("""DELETE FROM proj.question_viewpoints qv USING proj.key_questions q
-                          WHERE q.id = qv.question_id AND q.project_id = :p AND NOT (qv.viewpoint = ANY (CAST(:h AS text[])))"""),
+    conn.execute(text("""DELETE FROM proj.question_views qv USING proj.key_questions q
+                          WHERE q.id = qv.question_id AND q.project_id = :p AND NOT (qv.view = ANY (CAST(:h AS text[])))"""),
                  {"p": p["id"], "h": sorted(have)})
 
 
@@ -159,7 +159,7 @@ def _insert_question(conn, p: dict, user, data: dict, seq: int | None = None) ->
 def add_question(conn, project: Any, user, data: dict) -> dict:
     p = _project(conn, project, user)
     row = _insert_question(conn, p, user, data)
-    set_viewpoints(conn, p, row["id"], data.get("viewpoints") or [])
+    set_views(conn, p, row["id"], data.get("views") or [])
     return {"id": row["guid"], "message": "Key question added."}
 
 
@@ -179,8 +179,8 @@ def change_question(conn, project: Any, user, qid: str, data: dict) -> dict:
     msg = "Key question saved."
     if any(_clean(new[k]) != _clean(q[k]) for k in ("question", "asked_by", "approach", "answer")):
         msg += _changed(conn, q, user, _clean(new["question"]) != _clean(q["question"]) or _clean(new["answer"]) != _clean(q["answer"]))
-    if "viewpoints" in data:
-        set_viewpoints(conn, p, q["id"], data.get("viewpoints") or [])
+    if "views" in data:
+        set_views(conn, p, q["id"], data.get("views") or [])
     if "documents" in data or "links" in data:
         set_links(conn, p, q["id"], user, data.get("documents"), data.get("links"))
     return {"id": qid, "message": msg}
@@ -255,12 +255,12 @@ def answer(conn, project: Any, user, qid: str, data: dict) -> dict:
         raise EditError("Write the answer: a summary of it, pointing to the artifacts that hold it.")
     if "documents" in data or "links" in data:
         set_links(conn, p, q["id"], user, data.get("documents"), data.get("links"))
-    if "viewpoints" in data:
-        set_viewpoints(conn, p, q["id"], data.get("viewpoints") or [])
+    if "views" in data:
+        set_views(conn, p, q["id"], data.get("views") or [])
     points = (_one(conn, """SELECT (SELECT count(*) FROM proj.question_links WHERE question_id = :q)
-                                   + (SELECT count(*) FROM proj.question_viewpoints WHERE question_id = :q) AS n""", q=q["id"]) or {"n": 0})["n"]
+                                   + (SELECT count(*) FROM proj.question_views WHERE question_id = :q) AS n""", q=q["id"]) or {"n": 0})["n"]
     if not points:
-        raise EditError("Point the answer to what holds it: a document of the project, a link, or a viewpoint.")
+        raise EditError("Point the answer to what holds it: a document of the project, a link, or a view.")
     if q["status"] == "accepted" and a == q["answer"]:
         return {"id": qid, "message": "Already accepted with that answer."}
     conn.execute(text("""UPDATE proj.key_questions SET status = 'answered', answer = :a, answered_by = :u, answered_at = now(),
@@ -347,12 +347,12 @@ def delete_question(conn, project: Any, user, qid: str) -> dict:
     p = _project(conn, project, user)
     q = _question(conn, p, qid)
     conn.execute(text("DELETE FROM proj.key_questions WHERE id = :i"), {"i": q["id"]})
-    return {"id": qid, "message": "Key question removed (its viewpoints stay in the project)."}
+    return {"id": qid, "message": "Key question removed (its views stay in the project)."}
 
 
-# ---------------------------------------------------------------- placeholder viewpoints
+# ---------------------------------------------------------------- placeholder views
 def _next_code(conn, p: dict) -> str:
-    used = [r["code"] for r in _rows(conn, "SELECT code FROM proj.placeholder_viewpoints WHERE project_id = :p", p=p["id"])]
+    used = [r["code"] for r in _rows(conn, "SELECT code FROM proj.placeholder_views WHERE project_id = :p", p=p["id"])]
     n = max([int(m.group(1)) for c in used if (m := re.match(r"^PH-(\d+)$", c))] or [0]) + 1
     return f"PH-{n:02d}"
 
@@ -360,35 +360,35 @@ def _next_code(conn, p: dict) -> str:
 def _insert_placeholder(conn, p: dict, user, data: dict) -> dict:
     name = _clean(data.get("name"), 200)
     if not name:
-        raise EditError("Name the placeholder viewpoint.")
+        raise EditError("Name the placeholder view.")
     kind = data.get("kind") or "text"
     if kind not in ("text", "file"):
-        raise EditError("A placeholder viewpoint is a text or a file.")
+        raise EditError("A placeholder view is a text or a file.")
     ft = (data.get("file_type") or "").lower().lstrip(".") if kind == "file" else ""
     if kind == "file" and ft not in blank_files.TYPES:
         raise EditError(f"Choose the kind of file: {', '.join(blank_files.TYPES)}.")
     code = _next_code(conn, p)
-    conn.execute(text("""INSERT INTO proj.placeholder_viewpoints (project_id, code, name, description, kind, file_type, created_by)
+    conn.execute(text("""INSERT INTO proj.placeholder_views (project_id, code, name, description, kind, file_type, created_by)
                          VALUES (:p, :c, :n, :d, :k, :f, :u)"""),
                  {"p": p["id"], "c": code, "n": name, "d": _clean(data.get("description")), "k": kind, "f": ft, "u": user.username})
     return {"code": code, "name": name, "kind": kind}
 
 
 def add_placeholder(conn, project: Any, user, data: dict) -> dict:
-    """A placeholder viewpoint; a file one gets its empty file in the project's files (make_files, after the commit)."""
+    """A placeholder view; a file one gets its empty file in the project's files (make_files, after the commit)."""
     p = _project(conn, project, user)
     ph = _insert_placeholder(conn, p, user, data)
     for qid in data.get("questions") or []:
         q = _question(conn, p, qid)
-        conn.execute(text("INSERT INTO proj.question_viewpoints (question_id, viewpoint) VALUES (:q, :v) ON CONFLICT DO NOTHING"),
+        conn.execute(text("INSERT INTO proj.question_views (question_id, view) VALUES (:q, :v) ON CONFLICT DO NOTHING"),
                      {"q": q["id"], "v": ph["code"]})
-    return {**ph, "message": f"Placeholder viewpoint {ph['code']} {ph['name']} added."}
+    return {**ph, "message": f"Placeholder view {ph['code']} {ph['name']} added."}
 
 
 def _placeholder(conn, p: dict, code: str) -> dict:
-    ph = _one(conn, "SELECT * FROM proj.placeholder_viewpoints WHERE project_id = :p AND code = :c", p=p["id"], c=code)
+    ph = _one(conn, "SELECT * FROM proj.placeholder_views WHERE project_id = :p AND code = :c", p=p["id"], c=code)
     if not ph:
-        raise EditError("No such placeholder viewpoint in this project.", 404)
+        raise EditError("No such placeholder view in this project.", 404)
     return ph
 
 
@@ -397,8 +397,8 @@ def change_placeholder(conn, project: Any, user, code: str, data: dict) -> dict:
     ph = _placeholder(conn, p, code)
     name = _clean(data.get("name", ph["name"]), 200)
     if not name:
-        raise EditError("Name the placeholder viewpoint.")
-    conn.execute(text("UPDATE proj.placeholder_viewpoints SET name = :n, description = :d WHERE id = :i"),
+        raise EditError("Name the placeholder view.")
+    conn.execute(text("UPDATE proj.placeholder_views SET name = :n, description = :d WHERE id = :i"),
                  {"n": name, "d": _clean(data.get("description", ph["description"])), "i": ph["id"]})
     return {"code": code, "message": f"{code} saved."}
 
@@ -411,13 +411,13 @@ def delete_placeholder(conn, project: Any, user, code: str) -> dict:
 
 
 def _drop_placeholder(conn, p: dict, ph: dict) -> None:
-    conn.execute(text("""DELETE FROM proj.question_viewpoints qv USING proj.key_questions q
-                          WHERE q.id = qv.question_id AND q.project_id = :p AND qv.viewpoint = :c"""), {"p": p["id"], "c": ph["code"]})
-    conn.execute(text("DELETE FROM proj.placeholder_viewpoints WHERE id = :i"), {"i": ph["id"]})
+    conn.execute(text("""DELETE FROM proj.question_views qv USING proj.key_questions q
+                          WHERE q.id = qv.question_id AND q.project_id = :p AND qv.view = :c"""), {"p": p["id"], "c": ph["code"]})
+    conn.execute(text("DELETE FROM proj.placeholder_views WHERE id = :i"), {"i": ph["id"]})
 
 
 def waiting_files(conn, p: dict) -> int:
-    return (_one(conn, """SELECT count(*) AS n FROM proj.placeholder_viewpoints WHERE project_id = :p AND kind = 'file'
+    return (_one(conn, """SELECT count(*) AS n FROM proj.placeholder_views WHERE project_id = :p AND kind = 'file'
                            AND document_id IS NULL""", p=p["id"]) or {"n": 0})["n"]
 
 
@@ -426,7 +426,7 @@ def make_files(conn, project: Any, user) -> dict:
     One that cannot be stored now (Documents not up) is left to try again."""
     p = _project(conn, project, user)
     made, left = [], []
-    for ph in _rows(conn, """SELECT * FROM proj.placeholder_viewpoints WHERE project_id = :p AND kind = 'file' AND document_id IS NULL
+    for ph in _rows(conn, """SELECT * FROM proj.placeholder_views WHERE project_id = :p AND kind = 'file' AND document_id IS NULL
                               ORDER BY code""", p=p["id"]):
         name = blank_files.file_name(f"{ph['code']} {ph['name']}", ph["file_type"])
         try:
@@ -435,7 +435,7 @@ def make_files(conn, project: Any, user) -> dict:
         except Exception as exc:  # noqa: BLE001 - Documents down or busy: the rest is tried, this one later
             left.append(f"{ph['code']} ({exc})")
             continue
-        conn.execute(text("""UPDATE proj.placeholder_viewpoints SET document_id = (SELECT id FROM proj.documents WHERE guid::text = :g)
+        conn.execute(text("""UPDATE proj.placeholder_views SET document_id = (SELECT id FROM proj.documents WHERE guid::text = :g)
                               WHERE id = :i"""), {"g": doc["id"], "i": ph["id"]})
         made.append(name)
     msg = f"Made {len(made)} empty file{'s' if len(made) != 1 else ''} in the project's files." if made else "No file to make."
@@ -446,22 +446,22 @@ def make_files(conn, project: Any, user) -> dict:
 
 # ---------------------------------------------------------------- the wizard
 def from_wizard(conn, p: dict, user, d: dict, own_codes: dict[str, str], editing: bool) -> None:
-    """The Key questions and Viewpoints steps, as they should be. d:
-        key_questions        [{id (existing), question, asked_by, approach, viewpoints: [code | "own:<key>" | "ph:<key>"]}]
+    """The Key questions and Views steps, as they should be. d:
+        key_questions        [{id (existing), question, asked_by, approach, views: [code | "own:<key>" | "ph:<key>"]}]
         key_questions_seen   (editing) the ids the wizard showed: one shown and gone is removed; others added meanwhile stay
-        placeholder_viewpoints  [{code (existing) | key (new), name, description, kind, file_type}]
+        placeholder_views  [{code (existing) | key (new), name, description, kind, file_type}]
         removed_placeholders [codes]
-    own_codes: the key of each viewpoint made in this save (own_viewpoints) -> its PV- code."""
-    if "key_questions" not in d and "placeholder_viewpoints" not in d:
+    own_codes: the key of each view made in this save (own_views) -> its PV- code."""
+    if "key_questions" not in d and "placeholder_views" not in d:
         return
     ph_codes: dict[str, str] = {}
     gone = set(d.get("removed_placeholders") or []) if editing else set()
-    for ph in d.get("placeholder_viewpoints") or []:
+    for ph in d.get("placeholder_views") or []:
         if ph.get("code"):
             if editing and ph["code"] not in gone:
-                row = _one(conn, "SELECT * FROM proj.placeholder_viewpoints WHERE project_id = :p AND code = :c", p=p["id"], c=ph["code"])
+                row = _one(conn, "SELECT * FROM proj.placeholder_views WHERE project_id = :p AND code = :c", p=p["id"], c=ph["code"])
                 if row and _clean(ph.get("name"), 200):
-                    conn.execute(text("UPDATE proj.placeholder_viewpoints SET name = :n, description = :d WHERE id = :i"),
+                    conn.execute(text("UPDATE proj.placeholder_views SET name = :n, description = :d WHERE id = :i"),
                                  {"n": _clean(ph.get("name"), 200), "d": _clean(ph.get("description")), "i": row["id"]})
                 continue
             if not editing:         # a derived project: its parent's placeholders come as new ones
@@ -473,7 +473,7 @@ def from_wizard(conn, p: dict, user, d: dict, own_codes: dict[str, str], editing
         made = _insert_placeholder(conn, p, user, ph)
         ph_codes[str(ph.get("key") or made["code"])] = made["code"]
     for code in gone:
-        row = _one(conn, "SELECT * FROM proj.placeholder_viewpoints WHERE project_id = :p AND code = :c", p=p["id"], c=code)
+        row = _one(conn, "SELECT * FROM proj.placeholder_views WHERE project_id = :p AND code = :c", p=p["id"], c=code)
         if row:
             _drop_placeholder(conn, p, row)
 
@@ -486,7 +486,7 @@ def from_wizard(conn, p: dict, user, d: dict, own_codes: dict[str, str], editing
             return ph_codes.get(ref)
         return ref
 
-    have, lib = _known(conn, p)                       # a viewpoint taken out in the same save no longer answers anything
+    have, lib = _known(conn, p)                       # a view taken out in the same save no longer answers anything
     wanted = [q for q in d.get("key_questions") or [] if _clean(q.get("question"))]
     if editing:
         keep = {str(q["id"]) for q in wanted if q.get("id")}
@@ -495,7 +495,7 @@ def from_wizard(conn, p: dict, user, d: dict, own_codes: dict[str, str], editing
             if g not in keep:
                 conn.execute(text("DELETE FROM proj.key_questions WHERE project_id = :p AND guid::text = :g"), {"p": p["id"], "g": g})
     for n, q in enumerate(wanted, start=1):
-        codes = [c for c in (resolve(str(r)) for r in q.get("viewpoints") or []) if c and (c in have or c in lib)]
+        codes = [c for c in (resolve(str(r)) for r in q.get("views") or []) if c and (c in have or c in lib)]
         if editing and q.get("id"):
             row = _one(conn, "SELECT * FROM proj.key_questions WHERE project_id = :p AND guid::text = :g", p=p["id"], g=str(q["id"]))
             if row:
@@ -505,8 +505,8 @@ def from_wizard(conn, p: dict, user, d: dict, own_codes: dict[str, str], editing
                                             changed_by = :u, changed_at = now() WHERE id = :i"""),
                              {"s": n, "q": _clean(q["question"], 1000), "a": _clean(q.get("asked_by"), 500), "ap": _clean(q.get("approach")),
                               "u": user.username, "i": row["id"]})
-                set_viewpoints(conn, p, row["id"], codes)
+                set_views(conn, p, row["id"], codes)
                 continue
         row = _insert_question(conn, p, user, q, seq=n)
-        set_viewpoints(conn, p, row["id"], codes)
+        set_views(conn, p, row["id"], codes)
     tidy(conn, p)

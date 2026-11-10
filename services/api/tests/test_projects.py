@@ -151,7 +151,7 @@ def test_mayan_multipart_and_switch(monkeypatch):
 def test_the_wizard_and_the_library_screen():
     web = REPO / "services" / "web" / "src"
     src = (web / "Projects.jsx").read_text(encoding="utf-8")
-    for step in ("Basics", "Template libraries", "Models", "Viewpoints", "Principles", "Phase by phase", "People and sign-off", "Review"):
+    for step in ("Basics", "Template libraries", "Models", "Views", "Principles", "Phase by phase", "People and sign-off", "Review"):
         assert step in src, step
     assert "ProjectLibraryAdmin" in src and "not_for_use" in src
     assert "Project templates</a>" in (web / "Projects.jsx").read_text(encoding="utf-8")   # moved to Project admin (D285)

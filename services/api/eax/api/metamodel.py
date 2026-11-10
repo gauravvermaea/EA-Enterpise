@@ -113,7 +113,7 @@ class ModelMetamodel(MethodView):
     @blp.response(200, Metamodel)
     @require_auth()
     def get(self, model_id):
-        """The model's metamodel: layers with their entity types, and the relationship types"""
+        """The model's metamodel: domains with their entity types, and the relationship types"""
         return _call(repo.get_metamodel, model_id)
 
 
@@ -136,7 +136,7 @@ class ModelMetamodelMermaid(MethodView):
     @require_auth()
     def get(self, query, model_id):
         """The metamodel, or part of it, as a Mermaid ER diagram (paste into any Mermaid editor)"""
-        return _call(repo.metamodel_mermaid, model_id, layers=query["layer"], entity_type=query["type"],
+        return _call(repo.metamodel_mermaid, model_id, domains=query["domain"], entity_type=query["type"],
                      relationship_types=query["rel"], include_generic=query["generic"],
                      include_connected=query["connected"], with_attributes=query["attributes"])
 
@@ -158,7 +158,7 @@ class EntityListView(MethodView):
     @blp.response(200, EntitySummaryOut(many=True))
     @require_auth()
     def get(self, query, model_id):
-        """Every entity of the model (or of one type): display ID, name, type, layer, relationship count"""
+        """Every entity of the model (or of one type): display ID, name, type, domain, relationship count"""
         return _call(repo.list_entities, model_id, query.get("type"), query["limit"])
 
 

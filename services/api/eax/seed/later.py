@@ -129,7 +129,20 @@ def plan(settings, with_sample: bool) -> list[tuple[str, object]]:
         steps.append(("Sample content: governance, people, calendars, sheets, the board", sample_content))
         steps.append(("Sample key questions in every sample project", sample_questions))
         steps.append(("Sample Business Model Canvases", sample_canvases))
+        steps.append(("Sample drawn views on the demo estate, one as project evidence", sample_drawn_views))
         steps.append(("Sample libraries: the enterprise library and three project libraries", sample_library))
+        steps.append(("Sample merge requests and duplicates", sample_merge_dedupe))
+        steps.append(("Sample surveys and EA capability maturity assessments", sample_surveys))
+        steps.append(("Sample machine access and operations: service accounts, credentials, usage, housekeeping",
+                      sample_machine_ops))
+        steps.append(("Sample KPI trends on the demo estate", sample_kpis))
+        steps.append(("Sample uploads on Other views and documents", sample_other_uploads))
+        steps.append(("Sample import sources and deliveries, and a model from a metamodel workbook", sample_imports))
+        steps.append(("Sample MCP work: a copy cleaned up, an override, the AI activity log", sample_mcp))
+        steps.append(("Sample scenario planning: a scenario committed, one with what-ifs pending, an assessment", sample_scenarios))
+        steps.append(("Sample update history: succeeded, rolled back, not started, scheduled", sample_updates))
+    if laptop:
+        steps.append(("Sample test runs: passed, failed with a screenshot, could not start", sample_tests))
     steps.append(("First data quality measurement", first_measurements))
     return steps
 
@@ -156,7 +169,7 @@ def sample_project() -> None:
             "name": name, "purpose": "portfolio",
             "description": "Sample: the demo estate's move from the 2026 baseline to the 2028 target, run as one ADM cycle.",
             "models": [{"how": "added", "model": protea}] if protea else [],
-            "viewpoints": ["VP-01", "VP-05", "VP-08", "VP-11"],
+            "views": ["VP-01", "VP-05", "VP-08", "VP-11"],
             "principles": [{"library_id": i} for i in principles]
                           + [{"name": "Reuse before buy, buy before build", "statement": "Use what the estate has before buying, and buy before building."}],
             "removed_steps": [{"library_id": steps, "reason": "Products do not change in this cycle."}] if steps else [],
@@ -196,10 +209,92 @@ def sample_canvases() -> None:
         _say(line)
 
 
+def sample_drawn_views() -> None:
+    """Laptop (owner, 10 Nov 2026, phases 28 and 29): drawn views in every state on the demo estate, made once."""
+    from . import sample_drawn_views as sd
+    for line in sd.run():
+        _say(line)
+
+
 def sample_library() -> None:
     """Laptop (owner, 9 Nov 2026, D346): the enterprise library and project libraries, made once by the library service."""
     from . import sample_library as sl
     for line in sl.run():
+        _say(line)
+
+
+def sample_kpis() -> None:
+    """Laptop (owner, 10 Nov 2026, phase 24): a year of KPI snapshots and the model's own KPIs on the demo estate, made once."""
+    from ..db import get_engine
+    from . import sample_kpis as sk
+    with get_engine().begin() as conn:
+        for line in sk.run(conn):
+            _say(line)
+
+
+def sample_machine_ops() -> None:
+    """Laptop (owner, 10 Nov 2026, phases 25 and 35): machine access and operations in every state, made once."""
+    from . import sample_machine_ops as sm
+    for line in sm.run():
+        _say(line)
+
+
+def sample_surveys() -> None:
+    """Laptop (owner, 9 Nov 2026, phases 38.1 and 40): surveys and maturity assessments in every state, made once."""
+    from . import sample_surveys as ss
+    for line in ss.run():
+        _say(line)
+
+
+def sample_merge_dedupe() -> None:
+    """Laptop (owner, 10 Nov 2026, phases 19, 20 and 21): merge requests in every state and duplicates to find and merge."""
+    from . import sample_merge_dedupe as smd
+    for line in smd.run():
+        _say(line)
+
+
+def sample_imports() -> None:
+    """Laptop (owner, 10 Nov 2026, phase 34, D419): import sources and deliveries in every state, and a model from a
+    metamodel workbook, made once."""
+    from . import sample_imports as si
+    for line in si.run():
+        _say(line)
+
+
+def sample_other_uploads() -> None:
+    """Laptop (owner, 10 Nov 2026, D461): a project's own uploads on Other views and documents, one replaced, made once."""
+    from . import sample_other_uploads as so
+    for line in so.run():
+        _say(line)
+
+
+def sample_tests() -> None:
+    """Laptop (phase 36.1, D522): sample test runs on System admin > Health > Tests: passed, failed (a screenshot), could
+    not start; made once."""
+    from . import sample_tests as st
+    for line in st.run():
+        _say(line)
+
+
+def sample_scenarios() -> None:
+    """Laptop (owner, 10 Nov 2026, phase 27.1, D495): scenario planning in Protea build or buy, made once."""
+    from . import sample_scenarios as ss
+    for line in ss.run():
+        _say(line)
+
+
+def sample_mcp() -> None:
+    """Laptop (owner, 10 Nov 2026, phases 26/27, D458, D482): a model copied and deduped through MCP, a merge done through
+    MCP, and the AI activity log with a call of every kind, made once."""
+    from . import sample_mcp as smc
+    for line in smc.run():
+        _say(line)
+
+
+def sample_updates() -> None:
+    """Laptop (owner, 10 Nov 2026, phase 36, D516): the update history in each state, made once."""
+    from . import sample_updates as su
+    for line in su.run():
         _say(line)
 
 

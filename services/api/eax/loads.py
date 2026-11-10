@@ -12,6 +12,12 @@ system, a feed) is found by type and name when exactly one entity has that name;
 NEW-... ID) it is new. The preview says how each row was matched. Relationships give their ends by ID (or GUID); an end that is a new row of the same load is
 found by its provisional ID; an end not found is a problem, loaded once the entity has an ID (load again).
 Sheets from other systems are mapped first: each header to a field or attribute (a mapping can be saved and reused).
+
+Deliveries (phase 34, D370, D462 to D465): a load that came from an import source (eax/deliveries.py) is matched by
+**type and name only** (GUID and ID columns are not used to match; a name used by several entities of the type is a
+problem), never deletes (Delete = Yes is a problem: delete in EA Explorer), and an empty cell leaves the value as it is.
+Unless the source's values win, a delivered value that differs from a value already in EA Explorer is not applied: the
+row shows it as kept (EA Explorer's value stays); empty fields are filled. Relationship ends may be given by name too.
 """
 
 from __future__ import annotations
@@ -89,7 +95,17 @@ def _load(conn, load: Any) -> dict:
         raise EditError("No such load.", 404)
     for k in ("preview", "summary", "mapping"):
         r[k] = _j(r[k]) or {}
+    r["_source"] = source_of(conn, r)
     return r
+
+
+def source_of(conn, r: dict) -> dict | None:
+    """The import source a load came from (phase 34), or None for an ordinary upload."""
+    if not r.get("source_id"):
+        return None
+    s = _one(conn, "SELECT guid, name, values_win, folder, contact FROM core.import_sources WHERE id = :i", i=r["source_id"])
+    return {"id": str(s["guid"]), "name": s["name"], "values_win": s["values_win"], "folder": s["folder"],
+            "contact": s["contact"]} if s else None
 
 
 def _out(r: dict, with_rows: bool = True, row_filter: str = "", limit: int = 2000) -> dict:
@@ -98,6 +114,9 @@ def _out(r: dict, with_rows: bool = True, row_filter: str = "", limit: int = 200
     if row_filter:
         rows = [x for x in rows if x["action"] == row_filter]
     out = {"id": str(r["guid"]), "model": {"id": str(r["model_guid"]), "name": r["model_name"]},
+           "delivery": r.get("delivery") or "upload", "source": r.get("_source"),
+           "accepted_by": r.get("accepted_by"), "accepted_at": r.get("accepted_at"),
+           "declined_by": r.get("declined_by"), "declined_at": r.get("declined_at"),
            "file_name": r["file_name"], "format": r["format"], "status": r["status"], "message": r["message"],
            "owner": r["owner"], "created_by": r["created_by"], "created_at": r["created_at"], "added_at": r["added_at"],
            "undone_at": r["undone_at"], "undone_by": r["undone_by"], "summary": r["summary"], "changes": len(r["change_ids"] or []),
@@ -119,7 +138,11 @@ def get(conn, user, load: Any, with_rows: bool = True, row_filter: str = "") -> 
 
 def list_loads(conn, user, model: Any) -> dict:
     m = repo.get_model(conn, model)
-    rows = _rows(conn, """SELECT l.*, m.guid AS model_guid, m.name AS model_name FROM core.loads l JOIN core.models m ON m.id = l.model_id
+    rows = _rows(conn, """SELECT l.id, l.guid, l.model_id, l.file_name, l.format, l.status, l.message, l.mapping, l.summary,
+                                  l.change_ids, l.owner, l.created_by, l.created_at, l.added_at, l.undone_at, l.undone_by,
+                                  l.source_id, l.delivery, l.accepted_by, l.accepted_at, l.declined_by, l.declined_at,
+                                  '{}'::jsonb AS preview, m.guid AS model_guid, m.name AS model_name
+                             FROM core.loads l JOIN core.models m ON m.id = l.model_id
                            WHERE l.model_id = :m ORDER BY l.created_at DESC LIMIT 200""", m=m["_id"])
     admin = perms.SUPER_ADMIN in user.roles or set(perms.model_roles(conn, user.username, m["id"])) & {
         perms.MODEL_ADMIN, perms.MODEL_SUB_ADMIN, perms.COMMITTER}
@@ -128,6 +151,7 @@ def list_loads(conn, user, model: Any) -> dict:
         if admin or user.username.lower() in (r["created_by"], r["owner"]):
             for k in ("preview", "summary", "mapping"):
                 r[k] = _j(r[k]) or {}
+            r["_source"] = source_of(conn, r)
             out.append(_out(r, with_rows=False))
     return {"loads": out}
 
@@ -181,6 +205,9 @@ def _check_value(a: dict, v: str) -> str | None:
 
 
 def _type_for(sheet: dict, types: list[dict], meta: dict) -> dict | None:
+    if sheet.get("entity_type"):      # the CSV format's master file says which type a file holds (D378)
+        want = str(sheet["entity_type"]).strip().lower()
+        return next((t for t in types if want in (t["code"].lower(), t["name"].lower())), None)
     name = sheet["name"].strip().lower()
     for t in types:
         if name in (t["code"].lower(), t["name"].lower(), t["name"][:31].lower(), sh.sheet_name(t["name"], set()).lower()):
@@ -189,6 +216,8 @@ def _type_for(sheet: dict, types: list[dict], meta: dict) -> dict | None:
 
 
 def _is_relationships(sheet: dict) -> bool:
+    if sheet.get("kind"):            # named by the master file
+        return sheet["kind"] == "relationships"
     codes = set(sheet["codes"])
     return sheet["name"].lower() in ("relationships", "relationship") or {"source", "target"} <= codes
 
@@ -205,6 +234,11 @@ def preview(conn, load: Any, user=None) -> dict:
         if sum(len(s["rows"]) for s in parsed["sheets"]) > MAX_ROWS:
             raise EditError(f"At most {MAX_ROWS:,} rows a load: split the file.")
     blank_clears = stored.get("blank_clears", True)
+    src = r.get("_source")
+    delivery = src is not None             # a delivery: by type and name only, never deletes, blanks leave values (D370)
+    values_win = bool(src and src["values_win"])
+    if delivery:
+        blank_clears = False
     mapping = r["mapping"] or {}
     _, all_types = sh.types_of(conn, str(m["id"]), [t["code"] for t in _rows(conn, """SELECT code FROM core.entity_types
                                                                                    WHERE model_id = :m AND NOT is_deleted""", m=m["_id"])])
@@ -272,20 +306,33 @@ def preview(conn, load: Any, user=None) -> dict:
             if did == "=NEW":
                 did = f"NEW-{s.get('new_prefix') or t['code'][:3].upper()}-{raw['_row'] - 2:04d}"
             g = (d.get("guid") or "").lower()
+            if delivery:                       # deliveries: type and name only (D370); GUID and ID are not used to match
+                g = ""
+                if did and not did.upper().startswith("NEW-") and did.lower() in by_did:
+                    did = ""                   # an ID of ours in a delivery is ignored, not a provisional reference
             match = by_guid.get(g) if g else None
-            if match is None and did and not did.upper().startswith("NEW-"):
+            if match is None and did and not did.upper().startswith("NEW-") and not delivery:
                 match = by_did.get(did.lower())
             by = "guid" if match and g else "id" if match else None
+            ambiguous = 0
             if match is None and not g and d.get("name"):   # no GUID and no known ID: the one entity of this type with this name
                 same = by_name.get((t["code"], d["name"].strip().lower()), [])
                 if len(same) == 1:
                     match, by = same[0], "name"
+                elif len(same) > 1 and delivery:
+                    ambiguous = len(same)
             delete = _norm(d.get("delete")).lower() in YES
             row = {"n": n, "sheet": s["name"], "row": raw["_row"], "kind": "entity", "entity_type": t["code"],
                    "entity_type_name": t["name"], "id": did, "guid": g or None, "name": d.get("name", ""), "matched_by": by,
                    "changes": [], "problems": [], "warnings": [], "data": d}
             if g and match is None and g in any_guid:
                 row["problems"].append("This GUID belongs to an entity of another type or sheet.")
+            if delivery and delete:
+                row["problems"].append("A delivery never deletes (D370): delete it in EA Explorer.")
+                delete = False
+            if ambiguous:
+                row["problems"].append(f"{ambiguous} {t['name']} entities are called {d['name']!r}: a delivery is matched by type "
+                                       "and name, so give them different names in EA Explorer first.")
             if match is None:
                 if delete:
                     row["action"] = "problem" if (g or did) else "unchanged"
@@ -325,6 +372,9 @@ def preview(conn, load: Any, user=None) -> dict:
                     for code, a in attrs.items():
                         if code in d and not _same(d[code], e.get(code, ""), a["data_type"]) and (d[code] or blank_clears):
                             row["changes"].append({"field": a["name"], "code": code, "old": e.get(code, ""), "new": d[code]})
+                    if delivery and not values_win:   # EA Explorer's own values stay; only empty fields are filled (D464)
+                        row["kept"] = [c for c in row["changes"] if str(c["old"] or "").strip()]
+                        row["changes"] = [c for c in row["changes"] if not str(c["old"] or "").strip()]
                     row["action"] = "changed" if row["changes"] else "unchanged"
             for code, a in attrs.items():
                 if d.get(code):
@@ -375,7 +425,17 @@ def preview(conn, load: Any, user=None) -> dict:
         g = repo._as_guid(v)
         if g and str(g) in ent_types:
             return str(g)
-        return any_did.get(v.lower())
+        if v.lower() in any_did:
+            return any_did[v.lower()]
+        hits = names.get(v.lower(), [])     # by name (deliveries, D370): the one entity of the model with this name
+        return hits[0] if len(hits) == 1 else None
+    names: dict[str, list[str]] = {}
+    for x in _rows(conn, "SELECT guid::text AS g, lower(btrim(name)) AS n FROM core.entities WHERE model_id = :m AND NOT is_deleted",
+                   m=m["_id"]):
+        names.setdefault(x["n"], []).append(x["g"])
+    for row in rows:
+        if row["kind"] == "entity" and row["action"] == "new" and row.get("name"):
+            names.setdefault(row["name"].strip().lower(), []).append(row["guid"])
     for kind, s, _t, cols in plan:
         if kind != "rel":
             continue
@@ -390,6 +450,11 @@ def preview(conn, load: Any, user=None) -> dict:
                    "source": d.get("source", ""), "relationship_type": d.get("relationship_type", ""), "target": d.get("target", ""),
                    "name": d.get("name", ""), "changes": [], "problems": [], "warnings": [], "data": d}
             delete = _norm(d.get("delete")).lower() in YES
+            if delivery:
+                row["guid"] = None
+                if delete:
+                    row["problems"].append("A delivery never removes relationships (D370): remove it in EA Explorer.")
+                    delete = False
             cur = by_rel_guid.get(row["guid"]) if row["guid"] else None
             src, tgt = end(d.get("source", "")), end(d.get("target", ""))
             rt = rts.get(_norm(d.get("relationship_type")).lower())
@@ -419,6 +484,8 @@ def preview(conn, load: Any, user=None) -> dict:
                 row["action"] = "problem" if row["problems"] else ("changed" if cur else "new")
                 if cur and not row["problems"]:   # same guid, different ends: replaced
                     row["changes"].append({"field": "ends", "old": "", "new": f"{d.get('source')} -> {d.get('target')}"})
+            if row["problems"]:
+                row["action"] = "problem"
             row["_ends"] = [src, rt["code"] if rt else None, tgt]
             counts[row["action"]] += 1
             rows.append(row)
@@ -426,9 +493,10 @@ def preview(conn, load: Any, user=None) -> dict:
 
     summary = {k: sum(1 for x in rows if x["action"] == k) for k in ("new", "changed", "unchanged", "delete", "problem")}
     summary["warnings"] = sum(1 for x in rows if x["warnings"])
+    summary["kept"] = sum(len(x.get("kept") or []) for x in rows)
     p = {"input": parsed, "rows": rows, "sheets": sheets_out, "needs_mapping": [], "blank_clears": blank_clears}
     msg = (f"{summary['new']} new, {summary['changed']} changed, {summary['delete']} to delete, {summary['unchanged']} unchanged, "
-           f"{summary['problem']} with problems.")
+           f"{summary['problem']} with problems." + (f" {summary['kept']} value{'' if summary['kept'] == 1 else 's'} kept as in EA Explorer." if summary["kept"] else ""))
     _save_preview(conn, r["id"], "previewed", p, summary, msg)
     return {"status": "previewed", "summary": summary, "message": msg}
 

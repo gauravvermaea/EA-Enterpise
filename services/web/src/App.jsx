@@ -10,12 +10,14 @@ import EnterpriseLibraryPage from "./Libraries";
 import MyProfile from "./Skills";
 import ModelAdmin from "./ModelAdmin";
 import Metamodel from "./Metamodel";
+import { DrawnViewFullScreen } from "./DrawnView";
 import Mcp from "./Mcp";
 import Library from "./Library";
 import CompareScreen from "./Versions";
 import ChangeLog from "./ChangeLog";
 import { TaskDrawer } from "./TaskDrawer";
 import NotificationsPage, { Bell, ChangeDocumentPage } from "./Notifications";
+import SurveysPage from "./Surveys";
 import Admin from "./Admin";
 import { serviceOn, setAppSettings } from "./fmt";
 import { refreshAll } from "./ModelViews";
@@ -24,6 +26,12 @@ import { SearchPage, TopSearch } from "./GridPages";
 import { RestoreLock, useRestoreLock } from "./Restores";
 import StartupStatus from "./StartupStatus";
 import Projects, { ProjectAdmin } from "./Projects";
+import MergeRequestsPage from "./MergeBack";
+import { NavStylePicker, NavWelcome } from "./PageNav";
+import QuickJump from "./QuickJump";
+import EntityMenu from "./EntityMenu";
+import { UpdateNotice } from "./Updates";
+import HelpPanel, { HelpButton } from "./help/HelpPanel";
 
 function useHashRoute() {
   const [route, setRoute] = useState(window.location.hash || "#/");
@@ -79,12 +87,15 @@ export default function App() {
     );
   }
   const info = myInfo();
+  // a drawn view opens in a tab of its own, full screen: none of EA Explorer's header or menus (D411)
+  const drawn = /^#\/metamodel\/([^/]+)\/drawn-views\/([^/?]+)/.exec(route);
+  if (drawn) return <DrawnViewFullScreen key={route} model={drawn[1]} view={decodeURIComponent(drawn[2])} route={route} />;
 
   return (
     <div className="shell">
       <header className="topbar">
         <a href="#/" className="brand">EA Explorer</a>
-        <nav>
+        <nav className="areanav" aria-label="Main menu">
           <AreaMenu route={route} />
         </nav>
         <TopSearch />
@@ -102,13 +113,16 @@ export default function App() {
                 <a href="#/my-profile" className="user-name" title="My profile: my skills">{user?.name || user?.preferred_username}</a>
                 <small className="role-chip">{roles().length ? roles().map(roleName).join(", ") : "no role"}</small>
               </span>
+              <NavStylePicker compact />
+              <HelpButton />
+              <button className="linkish qj-open" title="Quick jump: go to a tab, action, model or project (Ctrl+K)" onClick={() => window.dispatchEvent(new Event("eax-quick-jump"))}>⌘K</button>
               <button onClick={signOut}>Sign out</button>
             </>
           ) : (
             <button className="primary" onClick={() => keycloak.login()}>Sign in</button>
           )}
           </div>
-          {/* what is still starting, under the sign-out so it never pushes the menu about */}
+          {/* what is still starting: at the far right of the tools row (owner, 10 Nov 2026), never pushing the menu about */}
           <StartupStatus />
         </div>
         {/* every menu there was before the five areas, kept for those who use them (owner, 7 Nov 2026: nothing is taken away, D289) */}
@@ -139,6 +153,7 @@ export default function App() {
       )}
       {maintenance && <div className="break-glass-banner">EA Explorer is read only: {maintenance.what || "a restore is running"} (started by {maintenance.by}).
         Nothing can be changed until it is done; you will be asked to sign in again.</div>}
+      {signedIn && !isBreakGlass() && <UpdateNotice />}
       {signedIn && <TaskDrawer />}
       <main>
         {partOff(route) ? <PartOff part={partOff(route)} />
@@ -150,6 +165,7 @@ export default function App() {
           : route.startsWith("#/my-profile") ? <MyProfile />
           : route.startsWith("#/more") ? <EverythingElse />
           : route.startsWith("#/model-admin") ? <ModelAdmin route={route} />
+          : route.startsWith("#/merge-requests") ? <MergeRequestsPage route={route} />
           : route.startsWith("#/project-admin") ? <ProjectAdmin route={route} />
           : route.startsWith("#/metamodel") ? <Metamodel route={route} />
           : route.startsWith("#/projects") ? <Projects route={route} />
@@ -158,10 +174,15 @@ export default function App() {
           : route.startsWith("#/compare") ? <CompareScreen route={route} />
           : route.startsWith("#/change-log") ? <ChangeLog />
           : route.startsWith("#/notifications") ? <NotificationsPage route={route} />
+          : route.startsWith("#/surveys") || route.startsWith("#/maturity") ? <SurveysPage route={route} />
           : route.startsWith("#/change-documents") ? <ChangeDocumentPage route={route} />
           : route.startsWith("#/admin") || route.startsWith("#/users") || route.startsWith("#/heartbeat") || route.startsWith("#/sql") ? <Admin route={route} />
           : <StartPage />}
       </main>
+      <QuickJump />
+      <NavWelcome />
+      <EntityMenu />
+      <HelpPanel />
       <footer>
         Version {version || "?"} · {config.deployment} deployment · open source (AGPL-3.0)
       </footer>

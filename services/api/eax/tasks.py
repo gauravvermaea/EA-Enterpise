@@ -64,6 +64,7 @@ def defer_commit(tx, c) -> bool:
     todo.append((tx, c))
     return True
 KINDS = {"tag.create": "Tag a model", "sheet.build": "Build sheets", "load.preview": "Preview a load", "load.add": "Add a load",
+         "delivery.accept": "Accept a delivery",
          "backup.infrastructure": "Infrastructure backup", "backup.application": "Application backup", "backup.model": "Back up a model",
          "backup.restore": "Restore a model backup", "backup.restore_all": "Restore every model of an application backup"}
 
@@ -201,7 +202,8 @@ def _sheet_build(conn, t: dict, user) -> tuple[str, dict]:
     """The sheets for the chosen entity types, built now (D197), kept with the task until downloaded."""
     from . import sheets as sh
     p = t["params"] if isinstance(t["params"], dict) else json.loads(t["params"])
-    content, name, ctype = sh.build(conn, str(t["model_guid"]), p.get("types") or None, p.get("format") or "xlsx", user.username)
+    content, name, ctype = sh.build(conn, str(t["model_guid"]), p.get("types") or None, p.get("format") or "xlsx", user.username,
+                                    bool(p.get("blank")))
     add_file(conn, t["id"], content, name, ctype)
     return f"{name} is ready ({len(content) // 1024 + 1} KB).", {"file": name, "bytes": len(content)}
 
@@ -219,6 +221,14 @@ def _load_add(conn, t: dict, user) -> tuple[str, dict]:
     from . import loads
     p = t["params"] if isinstance(t["params"], dict) else json.loads(t["params"])
     out = loads.add(conn, user, p["load"])
+    return out["message"], {"load": p["load"], **{k: v for k, v in out.items() if k != "failed"}, "failed": out["failed"][:50]}
+
+
+def _delivery_accept(conn, t: dict, user) -> tuple[str, dict]:
+    """Phase 34 (D465): a delivery becomes the person's changes, committed at once."""
+    from . import deliveries
+    p = t["params"] if isinstance(t["params"], dict) else json.loads(t["params"])
+    out = deliveries.accept(conn, user, p["load"])
     return out["message"], {"load": p["load"], **{k: v for k, v in out.items() if k != "failed"}, "failed": out["failed"][:50]}
 
 
@@ -272,6 +282,7 @@ def _backup_restore(conn, t: dict, user) -> tuple[str, dict]:
 
 
 WORK = {"tag.create": _tag_create, "sheet.build": _sheet_build, "load.preview": _load_preview, "load.add": _load_add,
+        "delivery.accept": _delivery_accept,
         "backup.infrastructure": _backup_infrastructure, "backup.application": _backup_application,
         "backup.model": _backup_model, "backup.restore": _backup_restore, "backup.restore_all": _backup_restore_all}
 

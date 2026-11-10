@@ -6,7 +6,7 @@ Each stakeholder is typed in (a person or a group; not linked to users or model 
 - power (influence) and interest, High/Medium/Low; the class (key players, keep satisfied, keep informed, minimal
   effort) is worked out from them on a 3x3 grid (CLASS_OF) and may be set by hand;
 - its position: ability to disrupt, understanding now and needed, commitment now and needed, support needed;
-- its concerns, and the project's viewpoints and document classes that answer them;
+- its concerns, and the project's views and document classes that answer them;
 - how it is engaged (approach, how often, channel, who looks after it), the next contact, notes (rich text);
 - any number of dated discussion notes (rich text); the last contact is the latest of them.
 
@@ -78,7 +78,7 @@ def clean(d: dict, item_ids: dict[str, int] | None = None) -> dict:
     out = {"name": name[:200], "category": cat, "power": _level(d.get("power"), "Power"),
            "interest": _level(d.get("interest"), "Interest"), "class": cls,
            "next_contact": _date(d.get("next_contact")), "notes_html": clean_html(d.get("notes_html")),
-           "viewpoints": [str(v)[:20] for v in d.get("viewpoints") or [] if v]}
+           "views": [str(v)[:20] for v in d.get("views") or [] if v]}
     for k in POSITION:
         out[k] = _level(d.get(k), k.replace("_", " ").capitalize())
     for k in TEXT:
@@ -108,10 +108,10 @@ def _out(r: dict, items_by_id: dict[int, dict], last: dict[int, Any]) -> dict:
             "frequency": r["frequency"], "channel": r["channel"], "owner": r["owner"],
             "next_contact": str(nxt)[:10] if nxt else "", "last_contact": str(lc)[:10] if lc else "",
             "overdue": bool(nxt and str(nxt)[:10] < date.today().isoformat()),
-            "notes_html": r["notes_html"], "viewpoints": list(r["viewpoints"] or []),
+            "notes_html": r["notes_html"], "views": list(r["views"] or []),
             "items": [{"id": str(items_by_id[i]["guid"]), "name": items_by_id[i]["name"], "phase": items_by_id[i]["phase"]}
                       for i in (r["items"] or []) if i in items_by_id],
-            "uncovered": not (r["viewpoints"] or r["items"]),
+            "uncovered": not (r["views"] or r["items"]),
             "entity": ({"id": str(r["entity_guid"]), "model": str(r["entity_model"])} if r.get("entity_guid") else None),
             "modified_by": r.get("modified_by") or r["created_by"], "modified_at": r.get("modified_at") or r["created_at"]}
 
@@ -146,13 +146,13 @@ def _row(conn, p: dict, sid: str) -> dict:
 
 
 _COLS = ("name", "organisation", "role_title", "category", "email", "phone", "concerns", "power", "interest", "class",
-         *POSITION, "approach", "frequency", "channel", "owner", "next_contact", "notes_html", "viewpoints", "items")
+         *POSITION, "approach", "frequency", "channel", "owner", "next_contact", "notes_html", "views", "items")
 
 
 def _write(conn, p: dict, user, vals: dict, sid: int | None = None) -> int:
-    params = {**vals, "viewpoints": list(vals.get("viewpoints") or []), "items": list(vals.get("items") or []),
+    params = {**vals, "views": list(vals.get("views") or []), "items": list(vals.get("items") or []),
               "p": p["id"], "u": user.username}
-    cast = {"viewpoints": "CAST(:viewpoints AS text[])", "items": "CAST(:items AS bigint[])"}
+    cast = {"views": "CAST(:views AS text[])", "items": "CAST(:items AS bigint[])"}
     cols = [c for c in _COLS if c in vals]
     if sid is None:
         params["o"] = (conn.execute(text("SELECT coalesce(max(sort_order), 0) + 1 FROM proj.stakeholders WHERE project_id = :p"),
@@ -295,13 +295,13 @@ def to_csv(conn, project: Any, user) -> tuple[str, bytes]:
     w = csv.writer(buf)
     w.writerow(["Stakeholder", "Organisation", "Role", "Category", "Power", "Interest", "Class", "Ability to disrupt",
                 "Understanding now", "Understanding needed", "Commitment now", "Commitment needed", "Support needed",
-                "Concerns", "Viewpoints", "Document classes", "Approach", "How often", "Channel", "Looked after by",
+                "Concerns", "Views", "Document classes", "Approach", "How often", "Channel", "Looked after by",
                 "Email", "Phone", "Last contact", "Next contact"])
     lv = lambda v: LEVELS.get(v, "")  # noqa: E731
     for s in data["stakeholders"]:
         w.writerow([s["name"], s["organisation"], s["role_title"], CATEGORIES.get(s["category"], ""), lv(s["power"]),
                     lv(s["interest"]), CLASSES.get(s["class"], ""), *[lv(s[k]) for k in POSITION], s["concerns"],
-                    ", ".join(s["viewpoints"]), ", ".join(i["name"] for i in s["items"]), s["approach"], s["frequency"],
+                    ", ".join(s["views"]), ", ".join(i["name"] for i in s["items"]), s["approach"], s["frequency"],
                     s["channel"], s["owner"], s["email"], s["phone"], s["last_contact"], s["next_contact"]])
     name = "".join(ch if ch.isalnum() or ch in " -_" else "_" for ch in p["name"]).strip() or "project"
     return f"{name} - stakeholders.csv", ("﻿" + buf.getvalue()).encode("utf-8")

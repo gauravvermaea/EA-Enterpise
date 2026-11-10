@@ -9,6 +9,7 @@ import { refreshAll, useApi } from "./ModelViews";
 import { EntityLink } from "./Changes";
 import { TaskFiles } from "./TaskDrawer";
 import { dismissTask, downloadTask, isDismissed, runTask, useAllTasks } from "./tasks";
+import { liveModels } from "./ModelMarks";
 
 const post = (path, body) => apiFetch(path, { method: "POST", body: JSON.stringify(body || {}) });
 const show = (v) => (v === null || v === undefined || v === "" ? <span className="quiet">(empty)</span> : String(v));
@@ -30,7 +31,8 @@ export default function MergeTab({ model, m }) {
   const [bulkValue, setBulkValue] = useState("");
   const [from, setFrom] = useState("model");   // merge from another model here, or from a file
   const [source, setSource] = useState("");
-  const { data: models } = useApi("/api/v1/models?archived=false");
+  const { data: models_ } = useApi("/api/v1/models?archived=false");
+  const models = models_ && liveModels(models_);     // never a frozen model (D360)
   const others = (models || []).filter((x) => x.id !== model);
   const fileRef = useRef(null);
   // merge or not (D169): a Model Admin, into a project model that is not read-only or locked (the server checks again)
@@ -321,7 +323,8 @@ export default function MergeTab({ model, m }) {
 
 // Files to try the merge with: a test file made from this model, or any model you may open (download, then upload above)
 function TestFiles({ model, m, withData }) {
-  const { data: models } = useApi("/api/v1/models?archived=false");
+  const { data: models_ } = useApi("/api/v1/models?archived=false");
+  const models = models_ && liveModels(models_);
   const [other, setOther] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState("");

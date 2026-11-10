@@ -4,13 +4,14 @@
 // weights and the rules (a Model Admin's change waits for a Super Admin's approval). Administration > Quality shows every
 // model side by side and the changes waiting for approval.
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { apiDownload, apiFetch, currentUser, roles } from "./auth";
+import { apiDownload, apiFetch, canOn, currentUser, roles } from "./auth";
 import { fmtDateTime } from "./fmt";
 import { Modal } from "./ModelOps";
 import { KindMark, KINDS as MODEL_KINDS, MODEL_STATES, ModelStateBadge } from "./ModelMarks";
 import { ModelIcon } from "./ModelIcon";
 import { refreshAll, useApi } from "./ModelViews";
 import { RecalculateButton } from "./QualityBits";
+import SearchSelect from "./SearchSelect";
 
 const KINDS = { incomplete: "Incomplete", failing: "Failing a rule", errors: "Failing an error rule", stale: "Stale",
   orphan: "Orphans", "seal-broken": "Seal broken", "seal-expired": "Seal expired", sealed: "Sealed", mine: "Yours to fix" };
@@ -135,60 +136,153 @@ export default function QualityTab({ model, m, drill, value }) {
   return <QualityMain model={model} m={m} drill={drill} value={value} />;
 }
 
-// Duplicates (D284: data cleaning is architecture work, a screen): entities of a type whose names are the same or
-// very close; keep one, the others' relationships move to it and their values fill what it lacks (one commit)
-function Duplicates({ model, m }) {
+// Duplicates (D284, phase 21 D361): find likely duplicates of a type by name (near spellings too, as close as chosen) and,
+// when asked, by the same values in chosen attributes; compare a pair or group side by side, choose the one kept and,
+// field by field, whose value it takes; the others' relationships move to it and they are removed. The person's own change:
+// committed at once when they may commit (rolled back from Changes > Commits), else left as their changes for a committer.
+const CLOSENESS = [["1", "The same name only"], ["0.93", "Very close names"], ["0.88", "Close names"], ["0.8", "Loosely alike names"]];
+
+// Duplicates is a tab of its own (owner, 10 Nov 2026, D541): the person chooses what to look for and runs it; nothing
+// found says so with what was searched; the result downloads as Excel
+export function Duplicates({ model, m }) {
+  const { data: mm } = useApi(`/api/v1/models/${model}/metamodel`);
   const [type, setType] = useState("");
-  const { data, error } = useApi(`/api/v1/models/${model}/duplicates${type ? `?type=${encodeURIComponent(type)}` : ""}`);
-  const [keep, setKeep] = useState({});          // group index -> id kept
-  const [off, setOff] = useState({});            // entity id -> left out of its group's merge
-  const [busy, setBusy] = useState(null);
-  const [msg, setMsg] = useState({});
-  const types = useMemo(() => [...new Set((data?.groups || []).map((g) => g.type))].sort(), [data]);
-  async function merge(i, g) {
-    const k = keep[i] || g.entities[0].id;
-    const others = g.entities.filter((e) => e.id !== k && !off[e.id]).map((e) => e.id);
-    setBusy(i);
-    try {
-      const out = await apiFetch(`/api/v1/models/${model}/duplicates/merge`, { method: "POST", body: JSON.stringify({ keep: k, others }) });
-      setMsg((x) => ({ ...x, [i]: [true, out.message] })); refreshAll();
-    } catch (e) { setMsg((x) => ({ ...x, [i]: [false, e.message] })); }
-    setBusy(null);
+  const [closeness, setCloseness] = useState("0.88");
+  const [attrs, setAttrs] = useState([]);
+  const [names, setNames] = useState(true);
+  const [ran, setRan] = useState(null);                 // the query string last run (null: not run yet)
+  const types = useMemo(() => (mm?.domains || []).flatMap((l) => (l.entity_types || []).filter((t) => !t.is_connector)
+    .map((t) => ({ ...t, domain: l.name }))), [mm]);
+  const typeRow = types.find((t) => t.name === type);
+  const { data: form } = useApi(typeRow ? `/api/v1/models/${model}/forms/${typeRow.id}` : null);
+  const qs = new URLSearchParams({ closeness, ...(type ? { type } : {}), ...(attrs.length ? { attributes: attrs.join(","), names: names ? "true" : "false" } : {}) }).toString();
+  const { data, error } = useApi(ran !== null ? `/api/v1/models/${model}/duplicates?${ran}` : null);
+  const [open, setOpen] = useState(null);
+  const [done, setDone] = useState({});
+  const [msg, setMsg] = useState("");
+  const toggle = (c) => setAttrs((x) => (x.includes(c) ? x.filter((y) => y !== c) : [...x, c]));
+  const searched = (() => {
+    const p = new URLSearchParams(ran || "");
+    const t = p.get("type") || "every entity type";
+    const c = CLOSENESS.find(([v]) => v === p.get("closeness"))?.[1] || "";
+    const a = p.get("attributes");
+    return `${t}; ${c.toLowerCase()}${a ? `; the same values in ${a.split(",").join(", ")}${p.get("names") === "false" ? " (not by names)" : ""}` : ""}`;
+  })();
+  async function xlsx() {
+    setMsg("");
+    try { await apiDownload(`/api/v1/models/${model}/duplicates/xlsx?${ran}`, `${m.name} - likely duplicates.xlsx`); }
+    catch (e) { setMsg(e.message); }
   }
+  const typeOptions = [{ value: "", label: "Every entity type" }, ...types.map((t) => ({ value: t.name, label: t.name, group: t.domain }))];
   return (
     <div className="quality">
-      <p className="small"><a href={`#/metamodel/${model}/quality`}>Quality</a> › Duplicates</p>
       <h3>Likely duplicates in {m.name}</h3>
-      <p className="quiet">Entities of the same type whose names are the same once case, spaces and punctuation are ignored, or very close.
-        Pick the one to keep: the others' relationships move to it, their values fill what it lacks, and they are deleted, as one commit
-        (roll it back from Changes &gt; Commits).</p>
-      <div className="toolbar">
-        <select value={type} onChange={(e) => setType(e.target.value)}>
-          <option value="">Every entity type</option>{types.map((t) => <option key={t}>{t}</option>)}</select>
-        {data && <span className="quiet small">{data.count} group{data.count === 1 ? "" : "s"}{data.count > data.groups.length ? ` (the first ${data.groups.length} shown)` : ""}</span>}
+      <p className="quiet">Entities of one type that look like the same thing: their names are the same once case, spaces and punctuation are ignored,
+        or close; or they have the same values in the attributes you choose. Choose what to look for and press <b>Find duplicates</b>. Compare a group
+        side by side, choose the one to keep and whose values it takes: the others' relationships move to it and they are removed. Their old IDs and
+        links still find the one kept.</p>
+      <div className="toolbar dedupe-find">
+        <label>Entity type <SearchSelect ariaLabel="Entity type" value={type} options={typeOptions}
+          onChange={(v) => { setType(v); setAttrs([]); }} placeholder="Type to find a type" /></label>
+        <label>Names <select value={closeness} onChange={(e) => setCloseness(e.target.value)}>
+          {CLOSENESS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+        {attrs.length > 0 && <label><input type="checkbox" checked={names} onChange={(e) => setNames(e.target.checked)} /> by names too</label>}
+        <button className="primary" onClick={() => { setDone({}); setRan(qs); }}>Find duplicates</button>
+        {ran !== null && data && <button onClick={xlsx} title="Every group found, one row per entity, with links back">⬇ Excel</button>}
       </div>
-      {error && <p className="status bad">{error}</p>}
-      {!data && !error && <p><span className="spinner" aria-hidden="true" /> Looking for duplicates…</p>}
-      {data && !data.groups.length && <p className="status ok">No likely duplicates.</p>}
-      {(data?.groups || []).map((g, i) => {
-        const k = keep[i] || g.entities[0].id;
-        const n = g.entities.filter((e) => e.id !== k && !off[e.id]).length;
+      {typeRow && form && <div className="toolbar small"><span className="quiet">Also match on the same values in:</span>
+        {form.attributes.filter((a) => !["long_text"].includes(a.data_type)).map((a) => (
+          <label key={a.code} className="wiz-check"><input type="checkbox" checked={attrs.includes(a.code)} onChange={() => toggle(a.code)} /> {a.name}</label>))}</div>}
+      {!typeRow && <p className="quiet small">Choose an entity type to match on attributes as well (for example the same vendor and version).</p>}
+      {msg && <p className="status bad">{msg}</p>}
+      {ran === null && <p className="quiet">Nothing searched yet.</p>}
+      {ran !== null && error && <p className="status bad">{error}</p>}
+      {ran !== null && !data && !error && <p><span className="spinner" aria-hidden="true" /> Looking for duplicates…</p>}
+      {ran !== null && data && !data.groups.length && <p className="status ok dedupe-none"><b>No likely duplicates found.</b> Searched: {searched}.</p>}
+      {ran !== null && data && data.groups.length > 0 && <p className="quiet small">{data.count} group{data.count === 1 ? "" : "s"} found
+        {data.count > data.groups.length ? ` (the first ${data.groups.length} shown)` : ""}. Searched: {searched}.</p>}
+      {ran !== null && (data?.groups || []).map((g) => {
+        const key = g.entities.map((e) => e.id).join();
         return (
-          <div key={g.entities.map((e) => e.id).join()} className="merge-step dup-group">
-            <strong>{g.type}</strong>
-            <table className="grid-table"><thead><tr><th>Keep</th><th>Merge in</th><th>Entity</th><th>ID</th></tr></thead>
+          <div key={key} className="merge-step dup-group">
+            <strong>{g.type}</strong> <span className="quiet small">{g.reasons.join(", ")}{g.score < 100 ? ` (${g.score}% alike)` : ""}</span>
+            <table className="grid-table"><thead><tr><th>Entity</th><th>ID</th>{data.attributes.map((a) => <th key={a}>{a}</th>)}</tr></thead>
               <tbody>{g.entities.map((e) => (
-                <tr key={e.id}><td><input type="radio" name={`keep${i}`} checked={k === e.id} onChange={() => setKeep((x) => ({ ...x, [i]: e.id }))} /></td>
-                  <td>{k !== e.id && <input type="checkbox" checked={!off[e.id]} onChange={() => setOff((x) => ({ ...x, [e.id]: !x[e.id] }))} />}</td>
-                  <td><a href={`#/metamodel/${model}/entity/${e.id}`}>{e.name}</a></td><td className="quiet">{e.display_id}</td></tr>))}</tbody></table>
+                <tr key={e.id}><td><a href={`#/metamodel/${model}/entity/${e.id}`}>{e.name}</a></td><td className="quiet">{e.display_id}</td>
+                  {data.attributes.map((a) => <td key={a}>{e.values?.[a] || ""}</td>)}</tr>))}</tbody></table>
             <div className="toolbar">
-              {msg[i] ? <span className={`status ${msg[i][0] ? "ok" : "bad"}`}>{msg[i][1]}</span>
-                : <button className="primary" disabled={busy !== null || !n} onClick={() => merge(i, g)}>{busy === i ? "Merging…" : `Merge ${n} into the one kept`}</button>}
+              {done[key] ? <span className={`status ${done[key][0] ? "ok" : "bad"}`}>{done[key][1]}</span>
+                : <button className="primary" onClick={() => setOpen(g)}>Compare and merge…</button>}
             </div>
           </div>
         );
       })}
+      {open && <DedupeDialog model={model} group={open} onClose={() => setOpen(null)}
+        onDone={(msg2) => { setDone((x) => ({ ...x, [open.entities.map((e) => e.id).join()]: [true, msg2] })); setOpen(null); refreshAll(); }} />}
     </div>
+  );
+}
+
+// a pair or group side by side: the one kept, the ones merged in, and whose value each field takes
+function DedupeDialog({ model, group, onClose, onDone }) {
+  const [inc, setInc] = useState(() => group.entities.map((e) => e.id));
+  const [keep, setKeep] = useState(null);
+  const [cmp, setCmp] = useState(null);
+  const [pick, setPick] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    if (inc.length < 2) { setCmp(null); return; }
+    let live = true;
+    apiFetch(`/api/v1/models/${model}/duplicates/compare`, { method: "POST", body: JSON.stringify({ ids: inc, keep }) })
+      .then((out) => { if (!live) return; setCmp(out); if (!keep) setKeep(out.keep); setErr(""); })
+      .catch((e) => live && setErr(e.message));
+    return () => { live = false; };
+  }, [inc.join(), keep]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const k = keep || cmp?.keep;
+  const chosen = (f) => pick[f.code] || (String(f.values[k] || "").trim() ? k : cmp.entities.map((e) => e.id).find((i) => String(f.values[i] || "").trim()) || k);
+  async function merge() {
+    setBusy(true); setErr("");
+    const choices = {};
+    cmp.fields.filter((f) => f.differ || f.empty_in_keep).forEach((f) => { choices[f.code] = chosen(f); });
+    try {
+      const out = await apiFetch(`/api/v1/models/${model}/duplicates/merge`, { method: "POST",
+        body: JSON.stringify({ keep: k, others: inc.filter((i) => i !== k), choices }) });
+      onDone(out.message);
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  }
+  const ents = cmp?.entities || [];
+  return (
+    <Modal wide title={`Merge duplicates: ${group.type}`} onClose={onClose}
+      actions={<><button onClick={onClose}>Cancel</button>
+        <button className="primary" disabled={busy || !cmp || inc.length < 2} onClick={merge}>{busy ? "Merging…" : `Merge ${inc.length - 1} into the one kept`}</button></>}>
+      <div className="ed-form">
+      <p className="quiet">Choose the one to keep and, where the values differ, whose value it takes. The others' relationships move to it
+        (one it has already is not repeated) and they are removed; their old IDs still find it.</p>
+      {err && <p className="status bad">{err}</p>}
+      <div className="toolbar small">{group.entities.map((e) => (
+        <label key={e.id} className="wiz-check"><input type="checkbox" checked={inc.includes(e.id)} disabled={inc.includes(e.id) && inc.length <= 2}
+          onChange={() => setInc((x) => (x.includes(e.id) ? x.filter((y) => y !== e.id) : [...x, e.id]))} /> {e.name}</label>))}
+        <span className="quiet">untick one to leave it out</span></div>
+      {!cmp && !err && <p><span className="spinner" aria-hidden="true" /> Comparing…</p>}
+      {cmp && (
+        <div className="grid-scroll"><table className="grid-table dedupe-compare">
+          <thead><tr><th>Field</th>{ents.map((e) => (
+            <th key={e.id}><label className="wiz-check"><input type="radio" name="keep" checked={k === e.id} onChange={() => { setKeep(e.id); setPick({}); }} />
+              <span>{k === e.id ? "Keep " : ""}<b>{e.name}</b> <span className="quiet small">{e.display_id} · {e.relationships} relationships · {e.values} values</span></span></label></th>))}</tr></thead>
+          <tbody>{cmp.fields.map((f) => (
+            <tr key={f.code} className={f.differ ? "differ" : ""}><td>{f.label}{f.differ && <span className="rag warn small"> differ</span>}</td>
+              {ents.map((e) => (
+                <td key={e.id}>{(f.differ || f.empty_in_keep) && String(f.values[e.id] || "").trim()
+                  ? <label className="wiz-check"><input type="radio" name={`f-${f.code}`} checked={chosen(f) === e.id}
+                    onChange={() => setPick((x) => ({ ...x, [f.code]: e.id }))} /> <span>{String(f.values[e.id])}</span></label>
+                  : <span className={String(f.values[e.id] || "").trim() ? "" : "quiet"}>{String(f.values[e.id] || "").trim() ? String(f.values[e.id]) : "empty"}</span>}</td>))}</tr>))}</tbody>
+        </table></div>)}
+      {cmp && <p className="small">{cmp.moves.length} relationship{cmp.moves.length === 1 ? "" : "s"} move to the one kept{cmp.dropped ? `; ${cmp.dropped} dropped (it has them already, or they join the entities merged)` : ""}.
+        {canOn(model, "model.commit") ? " Committed at once, as one commit." : " These are your changes: a committer commits them."}</p>}
+      </div>
+    </Modal>
   );
 }
 
@@ -229,7 +323,7 @@ function QualityMain({ model, m, drill, value }) {
             <Tile label="Rules passed" value={pct(s.passing)} sub={`${s.failing} failing, ${s.errors} on errors`} onClick={s.failing ? () => go(`${base}/kind/failing`) : null} bad={s.errors > 0} />
             <Tile label="Fresh" value={pct(s.fresh)} sub={`${s.stale} stale`} onClick={s.stale ? () => go(`${base}/kind/stale`) : null} />
             <Tile label="Orphans" value={s.orphans} sub="connected to nothing" onClick={s.orphans ? () => go(`${base}/kind/orphan`) : null} />
-            <Tile label="Duplicates" value="find" sub="same or very close names" onClick={() => go(`${base}/duplicates`)} />
+            <Tile label="Duplicates" value="find" sub="same or very close names" onClick={() => go(`/metamodel/${model}/duplicates`)} />
             <Tile label="Seals" value={s.seals.valid} sub={`${s.seals.broken} broken, ${s.seals.expired} expired`} onClick={s.seals.broken + s.seals.expired ? () => go(`${base}/kind/seal-broken`) : () => go(`${base}/kind/sealed`)} bad={s.seals.broken > 0} />
             <Tile label="Yours to fix" value={data.entities.filter((e) => e.responsible.includes(me()) && (e.completeness < 100 || e.failing || e.stale)).length} sub="you are responsible" onClick={() => go(`${base}/mine/me`)} />
           </div>

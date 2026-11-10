@@ -41,7 +41,7 @@ Everything that creates the database is code in this repository; nothing is crea
 | `services/api/migrations/sql/0015_change_log.sql` (run by `versions/0015_change_log.py`) | Phase 9 (0.9.0): a `tx` column (the writing transaction) and index on `history.row_versions` and `audit.events`, so the change log ships only finished transactions. The change log itself is in its own database (`EAX_CHANGELOG_DB_URL`, schema `changelog`: `entries`, `shipped`), made by `eax/change_log.py` |
 | `services/api/migrations/sql/0014_tags.sql` (run by `versions/0014_tags.py`) | Phase 8.3 (0.8.4): `core.model_tags` (frozen snapshots: the metamodel document and every entity and relationship state, a locked tag guarded by a trigger), `core.compare_profiles`, `core.gap_analyses` and `core.gap_items` (TOGAF gap analyses with notes, resolutions, work packages and Gap entities); commits of kind `restore` and `merge`; report views `rpt.gap_analyses`, `rpt.gap_items`, `rpt.gap_matrix` |
 | `services/api/migrations/sql/0013_commits.sql` (run by `versions/0013_commits.py`) | Phase 8 (0.8.3): model roles `committer` and `history-viewer`; `core.change_sets` and `core.pending_changes` (uncommitted content changes per author, D165; not readable by the report login), `core.commits` and `core.commit_items` (each item with the target before and after, for roll back), `core.merge_sessions` (a merge's plan); draft models can be `rejected`; `core.why_not` lets Committers change content |
-| `services/api/migrations/sql/0012_viewpoints.sql` (run by `versions/0012_viewpoints.py`) | Phase 8.2 (0.8.2): `core.viewpoints` (viewpoints as data; built-in VP-01 to VP-25 fixed by a trigger, organisations' own), `core.report_audiences` and `core.report_audience_links` (D153); report views `rpt.vp_*` (viewpoints), `rpt.tc_*` and `rpt.tm_*` (TOGAF catalogues and matrices), `rpt.type_pairs`, `rpt.dependency_edges`, `rpt.dr_*` and `rpt.f_dependencies()` (dependency reports). The seed (`eax.seed.catalog`) loads the built-in viewpoints and audiences from `eax/report_defs.py` on every start |
+| `services/api/migrations/sql/0012_viewpoints.sql` (run by `versions/0012_viewpoints.py`) | Phase 8.2 (0.8.2): `core.viewpoints` (views as data; built-in VP-01 to VP-25 fixed by a trigger, organisations' own), `core.report_audiences` and `core.report_audience_links` (D153); report views `rpt.vp_*` (views), `rpt.tc_*` and `rpt.tm_*` (TOGAF catalogues and matrices), `rpt.type_pairs`, `rpt.dependency_edges`, `rpt.dr_*` and `rpt.f_dependencies()` (dependency reports). The seed (`eax.seed.catalog`) loads the built-in views and audiences from `eax/report_defs.py` on every start |
 | `services/api/tests/sql/sample_history.sql` | Gives Claims Platform in the sample model a history to try the timeline on (changes the sample model) |
 | `services/api/eax/jobs_schema.py` | The job queue tables (Procrastinate) |
 | `services/api/eax/seed/` | The ArchiMate 4 template, the insurance reference model and the sample model (rows, not structure), loaded by the installer's login |
@@ -192,7 +192,7 @@ append-only: updates and deletes are refused.
 
 ## Models own their metamodel
 
-A **model** holds its own metamodel (layers, entity types, relationship types, attribute types,
+A **model** holds its own metamodel (domains, entity types, relationship types, attribute types,
 pick lists, validation rules, allowed relationships) and its content. Kinds:
 
 | Kind | Content | Read-only | Use |
@@ -304,7 +304,7 @@ so it can move to a database of its own (D266): no foreign key or query crosses 
 | `template_libraries`, `lib_templates`, `template_library_uploads`, `template_setup`, `project_libraries` | Template libraries (D264): EA Explorer's own, TOGAF 10 and the organisation's own (shared, or private to who added it and their project; loading, ready, failed); each template with its path in the library layout, the item or folder it belongs to and its Mayan document id (EA Explorer's files are read from its folder); an uploaded zip waiting for the background job; the setup a Super Admin finishes before the first project; the libraries each project copies from |
 | `projects` | A project: guid, name (unique), purpose, parent (a rerun), ADM cycle, status, repository state (pending, building, ready, failed) and its Mayan cabinet |
 | `members`, `signoff` | People and roles on a project; who signs off, for the whole project (phase '') or per phase |
-| `project_models`, `project_viewpoints`, `principles` | The models (added, derived, created), viewpoints and principles (from the library, its own or inherited) |
+| `project_models`, `project_views`, `principles` | The models (added, derived, created), views and principles (from the library, its own or inherited) |
 | `steps`, `items`, `folders` | The project's steps (removed ones kept with the reason), its deliverables and artifacts (chosen or not_for_use) and its folders, each with its Mayan cabinet |
 | `documents`, `document_events` | Documents (the Mayan document id, state, who checked out and when, versions) and who did what to them |
 
@@ -323,5 +323,23 @@ Migration `0024_project_setup`. `proj.projects` gains the scope (`scope_breadth`
 outcomes are entities in), `pending_goals`, and how it ended (`finished_at`, `finished_by`, `finish_note`,
 `merged_into`); its status is active, finishing, frozen, merged or closed. `proj.project_models.how` adds `referred`.
 `proj.items` gains `placeholder`, `templates` (the chosen library templates; NULL: all) and `note`;
-`proj.project_viewpoints.own`; `proj.documents.kind` and `signed_version`. `proj.signoff_requests` and
+`proj.project_views.own`; `proj.documents.kind` and `signed_version`. `proj.signoff_requests` and
 `proj.signoff_decisions` keep sign-offs (how: in-app, self, recorded with evidence). Rows only.
+
+## Drawn views (phases 28 and 29, migration 0033, release 0.16.0, D354, D401 to D404)
+
+`core.entity_types` gains `notation` (the ArchiMate 4 element whose shape it shows; `''` a plain box), `fill_colour`
+(`RRGGBB`; `''` the domain's) and `is_connector` (the junction type, D402). `core.entity_icons` (an entity's own icon,
+SVG or PNG, at most 64 KB, checked in the code, D403). `proj.view_evidence` (a drawn view as a deliverable's or a key
+question's evidence, a link only (D408): the model and view by guid, `version_no` one version or empty for the live
+view, with no key into core (D266) and no snapshot).
+
+The drawn views themselves are in **their own database** (D405): `eaxviews`, schema `views`, login `eax_views`, made and
+migrated by the views service (services/views, `viewsvc/migrations`, recorded in `views.schema_versions`).
+`views.drawn_views` (a model's drawn views, by `model_guid`: name unique per model, description, `source` new, copy,
+generated, mcp, model-copy, merge or package, `source_note`, `is_deleted`), `views.drawn_view_versions` (each save:
+`version_no`, the draw.io file `xml`, `note`, `model_marker` = the model's last content change when saved, `saved_by`,
+`saved_at`), `views.tag_holds` (the version of each view a tag of the model keeps; never pruned) and `views.model_views`
+(a model's own generated views, D406: a view definition, `copied_from` the standard view's code). EAX_VIEWS_KEEP_VERSIONS
+keeps the last n versions of each view (0: all), never a held or the latest one. Rows only: the rules are in `eax/drawn_views.py`, `eax/notation.py` and `eax/junctions.py` (D248).
+

@@ -5,9 +5,9 @@
 // compare block by block, and the comparison becomes a working copy to adjust and clean up into a new target. A canvas
 // copies to another project, keeps the documents used to build it, and exports to PDF, PowerPoint and draw.io.
 import { useState } from "react";
-import { apiBlobUrl, apiDownload, apiFetch, apiUpload } from "./auth";
-import { openDrawioXml } from "./exporting";
+import { apiDownload, apiFetch, apiUpload } from "./auth";
 import { refreshAll, useApi } from "./ModelViews";
+import { liveProjects } from "./ModelMarks";
 
 const KINDS = { current: "Current state", target: "Target state", working: "Working copy", scenario: "Scenario" };
 const STATUSES = { draft: "Draft", agreed: "Agreed" };
@@ -127,7 +127,8 @@ function Documents({ p, c, may, act, url, setMsg }) {
 export function CanvasTab({ p }) {
   const url = `/api/v1/projects/${p.id}`;
   const { data: list } = useApi(`${url}/canvases`);
-  const { data: plist } = useApi("/api/v1/projects");
+  const { data: plist_ } = useApi("/api/v1/projects");
+  const plist = plist_ && { ...plist_, projects: liveProjects(plist_.projects) };   // never a frozen project (D360)
   const params = new URLSearchParams((window.location.hash.split("?")[1]) || "");
   const [sel, setSel] = useState(params.get("c") || "");
   const [cmpWith, setCmpWith] = useState("");
@@ -154,10 +155,6 @@ export function CanvasTab({ p }) {
   const exp = (fmt, other) => {
     const q = `${url}/canvases/${current}/export?format=${fmt}${other ? `&compare=${other}` : ""}`;
     const title = other && cmp ? `${cmp.a.name} to ${cmp.b.name}` : c?.name || "canvas";
-    if (fmt === "drawio") {
-      openDrawioXml(title, apiBlobUrl(q).then((u) => fetch(u)).then((r) => r.text()));
-      return;
-    }
     apiDownload(q, `${title}.${fmt}`).catch((e) => setMsg(e.message));
   };
   const working = c?.kind === "working";
@@ -195,7 +192,7 @@ export function CanvasTab({ p }) {
               {canvases.filter((x) => x.id !== c.id).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
             </select>
             <select value="" onChange={(e) => e.target.value && exp(e.target.value)} aria-label="Export">
-              <option value="">Export…</option><option value="pdf">PDF</option><option value="pptx">PowerPoint</option><option value="drawio">Open in draw.io</option>
+              <option value="">Export…</option><option value="pdf">PDF</option><option value="pptx">PowerPoint</option><option value="drawio">draw.io file</option>
             </select>
             {may && <select value="" onChange={(e) => { const v = e.target.value; if (!v) return;
               if (v === "rename") { setDialog("rename"); setForm({ name: c.name, description: c.description }); }
@@ -266,7 +263,7 @@ export function CanvasTab({ p }) {
               .then((r) => r && made(r.id))}>Make a working copy of these changes</button>}
             <button onClick={() => { const a = cmp.a.id; setSel(cmp.b.id); setCmpWith(a); }}>Swap</button>
             <select value="" onChange={(e) => e.target.value && exp(e.target.value, cmpWith)} aria-label="Export the comparison">
-              <option value="">Export…</option><option value="pdf">PDF</option><option value="pptx">PowerPoint</option><option value="drawio">Open in draw.io</option>
+              <option value="">Export…</option><option value="pdf">PDF</option><option value="pptx">PowerPoint</option><option value="drawio">draw.io file</option>
             </select>
             <button className="linkish" onClick={() => setCmpWith("")}>Close the comparison</button>
           </div>

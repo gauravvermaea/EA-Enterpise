@@ -117,15 +117,40 @@ ACTIONS: dict[str, tuple[str, str]] = {
     "draft.resubmitted": ("Resubmitted a metamodel draft", "Metamodel draft"),
     "view.save": ("Saved a view", "Saved view"),
     "view.delete": ("Deleted a view", "Saved view"),
-    "viewpoint.add": ("Added a viewpoint", "Viewpoint"),
-    "viewpoint.change": ("Changed a viewpoint", "Viewpoint"),
-    "viewpoint.delete": ("Deleted a viewpoint", "Viewpoint"),
+    "viewpoint.add": ("Added a view", "View"),
+    "viewpoint.change": ("Changed a view", "View"),
+    "viewpoint.delete": ("Deleted a view", "View"),
     "settings.change": ("Changed settings", "Settings"),
     "system.restart": ("Restarted the system", "System"),
     "system.service": ("Switched a service on or off", "System"),
     "system.config_restore": ("Restored a copy of the config file", "System"),
     "role-mapping.add": ("Mapped a Keycloak role", "Role mapping"),
     "role-mapping.remove": ("Removed a Keycloak role mapping", "Role mapping"),
+    # surveys and maturity assessments (phases 38.1 and 40): who did what, never what anyone answered
+    "survey.create": ("Made a survey", "Survey"),
+    "survey.update": ("Changed a survey", "Survey"),
+    "survey.delete": ("Deleted a draft survey", "Survey"),
+    "survey.copy": ("Copied a survey", "Survey"),
+    "survey.send": ("Sent a survey", "Survey"),
+    "survey.recipients": ("Asked more people in a survey", "Survey"),
+    "survey.remind": ("Reminded people to answer a survey", "Survey"),
+    "survey.close": ("Closed a survey", "Survey"),
+    "survey.reopen": ("Reopened a survey", "Survey"),
+    "survey.answer": ("Answered a survey", "Survey"),
+    "maturity.create": ("Started a maturity assessment", "Survey"),
+    # machine access (phase 25, D366): every call made with a credential, and the credentials themselves
+    "machine.call": ("Called the API with a credential", "Machine access"),
+    "machine.credential.create": ("Made a credential", "Machine access"),
+    "machine.credential.change": ("Changed a credential", "Machine access"),
+    "machine.credential.revoke": ("Revoked a credential", "Machine access"),
+    "machine.service_account.create": ("Made a service account", "Service account"),
+    "machine.service_account.change": ("Changed a service account", "Service account"),
+    # housekeeping (phase 35.1, D371)
+    "housekeeping.rule": ("Changed a retention rule", "Housekeeping"),
+    "housekeeping.dry_run": ("Did a housekeeping dry run", "Housekeeping"),
+    "housekeeping.confirm": ("Confirmed a housekeeping dry run", "Housekeeping"),
+    "housekeeping.run": ("Housekeeping archived or deleted old records", "Housekeeping"),
+    "housekeeping.history_removed": ("Housekeeping removed old history versions", "Housekeeping"),
 }
 NAME_KEYS = ("name", "tag", "analysis_name", "title", "username", "keycloak_role", "message", "note", "number")
 KINDS = {"content": "Content", "metamodel": "Metamodel", "model": "Model", "action": "Action"}
@@ -153,7 +178,7 @@ def _jsonable(v: Any) -> Any:
 TECH = {"id", "guid", "model_id", "row_version", "created_at", "created_by", "modified_at", "modified_by", "created_mm_version",
         "modified_mm_version", "origin_guid", "is_deleted", "updated_at", "updated_by", "deleted_at", "deleted_by",
         "metamodel_version", "entity_count", "relationship_count", "sort_order", "tx"}
-TYPES = {"entities": "Entity", "relationships": "Relationship", "attribute_values": "Entity", "models": "Model", "layers": "Layer",
+TYPES = {"entities": "Entity", "relationships": "Relationship", "attribute_values": "Entity", "models": "Model", "layers": "Domain",
          "entity_types": "Entity type", "relationship_types": "Relationship type", "pick_lists": "Pick list",
          "pick_list_values": "Pick list value", "attribute_types": "Attribute", "item_attributes": "Attribute of a type",
          "validation_rules": "Rule", "allowed_relationships": "Allowed relationship"}

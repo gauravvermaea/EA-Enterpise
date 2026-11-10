@@ -110,6 +110,6 @@ Global roles stay in Keycloak; the wizards link there.
 
 ## Not in this phase
 
-- The new-viewpoint and new-report wizards (later; D284).
+- The new-view and new-report wizards (later; D284).
 - The architecture screens themselves, to be designed with the owner (D284).
 - Stopping a merge that is running.

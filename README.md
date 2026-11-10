@@ -3,15 +3,15 @@
 A free, open-source enterprise architecture platform you run yourself:
 - **a governed metamodel**: ArchiMate 4 and the TOGAF 10 content metamodel built in, your own metamodels edited,
   versioned, reviewed and pushed down to the models that use them;
-- **the repository and its pictures**: networks, layers, impact, capability and hierarchy maps, matrices, value
+- **the repository and its pictures**: networks, domains, impact, capability and hierarchy maps, matrices, value
   stream maps and roadmaps drawn from the data itself (always current), each opening in draw.io;
-- **reports and analysis**: 30 standard reports, 49 viewpoints (diagram, catalogue, heat map, matrix), gap,
+- **reports and analysis**: 30 standard reports, 49 views (diagram, catalogue, heat map, matrix), gap,
   comparison and common analysis, data quality, and Apache Superset for your own;
 - **TOGAF ADM projects**: 14 project templates, the TOGAF 10 library, key questions accepted by stakeholders, Business
   Model Canvases, the Architecture Repository, documents (Mayan EDMS) and libraries;
 - **governance**: private changes until committed, child models merged back, reviews, approvals and sign-off, a full
   change log;
-- **bring your own AI**: an MCP server with 79 tools that reads, analyses and builds as the signed-in person;
+- **bring your own AI**: an MCP server with 82 tools that reads, analyses and builds as the signed-in person;
 - **integration and operations**: a REST API, signed webhooks, Excel and CSV loads, one `eax` command, health,
   tagged backups and restores; single sign-on through Keycloak.
 
@@ -21,7 +21,7 @@ planned: [docs/capabilities.md](docs/capabilities.md).**
 **All the documentation, listed with what each covers: [docs/index.md](docs/index.md).** Backup and restore
 commands: [below](#backup-and-restore-from-the-command-line) and in [docs/operations.md](docs/operations.md#backup-and-restore-from-the-command-line-d227).
 
-**Status: version 0.15.1. Phases 0 to 13, 15.2, 15.3 (part) and 16.3 are accepted and closed** (9 Nov 2026, D356). The short list is
+**Status: version 0.16.0 (the back end of drawn views, phases 28 and 29, being built). Phases 0 to 13, 15.2, 15.3 (part) and 16.3 are accepted and closed** (9 Nov 2026, D356). The short list is
 below; every phase in detail: [docs/build-phases.md](docs/build-phases.md). Database design:
 [docs/database.md](docs/database.md). How it is built (for developers and AI agents):
 [docs/architecture.md](docs/architecture.md), [AGENTS.md](AGENTS.md); the high-level technical architecture (under 10 pages):
@@ -44,20 +44,30 @@ The major phases; each line covers its sub-phases. **In detail (every sub-phase,
 | 5 | Report views and the thirty standard reports | closed |
 | 6 | Data entry in forms | closed |
 | 7 | Grids, search and saved views | closed |
-| 8 | Commits; notifications and webhooks; viewpoints and TOGAF reports; tags, comparison and gap analysis; backups | closed |
+| 8 | Commits; notifications and webhooks; views and TOGAF reports; tags, comparison and gap analysis; backups | closed |
 | 9 | The change log | closed |
 | 10 | Administration console; import and export sheets | closed |
 | 12 | Validation and data quality; start-up in two tiers | closed |
 | 13 | Architecture projects: library, wizard, repository, sign-off, content framework, bases, governance, charter, the Architecture Repository, tracking sheets, the console, eaxpy | accepted and closed (8 Nov 2026) |
 | 15.2 | The enterprise library and project libraries (a separate service); skills on each user's profile | accepted and closed (9 Nov 2026) |
-| 15.3 (part) | Business architecture: Business Model Canvases, the TOGAF Phase B artifacts and their views; key questions | accepted and closed (9 Nov 2026); the rest of 15.3 planned |
+| 15.3 (part) | Business architecture: Business Model Canvases, the TOGAF Phase B artifacts and their views; key questions | accepted and closed (9 Nov 2026); the rest replaced by an *Other views and documents* project tab of sample templates (D358, D415; built in 0.17.0, D429, to be accepted) |
 | 16.3 | Guided wizards | accepted and closed (9 Nov 2026) |
-| 19 to 24 | Collaboration at scale (adds to the commits, child models and merges built in 8 and 13): project-wide work copies, dedupe, ownership, portfolio and impact, report trends and designer | planned |
-| 25 to 27 | Security hardening; MCP proposals into staging (the MCP server and its 79 tools are built) | planned |
-| 28 to 31 | Drawing in draw.io with ArchiMate notation, written back to the repository; saved standard views (the diagrams drawn from the repository are built) | planned |
-| 33, 34 | ArchiMate exchange and conformance; collection from other systems and CMDB reconciliation (the API, webhooks and Excel loads are built) | planned |
-| 35 to 38 | Operations, deployment, enterprise readiness, release candidate, pilot and version 1.0 | planned |
-| 39, 40 | Industry models and documentation; organisation maturity | planned |
+| 28, 29 | Drawn views in draw.io: ArchiMate notation, from the model's own entities, relationships added from the canvas; "view" everywhere (D354, D355) | next |
+| 19, 20 | Merge a child into its parent: a wizard with three-way review and approval, then freeze or refresh the child (D359, D422 to D425) | 0.17.0, built, to be accepted |
+| 21 | Dedupe within a model: a wizard, committed like any change; old IDs still find the one kept (D361, D426 to D428) | 0.17.0, built, to be accepted |
+| 24 | KPI trends, an OData feed, a report designer opening Superset (D365) | planned |
+| 25 | Machine access: tokens, API keys and client certificates with API areas set by admins (D366) | planned |
+| 26, 27, 27.1 | MCP: OAuth remote connector, AI activity log, citations (D368); scenario planning with AI in projects (D364) | planned |
+| 33, 33.1 | ArchiMate exchange and conformance: dropped until the ArchiMate 4 exchange specification is published (D385, D386) | dropped |
+| 34 | Published import formats (ArchiMate 4, Excel, a CSV format close to the Excel imports), delivered by file drop, upload or API; no ETL (D370) | planned |
+| 35, 35.1 | Usage insight, metrics, retention and housekeeping, database health (D371) | planned |
+| 36, 36.1 | Deployment kinds, upgrades with rollback (in place from GitHub releases), moving installations, key vault, AD groups (D372); test automation with security tests (D367) | planned |
+| 8.5, 36.3 | Release process, scaling out set in the web application (D373, D378); 36.2 removed (D380) | planned |
+| 38.1 | Surveys: designer with conditions, recipients by person, role, model or project, task list and link, anonymous, results and Excel (D375, D446 to D449) | 0.17.0, built, to be accepted |
+| 40 | EA capability maturity: assessments as surveys on nine elements and six levels, scores, targets, gaps, evidence and trend (D377, D450 to D453) | 0.17.0, built, to be accepted |
+| 37, 38 | Release candidate: in-page help and guides (D374); version 1.0 (D375) | planned |
+| 39 | Industry models from the owner's documents (D376) | planned |
+| 22, 23, 30, 31 | Closed as covered (D357, D362, D363) | closed |
 
 ## Quick start (laptop)
 
@@ -72,7 +82,7 @@ Windows (PowerShell or Command Prompt, in this folder):
 .\eax trust          # OPTIONAL, once after the first clean-run: trust the local certificate (no browser warnings)
 .\eax run            # NEXT TIME ONWARDS: starts it again, keeping your data
 .\eax run --wait-all # the same, but waits until everything (reports, documents, draw.io, sample data) is up
-.\eax help           # what every command does
+.\eax help           # every command by group; .\eax help stop shows one in full; .\eax help --all everything
 .\eax console        # SOMETHING WRONG? a numbered menu to get it back up (no technical knowledge needed)
 ```
 
@@ -102,7 +112,7 @@ any of them to wait until everything is up instead. See [How EA Explorer starts]
   everything still works as before: accept the browser's warning once for localhost, reports.localhost
   and docs.localhost. See
   [Certificate and https](#certificate-and-https) below.
-- `.\eax down` stops everything; `.\eax logins` prints the user names and passwords again.
+- `.\eax stop` stops everything and keeps your data (`.\eax down` is the same; `.\eax restart` stops and starts again); `.\eax logins` prints the user names and passwords again.
 
 `.\eax` is a small launcher (`eax.cmd`) that runs `eax.ps1` with the PowerShell execution policy
 bypassed for that run only, because the script is not signed. The long form is:

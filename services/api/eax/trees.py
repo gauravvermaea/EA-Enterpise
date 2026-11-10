@@ -41,7 +41,7 @@ def _quality(conn, m: dict) -> tuple[dict, dict]:
 # ---------------------------------------------------------------- the metamodel
 def metamodel_tree(conn, model: Any) -> dict:
     m = repo.get_model(conn, model)
-    types = _rows(conn, """SELECT et.id AS _id, et.guid::text AS id, et.code, et.name, l.name AS layer, l.colour,
+    types = _rows(conn, """SELECT et.id AS _id, et.guid::text AS id, et.code, et.name, l.name AS domain, l.colour,
                                   et.status_code AS status,
                                   (SELECT count(*) FROM core.entities e WHERE e.entity_type_id = et.id AND NOT e.is_deleted) AS entities
                              FROM core.entity_types et JOIN core.layers l ON l.id = et.layer_id
@@ -78,7 +78,7 @@ def types_tree(conn, model: Any) -> dict:
     """The model's entity types with how many entities each has and its data quality as last calculated."""
     m = repo.get_model(conn, model)
     scores, bands = _quality(conn, m)
-    types = _rows(conn, """SELECT et.id AS _id, et.guid::text AS id, et.code, et.name, l.name AS layer, l.colour
+    types = _rows(conn, """SELECT et.id AS _id, et.guid::text AS id, et.code, et.name, l.name AS domain, l.colour
                              FROM core.entity_types et JOIN core.layers l ON l.id = et.layer_id
                             WHERE et.model_id = :m AND NOT et.is_deleted ORDER BY l.sort_order, et.sort_order, et.name""",
                   m=m["_id"])
@@ -247,7 +247,7 @@ def tree_xlsx(conn, model: Any, scope: str, entity_type: Any = None, entity: Any
     row(0, m["name"], "", "Model", bold=True)
     if scope == "metamodel":
         for t in metamodel_tree(conn, m["id"])["types"]:
-            row(1, t["name"], "Entity type", f"{t['layer']} layer, {t['entities']} entities", bold=True)
+            row(1, t["name"], "Entity type", f"{t['domain']} domain, {t['entities']} entities", bold=True)
             row(2, "Attributes")
             for a in t["attributes"]:
                 row(3, "", a["key"], a["value"])

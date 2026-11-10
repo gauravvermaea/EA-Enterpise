@@ -19,6 +19,12 @@ when it is busy, fewer when it is quiet.
 - Files kept on local disk today (uploads waiting, task files, the TOGAF folder) move to shared storage.
 - Fits with 13.7 (the database itself is mirrored, not scaled this way).
 
+## The views service (owner, 10 Nov 2026, D405)
+Drawn views (about 10,000 expected) live in a service of their own like the library: database `eaxviews` (schema
+`views`, login `eax_views`), container `views` on port 8110, API `/api/views/v1`. `EAX_VIEWS_DB_HOST` and `_PORT` put its
+database on another server, `EAX_VIEWS_URL` tells the main API where it is; it is stateless (tokens; it asks the main API
+who someone is, kept a minute), so it scales like the API. To settle with the rest of scale-out, as for the library.
+
 ## The library service (owner, 9 Nov 2026, D346)
 The library (phase 15.2) is a separate microservice with its own database (`eaxlibrary`), schema, migrations and API.
 On a laptop or a single server its database shares the PostgreSQL server (separate database and login). **In

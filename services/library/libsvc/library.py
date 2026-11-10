@@ -440,20 +440,29 @@ def export_project(conn, project_guid: str) -> dict | None:
     lib = one(conn, "SELECT * FROM lib.libraries WHERE project_guid::text = %(g)s", g=project_guid)
     if not lib:
         return None
+    return _export(conn, lib, "eax-library-project/1")
+
+
+def export_org(conn) -> dict | None:
+    """The enterprise library, for the organisation part of an application backup."""
+    lib = one(conn, "SELECT * FROM lib.libraries WHERE scope = 'org'")
+    return _export(conn, lib, "eax-library-org/1") if lib else None
+
+
+def _export(conn, lib: dict, fmt: str) -> dict:
     fs = rows(conn, "SELECT id, guid::text AS guid, parent_id, name, sort_order FROM lib.folders WHERE library_id = %(l)s AND NOT is_deleted", l=lib["id"])
     es = rows(conn, """SELECT guid::text AS guid, folder_id, kind, title, description, tags, blocks, href, file_name, content_type,
                               encode(content, 'base64') AS content, sort_order, created_by, created_at
                          FROM lib.entries WHERE library_id = %(l)s AND NOT is_deleted""", l=lib["id"])
     for e in es:
         e["created_at"] = e["created_at"].isoformat()
-    return {"format": "eax-library-project/1", "project_name": lib["project_name"], "in_enterprise": lib["in_enterprise"],
+    return {"format": fmt, "project_name": lib["project_name"], "in_enterprise": lib["in_enterprise"],
             "external_link": lib["external_link"], "folders": fs, "entries": es}
 
 
 def import_project(conn, project_guid: str, project_name: str, data: dict, actor: str, keep_sharing: bool = False) -> dict:
     """A project's library from a backup, into the project (a restored project is a new project: a new library, not shown
     in the enterprise library until its admin says so; a project put back over itself keeps its sharing)."""
-    import base64
     if (data or {}).get("format") != "eax-library-project/1":
         raise Refused("Not a project library export.")
     lib = one(conn, "SELECT * FROM lib.libraries WHERE project_guid::text = %(g)s", g=project_guid)
@@ -462,6 +471,25 @@ def import_project(conn, project_guid: str, project_name: str, data: dict, actor
     lib = one(conn, """INSERT INTO lib.libraries (scope, project_guid, project_name, in_enterprise, external_link, created_by)
                        VALUES ('project', %(g)s::uuid, %(n)s, %(e)s, %(x)s, %(u)s) RETURNING *""",
               g=project_guid, n=project_name, e=bool(keep_sharing and data.get("in_enterprise")), x=data.get("external_link") or "", u=actor)
+    return _fill(conn, lib, data, actor)
+
+
+def import_org(conn, data: dict, actor: str) -> dict:
+    """The enterprise library from an application backup, over the one here (its folders and entries replaced)."""
+    if (data or {}).get("format") != "eax-library-org/1":
+        raise Refused("Not an enterprise library export.")
+    lib = one(conn, "SELECT * FROM lib.libraries WHERE scope = 'org'")
+    if not lib:
+        lib = one(conn, "INSERT INTO lib.libraries (scope) VALUES ('org') RETURNING *")
+    conn.execute("DELETE FROM lib.entries WHERE library_id = %(l)s", {"l": lib["id"]})
+    conn.execute("DELETE FROM lib.folders WHERE library_id = %(l)s", {"l": lib["id"]})
+    return _fill(conn, lib, data, actor, keep_guids=True)
+
+
+def _fill(conn, lib: dict, data: dict, actor: str, keep_guids: bool = False) -> dict:
+    """Folders and entries into a library. keep_guids: the enterprise library put back over itself keeps its folders' and
+    pages' guids and when each page was made, so links to them still work (D410)."""
+    import base64
     new_f: dict[int, int] = {}
     pending = list(data.get("folders") or [])
     for _ in range(len(pending) + 1):                       # parents before children
@@ -470,8 +498,10 @@ def import_project(conn, project_guid: str, project_name: str, data: dict, actor
             if f["parent_id"] and f["parent_id"] not in new_f:
                 later.append(f)
                 continue
-            r = one(conn, """INSERT INTO lib.folders (library_id, parent_id, name, sort_order, created_by) VALUES (%(l)s, %(p)s, %(n)s, %(s)s, %(u)s)
-                             RETURNING id""", l=lib["id"], p=new_f.get(f["parent_id"]), n=f["name"], s=f.get("sort_order") or 0, u=actor)
+            g = f.get("guid") if keep_guids else None
+            r = one(conn, f"""INSERT INTO lib.folders (library_id, parent_id, name, sort_order, created_by{', guid' if g else ''})
+                              VALUES (%(l)s, %(p)s, %(n)s, %(s)s, %(u)s{', %(g)s::uuid' if g else ''}) RETURNING id""",
+                    l=lib["id"], p=new_f.get(f["parent_id"]), n=f["name"], s=f.get("sort_order") or 0, u=actor, g=g)
             new_f[f["id"]] = r["id"]
         pending = later
         if not pending:
@@ -479,11 +509,13 @@ def import_project(conn, project_guid: str, project_name: str, data: dict, actor
     for e in data.get("entries") or []:
         content = base64.b64decode(e["content"]) if e.get("content") else None
         doc = {**e, "file_text": text_of(e.get("file_name") or "", content) if content else ""}
-        conn.execute("""INSERT INTO lib.entries (library_id, folder_id, kind, title, description, tags, blocks, href, file_name, content_type,
-                                                 content, file_size, search_doc, sort_order, created_by, changed_by, changed_at)
-                        VALUES (%(l)s, %(f)s, %(k)s, %(t)s, %(d)s, %(tg)s, %(b)s, %(h)s, %(fn)s, %(ct)s, %(c)s, %(fs)s, %(s)s, %(so)s, %(cb)s, %(u)s, now())""",
+        keep = keep_guids and e.get("guid")
+        conn.execute(f"""INSERT INTO lib.entries (library_id, folder_id, kind, title, description, tags, blocks, href, file_name, content_type,
+                                                 content, file_size, search_doc, sort_order, created_by, changed_by, changed_at{', guid, created_at' if keep else ''})
+                        VALUES (%(l)s, %(f)s, %(k)s, %(t)s, %(d)s, %(tg)s, %(b)s, %(h)s, %(fn)s, %(ct)s, %(c)s, %(fs)s, %(s)s, %(so)s, %(cb)s, %(u)s, now()
+                                {', %(g)s::uuid, %(ca)s::timestamptz' if keep else ''})""",
                      {"l": lib["id"], "f": new_f.get(e.get("folder_id")), "k": e["kind"], "t": e["title"], "d": e.get("description") or "",
                       "tg": e.get("tags") or [], "b": json.dumps(e.get("blocks") or []), "h": e.get("href") or "", "fn": e.get("file_name") or "",
                       "ct": e.get("content_type") or "", "c": content, "fs": len(content or b""), "s": _search_doc(doc), "so": e.get("sort_order") or 0,
-                      "cb": e.get("created_by") or actor, "u": actor})
+                      "cb": e.get("created_by") or actor, "u": actor, "g": e.get("guid"), "ca": e.get("created_at")})
     return {"library": str(lib["guid"]), "folders": len(new_f), "entries": len(data.get("entries") or [])}

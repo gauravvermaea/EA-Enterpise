@@ -13,8 +13,8 @@ import { CF_AREAS, CF_LABEL } from "./cfAreas";
 import { AreaChips, AreaPicker } from "./CfAreaPicker";
 
 // ArchiMate's colours for each part
-const COLOUR = { motivation: "#CCCCFF", strategy: "#F5DEAA", business: "#FFFFB5", application: "#B5FFFF", technology: "#C9E7B7",
-  migration: "#FFE0E0", governance: "#E0FFE0" };
+const COLOUR = { motivation: "#D1BADC", strategy: "#EFBD5D", business: "#ECD678", application: "#B0D0D9", technology: "#BBD8AD",
+  migration: "#F1BBB7", governance: "#D1BADC" };  // the ArchiMate 4 notation's colours (D392)
 const colourOf = (code) => {
   const [part, leaf] = code.split(".");
   if (["prelim", "req", "vision", "motivation"].includes(part)) return COLOUR.motivation;
@@ -164,7 +164,7 @@ function TagRow({ p, r, kind, can, on, tick, place }) {
         <div className="quiet small">
           {kind === "classes" && `${r.type || r.kind || ""} · ${r.documents} document${r.documents === 1 ? "" : "s"}`}
           {kind === "documents" && r.file_name !== r.name ? r.file_name : ""}
-          {kind === "types" && `${r.layer || ""} · ${r.entities} entit${r.entities === 1 ? "y" : "ies"}`}
+          {kind === "types" && `${r.domain || ""} · ${r.entities} entit${r.entities === 1 ? "y" : "ies"}`}
           {kind === "entities" && (r.display_id || "")}
         </div></td>
       {kind === "classes" && <><td><span className={`kind-toggle ${r.kind === "Deliverable" ? "del" : "art"}`} title={r.kind}>{r.kind === "Deliverable" ? "D" : "A"}</span></td><td>{r.phase}</td></>}
@@ -328,7 +328,7 @@ function AreaTree({ p, code }) {
                   <details key={t.id} className="cf-node" open={!!q || nTypes <= 6}>
                     <summary><span className="cf-swatch" style={{ background: `#${t.colour || "ddd"}` }} />
                       <a href={`#/metamodel/${m.id}/type/${t.id}`} title="Open the entity type">{t.name}</a>
-                      <span className="quiet small"> {t.count} entit{t.count === 1 ? "y" : "ies"} · {t.layer}{t.chosen ? "" : " · placed by default"}</span>
+                      <span className="quiet small"> {t.count} entit{t.count === 1 ? "y" : "ies"} · {t.domain}{t.chosen ? "" : " · placed by default"}</span>
                       {(t.areas || []).length > 1 && <> <AreaChips codes={t.areas.filter((a) => a !== code)} dflt={!t.chosen} small /></>}</summary>
                     {!unplaced && (ents.length ? (
                       <ul className="cf-leaves">

@@ -1,12 +1,14 @@
 // Hierarchy map: the entities of one type as nested boxes, parents holding their parts, for example
-// the capability map from level 1 down to level 4. Colour the boxes by layer colour or by one
+// the capability map from level 1 down to level 4. Colour the boxes by domain colour or by one
 // attribute (a heat map: maturity, criticality, lifecycle...). Click a box to open its entity page.
 // Opens in draw.io (nested containers, D256); saves as SVG, PNG and CSV (one row per entity with its path).
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "./auth";
-import { downloadCsv, openDrawio, downloadPng, downloadSvg } from "./exporting";
+import { downloadCsv, downloadPng, downloadSvg } from "./exporting";
+import { PictureActions } from "./DrawnView";
 import { textWidth } from "./MetamodelDiagram";
 import usePanZoom from "./usePanZoom";
+import { elementTypes } from "./elements.js";
 
 const go = (path) => { window.location.hash = path; };
 const LEAF_W = 168, LEAF_H = 30, HEAD = 28, PAD = 8, GAP = 6, ROOT_GAP = 16, ROW_MAX = 2200;
@@ -66,7 +68,7 @@ export default function HierarchyMap({ model }) {
     let live = true;
     apiFetch(`/api/v1/models/${model}/metamodel`).then((mm) => {
       if (!live) return;
-      const list = mm.layers.flatMap((l) => l.entity_types.map((t) => ({ ...t, colour: l.colour })))
+      const list = mm.domains.flatMap((l) => elementTypes(l).map((t) => ({ ...t, colour: l.colour })))
         .filter((t) => t.entity_count > 0).sort((a, b) => b.entity_count - a.entity_count);
       setTypes(list);
       setTypeId((list.find((t) => t.code === "Capability") || list[0])?.id || "");
@@ -104,7 +106,7 @@ export default function HierarchyMap({ model }) {
   const placed = useMemo(() => (tree ? layoutTree(tree.roots, Math.min(levels, tree.maxDepth)) : null), [tree, levels]);
   useEffect(() => { if (placed) fit(placed.width, placed.height, 1); }, [placed]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // colours: the type's layer colour, or one per value of the chosen attribute
+  // colours: the type's domain colour, or one per value of the chosen attribute
   const colouring = useMemo(() => {
     if (!table || !colourBy) return null;
     const col = table.columns.find((c) => c.code === colourBy);
@@ -126,14 +128,16 @@ export default function HierarchyMap({ model }) {
   };
   const title = `${table?.entity_type.name || "hierarchy"} map${colouring ? ` by ${colouring.name}` : ""}`;
 
-  function exportDrawio() {
-    if (!placed) return;
-    openDrawio(title, placed.all.map((n) => ({
-      id: n.id, label: n.drawKids.length ? `${n.name}` : n.name, x: n.x, y: n.y, w: n.w, h: n.h,
-      fill: fill(n), container: n.drawKids.length > 0, bold: n.drawKids.length > 0,
+  // nested boxes: each entity holds its parts (D407, D408)
+  function picture() {
+    if (!placed) return null;
+    return { title, nodes: placed.all.map((n) => ({
+      id: n.id, label: n.name, x: n.x, y: n.y, w: n.w, h: n.h,
+      fill: fill(n), heatFill: colouring ? fill(n) : null, container: n.drawKids.length > 0, bold: n.drawKids.length > 0,
       parent: n.parent_id && placed.all.some((p) => p.id === n.parent_id) ? n.parent_id : null,
-      ea_type: table.entity_type.name, ea_id: n.id, ea_layer: table.entity_type.layer,
-    })));
+      ea_type: table.entity_type.name, ea_id: n.id, ea_domain: table.entity_type.domain,
+      keepSize: true,                 // the nesting is laid out already: sizes and places as drawn
+    })), edges: [] };
   }
   function exportCsv() {
     const rows = [["Level", "Path", "Display ID", "Name", colouring?.name || "Colour"]];
@@ -163,7 +167,7 @@ export default function HierarchyMap({ model }) {
         {table && (
           <label>Colour by
             <select value={colourBy} onChange={(e) => setColourBy(e.target.value)}>
-              <option value="">layer colour</option>
+              <option value="">domain colour</option>
               {table.columns.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
             </select>
           </label>
@@ -172,7 +176,7 @@ export default function HierarchyMap({ model }) {
         <button onClick={() => placed && fit(placed.width, placed.height, 1)}>Fit</button>
         <button onClick={() => zoomCentre(1.25)}>+</button>
         <button onClick={() => zoomCentre(0.8)}>−</button>
-        <button onClick={exportDrawio} title="Nested boxes, opened in draw.io in a new tab; save or export it there">Open in draw.io</button>
+        <PictureActions model={model} picture={picture} images={false} disabled={!placed} />
         <button onClick={() => placed && downloadSvg(svgRef.current, placed.width, placed.height, title)}>SVG</button>
         <button onClick={() => placed && downloadPng(svgRef.current, placed.width, placed.height, title)}>PNG</button>
         <button onClick={exportCsv} disabled={!tree}>CSV</button>

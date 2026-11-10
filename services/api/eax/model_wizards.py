@@ -24,9 +24,7 @@ Rules are here, never in the database (D248); the database still refuses what th
 
 from __future__ import annotations
 
-import difflib
 import json
-import re
 from typing import Any
 
 from sqlalchemy import text
@@ -172,7 +170,7 @@ def extend_preview(conn, model: Any, source: Any) -> dict:
     mine_t = {t["code"].lower() for t in have["entity_types"]}
     mine_r = {r["code"].lower() for r in have["relationship_types"]}
     mine_a = {a["code"].lower() for a in have["attributes"]}
-    return {"entity_types": [{"code": t["code"], "name": t.get("name") or t["code"], "layer": t.get("layer")}
+    return {"entity_types": [{"code": t["code"], "name": t.get("name") or t["code"], "domain": t.get("domain")}
                              for t in src["entity_types"] if t["code"].lower() not in mine_t],
             "relationship_types": [{"code": r["code"], "name": r.get("name") or r["code"]}
                                    for r in src["relationship_types"] if r["code"].lower() not in mine_r],
@@ -182,7 +180,7 @@ def extend_preview(conn, model: Any, source: Any) -> dict:
 
 def extend_metamodel(conn, model: Any, user, source: Any, picks: dict) -> dict:
     """Adds the chosen entity types, relationship types and attributes of another model's metamodel (with their
-    layers, pick lists and the allowed relationships between what the model then has) as one metamodel version."""
+    domains, pick lists and the allowed relationships between what the model then has) as one metamodel version."""
     from . import model_ops as mo
     from . import reports
     m = repo.get_model(conn, model)
@@ -199,7 +197,7 @@ def extend_metamodel(conn, model: Any, user, source: Any, picks: dict) -> dict:
         if t["code"].lower() in want_t:
             for a in t.get("attributes") or []:
                 want_a.add(a["attribute"].lower())
-    known = {s: {str(i["code"]).lower() for i in merged[s]} for s in ("layers", "pick_lists", "attributes", "entity_types", "relationship_types")}
+    known = {s: {str(i["code"]).lower() for i in merged[s]} for s in ("domains", "pick_lists", "attributes", "entity_types", "relationship_types")}
     added = {"entity_types": 0, "relationship_types": 0, "attributes": 0}
     for a in src["attributes"]:
         if a["code"].lower() in want_a and a["code"].lower() not in known["attributes"]:
@@ -209,9 +207,9 @@ def extend_metamodel(conn, model: Any, user, source: Any, picks: dict) -> dict:
                 merged["pick_lists"] += [p for p in src["pick_lists"] if str(p["code"]).lower() == str(a["pick_list"]).lower()]
     for t in src["entity_types"]:
         if t["code"].lower() in want_t and t["code"].lower() not in known["entity_types"]:
-            if t.get("layer") and str(t["layer"]).lower() not in known["layers"]:
-                merged["layers"] += [layer for layer in src["layers"] if str(layer["code"]).lower() == str(t["layer"]).lower()]
-                known["layers"].add(str(t["layer"]).lower())
+            if t.get("domain") and str(t["domain"]).lower() not in known["domains"]:
+                merged["domains"] += [domain for domain in src["domains"] if str(domain["code"]).lower() == str(t["domain"]).lower()]
+                known["domains"].add(str(t["domain"]).lower())
             merged["entity_types"].append(t)
             added["entity_types"] += 1
     for r in src["relationship_types"]:
@@ -235,112 +233,17 @@ def extend_metamodel(conn, model: Any, user, source: Any, picks: dict) -> dict:
 
 
 # ---------------------------------------------------------------- 19: duplicates
-def _norm_name(s: str) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
+def duplicates(conn, model: Any, entity_type: str | None = None, threshold: float = 0.88, attributes: list[str] | None = None,
+               by_name: bool = True) -> dict:
+    """Groups of likely duplicates (phase 21: eax.dedupe.candidates, by name and, when asked, by attributes)."""
+    from . import dedupe
+    return dedupe.candidates(conn, model, entity_type, attributes, threshold, by_name)
 
 
-def duplicates(conn, model: Any, entity_type: str | None = None, threshold: float = 0.88) -> dict:
-    """Groups of entities of the same type whose names are the same once spaces, case and punctuation are ignored,
-    or very close (similarity at least `threshold`)."""
-    m = repo.get_model(conn, model)
-    rows = _rows(conn, """SELECT e.guid::text AS id, e.name, e.display_id, t.name AS type, t.code
-                            FROM core.entities e JOIN core.entity_types t ON t.id = e.entity_type_id
-                           WHERE e.model_id = :m AND NOT e.is_deleted AND (CAST(:t AS text) IS NULL OR lower(t.code) = lower(:t)
-                                 OR lower(t.name) = lower(:t)) ORDER BY t.name, e.name""", m=m["_id"], t=entity_type)
-    groups = []
-    by_type: dict[str, list[dict]] = {}
-    for r in rows:
-        by_type.setdefault(r["code"], []).append(r)
-    for _code, ents in by_type.items():
-        if len(ents) > 800:      # large types: exact matches only (the fuzzy check is n squared)
-            seen: dict[str, list] = {}
-            for e in ents:
-                seen.setdefault(_norm_name(e["name"]), []).append(e)
-            groups += [g for g in seen.values() if len(g) > 1]
-            continue
-        used = set()
-        for i, a in enumerate(ents):
-            if a["id"] in used:
-                continue
-            na = _norm_name(a["name"])
-            g = [a]
-            for b in ents[i + 1:]:
-                if b["id"] in used:
-                    continue
-                nb = _norm_name(b["name"])
-                if na != nb and re.findall(r"\d+", na) != re.findall(r"\d+", nb):
-                    continue     # Relational Database 12 and 19, Windows 2016 and 2022: versions, not duplicates
-                if na == nb or difflib.SequenceMatcher(None, na, nb).ratio() >= threshold:
-                    g.append(b)
-            if len(g) > 1:
-                used |= {x["id"] for x in g}
-                groups.append(g)
-    return {"model": str(m["id"]), "groups": [{"type": g[0]["type"], "entities": g} for g in groups[:500]],
-            "count": len(groups)}
-
-
-def merge_duplicates(conn, model: Any, user, keep: str, others: list[str]) -> dict:
-    """Keeps one entity: the others' relationships move to it, their values fill what it lacks, and they are deleted;
-    one commit, which can be rolled back."""
-    from . import commits as cm
-    m = repo.get_model(conn, model)
-    if not others:
-        raise EditError("Choose the duplicates to merge into the one kept.")
-    ids = [keep] + [o for o in others if o != keep]
-    ents = {r["id"]: r for r in _rows(conn, """SELECT e.guid::text AS id, e.id AS _id, e.name, e.description, e.entity_type_id AS t
-                                                  FROM core.entities e WHERE e.model_id = :m AND NOT e.is_deleted
-                                                   AND e.guid::text = ANY (CAST(:g AS text[]))""", m=m["_id"], g=ids)}
-    if keep not in ents or len(ents) != len(ids):
-        raise EditError("Some of the entities are gone or not in this model.", 404)
-    if len({e["t"] for e in ents.values()}) > 1:
-        raise EditError("Only entities of the same type are merged.")
-    k = ents[keep]
-    have_vals = {r["code"] for r in _rows(conn, """SELECT a.code FROM core.attribute_values v JOIN core.attribute_types a ON a.id = v.attribute_type_id
-                                                    WHERE v.entity_id = :e AND NOT v.is_deleted""", e=k["_id"])}
-    items: list[tuple[str, dict]] = []
-    fill: dict[str, Any] = {}
-    desc = (k["description"] or "").strip()
-    rel_have = {(r["type"], r["s"], r["t"]) for r in _rows(conn, """SELECT rt.code AS type, s.guid::text AS s, t.guid::text AS t
-            FROM core.relationships r JOIN core.relationship_types rt ON rt.id = r.relationship_type_id
-            JOIN core.entities s ON s.id = r.source_entity_id JOIN core.entities t ON t.id = r.target_entity_id
-           WHERE r.model_id = :m AND NOT r.is_deleted""", m=m["_id"])}
-    for o in ids[1:]:
-        e = ents[o]
-        if not desc and (e["description"] or "").strip():
-            desc = e["description"].strip()
-        for v in _rows(conn, """SELECT a.code, coalesce(v.value_text, v.value_number::text, v.value_date::text, v.value_bool::text,
-                                       ref.guid::text) AS v
-                                  FROM core.attribute_values v JOIN core.attribute_types a ON a.id = v.attribute_type_id
-                                  LEFT JOIN core.entities ref ON ref.id = v.value_ref
-                                 WHERE v.entity_id = :e AND NOT v.is_deleted AND v.relationship_id IS NULL""", e=e["_id"]):
-            if v["code"] not in have_vals and v["code"] not in fill and v["v"] not in (None, ""):
-                fill[v["code"]] = v["v"]
-        for r in _rows(conn, """SELECT rt.code AS type, s.guid::text AS s, t.guid::text AS t, r.name
-                                  FROM core.relationships r JOIN core.relationship_types rt ON rt.id = r.relationship_type_id
-                                  JOIN core.entities s ON s.id = r.source_entity_id JOIN core.entities t ON t.id = r.target_entity_id
-                                 WHERE r.model_id = :m AND NOT r.is_deleted AND (s.guid::text = :o OR t.guid::text = :o)""", m=m["_id"], o=o):
-            s = keep if r["s"] == o else r["s"]
-            t = keep if r["t"] == o else r["t"]
-            if s == t or s in ids[1:] or t in ids[1:] or (r["type"], s, t) in rel_have:
-                continue
-            rel_have.add((r["type"], s, t))
-            items.append(("relationship.create", {"data": {"relationship_type": r["type"], "source": s, "target": t, "name": r["name"] or "",
-                                                           "allow_outside": True}}))
-    data: dict[str, Any] = {}
-    if fill:
-        data["values"] = fill
-    if desc != (k["description"] or "").strip():
-        data["description"] = desc
-    if data:
-        items.insert(0, ("entity.update", {"entity": keep, "data": data}))
-    items += [("entity.delete", {"entity": o}) for o in ids[1:]]
-    res = cm.record_many(conn, m["id"], user.username, items)
-    failed = [r["error"] for r in res if not r.get("ok")]
-    done_ids = [r["kept"]["change"] for r in res if r.get("ok") and r.get("kept")]
-    done = cm.commit(conn, m["id"], user, None, done_ids, None, f"Duplicates merged into {k['name']}") if done_ids else None
-    return {"kept": keep, "merged": len(ids) - 1, "failed": failed[:20], "commit": done["number"] if done else None,
-            "message": f"{len(ids) - 1} merged into {k['name']}" + (f" (commit {done['number']})" if done else "") +
-                       (f"; {len(failed)} changes failed" if failed else "") + "."}
+def merge_duplicates(conn, model: Any, user, keep: str, others: list[str], choices: dict | None = None) -> dict:
+    """Keeps one entity and merges the others into it (phase 21: eax.dedupe.merge)."""
+    from . import dedupe
+    return dedupe.merge(conn, model, user, keep, others, choices)
 
 
 # ---------------------------------------------------------------- 20: hand over

@@ -126,7 +126,7 @@ def run() -> str:
         def profile(c):
             info = cp.fields_for(cp.load_side(c, b), cp.load_side(c, t))
             d = cp.defaults(info)
-            keep = {x["code"] for x in info["types"] if x["layer"] in ("Application", "Data", "Information")} or set(d["types"])
+            keep = {x["code"] for x in info["types"] if x["domain"] in ("Application", "Data", "Information")} or set(d["types"])
             d["types"] = {k: v for k, v in d["types"].items() if k in keep}
             return cp.save_profile(c, arch, "Applications and data", d)
         _step(profile, "saved the comparison profile")

@@ -1,8 +1,13 @@
 name: CI
 
+# CI on every change (8.5, D513): every push to any branch (main, rc, release and work branches), every pull request,
+# and every version tag. A version tag (vX.Y.Z or vX.Y.Z-rc.N) also checks that the release is consistent and makes the
+# GitHub release with its notes (releases/<version>.md). No images are published: every installation builds them on its
+# own host (D417).
 on:
   push:
-    branches: [main]
+    branches: ["**"]
+    tags: ["v*"]
   pull_request:
 
 jobs:
@@ -54,3 +59,38 @@ jobs:
       - name: Shell scripts
         run: |
           for f in services/backup/*.sh services/api/entrypoint.sh deploy/postgres/initdb/*.sh deploy/superset/*.sh eax.sh; do bash -n "$f"; done
+
+  plugin:
+    name: draw.io plugin - syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: node --check deploy/drawio/eax-plugin.js
+
+  release:
+    name: Release - notes and GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [api, web, stack]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: The tag, version.toml and the release notes agree
+        run: python tools/release.py check "${GITHUB_REF_NAME}"
+      - name: GitHub release with the notes (no images, D417)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          notes="releases/${v}.md"; [ -f "$notes" ] || notes="releases/${v%%-rc.*}.md"
+          gh release create "${GITHUB_REF_NAME}" --title "EA Explorer ${v}" --notes-file "$notes" \
+            $([[ "$v" == *-rc.* ]] && echo --prerelease) || gh release edit "${GITHUB_REF_NAME}" --notes-file "$notes"

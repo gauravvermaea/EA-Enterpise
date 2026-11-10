@@ -71,3 +71,12 @@ def import_project(project_guid: str, project_name: str, data: dict, actor: str,
 
 def seed(data: dict) -> dict:
     return _call("POST", "/internal/seed", data)
+
+
+def export_org() -> dict | None:
+    """The enterprise library (an application backup's organisation part); None when there is none or it is empty."""
+    return _call("GET", "/internal/org/export") or None
+
+
+def import_org(data: dict, actor: str) -> dict:
+    return _call("POST", "/internal/org/import", {"library": data, "actor": actor})

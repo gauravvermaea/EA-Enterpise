@@ -13,7 +13,9 @@ Everything local lives in the work folder, which is never committed: the config 
 # No param() block on purpose: options such as --all, --yes and --scratch must reach the script as
 # plain text, and an advanced-script parameter block would reject them as unknown parameters.
 $Command = if ($args.Count -gt 0) { [string]$args[0] } else { "help" }
+$AskedFor = $Command          # as typed, for <command> --help
 if ($Command -eq "run") { $Command = "up" }   # run: the everyday start, the same as up
+if ($Command -eq "stop") { $Command = "down" }   # stop: the same as down (the data is kept)
 $Rest = @($args | Select-Object -Skip 1 | ForEach-Object { [string]$_ })
 $ErrorActionPreference = "Stop"
 Set-Location -Path $PSScriptRoot
@@ -98,8 +100,15 @@ function Get-ComposeArgs([string[]]$Arguments) {
     if (-not (Test-Path $EnvFile)) { throw "No $EnvFile yet: run .\eax init first." }
     $kind = Get-Setting "EAX_DEPLOYMENT" "laptop"
     # plain progress and no colour codes, so the log reads cleanly
+    # scale-out extra files (phase 36.3, D521): EAX_COMPOSE_EXTRA=standby,shared-storage... (deploy/compose/scale)
+    $extra = @()
+    foreach ($x in ((Get-Setting "EAX_COMPOSE_EXTRA" "") -split "[,\s]+" | Where-Object { $_ })) {
+        $f = "deploy/compose/scale/docker-compose.$x.yml"
+        if (-not (Test-Path $f)) { throw "EAX_COMPOSE_EXTRA names $x, but there is no $f." }
+        $extra += @("-f", $f)
+    }
     return @("compose", "--ansi", "never", "--progress", "plain", "--env-file", $EnvFile,
-             "-f", "docker-compose.yml", "-f", "deploy/compose/docker-compose.$kind.yml") + $Arguments
+             "-f", "docker-compose.yml", "-f", "deploy/compose/docker-compose.$kind.yml") + $extra + $Arguments
 }
 
 function Invoke-Compose([string[]]$Arguments, [switch]$NoThrow, [switch]$Quiet) {
@@ -151,6 +160,7 @@ $Services = [ordered]@{
     "change_log" = @("EAX_SERVICE_CHANGE_LOG", @("api"))
     "backups"    = @("EAX_SERVICE_BACKUPS", @("backup"))
     "library"    = @("EAX_SERVICE_LIBRARY", @("library"))
+    "views"      = @("EAX_SERVICE_VIEWS", @("views"))
 }
 function Test-ServiceOn([string]$Name) {
     $default = if ($Name -eq "mcp") { Get-Setting "EAX_MCP_ENABLED" "on" } else { "on" }
@@ -419,6 +429,7 @@ function Show-Logins {
         @("PostgreSQL Superset",              "superset",                                     (Get-Setting "EAX_SUPERSET_DB_PASSWORD"),    "database superset"),
         @("PostgreSQL Mayan",                 "mayan",                                        (Get-Setting "EAX_MAYAN_DB_PASSWORD"),       "database mayan"),
         @("PostgreSQL Library",               "eax_library",                                  (Get-Setting "EAX_LIBRARY_DB_PASSWORD"),     "database eaxlibrary"),
+        @("PostgreSQL Views",                 "eax_views",                                    (Get-Setting "EAX_VIEWS_DB_PASSWORD"),       "database eaxviews"),
         @("Mayan broker (Valkey)",            "(none)",                                       (Get-Setting "EAX_DMS_BROKER_PASSWORD"),     "password only"),
         @("MCP server (development token)",   "(bearer)",                                     (Get-Setting "EAX_MCP_DEV_TOKEN"),           "https://localhost/mcp or http://localhost/mcp"),
         @("Keycloak client secrets",          "superset/mayan",                               (Get-Setting "EAX_SUPERSET_OIDC_SECRET"),    "OIDC clients"),
@@ -496,128 +507,152 @@ function Assert-Docker {
 }
 
 # ------------------------------------------------------------------ help
-$HelpText = @'
-EA Explorer helper. Usage: .\eax <command> [options]
-(.\eax is the launcher; the long form is: powershell -NoProfile -ExecutionPolicy Bypass -File .\eax <command>)
+# The help is read from eaxcli\help.txt, the one source for every form of eax (D331; tests/test_eax_help.py):
+# Show-Help prints the overview, one command in full (Show-Help stop) or everything (Show-Help --all).
+function Get-HelpText([string]$Name, [string]$Arg = "") {
+    $src = [System.IO.File]::ReadAllLines((Join-Path $PSScriptRoot "eaxcli\help.txt"), [System.Text.Encoding]::UTF8)
+    $intro = New-Object 'System.Collections.Generic.List[string]'
+    $footer = New-Object 'System.Collections.Generic.List[string]'
+    $sections = New-Object 'System.Collections.Generic.List[object]'
+    $internal = New-Object 'System.Collections.Generic.List[object]'
+    $where = "intro"; $cmd = $null
+    foreach ($raw in $src) {
+        $line = $raw.TrimEnd()
+        if ($line.StartsWith(";")) { continue }
+        if ($line -match '^\[(win|unix|ps1|sh|py)\]') {
+            if ($Matches[1] -notin @("ps1", "win")) { continue }
+            $line = $line.Substring($Matches[0].Length); if ($line.StartsWith(" ")) { $line = $line.Substring(1) }
+        }
+        if ($where -eq "footer") { $footer.Add($line); continue }
+        if ($line -eq "@footer") { $where = "footer"; continue }
+        if ($line.StartsWith("@internal ")) {
+            $r = $line.Substring(10); $p = $r.IndexOf(" ")
+            $internal.Add(@{ Name = $r.Substring(0, $p); What = $r.Substring($p + 1) }); continue
+        }
+        if ($line.StartsWith("## ")) {
+            $sections.Add(@{ Title = $line.Substring(3); Notes = (New-Object 'System.Collections.Generic.List[string]'); Cmds = (New-Object 'System.Collections.Generic.List[object]') })
+            $where = "section"; $cmd = $null; continue
+        }
+        if ($line.StartsWith("### ")) {
+            $r = $line.Substring(4); $p = $r.IndexOf(" ")
+            $names = if ($p -ge 0) { $r.Substring(0, $p) } else { $r }
+            $cmd = @{ Names = @($names -split '\|'); Args = $(if ($p -ge 0) { $r.Substring($p + 1) } else { "" }); Summary = "";
+                      Detail = (New-Object 'System.Collections.Generic.List[string]'); Examples = (New-Object 'System.Collections.Generic.List[string]') }
+            $sections[$sections.Count - 1].Cmds.Add($cmd); continue
+        }
+        if ($where -eq "intro") { if ($line) { $intro.Add($line) }; continue }
+        if ($line.StartsWith(": ") -and $null -eq $cmd) { $sections[$sections.Count - 1].Notes.Add($line.Substring(2)); continue }
+        if ($null -eq $cmd) { continue }
+        if ($line.StartsWith("> ")) { $cmd.Summary = $line.Substring(2) }
+        elseif ($line.StartsWith('$ ')) { $cmd.Examples.Add($line.Substring(2)) }
+        elseif ($line) { $cmd.Detail.Add($line) }
+    }
+    while ($footer.Count -gt 0 -and -not $footer[$footer.Count - 1]) { $footer.RemoveAt($footer.Count - 1) }
+    $block = {
+        param($c)
+        $h = "  " + ((@($c.Names[0], $c.Args) | Where-Object { $_ }) -join " ")
+        if ($c.Names.Count -gt 1) { $h += "   (also: " + (($c.Names | Select-Object -Skip 1) -join ", ") + ")" }
+        $b = @($h, ("    " + $c.Summary))
+        foreach ($d in $c.Detail) { $b += "    " + $d }
+        if ($c.Examples.Count -gt 0) { $b += "    Examples:"; foreach ($e in $c.Examples) { $b += "      " + $e } }
+        , $b
+    }
+    $out = @(); $code = 0
+    $all = @(); foreach ($s in $sections) { foreach ($c in $s.Cmds) { $all += , @($s, $c) } }
+    if ($Name -eq "--groups") {
+        for ($i = 0; $i -lt $sections.Count; $i++) { $out += ("{0,4}  {1}" -f ($i + 1), $sections[$i].Title) }
+    } elseif ($Name -eq "--group") {
+        $n = 0; if ($Arg -match '^[0-9]+$') { $n = [int]$Arg }
+        if ($n -lt 1 -or $n -gt $sections.Count) { $out = @("No group $Arg."); $code = 1 }
+        else {
+            $s = $sections[$n - 1]; $out += $s.Title
+            foreach ($x in $s.Notes) { $out += "  " + $x }
+            foreach ($c in $s.Cmds) { $out += ""; $out += & $block $c }
+        }
+    } elseif ($Name -eq "--search") {
+        $w = $Arg.ToLower(); $found = $false
+        foreach ($pair in $all) {
+            $c = $pair[1]
+            $t = ((@($c.Names) + @($c.Args, $c.Summary) + @($c.Detail) + @($c.Examples)) -join " ").ToLower()
+            if ($w -and $t.Contains($w)) { if ($found) { $out += "" }; $out += & $block $c; $found = $true }
+        }
+        if (-not $found) { $out = @("Nothing found for '$Arg'."); $code = 1 }
+    } elseif (-not $Name -or $Name -eq "--all") {
+        $out += $intro
+        foreach ($s in $sections) {
+            $out += ""; $out += $s.Title
+            foreach ($n in $s.Notes) { $out += "  " + $n }
+            foreach ($c in $s.Cmds) {
+                if ($Name) { $out += ""; $out += & $block $c; continue }
+                $lab = (@(($c.Names -join ", "), $c.Args) | Where-Object { $_ }) -join " "
+                if ($lab.Length -le 20) { $out += "  " + $lab.PadRight(22) + $c.Summary }
+                else { $out += "  " + $lab; $out += (" " * 24) + $c.Summary }
+            }
+        }
+        if ($Name -and $internal.Count -gt 0) {
+            $out += ""; $out += "Internal (run by eax itself; not for typing)"
+            foreach ($i in $internal) { $out += "  " + $i.Name.PadRight(22) + $i.What }
+        }
+        $out += ""; $out += $footer
+    } else {
+        $found = $false
+        foreach ($s in $sections) { foreach ($c in $s.Cmds) { if (-not $found -and $c.Names -contains $Name) { $out = & $block $c; $found = $true } } }
+        if (-not $found) { foreach ($i in $internal) { if (-not $found -and $i.Name -eq $Name) { $out = @(("  " + $i.Name), ("    " + $i.What)); $found = $true } } }
+        if (-not $found) { $out = @("No command '$Name'. Run {eax} help to list them."); $code = 1 }
+    }
+    $text = ($out -join "`n").Replace("{eax}", ".\eax")
+    $text = [regex]::Replace($text, '\bwork/[^\s,;)]*', [System.Text.RegularExpressions.MatchEvaluator] { param($m) $m.Value.Replace("/", "\") })
+    @{ Text = $text; Code = $code }
+}
 
-Getting started
-  init [laptop|server]  Creates work\eaexplorer.env from the template for the deployment kind
-                        (laptop if not given) and the work folders. Nothing is generated: on a
-                        laptop every password is P^55w0rd1234&; on a server, replace every change-me
-                        value before starting. Refuses to overwrite an existing config file.
-  check                 Checks that Docker Desktop is running and that the config file and compose
-                        files are valid. Starts nothing.
-  run                   The everyday start, after the first clean-run: the same as up. Keeps the
-                        databases, documents and settings from last time.
-  up [service...] [--wait-all]
-                        Starts in two tiers (D255): the core first (sign-in, the API, the screens; you can sign
-                        in when it says ready), then Reports, Documents, draw.io and the sample data in the
-                        background. --wait-all starts everything and waits until all of it is up (also on
-                        run, debug and the clean-* commands).
-                        Builds our images, pulls the others, and starts every container in the
-                        background. Then prints the addresses and (laptop) the logins.
-                        Name services to start only those and what they depend on, for example
-                        "up api proxy" starts the API, PostgreSQL and nginx only (about 1 GB);
-                        the API is then at https://localhost/api/docs (laptop also http://).
+# eax document (D331): every command in full, from eaxcli\help.txt, as a web page (eaxcli\document.html with the help
+# copied in; eaxpy and eax.sh make the same file) or in the console (a menu of the groups, page by page)
+function Save-DocumentPage {
+    $page = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot "eaxcli\document.html"), [System.Text.Encoding]::UTF8).Replace("`r`n", "`n")
+    $help = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot "eaxcli\help.txt"), [System.Text.Encoding]::UTF8).Replace("`r`n", "`n")
+    if ($help.EndsWith("`n")) { $help = $help.Substring(0, $help.Length - 1) }
+    $html = $page.Replace("__FORM__", "ps1").Replace("__EAX__", ".\eax").Replace("__WINDOWS__", "true").Replace("__HELP__", $help)
+    $dir = Join-Path $PSScriptRoot "work\docs"
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    $out = Join-Path $dir "eax-commands.html"
+    [System.IO.File]::WriteAllText($out, $html, (New-Object System.Text.UTF8Encoding $false))
+    Write-Host "The commands as a web page: $out"
+    if (-not $env:EAX_NO_BROWSER) { Start-Process $out }
+}
 
-Finding problems
-  debug [service...] [--wait-all]
-                        Same as up, but does not stop on failure: it saves a diagnostics report and
-                        then keeps recording the containers' output to
-                        work\logs\containers-<date-time>.log until you press Ctrl+C.
-                        The containers keep running after Ctrl+C. "debug api" starts and records
-                        the API (and PostgreSQL) only.
-  diag                  Saves a diagnostics report into this run's log: Docker versions, memory and
-                        disk, image settings, every container's state, the last 300 log lines of
-                        each container, and the compose configuration (passwords masked).
-  status                Lists every container with its state and health, including stopped ones, then the file
-                        systems: Docker's disk, the work and backups folders, and this computer's drive (size, used, free).
-  logs [service]        Follows the logs of every container, or of one (for example: logs api).
-                        Ctrl+C to stop.
+function Show-Paged([string]$Text) {
+    $rows = 22
+    try { $rows = [Math]::Max(10, $Host.UI.RawUI.WindowSize.Height - 2) } catch { }
+    $n = 0
+    foreach ($line in ($Text -split "`n")) {
+        Write-Host $line; $n++
+        if ($n -ge $rows -and -not [Console]::IsOutputRedirected) { $n = 0; $k = Read-Host "-- Enter for more, q to stop --"; if ($k -eq "q") { break } }
+    }
+}
 
-Everyday use
-  url                   Prints the addresses to open (and the logins on a laptop).
-  trust [--remove]      Adds EA Explorer's local certificate (work\data\tls\ca.crt) to your Windows
-                        trusted root certificates, so the browser stops warning about https://localhost.
-                        Run it once after the first start: clean-run keeps the certificate. --remove
-                        takes EA Explorer's certificates out again.
-  logins                Prints every user name and password (laptop only).
-  down                  Stops and removes the containers. Data in Docker volumes and in work\ is kept.
-  backup [tag]          Takes an infrastructure backup now (every database, the document files, the
-                        certificate, the config file, the release and image versions) into
-                        work\backups\infrastructure, tagged (D216, D226).
-  backups [words]       Lists every backup: infrastructure (numbered, to restore) and application;
-                        with words, only those whose tag, name or maker has them (search by tag).
-  restore [name|tag|latest] [--what full|app|app+data|db|files] [--yes]
-                        Restores an infrastructure backup: by name, by tag (the newest with it) or
-                        latest (the newest good one). Without one it lists them to choose
-                        from, then asks what to restore and for RESTORE to confirm. full = everything;
-                        app = the config file; app+data = the config file, the repository and
-                        document databases and the document files; db = every database; files =
-                        the document files and the certificate. A backup of the current state is
-                        taken first; nothing live changes until all is restored cleanly; it can be
-                        run again. Works when the console is down (starts db, backup and ops).
-  restores              Lists every restore (infrastructure and model) with its status.
-  restore-log <id>      Shows a restore's whole log (also in work\backups\restores\<id>).
-  delete-backup <name>  Deletes an infrastructure backup (unpin it first if it is pinned).
-  delete-restore <id>   Forgets a finished restore and its log.
-  stop-backup           Stops the backups running (infrastructure: at once; application: after the
-                        model it is on); the partial backup is deleted. A restore cannot be stopped.
-  restore-app [run|tag|latest] [--yes]
-                        Restores every model of an application backup, each over itself (each backed
-                        up first); models no longer there are made again; newer models stay as they
-                        are. Needs the api container running.
-  maintenance on|off    Shows (or stops showing) the maintenance page to everyone, served by the
-                        proxy. Restores and up (an upgrade) switch it on and off themselves.
-  app-backup [tag]      Backs up every model now (an application backup), into work\backups\application.
-  restore-model         Lists the application backups and the models in them to choose from, then
-                        restores one as a new model or over itself (needs the api container running).
-  services              Lists the optional services (reports, documents, drawio, mcp, change_log,
-                        backups), whether each is on in the config file and its containers' state.
-  servers [n]           How many API and job servers run (D249): without n, shows them; with n (1 to 16), writes
-                        EAX_API_SERVERS (a dated copy of the config file first) and adds or removes servers now,
-                        without a restart (nginx spreads API calls across them). Also on Administration > Containers.
-  service <name> on|off Switches one optional service on or off: keeps a dated copy of the config file
-                        in work\config-history, writes the switch, then starts or stops its containers.
-                        Everything is on unless switched off (D191). Also in Administration > System
-                        settings > Services.
+function Invoke-Document([string[]]$Options) {
+    $mode = if ($Options -contains "--console") { "console" } elseif ($Options -contains "--web") { "web" } else { "" }
+    if (-not $mode) {
+        $a = Read-Host "Show the commands (1) here in the console or (2) as a web page in your browser? [1/2]"
+        $mode = if ($a -in @("2", "w", "web")) { "web" } else { "console" }
+    }
+    if ($mode -eq "web") { Save-DocumentPage; return }
+    while ($true) {
+        Write-Host ""; Write-Host "EA Explorer commands (.\eax document)" -ForegroundColor Cyan
+        Write-Host (Get-HelpText "--groups").Text
+        $a = Read-Host "Number, s to search, q to quit"
+        if ($null -eq $a -or $a -in @("q", "Q")) { return }
+        if ($a -in @("s", "S")) { $w = Read-Host "Search for"; if ($null -eq $w) { return }; Show-Paged (Get-HelpText "--search" $w).Text }
+        elseif ($a -match '^[0-9]+$') { Show-Paged (Get-HelpText "--group" $a).Text }
+        elseif ($a) { Write-Host "Choose a number, s or q." }
+    }
+}
 
-Starting again
-  cleanup [--all] [--yes] [--certificate]
-                        Stops the containers and deletes everything in the work folder: the config
-                        file, logs and laptop data folders (including backups). With --all it also
-                        deletes the Docker volumes, so the databases and documents start empty.
-                        The local certificate (work\data\tls) is kept, so you need not trust it
-                        again; --certificate deletes it too. Asks you to type yes unless --yes is given.
-  clean-run [laptop|server] [--wait-all]
-                        Starts again from scratch in one step: cleanup --all --yes, then init
-                        (laptop if not given), then up. Deletes the databases and everything in
-                        the work folder without asking.
-  clean-debug [laptop|server] [--wait-all]
-                        The same, but ends with debug instead of up (keeps recording the
-                        containers' output until Ctrl+C).
-  clean-restart [laptop|server] [--wait-all]
-                        For testing a new version: down (stops and removes the running containers),
-                        then clean-run (cleanup --all --yes, init, up). Rebuilds our images and
-                        starts with empty databases; the trusted certificate is kept.
-
-When something is wrong
-  console [--server https://host] [--insecure]
-                        A numbered menu for getting EA Explorer back up, for anyone (D330): status, start,
-                        restart, stop, problems and logs, back up, restore (guided), reset a password (a
-                        person, Keycloak's administrator, break-glass, the database logins), users and roles,
-                        settings and switches, background tasks, health and data quality, the maintenance
-                        page, a diagnostics file, and a prompt for every eax command. On this machine nobody
-                        signs in; anything that changes or replaces data asks you to type YES. With --server
-                        it works on another installation through its API (sign in with Keycloak, your roles).
-                        Every command and the console in detail: docs/command-line-and-console.md.
-
-  help [command]        This text, or the part about one command.
-
-Logs: every command except help and cleanup writes its full output to
-work\logs\eax-<date-time>-<command>.log. When a Docker step fails, a diagnostics report is added to
-that log automatically, so the log file is all you need to send when something goes wrong.
-'@
+function Show-Help([string]$Name, [string]$Arg = "") {
+    $h = Get-HelpText $Name $Arg
+    Write-Host $h.Text
+    return $h.Code
+}
 
 # Backups and restores from the command line (D227): they talk to the operations helper and the backup container, so
 # those (and the database) are started first if they are not running; the console is not needed.
@@ -651,16 +686,6 @@ function Set-UpgradePage([bool]$All) {
     [System.IO.File]::WriteAllText((Join-Path $PSScriptRoot "work/proxy/maintenance"), "upgrade`n", $Utf8)
     Write-Log "Everyone sees the maintenance page until this has finished."
     return $true
-}
-
-function Show-Help([string]$Name) {
-    if (-not $Name) { Write-Host $HelpText; return }
-    $show = $false
-    foreach ($line in ($HelpText -split "`r?`n")) {
-        if ($line -match '^  ([a-z-]+)') { $show = ($Matches[1] -eq $Name) }
-        elseif ($line -notmatch '^ {24}') { $show = $false }
-        if ($show) { Write-Host $line }
-    }
 }
 
 # Stops the containers and empties the work folder (no log: the logs folder is being deleted)
@@ -701,7 +726,23 @@ function Invoke-Cleanup([string[]]$Options) {
 }
 
 # ------------------------------------------------------------------ commands
-if ($Command -in @("help", "-h", "--help", "/?")) { Show-Help $(if ($RestArgs.Count -gt 0) { $RestArgs[0] } else { "" }); exit 0 }
+if ($Command -in @("help", "-h", "--help", "/?")) { exit (Show-Help $(if ($RestArgs.Count -gt 0) { $RestArgs[0] } else { "" }) $(if ($RestArgs.Count -gt 1) { $RestArgs[1] } else { "" })) }
+if ($Rest | Where-Object { $_ -in @("--help", "-h", "/?") }) { exit (Show-Help $AskedFor) }   # <command> --help: that command's help
+# restart: down, then up, each as its own run of this script (own log); the data is kept
+if ($Command -eq "restart") {
+    [string[]]$up = @("up")
+    if ($WaitAll) { $up += "--wait-all" }
+    foreach ($step in @(, @("down")) + @(, $up)) {
+        Write-Host ""
+        Write-Host "=== .\eax $($step -join ' ')" -ForegroundColor Cyan
+        & $PSCommandPath @step
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "ERROR: .\eax $($step -join ' ') failed (exit $LASTEXITCODE); restart stopped there." -ForegroundColor Red
+            exit $LASTEXITCODE
+        }
+    }
+    exit 0
+}
 # clean-run and clean-debug: cleanup --all --yes, init, then up or debug, each as its own run of
 # this script (so each step writes its own log, like typing the three commands)
 # clean-restart: down first (when there is a config file to find the containers by), then the same
@@ -791,6 +832,15 @@ if ($Command -eq "console") {
     try { Invoke-Console $RestArgs; exit 0 }
     catch { Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red; exit 1 }
 }
+if ($Command -in @("deploy", "secrets")) {
+    # phase 36 (D498, D504): one Python program for every form (D500); eaxpy.ps1 fetches uv and Python into work\tools
+    & (Join-Path $PSScriptRoot "eaxpy.ps1") $Command @RestArgs
+    exit $LASTEXITCODE
+}
+if ($Command -eq "document") {
+    try { Invoke-Document $RestArgs; exit 0 }
+    catch { Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red; exit 1 }
+}
 if ($Command -eq "cleanup") {
     try { Invoke-Cleanup $RestArgs; exit 0 }
     catch { Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red; exit 1 }
@@ -804,7 +854,7 @@ if ((Test-Path "eaexplorer.env") -and -not (Test-Path $EnvFile)) {
 $failed = $false
 try {
     if ($Command -in @("check", "up", "start-later", "debug", "status", "logs", "down", "backup", "backups", "restore", "restores", "restore-log",
-                       "delete-backup", "delete-restore", "app-backup", "restore-model", "restore-app", "stop-backup", "services", "service")) { Assert-Docker }
+                       "delete-backup", "delete-restore", "app-backup", "restore-model", "restore-app", "stop-backup", "services", "service", "import", "update", "rollback", "test", "standby")) { Assert-Docker }
     switch ($Command) {
         "init" {
             $kind = if ($RestArgs.Count -gt 0) { $RestArgs[0] } else { "laptop" }
@@ -870,7 +920,26 @@ try {
         "delete-backup" { Start-BackupHelpers; Invoke-Interactive @("ops", "python3", "/app/ops.py", "delete-backup") $RestArgs }
         "delete-restore" { Start-BackupHelpers; Invoke-Interactive @("ops", "python3", "/app/ops.py", "delete-restore") $RestArgs }
         "app-backup" { Invoke-Interactive @("api", "python", "-m", "eax.backups_cli", "backup") $RestArgs }
+        "import" { Invoke-Interactive @("api", "python", "-m", "eax.deliveries_cli") $RestArgs }
+        "update" { Start-BackupHelpers; Invoke-Interactive @("ops", "python3", "/app/ops.py", "update") $RestArgs }      # phase 36, D417
+        "rollback" { Start-BackupHelpers; Invoke-Interactive @("ops", "python3", "/app/ops.py", "rollback") $RestArgs }
         "restore-model" { Invoke-Interactive @("api", "python", "-m", "eax.backups_cli", "restore") $RestArgs }
+        "test" {     # test automation (phase 36.1, D367): builds the test runner, then the operations helper runs it
+            Invoke-Compose @("--profile", "test", "build", "testrunner") | Out-Null
+            Start-BackupHelpers
+            Invoke-Interactive @("ops", "python3", "/app/ops.py", "test") ($RestArgs + @("--version", (Get-Version)))
+        }
+        "standby" {  # the database standby (phase 36.3, D527; EAX_COMPOSE_EXTRA=standby)
+            $what = if ($RestArgs.Count -gt 0) { $RestArgs[0] } else { "status" }
+            if ($what -eq "status") {
+                Invoke-Interactive @("db", "psql", "-U", "postgres", "-c") @("SELECT client_addr, state, sync_state, replay_lag FROM pg_stat_replication")
+                Invoke-Interactive @("db-standby", "psql", "-U", "postgres", "-c") @("SELECT pg_is_in_recovery() AS following_the_primary, now() - pg_last_xact_replay_timestamp() AS behind_by")
+            } elseif ($what -eq "promote") {
+                Write-Log "The standby becomes the primary: it stops following and accepts changes. Then set EAX_DB_HOST=db-standby (or the standby's host) and run .\eax up." "Yellow"
+                if ((Read-Host "Type PROMOTE to go on") -ne "PROMOTE") { Write-Log "Nothing changed."; return }
+                Invoke-Interactive @("-u", "postgres", "db-standby", "pg_ctl", "promote", "-D") @("/var/lib/postgresql/data")
+            } else { throw "Usage: .\eax standby status|promote" }
+        }
         "services" { Show-Services }
         "servers" {
             if ($RestArgs.Count -lt 1) {

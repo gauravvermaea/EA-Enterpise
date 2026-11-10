@@ -13,6 +13,8 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
+from . import links, notation
+
 
 class NotFound(Exception):
     """A model, type or entity that does not exist or may not be read."""
@@ -44,8 +46,9 @@ _MODEL_SQL = """
            m.created_at, m.created_by, m.modified_at, m.modified_by,
            CASE WHEN ic.library IS NOT NULL THEN 'lib:' || ic.library WHEN ic.data IS NOT NULL THEN 'upload' END AS icon,
            CAST(extract(epoch FROM ic.set_at) AS bigint) AS icon_version,
-           (SELECT count(*) FROM core.entity_types t WHERE t.model_id = m.id AND NOT t.is_deleted) AS entity_type_count,
-           (SELECT count(*) FROM core.entities e WHERE e.model_id = m.id AND NOT e.is_deleted) AS entity_count,
+           (SELECT count(*) FROM core.entity_types t WHERE t.model_id = m.id AND NOT t.is_deleted AND NOT t.is_connector) AS entity_type_count,
+           (SELECT count(*) FROM core.entities e JOIN core.entity_types t ON t.id = e.entity_type_id
+             WHERE e.model_id = m.id AND NOT e.is_deleted AND NOT t.is_connector) AS entity_count,     -- junctions are not elements (D397)
            (SELECT count(*) FROM core.relationships r WHERE r.model_id = m.id AND NOT r.is_deleted) AS relationship_count
       FROM core.models m
       JOIN core.model_kinds k ON k.code = m.kind_code
@@ -88,11 +91,11 @@ def get_library(conn, include_withdrawn: bool = False) -> list[dict]:
         m["is_top"] = top(m)
         m["built_on"] = root["name"] if root else (None if top(m) else m["name"] if m["kind"] == "template" else None)
         m["counts_by_type"] = _rows(conn, """
-            SELECT et.name AS entity_type, l.name AS layer, l.colour, count(e.id) AS count
+            SELECT et.name AS entity_type, l.name AS domain, l.colour, count(e.id) AS count
               FROM core.entity_types et
               JOIN core.layers l ON l.id = et.layer_id
               LEFT JOIN core.entities e ON e.entity_type_id = et.id AND NOT e.is_deleted
-             WHERE et.model_id = :m AND NOT et.is_deleted
+             WHERE et.model_id = :m AND NOT et.is_deleted AND NOT et.is_connector
              GROUP BY et.name, l.name, l.colour, l.sort_order, et.sort_order
              HAVING count(e.id) > 0 OR :tpl
              ORDER BY count(e.id) DESC, l.sort_order, et.sort_order""", m=m["_id"], tpl=m["kind"] == "template")
@@ -101,8 +104,8 @@ def get_library(conn, include_withdrawn: bool = False) -> list[dict]:
               FROM core.relationships r JOIN core.relationship_types rt ON rt.id = r.relationship_type_id
              WHERE r.model_id = :m AND NOT r.is_deleted
              GROUP BY rt.name, rt.sort_order ORDER BY count(*) DESC, rt.sort_order""", m=m["_id"])
-        m["layers"] = _rows(conn, """SELECT l.name, l.colour, count(et.id) AS types FROM core.layers l
-              LEFT JOIN core.entity_types et ON et.layer_id = l.id AND NOT et.is_deleted
+        m["domains"] = _rows(conn, """SELECT l.name, l.colour, count(et.id) AS types FROM core.layers l
+              LEFT JOIN core.entity_types et ON et.layer_id = l.id AND NOT et.is_deleted AND NOT et.is_connector
              WHERE l.model_id = :m GROUP BY l.name, l.colour, l.sort_order ORDER BY l.sort_order""", m=m["_id"])
         m["relationship_type_count"] = _rows(conn, "SELECT count(*) AS n FROM core.relationship_types WHERE model_id = :m AND NOT is_deleted",
                                              m=m["_id"])[0]["n"]
@@ -124,15 +127,15 @@ def get_model(conn, model: Any) -> dict:
 # ---------------------------------------------------------------- metamodel
 
 def get_metamodel(conn, model: Any) -> dict:
-    """Layers with their entity types, and the relationship types."""
+    """Domains with their entity types, and the relationship types."""
     m = get_model(conn, model)
     mid = m["_id"]
-    layers = _rows(conn, """
+    domains = _rows(conn, """
         SELECT guid AS id, code, name, description, colour FROM core.layers
          WHERE model_id = :m AND NOT is_deleted ORDER BY sort_order, name""", m=mid)
     types = _rows(conn, """
-        SELECT et.guid AS id, l.guid AS layer_id, et.code, et.name, et.description, et.aspect, et.content_area, et.repository_area, et.id_prefix,
-               et.table_name, et.status_code AS status,
+        SELECT et.guid AS id, l.guid AS domain_id, et.code, et.name, et.description, et.aspect, et.content_area, et.repository_area, et.id_prefix,
+               et.table_name, et.status_code AS status, et.notation, et.fill_colour, et.is_connector, l.colour AS domain_colour,
                (SELECT count(*) FROM core.item_attributes ia
                  WHERE ia.entity_type_id = et.id AND NOT ia.is_deleted) AS attribute_count,
                (SELECT count(*) FROM core.entities e
@@ -146,9 +149,10 @@ def get_metamodel(conn, model: Any) -> dict:
          WHERE model_id = :m AND NOT is_deleted ORDER BY sort_order, name""", m=mid)
     for t in types:
         _cf_defaults(t)
-    for layer in layers:
-        layer["entity_types"] = [t for t in types if t["layer_id"] == layer["id"]]
-    return {"model": m, "layers": layers, "relationship_types": rel_types}
+        t["drawio"] = notation.type_look(t)          # how it looks on a drawn view (phase 28, D354)
+    for domain in domains:
+        domain["entity_types"] = [t for t in types if t["domain_id"] == domain["id"]]
+    return {"model": m, "domains": domains, "relationship_types": rel_types}
 
 
 def _cf_defaults(t: dict) -> dict:
@@ -166,17 +170,20 @@ def _find_type(conn, model_id: int, entity_type: Any) -> dict:
     where = "et.guid = :t" if guid else "lower(:t) IN (lower(et.code), lower(et.name), lower(et.table_name))"
     rows = _rows(conn, f"""
         SELECT et.id AS _id, et.guid AS id, et.code, et.name, et.description, et.aspect, et.content_area, et.repository_area, et.id_prefix,
-               et.table_name, l.name AS layer, l.guid AS layer_id, l.colour, et.status_code AS status
+               et.table_name, l.name AS domain, l.guid AS domain_id, l.colour, et.status_code AS status,
+               et.notation, et.fill_colour, et.is_connector, l.colour AS domain_colour
           FROM core.entity_types et JOIN core.layers l ON l.id = et.layer_id
          WHERE {where} AND et.model_id = :m AND NOT et.is_deleted""", t=guid or str(entity_type), m=model_id)
     if not rows:
         raise NotFound(f"No entity type {entity_type!r} in this model.")
+    rows[0]["drawio"] = notation.type_look(rows[0])
     return rows[0]
 
 
 _ALLOWED_SQL = """
     SELECT ar.guid AS id, rt.name AS relationship_type, rt.guid AS relationship_type_id, rt.verb,
-           o.guid AS other_type_id, o.name AS other_type, ar.note
+           o.guid AS other_type_id, o.name AS other_type, ar.note,
+           ar.source_multiplicity, ar.target_multiplicity
       FROM core.allowed_relationships ar
       JOIN core.relationship_types rt ON rt.id = ar.relationship_type_id
       JOIN core.entity_types o ON o.id = ar.{other}
@@ -230,7 +237,8 @@ def allowed_relationships(conn, model: Any, source_type: Any, target_type: Any) 
     src = _find_type(conn, mid, source_type)
     tgt = _find_type(conn, mid, target_type)
     return _rows(conn, """
-        SELECT rt.name AS relationship_type, rt.verb, rt.category, rt.description, ar.note
+        SELECT rt.name AS relationship_type, rt.verb, rt.category, rt.description, ar.note,
+               ar.source_multiplicity, ar.target_multiplicity
           FROM core.allowed_relationships ar
           JOIN core.relationship_types rt ON rt.id = ar.relationship_type_id
          WHERE ar.source_type_id = :s AND ar.target_type_id = :t AND NOT ar.is_deleted
@@ -238,16 +246,16 @@ def allowed_relationships(conn, model: Any, source_type: Any, target_type: Any) 
 
 
 def get_metamodel_diagram(conn, model: Any) -> dict:
-    """Everything an ER diagram of the metamodel needs, in one call: layers, entity types with their
+    """Everything an ER diagram of the metamodel needs, in one call: domains, entity types with their
     attributes, relationship types, and the allowed relationships combined per (source, target) pair."""
     m = get_model(conn, model)
     mid = m["_id"]
-    layers = _rows(conn, """
+    domains = _rows(conn, """
         SELECT guid AS id, code, name, colour FROM core.layers
          WHERE model_id = :m AND NOT is_deleted ORDER BY sort_order, name""", m=mid)
     types = _rows(conn, """
         SELECT et.id AS _id, et.guid AS id, et.code, et.name, et.table_name, et.id_prefix,
-               l.guid AS layer_id, l.name AS layer, l.colour,
+               l.guid AS domain_id, l.name AS domain, l.colour,
                (SELECT count(*) FROM core.entities e
                  WHERE e.entity_type_id = et.id AND NOT e.is_deleted) AS entity_count
           FROM core.entity_types et JOIN core.layers l ON l.id = et.layer_id
@@ -272,7 +280,9 @@ def get_metamodel_diagram(conn, model: Any) -> dict:
          WHERE model_id = :m AND NOT is_deleted ORDER BY sort_order, name""", m=mid)
     links = _rows(conn, """
         SELECT s.guid AS source, t.guid AS target,
-               array_agg(rt.code ORDER BY rt.sort_order) AS relationship_types
+               array_agg(rt.code ORDER BY rt.sort_order) AS relationship_types,
+               array_agg(ar.source_multiplicity ORDER BY rt.sort_order) AS source_multiplicities,
+               array_agg(ar.target_multiplicity ORDER BY rt.sort_order) AS target_multiplicities
           FROM core.allowed_relationships ar
           JOIN core.entity_types s ON s.id = ar.source_type_id
           JOIN core.entity_types t ON t.id = ar.target_type_id
@@ -280,7 +290,7 @@ def get_metamodel_diagram(conn, model: Any) -> dict:
          WHERE ar.model_id = :m AND NOT ar.is_deleted
          GROUP BY s.guid, t.guid, s.sort_order, t.sort_order
          ORDER BY s.sort_order, t.sort_order""", m=mid)
-    return {"model": m, "layers": layers, "entity_types": types,
+    return {"model": m, "domains": domains, "entity_types": types,
             "relationship_types": rel_types, "links": links}
 
 
@@ -341,8 +351,27 @@ def get_entities(conn, model: Any, entity_type: str, name: str | None = None, li
 
 
 def search_entities(conn, text_query: str, model: Any = None, limit: int = 50) -> list[dict]:
-    """Entities whose name, display ID or description contains the text, in one or every readable model."""
+    """Entities whose name, display ID or description contains the text, in one or every readable model; an entity merged
+    away as a duplicate (D361) is found by its old display ID or name as the one kept."""
     mid = get_model(conn, model)["_id"] if model else None
+    found = _search_entities(conn, text_query, mid, limit)
+    have = {str(r["id"]) for r in found}
+    for r in _rows(conn, """
+        SELECT e.guid AS id, e.display_id, e.name, et.name AS entity_type, m.name AS model, m.guid AS model_id,
+               'Merged in: ' || a.old_display_id || ' ' || a.old_name AS description
+          FROM core.entity_aliases a JOIN core.entities e ON e.guid = a.survivor_guid AND e.model_id = a.model_id AND NOT e.is_deleted
+          JOIN core.entity_types et ON et.id = e.entity_type_id JOIN core.models m ON m.id = e.model_id
+         WHERE NOT m.is_deleted AND core.can_read_model(m.id) AND (CAST(:m AS bigint) IS NULL OR a.model_id = :m)
+           AND (a.old_display_id ILIKE :q OR a.old_name ILIKE :q)
+           AND NOT EXISTS (SELECT 1 FROM core.entities o WHERE o.guid = a.old_guid AND NOT o.is_deleted)
+         LIMIT 20""", m=mid, q=f"%{text_query}%"):
+        if str(r["id"]) not in have and len(found) < limit:
+            found.append(r)
+            have.add(str(r["id"]))
+    return found
+
+
+def _search_entities(conn, text_query: str, mid: int | None, limit: int) -> list[dict]:
     return _rows(conn, """
         SELECT e.guid AS id, e.display_id, e.name, et.name AS entity_type, m.name AS model,
                m.guid AS model_id, left(e.description, 200) AS description
@@ -357,12 +386,12 @@ def search_entities(conn, text_query: str, model: Any = None, limit: int = 50) -
 
 
 def list_entities(conn, model: Any, entity_type: Any = None, limit: int = 2000) -> list[dict]:
-    """Every entity of a model (or of one type), with its type, layer and relationship count."""
+    """Every entity of a model (or of one type), with its type, domain and relationship count."""
     m = get_model(conn, model)
     tid = _find_type(conn, m["_id"], entity_type)["_id"] if entity_type else None
     return _rows(conn, """
         SELECT e.guid AS id, e.display_id, e.name, left(e.description, 300) AS description,
-               et.name AS entity_type, et.guid AS entity_type_id, l.name AS layer, l.colour,
+               et.name AS entity_type, et.guid AS entity_type_id, l.name AS domain, l.colour,
                pe.name AS parent_name, e.status_code AS status,
                (SELECT count(*) FROM core.relationships r
                  WHERE (r.source_entity_id = e.id OR r.target_entity_id = e.id) AND NOT r.is_deleted) AS relationship_count,
@@ -488,6 +517,7 @@ def _load_values(conn, where: str, **params) -> dict[int, list[dict]]:
             "unit": r["unit"], "is_required": r["is_required"], "value": _display(typed), "typed": typed,
             "ref_id": r["ref_id"], "ref_type": r["ref_type"], "override": r["rule_override"],
             "pick_list_values": picks.get(r["_pick_list"], []), "_attr": r["_attr"],
+            **({"links": links.parse(r["value_text"])} if r["data_type"] == "url" else {}),
         })
     return out
 
@@ -579,13 +609,29 @@ def type_table(conn, model: Any, entity_type: Any, limit: int = 10000) -> dict:
     return {"entity_type": et, "columns": columns, "rows": rows, "rules": len(rules)}
 
 
-def _find_entity(conn, m: dict, entity: Any) -> dict:
+def _find_entity(conn, m: dict, entity: Any, _alias: bool = True) -> dict:
+    try:
+        return _find_entity_now(conn, m, entity)
+    except NotFound:
+        if not _alias:
+            raise
+        # merged away as a duplicate (D361): its old guid or display ID finds the one kept
+        from .dedupe import alias
+        hit = alias(conn, m, str(entity))
+        if not hit:
+            raise
+        e = _find_entity_now(conn, m, hit["survivor"])
+        e["merged_from"] = f"{hit['old_name']} ({hit['old_display_id']})" if hit["old_display_id"] else hit["old_name"]
+        return e
+
+
+def _find_entity_now(conn, m: dict, entity: Any) -> dict:
     guid = _as_guid(entity)
     where = "e.guid = :e" if guid else "(lower(e.name) = lower(:e) OR lower(e.display_id) = lower(:e))"
     found = _rows(conn, f"""
         SELECT e.id AS _id, e.entity_type_id AS _type, e.guid AS id, e.display_id, e.name, e.description,
                e.status_code AS status, e.tags, e.content_area, et.content_area AS _type_area, et.repository_area AS _type_repo, et.name AS entity_type, et.code AS entity_type_code,
-               et.guid AS entity_type_id, l.name AS layer, l.colour, et.status_code AS entity_type_status,
+               et.guid AS entity_type_id, l.name AS domain, l.colour, et.status_code AS entity_type_status,
                pe.guid AS parent_id, pe.name AS parent_name,
                e.created_at, e.created_by, e.modified_at, e.modified_by, e.row_version,
                e.created_mm_version, e.modified_mm_version,
@@ -1143,7 +1189,7 @@ def entity_graph(conn, model: Any, focus: Any = None, entity_types: list | None 
         start = None
     nodes = _rows(conn, f"""
         SELECT e.id AS _id, e.guid AS id, e.display_id, e.name, et.name AS entity_type, et.guid AS entity_type_id,
-               l.name AS layer, l.colour, l.sort_order AS layer_order
+               l.name AS domain, l.colour, l.sort_order AS domain_order
           FROM core.entities e
           JOIN core.entity_types et ON et.id = e.entity_type_id
           JOIN core.layers l ON l.id = et.layer_id
@@ -1227,7 +1273,7 @@ def entity_paths(conn, model: Any, source: Any, target: Any, max_steps: int = 6,
     on_path = {i for p in paths for i in p}
     nodes = _rows(conn, """
         SELECT e.id AS _id, e.guid AS id, e.display_id, e.name, et.name AS entity_type, et.guid AS entity_type_id,
-               l.name AS layer, l.colour, l.sort_order AS layer_order
+               l.name AS domain, l.colour, l.sort_order AS domain_order
           FROM core.entities e JOIN core.entity_types et ON et.id = e.entity_type_id JOIN core.layers l ON l.id = et.layer_id
          WHERE e.id = ANY (:ids)""", ids=list(on_path or {sid, tid}))
     guid = {n["_id"]: n["id"] for n in nodes}
@@ -1268,7 +1314,7 @@ def entity_paths(conn, model: Any, source: Any, target: Any, max_steps: int = 6,
 
 MM_TABLES = ["layers", "entity_types", "relationship_types", "pick_lists", "pick_list_values", "attribute_types",
              "item_attributes", "validation_rules", "allowed_relationships"]
-MM_KIND = {"layers": "layer", "entity_types": "entity type", "relationship_types": "relationship type",
+MM_KIND = {"layers": "domain", "entity_types": "entity type", "relationship_types": "relationship type",
            "pick_lists": "pick list", "pick_list_values": "pick-list value", "attribute_types": "attribute definition",
            "item_attributes": "attribute", "validation_rules": "rule", "allowed_relationships": "mapping"}
 _MM_NOISE = _NOISE | {"sort_order", "table_name", "column_name"}
@@ -1325,7 +1371,7 @@ def _mm_fields(table: str, d: dict, names: dict) -> dict:
                     "target_type_id": "entity_types"}.get(k)
             if kind:
                 v = (names[kind].get(int(v)) or {}).get("name", v)
-            k = k[:-3]
+            k = "domain" if k == "layer_id" else k[:-3]
         if k == "status_code":
             k = "status"
         if k == "is_deleted":

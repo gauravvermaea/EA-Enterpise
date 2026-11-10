@@ -4,7 +4,7 @@ Beside eax/projects.py (the wizard's first pass, the repository and the document
 
     scope_fields(d)                    scope (breadth, depth, time, domains), sponsor and asks, notes (rich text, cleaned)
     goals / write_goals                the project's goals and outcomes: Goal and Outcome entities in its home model (D274)
-    viewpoint_status / add_viewpoint   its viewpoints: ready in a model's metamodel, or to build; its own (PV-...)
+    view_status / add_view   its views: ready in a model's metamodel, or to build; its own (PV-...)
     update(conn, user, project, d)     the edit workflow: the wizard again on a live project (D275)
     project files                      contracts and the like, kept with the project (00_Project/Project files)
     sign-off                           raise, decide (in the application, or self), record with evidence (D276)
@@ -291,7 +291,7 @@ def write_pending_goals(conn, project: Any, user) -> str:
     return write_goals(conn, p, user, pending) if pending else ""
 
 
-# ---------------------------------------------------------------- viewpoints (D278)
+# ---------------------------------------------------------------- views (D278)
 def model_types(conn, p: dict) -> list[str]:
     guids = [r["g"] for r in _rows(conn, "SELECT model_guid::text AS g FROM proj.project_models WHERE project_id = :p", p=p["id"])]
     if not guids:
@@ -301,10 +301,10 @@ def model_types(conn, p: dict) -> list[str]:
                                                          ORDER BY et.name""", g=guids)]
 
 
-def viewpoint_status(conn, p: dict) -> list[dict]:
-    """Each viewpoint of the project: ready (every element type it shows is in one of the project's models'
+def view_status(conn, p: dict) -> list[dict]:
+    """Each view of the project: ready (every element type it shows is in one of the project's models'
     metamodels: open it in that model) or to build (the types still missing)."""
-    rows = _rows(conn, "SELECT viewpoint AS code, own, phase FROM proj.project_viewpoints WHERE project_id = :p ORDER BY viewpoint", p=p["id"])
+    rows = _rows(conn, "SELECT view AS code, own, phase FROM proj.project_views WHERE project_id = :p ORDER BY view", p=p["id"])
     if not rows:
         return []
     vps = {v["code"]: v for v in _rows(pj.core(conn), """SELECT code, name, purpose, concerns, stakeholders, element_types, category
@@ -327,7 +327,7 @@ def viewpoint_status(conn, p: dict) -> list[dict]:
             continue
         want = [t for t in v["element_types"] or []]
         best, missing = None, want
-        per_model = []          # every project model: what of the viewpoint it can show (owner, 7 Nov 2026: choose the model)
+        per_model = []          # every project model: what of the view it can show (owner, 7 Nov 2026: choose the model)
         for g in [x["g"] for x in models]:
             miss = [t for t in want if t.lower() not in types_by_model.get(g, set())]
             per_model.append({"model": g, "name": names.get(g), "missing": miss})
@@ -337,12 +337,12 @@ def viewpoint_status(conn, p: dict) -> list[dict]:
                     "stakeholders": v["stakeholders"], "element_types": want, "own": r["own"],
                     "state": "ready" if best and not missing else "to build", "missing": missing,
                     "model": best, "model_name": names.get(best), "models": per_model,
-                    "phase": r.get("phase") or VIEWPOINT_PHASE.get(v["code"]) or VIEWPOINT_PHASE_BY_CATEGORY.get(v["category"] or "", "")})
+                    "phase": r.get("phase") or VIEW_PHASE.get(v["code"]) or VIEW_PHASE_BY_CATEGORY.get(v["category"] or "", "")})
     return out
 
 
-# the ADM phase a viewpoint is shown with (owner, 7 Nov 2026: viewpoints by phase); a project can move one to another phase
-VIEWPOINT_PHASE = {
+# the ADM phase a view is shown with (owner, 7 Nov 2026: views by phase); a project can move one to another phase
+VIEW_PHASE = {
     "VP-14": "A", "VP-15": "A", "VP-17": "A", "VP-18": "A", "VP-19": "A", "VP-20": "A", "VP-21": "A", "VP-22": "A",
     "VP-01": "B", "VP-05": "B", "VP-07": "B", "VP-10": "B", "VP-12": "B",
     "VP-02": "C", "VP-03": "C", "VP-08": "C", "VP-11": "C",
@@ -350,40 +350,40 @@ VIEWPOINT_PHASE = {
     "VP-23": "F", "VP-24": "F", "VP-25": "E", "VP-26": "E",
     "VP-16": "RM",
 }
-VIEWPOINT_PHASE_BY_CATEGORY = {"Motivation": "A", "Strategy": "A", "Implementation and migration": "E",
+VIEW_PHASE_BY_CATEGORY = {"Motivation": "A", "Strategy": "A", "Implementation and migration": "E",
                                "TOGAF business architecture": "B"}   # D345
 
 
-def set_viewpoint_phase(conn, project: Any, user, code: str, phase: str) -> dict:
-    """The phase a project shows a viewpoint with (anyone who contributes)."""
+def set_view_phase(conn, project: Any, user, code: str, phase: str) -> dict:
+    """The phase a project shows a view with (anyone who contributes)."""
     p = pj.project_row(conn, project)
     need(conn, p, user, "contribute")
     if phase and not _rows(conn, "SELECT 1 AS x FROM proj.lib_phases WHERE code = :c", c=phase):
         raise EditError("No such phase.")
-    r = _rows(conn, """UPDATE proj.project_viewpoints SET phase = :ph WHERE project_id = :p AND viewpoint = :v RETURNING viewpoint""",
+    r = _rows(conn, """UPDATE proj.project_views SET phase = :ph WHERE project_id = :p AND view = :v RETURNING view""",
               ph=phase or None, p=p["id"], v=code)
     if not r:
-        raise EditError("The project does not use that viewpoint.", 404)
+        raise EditError("The project does not use that view.", 404)
     return {"code": code, "phase": phase, "message": f"{code} is shown with phase {phase}." if phase else f"{code}: back to its usual phase."}
 
 
-def add_viewpoint(conn, project: Any, user, data: dict) -> dict:
-    """A viewpoint made for the project (a contributor): stored with the organisation's viewpoints (code PV-<n>) and
-    chosen for the project. Element types not in its models' metamodels make it a viewpoint to build."""
-    from . import viewpoints as vp
+def add_view(conn, project: Any, user, data: dict) -> dict:
+    """A view made for the project (a contributor): stored with the organisation's views (code PV-<n>) and
+    chosen for the project. Element types not in its models' metamodels make it a view to build."""
+    from . import views as vp
     p = pj.project_row(conn, project)
     need(conn, p, user, "contribute")
     used = [r["code"] for r in _rows(pj.core(conn), "SELECT code FROM core.viewpoints WHERE code LIKE 'PV-%'")]
     n = max([int(m.group(1)) for c in used if (m := re.match(r"^PV-(\d+)$", c))] or [0]) + 1
-    v = vp.save_viewpoint(pj.core(conn), {"code": f"PV-{n:02d}", "name": data.get("name"), "category": "Project",
+    v = vp.save_view(pj.core(conn), {"code": f"PV-{n:02d}", "name": data.get("name"), "category": "Project",
                                           "purpose": data.get("purpose") or f"Made for the architecture project {p['name']}.",
                                           "concerns": data.get("concerns"), "stakeholders": data.get("stakeholders"),
                                           "element_types": data.get("element_types") or [],
                                           "relationship_types": data.get("relationship_types") or [],
                                           "heat_attribute": "Lifecycle", "audiences": []}, user.username)
-    conn.execute(text("""INSERT INTO proj.project_viewpoints (project_id, viewpoint, own, phase) VALUES (:p, :v, true, :ph)
+    conn.execute(text("""INSERT INTO proj.project_views (project_id, view, own, phase) VALUES (:p, :v, true, :ph)
                          ON CONFLICT DO NOTHING"""), {"p": p["id"], "v": v["code"], "ph": data.get("phase") or None})
-    return {"code": v["code"], "message": f"Viewpoint {v['code']} {v['name']} made for {p['name']}."}
+    return {"code": v["code"], "message": f"View {v['code']} {v['name']} made for {p['name']}."}
 
 
 # ---------------------------------------------------------------- who may do what, frozen projects read only
@@ -444,19 +444,19 @@ def update(conn, user, project: Any, d: dict) -> dict:
         home = str(p["home_model"])
     conn.execute(text("UPDATE proj.projects SET home_model = CAST(:h AS uuid) WHERE id = :p"), {"h": home, "p": p["id"]})
     p = pj.project_row(conn, p["guid"])
-    # viewpoints
-    own = {r["viewpoint"] for r in _rows(conn, "SELECT viewpoint FROM proj.project_viewpoints WHERE project_id = :p AND own", p=p["id"])}
-    wanted = set(d.get("viewpoints") or []) | (own - set(d.get("removed_viewpoints") or []))
-    conn.execute(text("DELETE FROM proj.project_viewpoints WHERE project_id = :p AND NOT (viewpoint = ANY (CAST(:v AS text[])))"),
+    # views
+    own = {r["view"] for r in _rows(conn, "SELECT view FROM proj.project_views WHERE project_id = :p AND own", p=p["id"])}
+    wanted = set(d.get("views") or []) | (own - set(d.get("removed_views") or []))
+    conn.execute(text("DELETE FROM proj.project_views WHERE project_id = :p AND NOT (view = ANY (CAST(:v AS text[])))"),
                  {"p": p["id"], "v": sorted(wanted)})
     for v in wanted - own:
-        conn.execute(text("INSERT INTO proj.project_viewpoints (project_id, viewpoint) VALUES (:p, :v) ON CONFLICT DO NOTHING"),
+        conn.execute(text("INSERT INTO proj.project_views (project_id, view) VALUES (:p, :v) ON CONFLICT DO NOTHING"),
                      {"p": p["id"], "v": v})
-    # viewpoints made for the project in this edit (they were only made when the project was created before)
+    # views made for the project in this edit (they were only made when the project was created before)
     own_codes = {}
-    for v in d.get("own_viewpoints") or []:
+    for v in d.get("own_views") or []:
         if (v.get("name") or "").strip():
-            own_codes[str(v.get("key") or "")] = add_viewpoint(conn, p["guid"], user, v)["code"]
+            own_codes[str(v.get("key") or "")] = add_view(conn, p["guid"], user, v)["code"]
     from . import key_questions as kq
     kq.from_wizard(conn, p, user, d, own_codes, editing=True)      # key questions and placeholders (owner, 9 Nov 2026)
     # principles: the library ones chosen; own ones added; removed ones (by id) go (inherited ones stay)

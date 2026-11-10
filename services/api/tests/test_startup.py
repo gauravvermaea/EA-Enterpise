@@ -76,11 +76,10 @@ def test_compose_and_scripts_start_in_two_tiers():
     assert "http://api:8000/api/startup" in init and init.index("api/startup") < init.index("python /app/eax/eax_reports_init.py")
 
 
-def test_pictures_open_in_drawio():
+def test_pictures_save_as_drawn_views():
+    """D408 (replaces D256): no picture opens a loose copy in draw.io; each saves as a drawn view or downloads."""
     web = REPO / "services" / "web" / "src"
     ex = (web / "exporting.js").read_text()
-    assert "export function openDrawio(" in ex and "/drawio/?title=" in ex and "#R" in ex and "deflate-raw" in ex
+    assert "export function openDrawio(" not in ex and "export function drawioXml(" in ex and "export function tidy(" in ex
     for f in web.glob("*.jsx"):
-        text = f.read_text()
-        assert "downloadDrawio" not in text, f.name
-        assert ">.drawio</button>" not in text, f.name
+        assert "openDrawio" not in f.read_text(), f.name

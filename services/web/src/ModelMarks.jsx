@@ -4,7 +4,8 @@
 //   👁 Read-only       (shipped library models for everyone; other models where your roles allow no changes)
 //   🔒 Locked          (a Model Admin has locked it: metamodel, content or maintenance)
 // Used by the model list, the hierarchy tree, the model page, the model switcher and the library.
-import { canOn } from "./auth";
+import { useEffect, useState } from "react";
+import { canOn, myInfo } from "./auth";
 import { ModelIcon } from "./ModelIcon";
 
 export const KINDS = {
@@ -115,4 +116,40 @@ export function ModelStateBadge({ m }) {
   const [icon, label, help] = MODEL_STATES[k];
   const why = [help, m.locked_by && `by ${m.locked_by}`, m.lock_reason].filter(Boolean).join(" · ");
   return <span className={`model-state ${k}`} title={why}><span aria-hidden="true">{icon}</span> {label}</span>;
+}
+
+
+// ---------------------------------------------------------------- frozen and archived are out of the way (owner, 9 Nov 2026, D360)
+// Lists show only live models and projects; "Show frozen and archived (n)" brings them back, greyed, remembered per person
+// (in this browser); switchers and pickers never offer them.
+export const isRetiredModel = (m) => !!m && ((!!m.lifecycle && m.lifecycle !== "active") || m.lock_level === "content" || !!m.frozen_at);
+export const isRetiredProject = (p) => !!p && (!!p.frozen || ["frozen", "merged", "closed"].includes(p.status));
+export const liveModels = (list) => (list || []).filter((m) => !isRetiredModel(m));
+export const liveProjects = (list) => (list || []).filter((p) => !isRetiredProject(p));
+
+const SHOW_KEY = () => `eax.showRetired.${(myInfo() || {}).username || "anyone"}`;
+const readShow = () => { try { return localStorage.getItem(SHOW_KEY()) === "1"; } catch { return false; } };
+export function useShowRetired() {
+  const [show, setShowState] = useState(readShow);
+  useEffect(() => {
+    const on = () => setShowState(readShow());
+    window.addEventListener("eax-show-retired", on);
+    return () => window.removeEventListener("eax-show-retired", on);
+  }, []);
+  const setShow = (v) => {
+    try { localStorage.setItem(SHOW_KEY(), v ? "1" : "0"); } catch { /* a per-viewer convenience only */ }
+    setShowState(v);
+    window.dispatchEvent(new Event("eax-show-retired"));
+  };
+  return [show, setShow];
+}
+
+// the checkbox; count: how many are hidden (shown only when there are any, or when it is ticked)
+export function ShowRetired({ count, show, setShow }) {
+  if (!count && !show) return null;
+  return (
+    <label className="small" title="Frozen and archived models and projects are kept out of the way; tick to see them, greyed">
+      <input type="checkbox" checked={show} onChange={(e) => setShow(e.target.checked)} /> Show frozen and archived ({count || 0})
+    </label>
+  );
 }

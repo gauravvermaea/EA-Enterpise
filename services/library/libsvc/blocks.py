@@ -5,7 +5,7 @@
     {"type": "table", "rows": [["...", ...], ...], "header": true}   a table, its first row the header when header is true
     {"type": "links", "items": [{"label": "...", "href": "..."}]}    a list of links
 Text anywhere may hold links written [label](href). An href is a web address (https://, http://, mailto:) or a link into
-EA Explorer: ea:model:<model>, ea:project:<project>, ea:entity:<model>:<entity>, ea:viewpoint:<model>:<code>,
+EA Explorer: ea:model:<model>, ea:project:<project>, ea:entity:<model>:<entity>, ea:view:<model>:<code>,
 ea:document:<project>:<document>, ea:canvas:<project>:<canvas>, ea:reference:<entry>, ea:page:<library>:<entry>."""
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ import re
 from typing import Any
 
 LINK = re.compile(r"\[([^\]\n]{1,300})\]\(([^)\s]{1,2000})\)")
-EA = re.compile(r"^ea:(model|project|entity|viewpoint|document|canvas|reference|page):[A-Za-z0-9_.:\-]{1,200}$")
+EA = re.compile(r"^ea:(model|project|entity|view|document|canvas|reference|page):[A-Za-z0-9_.:\-]{1,200}$")
 TYPES = ("heading", "text", "list", "table", "links")
 MAX_BLOCKS, MAX_CELLS, MAX_TEXT = 400, 4000, 20000
 

@@ -11,8 +11,9 @@ POST /models/<m>/detach · /reparent {parent}
 POST /models/<m>/split                          {name, description, child, move, entity_types, entities} (background)
 GET  /models/<m>/extend-preview?source=<model>  what another model's metamodel has that this one lacks
 POST /models/<m>/extend                         {source, entity_types, relationship_types, attributes} (background)
-GET  /models/<m>/duplicates?type=               groups of likely duplicate entities
-POST /models/<m>/duplicates/merge               {keep, others}
+GET  /models/<m>/duplicates?type=&attributes=&closeness=&names=   groups of likely duplicate entities (phase 21, D361)
+GET  /models/<m>/duplicates/xlsx?...              the same as an Excel workbook (D541)
+POST /models/<m>/duplicates/merge               {keep, others, choices}: choices {field code: entity whose value is kept}
 POST /models/<m>/hand-over                      {add, remove, owner}
 """
 
@@ -182,7 +183,41 @@ class Duplicates(MethodView):
     @require_auth()
     def get(self, model_id):
         """Groups of entities that look like the same thing"""
-        return _read(lambda c: mw.duplicates(c, model_id, request.args.get("type") or None))
+        a = request.args
+        attrs = [x for x in (a.get("attributes") or "").split(",") if x.strip()]
+        try:
+            closeness = float(a.get("closeness") or 0.88)
+        except ValueError:
+            closeness = 0.88
+        by_name = a.get("names", "true") != "false" or not attrs
+        return _read(lambda c: mw.duplicates(c, model_id, a.get("type") or None, closeness, attrs, by_name))
+
+
+@blp.route("/models/<uuid:model_id>/duplicates/xlsx")
+class DuplicatesXlsx(MethodView):
+    @blp.doc(security=SECURITY)
+    @require_auth()
+    def get(self, model_id):
+        """The likely duplicates as an Excel workbook (same arguments as the list; D541)"""
+        from flask import Response
+
+        from .. import dedupe
+        a = request.args
+        attrs = [x for x in (a.get("attributes") or "").split(",") if x.strip()]
+        try:
+            closeness = float(a.get("closeness") or 0.88)
+        except ValueError:
+            closeness = 0.88
+        by_name = a.get("names", "true") != "false" or not attrs
+
+        def build(c):
+            res = mw.duplicates(c, model_id, a.get("type") or None, closeness, attrs, by_name)
+            m = repo.get_model(c, model_id)
+            return dedupe.to_xlsx(res, m["name"], request.host_url, a.get("type") or ""), m["name"]
+        data, name = _read(build)
+        safe = "".join(ch if ch.isalnum() or ch in " -_" else "-" for ch in name).strip() or "model"
+        return Response(data, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        headers={"Content-Disposition": f'attachment; filename="{safe} - likely duplicates.xlsx"'})
 
 
 @blp.route("/models/<uuid:model_id>/duplicates/merge")
@@ -194,7 +229,8 @@ class DuplicatesMerge(MethodView):
     def post(self, data, model_id):
         """Merge duplicates into the one kept (one commit, which can be rolled back)"""
         d = data or {}
-        return _write(lambda c: mw.merge_duplicates(c, model_id, g.user, d.get("keep"), d.get("others") or []), "entities.merged", model_id, d)
+        return _write(lambda c: mw.merge_duplicates(c, model_id, g.user, d.get("keep"), d.get("others") or [], d.get("choices")),
+                      "entities.merged", model_id, d)
 
 
 @blp.route("/models/<uuid:model_id>/hand-over")

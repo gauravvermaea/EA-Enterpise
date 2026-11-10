@@ -4,7 +4,7 @@ Goal: everyone gets exactly what their role allows, in the screens, the REST API
 database itself, before anyone can change content. Version **0.3.1**, migration `0006_roles`.
 Decisions D58, D59, D60, D80, D89, D90, D92 to D98, D100 to D102, D107, D109, D110, D113, and part of D81. Migrations `0006_roles` and `0007_relationship_rules`.
 
-## Status: built, waiting for Gaurav's test
+## Status: accepted (4 Nov 2026)
 
 ## What phase 3.1 delivers
 
@@ -64,11 +64,11 @@ Decisions D58, D59, D60, D80, D89, D90, D92 to D98, D100 to D102, D107, D109, D1
   links to the parent.
 - **The top of the hierarchy (D81, built early)**: a read-only model called **Root** (no types) is the top of every tree;
   **ArchiMate 4** (kind *Root metamodel*) is created from it. **Lean EA metamodel 1.0** is a sample root built from
-  scratch (three layers, five types, four relationship types, a pick list), not locked, so its Model Admin can change its
+  scratch (three domains, five types, four relationship types, a pick list), not locked, so its Model Admin can change its
   metamodel; **Karoo Digital (lean)** is a project model built on it. ArchiMate 5, or any organisation's own root, sits
   beside ArchiMate 4 the same way.
 - **Model library redesigned (D101)**: a browser on the left (root metamodels, then the reference models on each root,
-  with a search and a Root / Reference filter), and the chosen model on the right: what it is built on, its layers, types
+  with a search and a Root / Reference filter), and the chosen model on the right: what it is built on, its domains, types
   and counts, its pack and the library models built on it. Each has its own address (`#/library/<id>`). The buttons for
   creating a model from it, downloading or uploading a library package and promoting a model arrive in phase 4.
 - **Model marks (D102)**: every list, tree, switcher and model page marks a model the same way, with a legend: ◆ root

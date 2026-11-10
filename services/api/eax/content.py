@@ -21,6 +21,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
+from . import links
 from . import repository as repo
 from .metamodel_edit import EditError, _db_message
 
@@ -117,9 +118,11 @@ def form(conn, model: Any, entity_type: Any) -> dict:
 # ---------------------------------------------------------------- values
 def _coerce(attr: dict, value: Any) -> Any:
     """A value from a form, as the database stores it for the attribute's data type; None clears it."""
-    if value is None or (isinstance(value, str) and not value.strip()):
+    if value is None or (isinstance(value, str) and not value.strip()) or value == []:
         return None
     t, name = attr["data_type"], attr["name"]
+    if t == "url":   # a Link (D418): one or more {address, note}, kept one line each; anything is accepted
+        return links.store(value)
     try:
         if t in ("integer", "decimal", "currency", "percent"):
             n = Decimal(str(value).replace(",", "").replace(" ", "").rstrip("%"))
@@ -358,8 +361,8 @@ def relationship_options(conn, model: Any, entity: Any) -> dict:
          ORDER BY 1 DESC, 3, 6""", t=e["_type"])
     types = _rows(conn, """SELECT guid AS id, name, verb FROM core.relationship_types
                             WHERE model_id = :m AND NOT is_deleted ORDER BY sort_order, name""", m=m["_id"])
-    entity_types = _rows(conn, """SELECT t.guid AS id, t.name, l.name AS layer FROM core.entity_types t JOIN core.layers l ON l.id = t.layer_id
-                                   WHERE t.model_id = :m AND NOT t.is_deleted AND t.status_code <> 'retired'
+    entity_types = _rows(conn, """SELECT t.guid AS id, t.name, l.name AS domain FROM core.entity_types t JOIN core.layers l ON l.id = t.layer_id
+                                   WHERE t.model_id = :m AND NOT t.is_deleted AND t.status_code <> 'retired' AND NOT t.is_connector
                                    ORDER BY l.sort_order, t.sort_order, t.name""", m=m["_id"])
     return {"entity": {"id": e["id"], "name": e["name"], "entity_type": e["entity_type"]},
             "allowed": allowed, "relationship_types": types, "entity_types": entity_types}
@@ -390,6 +393,9 @@ def add_relationship(conn, model: Any, data: dict, actor: str) -> dict:
     if not src or not tgt:
         raise EditError("Choose the entities at both ends.")
     rt = repo._find_relationship_type(conn, m["_id"], data.get("relationship_type"))
+    from . import junctions  # through a junction: one type, each end allowed as if direct (D397)
+    if junctions.is_junction(conn, src) or junctions.is_junction(conn, tgt):
+        junctions.check(conn, src, tgt, rt)
     st = _one(conn, "SELECT entity_type_id AS type_id FROM core.entities WHERE id = :e", e=src)["type_id"]
     tt = _one(conn, "SELECT entity_type_id AS type_id FROM core.entities WHERE id = :e", e=tgt)["type_id"]
     allowed = _one(conn, """SELECT 1 AS x FROM core.allowed_relationships WHERE relationship_type_id = :r

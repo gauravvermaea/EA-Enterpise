@@ -3,6 +3,7 @@
 //   #/metamodel/<model>/import/load/<id>        a load: preview (new, changed, unchanged, delete, problems), map columns,
 //                                               correct rows, add them to your uncommitted changes, undo
 //   #/metamodel/<model>/import/loads            every load of the model you may see
+//   #/metamodel/<model>/import/deliveries       other systems' deliveries in the published formats (phase 34, Deliveries.jsx)
 //   (collection sets, feeds and scheduled exports: a phase of their own, D198)
 import { useEffect, useMemo, useState } from "react";
 import { apiDownload, apiFetch, apiUpload, canOn } from "./auth";
@@ -10,6 +11,7 @@ import { refreshAll, useApi } from "./ModelViews";
 import { Modal } from "./ModelOps";
 import { fmtDateTime } from "./fmt";
 import { trackTask, useTask } from "./tasks";
+import DeliveriesTab, { DeliveryActions } from "./Deliveries";
 
 const go = (path) => { window.location.hash = path; };
 const post = (path, body, method = "POST") => apiFetch(path, { method, body: JSON.stringify(body || {}) });
@@ -20,7 +22,7 @@ const FORMATS = [["xlsx", "Excel (.xlsx)", "Drop-downs and provisional IDs for n
 
 export default function SheetsTab({ model, m, sub, itemId }) {
   const may = canOn(model, "model.content");
-  const nav = [["", "Download and upload"], ["loads", "Loads"]];
+  const nav = [["", "Download and upload"], ["loads", "Loads"], ["deliveries", "Deliveries"]];
   const cur = sub === "load" ? "loads" : sub || "";
   return (
     <div className="sheets">
@@ -29,6 +31,7 @@ export default function SheetsTab({ model, m, sub, itemId }) {
       </div>
       {sub === "load" && itemId ? <LoadPage key={itemId} model={model} m={m} id={itemId} />
         : sub === "loads" ? <><LoadList model={model} /><SavedMappings model={model} /></>
+          : sub === "deliveries" ? <DeliveriesTab model={model} m={m} />
           : <><Download model={model} m={m} /><Upload model={model} m={m} may={may} /></>}
     </div>
   );
@@ -40,7 +43,7 @@ function TypePicker({ model, value, onChange }) {
   const [q, setQ] = useState("");
   if (error) return <p className="error">Could not load the entity types: {error}</p>;
   if (!data) return <p className="quiet">Loading the entity types...</p>;
-  const layers = [...new Set(data.types.map((t) => t.layer))];
+  const domains = [...new Set(data.types.map((t) => t.domain))];
   const shown = data.types.filter((t) => !q || `${t.name} ${t.code}`.toLowerCase().includes(q.toLowerCase()));
   const toggle = (codes, on) => onChange(on ? [...new Set([...value, ...codes])] : value.filter((c) => !codes.includes(c)));
   return (
@@ -51,9 +54,9 @@ function TypePicker({ model, value, onChange }) {
         <button className="linkish" onClick={() => onChange([])}>None</button>
         <span className="quiet small">{value.length} chosen</span>
       </div>
-      <div className="type-layers">
-        {layers.map((l) => {
-          const ts = shown.filter((t) => t.layer === l);
+      <div className="type-domains">
+        {domains.map((l) => {
+          const ts = shown.filter((t) => t.domain === l);
           if (!ts.length) return null;
           const all = ts.every((t) => value.includes(t.code));
           return (
@@ -77,6 +80,7 @@ export function Download({ model, m }) {
   // a request to fill in data (WIZ-018) links here with the types chosen: ?types=A,B
   const [types, setTypes] = useState(() => (window.location.hash.match(/[?&]types=([^&]+)/) || [])[1]?.split(",").map(decodeURIComponent) || []);
   const [fmt, setFmt] = useState("xlsx");
+  const [blank, setBlank] = useState(false);     // the published format's empty template (phase 34)
   const [taskId, setTaskId] = useState(null);
   const [fetched, setFetched] = useState(null);
   const [err, setErr] = useState("");
@@ -90,7 +94,7 @@ export function Download({ model, m }) {
   async function build() {
     setErr("");
     try {
-      const out = await post(`/api/v1/models/${model}/sheets`, { types, format: fmt });
+      const out = await post(`/api/v1/models/${model}/sheets`, { types, format: fmt, blank });
       trackTask(out.task, `#/metamodel/${model}/import`);
       setTaskId(out.task.id);
     } catch (e) { setErr(e.message); }
@@ -106,6 +110,8 @@ export function Download({ model, m }) {
         {FORMATS.map(([k, l, help]) => (
           <label key={k} title={help}><input type="radio" name="fmt" checked={fmt === k} onChange={() => setFmt(k)} /> {l}</label>
         ))}
+        <label title="The same columns and drop-downs with no rows: the published format for another system to fill (docs/import-formats.md)">
+          <input type="checkbox" checked={blank} onChange={(e) => setBlank(e.target.checked)} /> Empty template</label>
         <button className="primary" disabled={!types.length || (task && !task.done)} onClick={build}>
           {task && !task.done ? "Building..." : `⬇ Build and download (${types.length} type${types.length === 1 ? "" : "s"})`}</button>
       </div>
@@ -171,13 +177,17 @@ function LoadPage({ model, m, id }) {
   }
   const s = l.summary || {};
   const toAdd = (s.new || 0) + (s.changed || 0) + (s.delete || 0);
-  const rows = (l.rows || []).filter((r) => filter !== "todo" || r.action !== "unchanged");
+  const delivery = !!l.source;
+  const rows = (l.rows || []).filter((r) => filter !== "todo" || r.action !== "unchanged" || (r.kept || []).length);
   return (
     <div>
-      <p><a href={`#/metamodel/${model}/import/loads`}>← Loads</a></p>
+      <p><a href={`#/metamodel/${model}/import/${delivery ? "deliveries" : "loads"}`}>← {delivery ? "Deliveries" : "Loads"}</a></p>
       <div className="merge-step">
         <h3>{l.file_name} <span className="quiet small">· uploaded by {l.created_by} on {fmtDateTime(l.created_at)}{l.owner !== l.created_by ? ` · becomes ${l.owner}'s changes` : ""}</span></h3>
-        <p className={`status ${l.status === "failed" ? "bad" : l.status === "added" ? "ok" : ""}`}>
+        {delivery && <p className="quiet small">A delivery from <b>{l.source.name}</b> ({{ folder: "dropped in its folder", api: "sent to the API", upload: "uploaded" }[l.delivery]}):
+          matched by type and name, never deletes{l.source.values_win ? "; its values win" : "; values already in EA Explorer are kept (only empty fields are filled)"}.
+          {l.accepted_by && <> Accepted by {l.accepted_by} on {fmtDateTime(l.accepted_at)}.</>}{l.declined_by && <> Declined by {l.declined_by} on {fmtDateTime(l.declined_at)}.</>}</p>}
+        <p className={`status ${l.status === "failed" || l.status === "declined" ? "bad" : l.status === "added" ? "ok" : ""}`}>
           {l.status === "uploaded" ? <><span className="spinner" aria-hidden="true" /> Working out what each row does...</> : l.message}</p>
         {l.status === "previewed" || l.status === "added" || l.status === "undone" ? (
           <div className="merge-stats">
@@ -189,18 +199,19 @@ function LoadPage({ model, m, id }) {
           </div>
         ) : null}
         <div className="toolbar">
-          {l.status === "previewed" && <button className="primary" disabled={!toAdd || (task && !task.done)}
+          {delivery && <DeliveryActions model={model} load={l} onMessage={setMsg} />}
+          {l.status === "previewed" && !delivery && <button className="primary" disabled={!toAdd || (task && !task.done)}
             onClick={() => act(async () => { const out = await post(`/api/v1/loads/${id}/add`); trackTask(out.task, `#/metamodel/${model}/changes`); setTaskId(out.task.id); return out; },
               "Adding in the background: the bar at the top says when it is done.")}>
             {task && !task.done ? "Adding..." : `Add ${toAdd} change${toAdd === 1 ? "" : "s"} to my uncommitted changes`}</button>}
-          {l.status === "added" && <a href={`#/metamodel/${model}/changes`}>Commit them on the Changes tab →</a>}
+          {l.status === "added" && !delivery && <a href={`#/metamodel/${model}/changes`}>Commit them on the Changes tab →</a>}
           {l.status === "added" && <button className="linkish danger-text" onClick={() => {
             // eslint-disable-next-line no-alert
             if (window.confirm("Undo this load? Its uncommitted changes are discarded; committed ones are rolled back as a new commit.")) {
               act(() => post(`/api/v1/loads/${id}/undo`, {}), (o) => o.message);
             }
           }}>Undo the load</button>}
-          {!["added"].includes(l.status) && <button className="linkish danger-text" onClick={() => act(() => post(`/api/v1/loads/${id}`, {}, "DELETE"), "")
+          {!["added", "declined"].includes(l.status) && !(delivery && l.status === "previewed") && <button className="linkish danger-text" onClick={() => act(() => post(`/api/v1/loads/${id}`, {}, "DELETE"), "")
             .then(() => go(`/metamodel/${model}/import/loads`))}>Forget it</button>}
         </div>
         {msg && <p className="status ok">{msg}</p>}
@@ -231,10 +242,13 @@ function LoadPage({ model, m, id }) {
                   : <>{r.source} <b>{r.relationship_type}</b> {r.target}{r.name && <div className="quiet small">{r.name}</div>}</>}</td>
                 <td className="small">{r.changes.slice(0, 8).map((c, i) => (
                   <div key={i}><b>{c.field}</b>: {c.old ? <><del>{c.old}</del> → </> : ""}{c.new || <span className="quiet">(empty)</span>}</div>))}
-                  {r.changes.length > 8 && <span className="quiet">+{r.changes.length - 8} more</span>}</td>
+                  {r.changes.length > 8 && <span className="quiet">+{r.changes.length - 8} more</span>}
+                  {(r.kept || []).map((c, i) => (
+                    <div key={`k${i}`} className="quiet" title="EA Explorer's value stays: this source's values do not win">
+                      <b>{c.field}</b>: kept {c.old} <span className="small">(delivered: {c.new})</span></div>))}</td>
                 <td className="small">{r.problems.map((p, i) => <div key={i} className="sev error">{p}</div>)}
                   {r.warnings.map((w, i) => <div key={`w${i}`} className="sev warning">{w}</div>)}</td>
-                <td>{l.status === "previewed" && <button className="linkish" onClick={() => setEditing(r)}>Correct</button>}</td>
+                <td>{l.status === "previewed" && !delivery && <button className="linkish" onClick={() => setEditing(r)}>Correct</button>}</td>
               </tr>
             ))}
           </tbody>

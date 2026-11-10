@@ -45,6 +45,8 @@ GLOBAL_PERMISSIONS: dict[str, set[str]] = {
     "settings.manage": set(),              # change settings and restart the system: Super Admin only (phase 10, D183)
     "projects.create": {USER, MODEL_CREATOR, LIBRARY_ADMIN},   # set up an architecture project (phase 13, D259)
     "projects.library": set(),             # the project library: Super Admin only (phase 13, D258)
+    "surveys.create": {MODEL_CREATOR, LIBRARY_ADMIN},   # make and run surveys (phase 38.1, D447)
+    "maturity.manage": set(),              # EA capability maturity assessments: Super Admin only (phase 40, D451)
 }
 # Model permissions: the person's roles on that model
 MODEL_PERMISSIONS: dict[str, set[str]] = {
@@ -135,6 +137,26 @@ def role_map(conn=None) -> dict[str, set[str]]:
 def forget_role_map() -> None:
     with _cache_lock:
         _cache.update(at=0.0, map={})
+
+
+GROUP_PREFIX = "group:"
+
+
+def group_keys(groups) -> list[str]:
+    """The mapping keys of a token's "groups" claim (phase 36, D503): each group as "group:<name>", matched without
+    regard to case. A full path ("/EA/Architects") also gives its last part ("group:architects"), so a mapping works
+    whether Keycloak sends paths or names; Entra ID object IDs are kept as they come."""
+    out: list[str] = []
+    for g in groups or []:
+        g = str(g).strip()
+        if not g:
+            continue
+        out.append(GROUP_PREFIX + g.lower())
+        if "/" in g:
+            last = g.rstrip("/").rsplit("/", 1)[-1]
+            if last:
+                out.append(GROUP_PREFIX + last.lower())
+    return sorted(set(out))
 
 
 def app_roles(keycloak_roles, mapping: dict[str, set[str]] | None = None) -> list[str]:

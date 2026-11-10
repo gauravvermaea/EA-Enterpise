@@ -71,7 +71,7 @@ def test_eax_commands_and_console():
     ps = (REPO / "eax.ps1").read_text(encoding="utf-8")
     for src in (sh, ps):
         assert "config-history" in src and "services.env" in src
-    assert "service <name> on|off" in sh and "service <name> on|off" in ps
+    assert "### service <name> on|off" in (REPO / "eaxcli" / "help.txt").read_text()   # the help of every form (D331)
     admin = (WEB / "Admin.jsx").read_text(encoding="utf-8")
     assert "/api/v1/admin/services/" in admin and "/api/v1/admin/config-copies/restore" in admin
     compose = (REPO / "docker-compose.yml").read_text()

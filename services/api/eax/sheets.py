@@ -76,7 +76,7 @@ def types_of(conn, model: Any, types: list[str] | None) -> tuple[dict, list[dict
     """The model and the chosen entity types (codes, names or ids; none: every type with entities) with their
     attributes in form order."""
     m = repo.get_model(conn, model)
-    all_types = _rows(conn, """SELECT t.id AS _id, t.guid, t.code, t.name, t.id_prefix, l.name AS layer,
+    all_types = _rows(conn, """SELECT t.id AS _id, t.guid, t.code, t.name, t.id_prefix, l.name AS domain,
                                       (SELECT count(*) FROM core.entities e WHERE e.entity_type_id = t.id AND NOT e.is_deleted) AS n
                                  FROM core.entity_types t JOIN core.layers l ON l.id = t.layer_id
                                 WHERE t.model_id = :m AND NOT t.is_deleted ORDER BY l.sort_order, t.sort_order, t.name""", m=m["_id"])
@@ -151,11 +151,15 @@ def content_of(conn, m: dict, chosen: list[dict]) -> tuple[dict[int, list[dict]]
 
 
 # ---------------------------------------------------------------- building the file
-def build(conn, model: Any, types: list[str] | None, fmt: str = "xlsx", actor: str = "") -> tuple[bytes, str, str]:
+def build(conn, model: Any, types: list[str] | None, fmt: str = "xlsx", actor: str = "", blank: bool = False) -> tuple[bytes, str, str]:
+    """blank (phase 34, D466): the published format's empty template for those types, the same columns and drop-downs
+    with no rows, made now (never a file kept in the repository)."""
     m, chosen = types_of(conn, model, types)
     data, rels, allowed = content_of(conn, m, chosen)
+    if blank:
+        data, rels = {}, []
     stamp = dt.datetime.now(dt.UTC).strftime("%Y-%m-%d")
-    base = re.sub(r"[^\w .-]+", "-", f"{m['name']} sheets {stamp}").strip()
+    base = re.sub(r"[^\w .-]+", "-", f"{m['name']} {'template' if blank else 'sheets'} {stamp}").strip()
     meta = {"eax": "sheets", "version": FORMAT_VERSION, "model": str(m["id"]), "model_name": m["name"], "made_at": stamp,
             "made_by": actor, "types": [t["code"] for t in chosen]}
     if fmt == "zip":
@@ -170,10 +174,25 @@ def _columns(t: dict) -> list[tuple[str, str]]:
     return FIXED + [(a["code"], a["name"] + (" *" if a["is_required"] else "")) for a in t["attributes"]] + [DELETE]
 
 
+MASTER = "master.csv"
+MASTER_COLUMNS = ["file", "kind", "entity_type", "entity_type_name"]   # the CSV format's master file (D378, D463)
+
+
+def master_csv(entries: list[tuple[str, str, str, str]]) -> str:
+    """The master file of a CSV set: which CSV holds what (file, kind entities|relationships, type code, type name)."""
+    s = io.StringIO()
+    w = csv.writer(s)
+    w.writerow(MASTER_COLUMNS)
+    for e in entries:
+        w.writerow(list(e))
+    return "﻿" + s.getvalue()
+
+
 def _csv_set(chosen: list[dict], data: dict, rels: list[dict], meta: dict) -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         taken: set[str] = set()
+        master: list[tuple[str, str, str, str]] = []
         for t in chosen:
             cols = _columns(t)
             s = io.StringIO()
@@ -181,7 +200,9 @@ def _csv_set(chosen: list[dict], data: dict, rels: list[dict], meta: dict) -> by
             w.writerow([c for c, _ in cols])     # codes: the header a load reads
             for r in data.get(t["_id"], []):
                 w.writerow([r.get(c, "") for c, _ in cols])
-            z.writestr(f"{sheet_name(t['code'], taken)}.csv", "﻿" + s.getvalue())
+            fname = f"{sheet_name(t['code'], taken)}.csv"
+            master.append((fname, "entities", t["code"], t["name"]))
+            z.writestr(fname, "﻿" + s.getvalue())
         s = io.StringIO()
         w = csv.writer(s)
         rc = [c for c, _ in REL_FIXED if not c.startswith("_")]
@@ -189,12 +210,15 @@ def _csv_set(chosen: list[dict], data: dict, rels: list[dict], meta: dict) -> by
         for r in rels:
             w.writerow([r.get(c, "") for c in rc])
         z.writestr("relationships.csv", "﻿" + s.getvalue())
+        master.append(("relationships.csv", "relationships", "", ""))
+        z.writestr(MASTER, master_csv(master))
         z.writestr("eax.json", json.dumps(meta, indent=2))
         z.writestr("README.txt", README_CSV)
     return buf.getvalue()
 
 
-README_CSV = """EA Explorer CSV set (D88): one file per entity type (named by its code) and relationships.csv.
+README_CSV = """EA Explorer CSV set (D88, the published CSV format D378): one file per entity type (named by its code),
+relationships.csv, and master.csv saying which file holds what (file, kind, entity_type, entity_type_name).
 The first line of each file is the field codes. Keep the guid and display_id of rows you change; leave them empty
 for new rows (an entity is then new; its relationships can be loaded once it has an ID). delete = Yes deletes the
 entity or relationship. Values: dates as YYYY-MM-DD, Yes/No, numbers with a point. UTF-8, comma or semicolon.
@@ -397,6 +421,9 @@ def read(content: bytes, file_name: str) -> dict:
         return _read_zip(content)
     if name.endswith((".csv", ".txt")):
         return {"meta": {}, "sheets": [_read_csv(content, file_name.rsplit(".", 1)[0])]}
+    if name.endswith(".xml"):     # the ArchiMate 4 exchange format: only once The Open Group publishes it (D385, D467)
+        raise EditError("The ArchiMate 4 exchange format is not accepted yet: it is added once The Open Group publishes "
+                        "its specification (D385). Use the Excel format or the CSV format.")
     raise EditError("Load an Excel workbook (.xlsx or .xlsm), a CSV file or a CSV set (.zip).")
 
 
@@ -512,10 +539,41 @@ def _read_zip(content: bytes) -> dict:
             meta = json.loads(z.read("eax.json"))
         except ValueError:
             meta = {}
+    files = {n.rsplit("/", 1)[-1]: n for n in z.namelist() if n.lower().endswith(".csv") and not n.startswith("__MACOSX")}
+    master = next((files[f] for f in files if f.lower() == MASTER), None)
     sheets = []
-    for n in z.namelist():
-        if n.lower().endswith(".csv") and not n.startswith("__MACOSX"):
-            sheets.append(_read_csv(z.read(n), n.rsplit("/", 1)[-1][:-4]))
+    if master:     # the master file says which CSV holds what (D378): only the files it names are read
+        for e in read_master(z.read(master)):
+            n = files.get(e["file"]) or next((files[f] for f in files if f.lower() == e["file"].lower()), None)
+            if not n:
+                raise EditError(f"master.csv names {e['file']}, which is not in the .zip.")
+            one = _read_csv(z.read(n), e["file"].rsplit(".", 1)[0])
+            one["kind"] = e["kind"]
+            one["entity_type"] = e["entity_type"] or None
+            sheets.append(one)
+    else:
+        for f, n in files.items():
+            sheets.append(_read_csv(z.read(n), f[:-4]))
     if not sheets:
         raise EditError("The .zip has no CSV files.")
-    return {"meta": meta, "sheets": sheets}
+    return {"meta": meta, "sheets": sheets, "master": bool(master)}
+
+
+def read_master(content: bytes) -> list[dict]:
+    """The rows of a master file: {file, kind, entity_type}; kind is entities (with a type code or name) or relationships."""
+    sheet = _read_csv(content, "master")
+    out = []
+    for r in sheet["rows"]:
+        f = (r.get("file") or "").strip()
+        if not f:
+            continue
+        kind = (r.get("kind") or "entities").strip().lower()
+        if kind not in ("entities", "relationships"):
+            raise EditError(f"master.csv: {f}: kind is entities or relationships, not {kind!r}.")
+        t = (r.get("entity_type") or r.get("entity_type_name") or "").strip()
+        if kind == "entities" and not t:
+            raise EditError(f"master.csv: {f}: give its entity_type (the type's code or name).")
+        out.append({"file": f, "kind": kind, "entity_type": t if kind == "entities" else ""})
+    if not out:
+        raise EditError("master.csv lists no files.")
+    return out

@@ -11,7 +11,12 @@ LOG_DIR=work/logs
 STAMP=$(date +%Y%m%d-%H%M%S)
 LOG=""
 CMD="${1:-help}"
+# <command> --help (or -h, /?): the help of that command
+if [ "$CMD" != help ] && [ "$CMD" != -h ] && [ "$CMD" != --help ]; then
+  for _a in "${@:2}"; do case "$_a" in --help|-h|/\?) CMD=help; set -- help "$1"; break ;; esac; done
+fi
 [ "$CMD" = run ] && CMD=up   # run: the everyday start, the same as up
+[ "$CMD" = stop ] && CMD=down   # stop: the same as down (the data is kept)
 # --wait-all (up, run, debug and the clean-* commands): start everything and wait until all of it is up, the sample data
 # loaded too; without it the core starts first and the rest in the background (D255)
 WAIT_ALL=""
@@ -20,139 +25,150 @@ for _a in "$@"; do if [ "$_a" = --wait-all ]; then WAIT_ALL=1; else _args+=("$_a
 set -- "${_args[@]}"
 
 # ------------------------------------------------------------------ help
-help_text() {
-cat <<'EOF'
-EA Explorer helper. Usage: ./eax.sh <command> [options]      (Windows: .\eax.ps1 <command>)
-
-Getting started
-  init [laptop|server]  Creates work/eaexplorer.env from the template for the deployment kind
-                        (laptop if not given) and the work folders. Nothing is generated: on a
-                        laptop every password is P^55w0rd1234&; on a server, replace every change-me
-                        value before starting. Refuses to overwrite an existing config file.
-  check                 Checks that Docker is running and that the config file and compose files
-                        are valid. Starts nothing.
-  run                   The everyday start, after the first clean-run: the same as up. Keeps the
-                        databases, documents and settings from last time.
-  up [service...] [--wait-all]
-                        Starts in two tiers (D255): the core first (sign-in, the API, the screens; you can sign
-                        in when it says ready), then Reports, Documents, draw.io and the sample data in the
-                        background. --wait-all starts everything and waits until all of it is up (also on
-                        run, debug and the clean-* commands).
-                        Builds our images, pulls the others, and starts every container in the
-                        background. Then prints the addresses and (laptop) the logins.
-                        Name services to start only those and what they depend on, for example
-                        "up api proxy" starts the API, PostgreSQL and nginx only (about 1 GB);
-                        the API is then at https://localhost/api/docs (laptop also http://).
-
-Finding problems
-  debug [service...] [--wait-all]
-                        Same as up, but does not stop on failure: it saves a diagnostics report and
-                        then keeps recording the containers' output to
-                        work/logs/containers-<date-time>.log until you press Ctrl+C.
-                        The containers keep running after Ctrl+C. "debug api" starts and records
-                        the API (and PostgreSQL) only.
-  diag                  Saves a diagnostics report into this run's log: Docker versions, memory and
-                        disk, image settings, every container's state, the last 300 log lines of
-                        each container, and the compose configuration (passwords masked).
-  status                Lists every container with its state and health, including stopped ones, then the file
-                        systems: Docker's disk, the work and backups folders, and this machine's disk.
-  logs [service]        Follows the logs of every container, or of one (for example: logs api).
-                        Ctrl+C to stop.
-
-Everyday use
-  url                   Prints the addresses to open (and the logins on a laptop).
-  trust [--remove]      Adds EA Explorer's local certificate (work/data/tls/ca.crt) to this computer's
-                        trusted certificates (macOS: your login keychain; Linux: prints the commands,
-                        which need sudo), so the browser stops warning. Once: clean-run keeps it.
-  logins                Prints every user name and password (laptop only).
-  down                  Stops and removes the containers. Data in Docker volumes and in work/ is kept.
-  backup [tag]          Takes an infrastructure backup now (every database, the document files, the
-                        certificate, the config file, the release and image versions) into
-                        work/backups/infrastructure, tagged (D216, D226).
-  backups [words]       Lists every backup: infrastructure (numbered, to restore) and application;
-                        with words, only those whose tag, name or maker has them (search by tag).
-  restore [name|tag|latest] [--what full|app|app+data|db|files] [--yes]
-                        Restores an infrastructure backup: by name, by tag (the newest with it) or
-                        latest (the newest good one). Without one it lists them to choose
-                        from, then asks what to restore and for RESTORE to confirm. full = everything;
-                        app = the config file; app+data = the config file, the repository and
-                        document databases and the document files; db = every database; files =
-                        the document files and the certificate. A backup of the current state is
-                        taken first; nothing live changes until all is restored cleanly; it can be
-                        run again. Works when the console is down (starts db, backup and ops).
-  restores              Lists every restore (infrastructure and model) with its status.
-  restore-log <id>      Shows a restore's whole log (also in work/backups/restores/<id>).
-  delete-backup <name>  Deletes an infrastructure backup (unpin it first if it is pinned).
-  delete-restore <id>   Forgets a finished restore and its log.
-  stop-backup           Stops the backups running (infrastructure: at once; application: after the
-                        model it is on); the partial backup is deleted. A restore cannot be stopped.
-  restore-app [run|tag|latest] [--yes]
-                        Restores every model of an application backup, each over itself (each backed
-                        up first); models no longer there are made again; newer models stay as they
-                        are. Needs the api container running.
-  maintenance on|off    Shows (or stops showing) the maintenance page to everyone, served by the
-                        proxy. Restores and up (an upgrade) switch it on and off themselves.
-  app-backup [tag]      Backs up every model now (an application backup), into work/backups/application.
-  restore-model         Lists the application backups and the models in them to choose from, then
-                        restores one as a new model or over itself (needs the api container running).
-  services              Lists the optional services (reports, documents, drawio, mcp, change_log,
-                        backups), whether each is on in the config file and its containers' state.
-  servers [n]           How many API and job servers run (D249): without n, shows them; with n (1 to 16), writes
-                        EAX_API_SERVERS (a dated copy of the config file first) and adds or removes servers now,
-                        without a restart (nginx spreads API calls across them). Also on Administration > Containers.
-  service <name> on|off Switches one optional service on or off: keeps a dated copy of the config file
-                        in work/config-history, writes the switch, then starts or stops its containers.
-                        Everything is on unless switched off (D191). Also in Administration > System
-                        settings > Services.
-
-Starting again
-  cleanup [--all] [--yes] [--certificate]
-                        Stops the containers and deletes everything in the work folder: the config
-                        file, logs and laptop data folders (including backups). With --all it also
-                        deletes the Docker volumes, so the databases and documents start empty.
-                        The local certificate (work/data/tls) is kept, so you need not trust it
-                        again; --certificate deletes it too. Asks you to type yes unless --yes is given.
-  clean-run [laptop|server] [--wait-all]
-                        Starts again from scratch in one step: cleanup --all --yes, then init
-                        (laptop if not given), then up. Deletes the databases and everything in
-                        the work folder without asking.
-  clean-debug [laptop|server] [--wait-all]
-                        The same, but ends with debug instead of up (keeps recording the
-                        containers' output until Ctrl+C).
-  clean-restart [laptop|server] [--wait-all]
-                        For testing a new version: down (stops and removes the running containers),
-                        then clean-run (cleanup --all --yes, init, up). Rebuilds our images and
-                        starts with empty databases; the trusted certificate is kept.
-
-When something is wrong
-  console [--server https://host] [--insecure]
-                        A numbered menu for getting EA Explorer back up, for anyone (D330): status, start,
-                        restart, stop, problems and logs, back up, restore (guided), reset a password (a
-                        person, Keycloak's administrator, break-glass, the database logins), users and roles,
-                        settings and switches, background tasks, health and data quality, the maintenance
-                        page, a diagnostics file, and a prompt for every eax command. On this machine nobody
-                        signs in; anything that changes or replaces data asks you to type YES. With --server
-                        it works on another installation through its API (sign in with Keycloak, your roles).
-                        Every command and the console in detail: docs/command-line-and-console.md.
-
-  help [command]        This text, or the part about one command.
-
-Logs: every command except help and cleanup writes its full output to
-work/logs/eax-<date-time>-<command>.log. When a Docker step fails, a diagnostics report is added to
-that log automatically, so the log file is all you need to send when something goes wrong.
-EOF
+# The help is read from eaxcli/help.txt, the one source for every form of eax (D331; tests/test_eax_help.py):
+# show_help prints the overview, one command in full (show_help stop) or everything (show_help --all).
+show_help() {
+  awk -v form=sh -v eax="./eax.sh" -v want="${1:-}" -v arg="${2:-}" '
+    function rep(s,   i, o) { o = ""; while ((i = index(s, "{eax}")) > 0) { o = o substr(s, 1, i - 1) eax; s = substr(s, i + 5) } return o s }
+    function out(s) { print rep(s) }
+    function block(c,   n, nm, h, k) {
+      n = split(cnames[c], nm, "|"); h = "  " nm[1]; if (cargs[c] != "") h = h " " cargs[c]
+      if (n > 1) { h = h "   (also: " nm[2]; for (k = 3; k <= n; k++) h = h ", " nm[k]; h = h ")" }
+      out(h); out("    " csum[c])
+      for (k = 1; k <= cd[c]; k++) out("    " cdet[c, k])
+      if (ce[c] > 0) { out("    Examples:"); for (k = 1; k <= ce[c]; k++) out("      " cex[c, k]) }
+    }
+    BEGIN { where = "intro"; ns = 0; nc = 0; ni = 0; nf = 0; nintro = 0; cur = 0 }
+    {
+      line = $0; sub(/[ \t\r]+$/, "", line)
+      if (substr(line, 1, 1) == ";") next
+      if (match(line, /^\[(win|unix|ps1|sh|py)\]/)) {
+        tag = substr(line, 2, RLENGTH - 2)
+        if (tag != form && tag != "unix") next
+        line = substr(line, RLENGTH + 1); if (substr(line, 1, 1) == " ") line = substr(line, 2)
+      }
+      if (where == "footer") { foot[++nf] = line; next }
+      if (line == "@footer") { where = "footer"; next }
+      if (substr(line, 1, 10) == "@internal ") {
+        r = substr(line, 11); p = index(r, " "); ni++; iname[ni] = substr(r, 1, p - 1); iwhat[ni] = substr(r, p + 1); next
+      }
+      if (substr(line, 1, 3) == "## ") { ns++; stitle[ns] = substr(line, 4); snotes[ns] = 0; where = "section"; cur = 0; next }
+      if (substr(line, 1, 4) == "### ") {
+        r = substr(line, 5); p = index(r, " ")
+        nc++; if (p) { cnames[nc] = substr(r, 1, p - 1); cargs[nc] = substr(r, p + 1) } else { cnames[nc] = r; cargs[nc] = "" }
+        csec[nc] = ns; cd[nc] = 0; ce[nc] = 0; csum[nc] = ""; cur = nc; next
+      }
+      if (where == "intro") { if (line != "") intro[++nintro] = line; next }
+      if (substr(line, 1, 2) == ": " && cur == 0) { snotes[ns]++; snote[ns, snotes[ns]] = substr(line, 3); next }
+      if (cur == 0) next
+      if (substr(line, 1, 2) == "> ") { csum[cur] = substr(line, 3); next }
+      if (substr(line, 1, 2) == "$ ") { ce[cur]++; cex[cur, ce[cur]] = substr(line, 3); next }
+      if (line != "") { cd[cur]++; cdet[cur, cd[cur]] = line }
+    }
+    function text(c,   n, nm, k, t) {
+      n = split(cnames[c], nm, "|"); t = nm[1]; for (k = 2; k <= n; k++) t = t " " nm[k]
+      t = t " " cargs[c] " " csum[c]
+      for (k = 1; k <= cd[c]; k++) t = t " " cdet[c, k]
+      for (k = 1; k <= ce[c]; k++) t = t " " cex[c, k]
+      return tolower(t)
+    }
+    END {
+      while (nf > 0 && foot[nf] == "") nf--
+      if (want == "--groups") { for (s = 1; s <= ns; s++) out(sprintf("%4d  %s", s, stitle[s])); exit 0 }
+      if (want == "--group") {
+        n = (arg ~ /^[0-9]+$/) ? arg + 0 : 0
+        if (n < 1 || n > ns) { out("No group " arg "."); exit 1 }
+        out(stitle[n]); for (k = 1; k <= snotes[n]; k++) out("  " snote[n, k])
+        for (c = 1; c <= nc; c++) if (csec[c] == n) { out(""); block(c) }
+        exit 0
+      }
+      if (want == "--search") {
+        w = tolower(arg); found = 0
+        for (c = 1; c <= nc; c++) if (w != "" && index(text(c), w) > 0) { if (found) out(""); block(c); found = 1 }
+        if (!found) { out("Nothing found for '\''" arg "'\''."); exit 1 }
+        exit 0
+      }
+      if (want == "" || want == "--all") {
+        for (i = 1; i <= nintro; i++) out(intro[i])
+        for (s = 1; s <= ns; s++) {
+          out(""); out(stitle[s])
+          for (k = 1; k <= snotes[s]; k++) out("  " snote[s, k])
+          for (c = 1; c <= nc; c++) {
+            if (csec[c] != s) continue
+            if (want != "") { out(""); block(c); continue }
+            lab = cnames[c]; gsub(/\|/, ", ", lab); if (cargs[c] != "") lab = lab " " cargs[c]
+            if (length(lab) <= 20) out(sprintf("  %-22s%s", lab, csum[c]))
+            else { out("  " lab); out(sprintf("%24s%s", "", csum[c])) }
+          }
+        }
+        if (want != "" && ni > 0) {
+          out(""); out("Internal (run by eax itself; not for typing)")
+          for (i = 1; i <= ni; i++) out(sprintf("  %-22s%s", iname[i], iwhat[i]))
+        }
+        out(""); for (i = 1; i <= nf; i++) out(foot[i])
+        exit 0
+      }
+      for (c = 1; c <= nc; c++) {
+        n = split(cnames[c], nm, "|")
+        for (k = 1; k <= n; k++) if (nm[k] == want) { block(c); exit 0 }
+      }
+      for (i = 1; i <= ni; i++) if (iname[i] == want) { out("  " iname[i]); out("    " iwhat[i]); exit 0 }
+      out("No command '\''" want "'\''. Run {eax} help to list them."); exit 1
+    }' eaxcli/help.txt
 }
 
-show_help() {
-  if [ -n "${1:-}" ]; then
-    # the block for one command: its line and the indented lines under it
-    help_text | awk -v c="$1" '
-      $1 == c && /^  [a-z]/ { show = 1; print; next }
-      show && /^                        / { print; next }
-      { show = 0 }'
-  else
-    help_text
+# eax document (D331): every command in full, from eaxcli/help.txt, as a web page (eaxcli/document.html with the help
+# copied in; eaxpy and eax.ps1 make the same file) or in the console (a menu of the groups, page by page)
+document_web() {
+  mkdir -p work/docs
+  local out=work/docs/eax-commands.html
+  awk -v form=sh -v eax="./eax.sh" -v win=false -v helpfile=eaxcli/help.txt '
+    function rep(s, k, v,   i, o) { o = ""; while ((i = index(s, k)) > 0) { o = o substr(s, 1, i - 1) v; s = substr(s, i + length(k)) } return o s }
+    { sub(/\r$/, "") }
+    $0 == "__HELP__" { while ((getline l < helpfile) > 0) { sub(/\r$/, "", l); print l } next }
+    { print rep(rep(rep($0, "__FORM__", form), "__EAX__", eax), "__WINDOWS__", win) }' eaxcli/document.html > "$out"
+  echo "The commands as a web page: $out"
+  [ -n "${EAX_NO_BROWSER:-}" ] && return 0
+  if [ "$(uname)" = Darwin ]; then open "$out"
+  elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$out" >/dev/null 2>&1 || echo "Open it in your browser."
+  else echo "Open it in your browser."; fi
+}
+
+page_out() {
+  local n=0 rows k line
+  rows=$(( $(tput lines 2>/dev/null || echo 24) - 2 )); [ "$rows" -lt 10 ] && rows=10
+  while IFS= read -r line; do
+    printf '%s\n' "$line"; n=$((n + 1))
+    if [ "$n" -ge "$rows" ] && [ -t 1 ]; then      # pages only on a terminal (piped or tested: all of it)
+      n=0; read -r -p "-- Enter for more, q to stop -- " k </dev/tty || break
+      [ "$k" = q ] && break
+    fi
+  done
+}
+
+document_console() {
+  local a w
+  while true; do
+    echo; echo "EA Explorer commands (./eax.sh document)"; show_help --groups
+    read -r -p "Number, s to search, q to quit: " a || return 0
+    case "$a" in
+      q|Q) return 0 ;;
+      s|S) read -r -p "Search for: " w || return 0; { show_help --search "$w" || true; } | page_out ;;
+      "") ;;
+      *[!0-9]*) echo "Choose a number, s or q." ;;
+      *) { show_help --group "$a" || true; } | page_out ;;
+    esac
+  done
+}
+
+document() {
+  local mode="" a
+  for a in "$@"; do case "$a" in --console) mode=console ;; --web) mode=web ;; esac; done
+  if [ -z "$mode" ]; then
+    read -r -p "Show the commands (1) here in the console or (2) as a web page in your browser? [1/2] " a || a=1
+    case "$a" in 2|w|web) mode=web ;; *) mode=console ;; esac
   fi
+  if [ "$mode" = web ]; then document_web; else document_console; fi
 }
 
 # ------------------------------------------------------------------ logging
@@ -185,8 +201,17 @@ kind() { setting EAX_DEPLOYMENT laptop; }
 compose() {
   [ -f "$ENV_FILE" ] || { echo "No $ENV_FILE yet: run ./eax.sh init first."; return 1; }
   # plain progress and no colour codes, so the log reads cleanly
+  # scale-out extra files (phase 36.3, D521): EAX_COMPOSE_EXTRA=standby,shared-storage... (deploy/compose/scale)
+  set -- $(compose_extra) "$@"
   docker compose --ansi never --progress plain --env-file "$ENV_FILE" \
     -f docker-compose.yml -f "deploy/compose/docker-compose.$(kind).yml" "$@"
+}
+compose_extra() {
+  for x in $(setting EAX_COMPOSE_EXTRA "" | tr ',' ' '); do
+    f="deploy/compose/scale/docker-compose.$x.yml"
+    [ -f "$f" ] || { echo "EAX_COMPOSE_EXTRA names $x, but there is no $f." >&2; return 1; }
+    printf -- '-f %s ' "$f"
+  done
 }
 
 # Versions, containers, images, every container's recent log and the (masked) config, into the log only
@@ -238,16 +263,16 @@ run_compose() {
 }
 
 # ------------------------------------------------------------------ optional services (D191)
-SERVICE_NAMES="reports documents drawio mcp change_log backups library"
+SERVICE_NAMES="reports documents drawio mcp change_log backups library views"
 service_setting() {
   case "$1" in reports) echo EAX_SERVICE_REPORTS ;; documents) echo EAX_SERVICE_DOCUMENTS ;; drawio) echo EAX_SERVICE_DRAWIO ;;
     mcp) echo EAX_SERVICE_MCP ;; change_log) echo EAX_SERVICE_CHANGE_LOG ;; backups) echo EAX_SERVICE_BACKUPS ;;
-    library) echo EAX_SERVICE_LIBRARY ;; *) return 1 ;; esac
+    library) echo EAX_SERVICE_LIBRARY ;; views) echo EAX_SERVICE_VIEWS ;; *) return 1 ;; esac
 }
 # compose services in start order (mcp and change_log run inside the api container)
 service_containers() {
   case "$1" in reports) echo "reports-init reports" ;; documents) echo "dms-broker dms" ;; drawio) echo drawio ;;
-    mcp|change_log) echo api ;; backups) echo backup ;; library) echo library ;; esac
+    mcp|change_log) echo api ;; backups) echo backup ;; library) echo library ;; views) echo views ;; esac
 }
 service_on() {
   local d=on v
@@ -484,6 +509,7 @@ show_logins() {
   printf '%-34s %-14s %-16s %s\n' "PostgreSQL Superset" "superset" "$(setting EAX_SUPERSET_DB_PASSWORD)" "database superset"
   printf '%-34s %-14s %-16s %s\n' "PostgreSQL Mayan" "mayan" "$(setting EAX_MAYAN_DB_PASSWORD)" "database mayan"
   printf '%-34s %-14s %-16s %s\n' "PostgreSQL Library" "eax_library" "$(setting EAX_LIBRARY_DB_PASSWORD)" "database eaxlibrary"
+  printf '%-34s %-14s %-16s %s\n' "PostgreSQL Views" "eax_views" "$(setting EAX_VIEWS_DB_PASSWORD)" "database eaxviews"
   printf '%-34s %-14s %-16s %s\n' "Mayan broker (Valkey)" "(none)" "$(setting EAX_DMS_BROKER_PASSWORD)" "password only"
   printf '%-34s %-14s %-16s %s\n' "MCP server (development token)" "(bearer)" "$(setting EAX_MCP_DEV_TOKEN)" "https://localhost/mcp or http://localhost/mcp"
   printf '%-34s %-14s %-16s %s\n' "Keycloak client secrets" "superset/mayan" "$(setting EAX_SUPERSET_OIDC_SECRET)" "OIDC clients"
@@ -635,7 +661,19 @@ console() {
 
 # ------------------------------------------------------------------ commands
 case "$CMD" in
-  help|-h|--help) show_help "${2:-}"; exit 0 ;;
+  help|-h|--help|/\?) show_help "${2:-}" "${3:-}"; exit $? ;;
+  document)       shift; document "$@"; exit 0 ;;
+  deploy|secrets)
+    # phase 36 (D498, D504): one Python program for every form (D500): eaxpy.sh fetches uv and Python into work/tools
+    exec "$BASH" ./eaxpy.sh "$@" ;;
+  restart)
+    # down, then up: each as its own run of this script (own log); the data is kept
+    for step in "down" "up${WAIT_ALL:+ --wait-all}"; do
+      echo; echo "=== ./eax.sh $step"
+      # shellcheck disable=SC2086
+      "$BASH" "./$(basename "${BASH_SOURCE[0]}")" $step || { echo "ERROR: ./eax.sh $step failed; restart stopped there."; exit 1; }
+    done
+    exit 0 ;;
   console)        shift; console "$@"; exit 0 ;;
   cleanup)        shift; cleanup "$@"; exit 0 ;;
   clean-run|clean-debug|clean-restart)
@@ -661,7 +699,7 @@ if [ -f eaexplorer.env ] && [ ! -f "$ENV_FILE" ]; then
   echo "Delete the old file and run ./eax.sh init laptop (or copy your changes into $ENV_FILE)."
 fi
 
-case "$CMD" in check|up|start-later|debug|status|logs|down|backup|backups|restore|restores|restore-log|delete-backup|delete-restore|app-backup|restore-model|restore-app|stop-backup|services|service) assert_docker ;; esac
+case "$CMD" in check|up|start-later|debug|status|logs|down|backup|backups|restore|restores|restore-log|delete-backup|delete-restore|app-backup|restore-model|restore-app|stop-backup|services|service|import|update|rollback) assert_docker ;; esac
 
 case "$CMD" in
   init)
@@ -729,7 +767,22 @@ case "$CMD" in
   restores) backup_helpers; compose exec ops python3 /app/ops.py restores ;;
   restore-log|delete-backup|delete-restore) C="$1"; shift; backup_helpers; compose exec ops python3 /app/ops.py "$C" "$@" ;;
   app-backup) shift; compose exec api python -m eax.backups_cli backup "$@" ;;
+  import) shift; compose exec api python -m eax.deliveries_cli "$@" ;;
+  update) shift; backup_helpers; compose exec ops python3 /app/ops.py update "$@" ;;      # updates (phase 36, D417)
+  rollback) shift; backup_helpers; compose exec ops python3 /app/ops.py rollback "$@" ;;
   restore-model) shift; compose exec api python -m eax.backups_cli restore "$@" ;;
+  test) shift; compose --profile test build testrunner                   # test automation (phase 36.1, D367)
+        VER=$(sed -n 's/^version = "\(.*\)"/\1/p' services/api/version.toml)
+        backup_helpers; compose exec ops python3 /app/ops.py test "$@" --version "$VER" ;;
+  standby)                                                                 # the database standby (phase 36.3, D527)
+    case "${2:-status}" in
+      status) compose exec db psql -U postgres -c "SELECT client_addr, state, sync_state, replay_lag FROM pg_stat_replication"
+              compose exec db-standby psql -U postgres -c "SELECT pg_is_in_recovery() AS following_the_primary, now() - pg_last_xact_replay_timestamp() AS behind_by" ;;
+      promote) echo "The standby becomes the primary: it stops following and accepts changes. Then set EAX_DB_HOST=db-standby (or the standby's host) and run ./eax.sh up."
+               printf "Type PROMOTE to go on: "; read -r ans; [ "$ans" = "PROMOTE" ] || { echo "Nothing changed."; exit 1; }
+               compose exec -u postgres db-standby pg_ctl promote -D /var/lib/postgresql/data ;;
+      *) echo "Usage: ./eax.sh standby status|promote"; exit 2 ;;
+    esac ;;
   services) show_services ;;
   service) set_service "${2:-}" "${3:-}" ;;
   servers)

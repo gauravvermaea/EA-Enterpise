@@ -19,6 +19,7 @@ from . import audit, permissions
 from . import repository as repo
 from .mcp_server import _clean, _run, mcp
 from .metamodel_edit import EditError
+from .views_client import ViewsDown
 
 BUILD_GUIDE = """How to build with EA Explorer (read this before creating anything):
 
@@ -74,7 +75,7 @@ async def _proj(fn, *args, write: bool = False) -> Any:
             return out
     try:
         result = _clean(await anyio.to_thread.run_sync(work))
-    except (repo.NotFound, EditError) as exc:
+    except (repo.NotFound, EditError, ViewsDown) as exc:
         return {"error": str(exc)}
     return {"count": len(result), "items": result} if isinstance(result, list) else result
 
@@ -227,6 +228,61 @@ async def request_my_commit(model: str, note: str = "") -> Any:
     return await _run(lambda conn: cm.request_commit(conn, model, _who(), note=note), begin=True)
 
 
+# ================================================================ drawn views (phases 28 and 29, D354)
+@mcp.tool()
+async def list_drawn_views(model: str) -> Any:
+    """A model's drawn views (draw.io): name, version, who saved it and when, how many objects and unrealised
+    placeholders, and whether the model changed since it was saved."""
+    from . import drawn_views as dv
+    from . import views_client as vc
+
+    def do(conn):
+        m = repo.get_model(conn, model)
+        return vc.list_views(m["id"], marker=dv.marker(conn, m["_id"]))
+    return await _run(do)
+
+
+@mcp.tool()
+async def get_drawn_view(model: str, view: str, version: int | None = None, with_xml: bool = False) -> Any:
+    """One drawn view (by id or name): its bindings summary and the entities and relationships on it as they are now;
+    with_xml=true adds the draw.io file itself (large)."""
+    from . import drawn_views as dv
+    from . import views_client as vc
+
+    def do(conn):
+        m = repo.get_model(conn, model)
+        out = vc.get_view(m["id"], view, version, with_xml=True, marker=dv.marker(conn, m["_id"]))
+        cur = dv.resync(conn, model, _who(), xml=out["xml"])
+        if not with_xml:
+            out.pop("xml", None)
+        out["entities"] = [{"id": e["id"], "name": e["name"], "type": e["type"], "deleted": e["deleted"]}
+                           for e in cur["entities"].values()]
+        out["relationships"] = [{"id": r["id"], "type": r["type"], "source": r["source"], "target": r["target"],
+                                 "committed": r["committed"]} for r in cur["relationships"]]
+        return out
+    return await _run(do)
+
+
+@mcp.tool()
+async def create_drawn_view(model: str, name: str, entities: list[str], include_relationships: bool = True,
+                            description: str = "") -> Any:
+    """Make a drawn view of chosen entities (names, display ids or guids) in a model, laid out automatically by domain
+    (motivation and strategy on top, then business, application, technology, implementation and migration), with the
+    relationships between them; saved as you (needs a role that may change the model's content). Ask the person first."""
+    from . import drawn_views as dv
+
+    def do(conn):
+        m = repo.get_model(conn, model)
+        dv.may_draw(conn, _who(), m)
+        out = dv.create_from_entities(conn, model, _who(), name, entities, include_relationships, description)
+        audit.record(conn, actor=_who().username, action="mcp.drawn_view", object_type="drawn_view", object_id=out["id"],
+                     source="mcp")
+        out.pop("xml", None)
+        out["link"] = f"/#/metamodel/{m['id']}/drawn-views/{out['id']}"
+        return out
+    return await _run(do, begin=True)
+
+
 @mcp.tool()
 async def tag_model(model: str, name: str, description: str = "") -> Any:
     """Tag a model as it is now (a baseline to compare with or copy from later)."""
@@ -244,7 +300,7 @@ async def list_projects() -> Any:
 
 @mcp.tool()
 async def list_project_templates() -> Any:
-    """The kinds of project (templates): what each is for, the models it needs (slots), its phases and viewpoints."""
+    """The kinds of project (templates): what each is for, the models it needs (slots), its phases and views."""
     from . import project_templates as pt
     return await _proj(lambda pc, who: pt.listing(pc))
 
@@ -252,18 +308,18 @@ async def list_project_templates() -> Any:
 @mcp.tool()
 async def get_project(project: str, part: str = "summary") -> Any:
     """A project by name or id. part: "summary" (models, goals, phases with steps done and documents), "steps",
-    "documents", "classes" (deliverables and artifacts), "approvals", "viewpoints", "questions" (the key questions with
-    their status, answer and what it points to, the viewpoints that answer each, and the placeholder viewpoints) or "all"."""
+    "documents", "classes" (deliverables and artifacts), "approvals", "views", "questions" (the key questions with
+    their status, answer and what it points to, the views that answer each, and the placeholder views) or "all"."""
     from . import projects as pj
 
     def run(pc, who):
         d = pj.detail(pc, _project_id(pc, project), who)
         if part == "all":
             return d
-        if part in ("steps", "documents", "viewpoints"):
+        if part in ("steps", "documents", "views"):
             return {"project": d["name"], part: d[part]}
         if part == "questions":
-            return {"project": d["name"], "questions": d["key_questions"], "placeholders": d["placeholder_viewpoints"]}
+            return {"project": d["name"], "questions": d["key_questions"], "placeholders": d["placeholder_views"]}
         if part == "classes":
             return {"project": d["name"], "classes": d["items"]}
         if part == "approvals":
@@ -360,16 +416,16 @@ async def complete_project_step(project: str, step: int, done: bool = True, note
 
 
 @mcp.tool()
-async def save_key_question(project: str, question: str, asked_by: str = "", approach: str = "", viewpoints: list[str] | None = None,
+async def save_key_question(project: str, question: str, asked_by: str = "", approach: str = "", views: list[str] | None = None,
                             question_id: str = "") -> Any:
     """Add a key question to a project (question_id empty) or change one (its id from get_project part "questions"):
     the stakeholder question the work answers, who asks it, the answer we expect or the approach, and the codes of the
-    viewpoints that answer it (VP-, PV- or a placeholder's PH-; a library viewpoint is chosen for the project). A question
-    may need several viewpoints and a viewpoint may answer several questions. Ask the person before saving."""
+    views that answer it (VP-, PV- or a placeholder's PH-; a library view is chosen for the project). A question
+    may need several views and a view may answer several questions. Ask the person before saving."""
     from . import key_questions as kq
     body = {"question": question, "asked_by": asked_by, "approach": approach}
-    if viewpoints is not None:
-        body["viewpoints"] = viewpoints
+    if views is not None:
+        body["views"] = views
     if question_id:
         return await _proj(lambda pc, who: kq.change_question(pc, _project_id(pc, project), who, question_id, body), write=True)
     return await _proj(lambda pc, who: kq.add_question(pc, _project_id(pc, project), who, body), write=True)
@@ -377,14 +433,14 @@ async def save_key_question(project: str, question: str, asked_by: str = "", app
 
 @mcp.tool()
 async def answer_key_question(project: str, question_id: str, answer: str, documents: list[str] | None = None,
-                              links: list[dict] | None = None, viewpoints: list[str] | None = None) -> Any:
+                              links: list[dict] | None = None, views: list[str] | None = None) -> Any:
     """Answer a key question (contributors): answer is a short summary of the answer, pointing to what holds it:
     documents (ids of the project's documents, from get_project part "documents"), links [{url, label}] and/or the
-    viewpoints mapped to it (codes). At least one of them is needed. The question is then waiting for the stakeholder
+    views mapped to it (codes). At least one of them is needed. The question is then waiting for the stakeholder
     to accept it. Ask the person before saving."""
     from . import key_questions as kq
     body: dict = {"answer": answer}
-    for k, v in (("documents", documents), ("links", links), ("viewpoints", viewpoints)):
+    for k, v in (("documents", documents), ("links", links), ("views", views)):
         if v is not None:
             body[k] = v
     return await _proj(lambda pc, who: kq.answer(pc, _project_id(pc, project), who, question_id, body), write=True)
@@ -454,9 +510,9 @@ async def change_business_model_canvas(project: str, action: str, canvas: str = 
 
 
 @mcp.tool()
-async def add_placeholder_viewpoint(project: str, name: str, kind: str = "text", file_type: str = "", description: str = "",
+async def add_placeholder_view(project: str, name: str, kind: str = "text", file_type: str = "", description: str = "",
                                     questions: list[str] | None = None) -> Any:
-    """A placeholder viewpoint where no viewpoint fits a key question: kind "text" (a name and what it will show) or
+    """A placeholder view where no view fits a key question: kind "text" (a name and what it will show) or
     "file" with file_type docx | pptx | xlsx | pdf | drawio | md | txt (an empty file is made in the project's files).
     questions: the ids of the key questions it answers. It stays in the project (code PH-<n>)."""
     from . import key_questions as kq
@@ -485,7 +541,7 @@ async def save_stakeholder(project: str, name: str, stakeholder: str = "", field
     """Add a stakeholder to a project (stakeholder empty) or change one (its id from list_stakeholders). fields:
     organisation, role_title, category (corporate | end-user | operations | project | outside), power and interest
     (H | M | L), class (only to override the grid: key | satisfied | informed | minimal), disrupt, understanding_now,
-    understanding_needed, commitment_now, commitment_needed, support_needed (H | M | L), concerns, viewpoints [codes],
+    understanding_needed, commitment_now, commitment_needed, support_needed (H | M | L), concerns, views [codes],
     approach, frequency, channel, owner, email, phone, next_contact (YYYY-MM-DD), notes_html. Ask the person before
     saving."""
     from . import stakeholders as sh

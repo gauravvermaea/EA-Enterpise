@@ -10,8 +10,8 @@ Every change is one operation (`op`) with its fields, applied in one transaction
 With dry_run the transaction is rolled back, so the screen can show the impact before saving.
 
 Operations (payload fields in brackets; ids are guids; "type" means an entity type):
-  entity_type.create   name, layer, [code, id_prefix, description, aspect]
-  entity_type.update   id, [name, description, layer, id_prefix, aspect]
+  entity_type.create   name, domain, [code, id_prefix, description, aspect]
+  entity_type.update   id, [name, description, domain, id_prefix, aspect, notation, fill_colour]  (look on drawn views, D354)
   entity_type.retire / entity_type.restore   id   (retired: no new entities, its entities read-only, D87)
   attribute.create     (entity_type | relationship_type), name, data_type,
                        [code, description, unit, pick_list | values, is_required, section, help_text,
@@ -28,7 +28,8 @@ Operations (payload fields in brackets; ids are guids; "type" means an entity ty
   relationship_type.update   id, [name, verb, category, is_directed, description]
   relationship_type.retire / relationship_type.restore   id   (retire: no longer offered; relationships kept)
   relationship_type.remove   id   (its relationships are removed too; they stay in history)
-  mapping.add          relationship_type, source_type, target_type, [note]
+  mapping.add          relationship_type, source_type, target_type, [note, source_multiplicity, target_multiplicity]
+  mapping.update       id, [note, source_multiplicity, target_multiplicity]  (n, * or n..m; empty for none, D395)
   mapping.remove       id
   rule.create          rule_type, (attribute | field_name), [entity_type, param1, param2, severity, message]
                        (has_relationship: no attribute or field; param1 relationship type, param2 other entity type)
@@ -48,6 +49,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
+from . import multiplicity, notation
 from . import repository as repo
 
 
@@ -129,12 +131,12 @@ def _rel_type_by_ref(conn, model_id: int, ref) -> dict:
     return _one(conn, "SELECT * FROM core.relationship_types WHERE id = :i", i=r["_id"])
 
 
-def _layer(conn, model_id: int, ref) -> dict:
+def _domain(conn, model_id: int, ref) -> dict:
     g = repo._as_guid(ref)
     r = _one(conn, f"""SELECT * FROM core.layers WHERE model_id = :m AND NOT is_deleted AND
                        {'guid = :r' if g else 'lower(:r) IN (lower(code), lower(name))'}""", m=model_id, r=g or str(ref))
     if not r:
-        raise EditError(f"No layer {ref!r} in this model.", 404)
+        raise EditError(f"No domain {ref!r} in this model.", 404)
     return r
 
 
@@ -239,19 +241,25 @@ def _types_with_entities(conn, model_id: int) -> list[int]:
 # ---------------------------------------------------------------- the operations
 
 def _op_entity_type_create(conn, m, p):
-    _need(p, "name", "layer")
+    _need(p, "name", "domain")
     mid = m["_id"]
-    layer = _layer(conn, mid, p["layer"])
+    domain = _domain(conn, mid, p["domain"])
     code = _unique(conn, "entity_types", "code", mid, p.get("code") or code_from(p["name"]), lower=True)
     table = _unique(conn, "entity_types", "table_name", mid, snake_from(p["name"]))
     prefix = (p.get("id_prefix") or re.sub(r"[^A-Z]", "", p["name"].upper())[:3] or "ENT")[:6]
     sort = _one(conn, "SELECT coalesce(max(sort_order), 0) + 10 AS s FROM core.entity_types WHERE model_id = :m", m=mid)["s"]
     from .content_framework import clean_area, clean_repo
+    try:      # its look on drawn views (D354): the notation given, else its own if it is an ArchiMate 4 element
+        nota = notation.clean_notation(p["notation"]) if p.get("notation") else notation.default_notation(code)
+        fill = notation.clean_colour(p.get("fill_colour"))
+    except ValueError as exc:
+        raise EditError(str(exc)) from exc
     r = _one(conn, """INSERT INTO core.entity_types (model_id, layer_id, code, name, description, aspect, id_prefix, table_name, sort_order,
-                                                     content_area, repository_area)
-                      VALUES (:m, :l, :c, :n, :d, :a, :p, :t, :s, :ca, :ra) RETURNING guid""",
-             m=mid, l=layer["id"], c=code, n=p["name"].strip(), d=p.get("description", ""), a=p.get("aspect", ""),
-             p=prefix, t=table, s=sort, ca=clean_area(p.get("content_area")), ra=clean_repo(p.get("repository_area")))
+                                                     content_area, repository_area, notation, fill_colour)
+                      VALUES (:m, :l, :c, :n, :d, :a, :p, :t, :s, :ca, :ra, :no, :fc) RETURNING guid""",
+             m=mid, l=domain["id"], c=code, n=p["name"].strip(), d=p.get("description", ""), a=p.get("aspect", ""),
+             p=prefix, t=table, s=sort, ca=clean_area(p.get("content_area")), ra=clean_repo(p.get("repository_area")),
+             no=nota, fc=fill)
     return {"id": r["guid"], "code": code}, f"Added entity type {p['name'].strip()}", []
 
 
@@ -265,8 +273,15 @@ def _op_entity_type_update(conn, m, p):
     if "repository_area" in p:                  # the part of the Architecture Repository it is filed in (D318); '' = built in
         from .content_framework import clean_repo
         fields["repository_area"] = clean_repo(p["repository_area"])
-    if "layer" in p and p["layer"]:
-        fields["layer_id"] = _layer(conn, m["_id"], p["layer"])["id"]
+    if "domain" in p and p["domain"]:
+        fields["layer_id"] = _domain(conn, m["_id"], p["domain"])["id"]
+    try:                                        # its look on drawn views (phase 28, D354): ArchiMate notation and colour
+        if "notation" in p:
+            fields["notation"] = notation.clean_notation(p["notation"])
+        if "fill_colour" in p:
+            fields["fill_colour"] = notation.clean_colour(p["fill_colour"])
+    except ValueError as exc:
+        raise EditError(str(exc)) from exc
     if not fields:
         raise EditError("Nothing to change.")
     sets = ", ".join(f"{k} = :{k}" for k in fields)
@@ -549,25 +564,54 @@ def _op_relationship_type_status(conn, m, p, status):
     return {"id": r["guid"]}, f"{verb} relationship type {r['name']}", []
 
 
+def _mult(p, end):
+    try:
+        return multiplicity.clean(p.get(end))
+    except ValueError as exc:
+        raise EditError(f"{'Source' if end.startswith('source') else 'Target'} multiplicity: {exc}") from exc
+
+
 def _op_mapping_add(conn, m, p):
     _need(p, "relationship_type", "source_type", "target_type")
     mid = m["_id"]
     rt = _rel_type_by_ref(conn, mid, p["relationship_type"])
     s, t = _type_by_ref(conn, mid, p["source_type"]), _type_by_ref(conn, mid, p["target_type"])
+    sm, tm = _mult(p, "source_multiplicity"), _mult(p, "target_multiplicity")
     old = _one(conn, """SELECT id, guid, is_deleted FROM core.allowed_relationships
                          WHERE relationship_type_id = :r AND source_type_id = :s AND target_type_id = :t""",
                r=rt["id"], s=s["id"], t=t["id"])
     if old and not old["is_deleted"]:
         raise EditError(f"{s['name']} {rt['verb']} {t['name']} is already allowed.", 409)
     if old:
-        _exec(conn, "UPDATE core.allowed_relationships SET is_deleted = false, note = :n WHERE id = :i",
-              i=old["id"], n=p.get("note", "") or "")
+        _exec(conn, """UPDATE core.allowed_relationships SET is_deleted = false, note = :n, source_multiplicity = :sm,
+                              target_multiplicity = :tm WHERE id = :i""",
+              i=old["id"], n=p.get("note", "") or "", sm=sm, tm=tm)
         g = old["guid"]
     else:
-        g = _one(conn, """INSERT INTO core.allowed_relationships (model_id, relationship_type_id, source_type_id, target_type_id, note)
-                          VALUES (:m, :r, :s, :t, :n) RETURNING guid""",
-                 m=mid, r=rt["id"], s=s["id"], t=t["id"], n=p.get("note", "") or "")["guid"]
-    return {"id": g}, f"Allowed {s['name']} {rt['verb']} {t['name']} ({rt['name']})", [s["id"], t["id"]]
+        g = _one(conn, """INSERT INTO core.allowed_relationships (model_id, relationship_type_id, source_type_id, target_type_id, note,
+                                                                  source_multiplicity, target_multiplicity)
+                          VALUES (:m, :r, :s, :t, :n, :sm, :tm) RETURNING guid""",
+                 m=mid, r=rt["id"], s=s["id"], t=t["id"], n=p.get("note", "") or "", sm=sm, tm=tm)["guid"]
+    ends = multiplicity.label(sm, tm)
+    return {"id": g}, f"Allowed {s['name']} {rt['verb']} {t['name']} ({rt['name']}{', ' + ends if ends else ''})", [s["id"], t["id"]]
+
+
+def _op_mapping_update(conn, m, p):
+    """The note and the multiplicity at each end (D395); only the fields given change."""
+    _need(p, "id")
+    a = _row(conn, "allowed_relationships", m["_id"], p["id"], "mapping")
+    cur = _one(conn, """SELECT a.note, a.source_multiplicity, a.target_multiplicity, s.name AS s, t.name AS t, rt.verb, rt.name AS r
+                          FROM core.allowed_relationships a JOIN core.entity_types s ON s.id = a.source_type_id
+                          JOIN core.entity_types t ON t.id = a.target_type_id
+                          JOIN core.relationship_types rt ON rt.id = a.relationship_type_id WHERE a.id = :i""", i=a["id"])
+    sm = _mult(p, "source_multiplicity") if "source_multiplicity" in p else cur["source_multiplicity"]
+    tm = _mult(p, "target_multiplicity") if "target_multiplicity" in p else cur["target_multiplicity"]
+    note = (p.get("note") or "") if "note" in p else cur["note"]
+    _exec(conn, """UPDATE core.allowed_relationships SET note = :n, source_multiplicity = :sm, target_multiplicity = :tm
+                    WHERE id = :i""", i=a["id"], n=note, sm=sm, tm=tm)
+    ends = multiplicity.label(sm, tm) or "no multiplicity"
+    return ({"id": a["guid"]}, f"Changed {cur['s']} {cur['verb']} {cur['t']} ({cur['r']}): {ends}",
+            [a["source_type_id"], a["target_type_id"]])
 
 
 def _op_mapping_remove(conn, m, p):
@@ -704,6 +748,7 @@ OPS = {
     "relationship_type.remove": _op_relationship_type_remove,
     "relationship_type.restore": lambda c, m, p: _op_relationship_type_status(c, m, p, "published"),
     "mapping.add": _op_mapping_add,
+    "mapping.update": _op_mapping_update,
     "mapping.remove": _op_mapping_remove,
     "rule.create": _op_rule_create,
     "rule.update": _op_rule_update,
@@ -721,7 +766,7 @@ def _types_named(conn, mid: int, op: str, p: dict) -> list[int]:
             return [_row(conn, "entity_types", mid, p["id"], "entity type")["id"]]
         if op == "mapping.add":
             return [_type_by_ref(conn, mid, p["source_type"])["id"], _type_by_ref(conn, mid, p["target_type"])["id"]]
-        if op == "mapping.remove":
+        if op in ("mapping.remove", "mapping.update"):
             a = _row(conn, "allowed_relationships", mid, p["id"], "mapping")
             return [a["source_type_id"], a["target_type_id"]]
         if op.startswith("rule.") and p.get("id"):

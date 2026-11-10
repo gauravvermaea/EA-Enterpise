@@ -10,6 +10,7 @@ import { apiFetch, can, canOn, myInfo } from "./auth";
 import { refreshAll, useApi } from "./ModelViews";
 import { Field, Modal } from "./ModelOps";
 import { Download, Upload } from "./Sheets";
+import { liveProjects } from "./ModelMarks";
 
 const post = (path, body, method = "POST") => apiFetch(path, { method, body: JSON.stringify(body || {}) });
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -99,7 +100,7 @@ function QualityEntity({ m, d, e, admin, n, of, onDone }) {
     if (item === "field:description") return <textarea rows={2} value={v} onChange={on} />;
     if (a?.pick_list_values?.length) return <select value={v} onChange={on}><option value="">Choose…</option>{a.pick_list_values.map((p) => <option key={p}>{p}</option>)}</select>;
     if (a?.data_type === "boolean") return <select value={v} onChange={on}><option value="">Choose…</option><option value="true">Yes</option><option value="false">No</option></select>;
-    const type = { date: "date", integer: "number", decimal: "number", currency: "number", percent: "number", url: "url", email: "email" }[a?.data_type] || "text";
+    const type = { date: "date", integer: "number", decimal: "number", currency: "number", percent: "number", email: "email" }[a?.data_type] || "text";
     return <input type={type} value={v} onChange={on} placeholder={a?.unit || a?.description || ""} />;
   };
   const missing = e.findings.filter((f) => f.kind === "incomplete" && !f.item.startsWith("rel:"));
@@ -233,9 +234,10 @@ export function ComplianceWizard({ p, onClose }) {
 // ---------------------------------------------------------------- WIZ-017 a migration plan from gaps
 export function MigrationWizard({ m, onClose }) {
   const { data: list } = useApi(`/api/v1/gaps?model=${m.id}`);
-  const { data: projects } = useApi("/api/v1/projects");
+  const { data: projects_ } = useApi("/api/v1/projects");
+  const projects = projects_ && { ...projects_, projects: liveProjects(projects_.projects) };   // never a frozen project (D360)
   const [analysis, setAnalysis] = useState("");
-  const [by, setBy] = useState("layer");
+  const [by, setBy] = useState("domain");
   const { data: sug } = useApi(analysis ? `/api/v1/gaps/${analysis}/migration-plan?by=${by}` : null);
   const [pk, setPk] = useState(null);
   const [step, setStep] = useState(0);
@@ -272,7 +274,7 @@ export function MigrationWizard({ m, onClose }) {
         <Field label="Gap analysis"><select value={analysis} onChange={(e) => setAnalysis(e.target.value)}>
           <option value="">Choose…</option>{analyses.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
         <Field label="First grouping" hint="(you change it on the next step)"><select value={by} onChange={(e) => setBy(e.target.value)}>
-          <option value="layer">One work package per layer</option><option value="type">Per entity type</option>
+          <option value="domain">One work package per domain</option><option value="type">Per entity type</option>
           <option value="resolution">Per resolution (Build, Buy, Retire…)</option><option value="each">One per gap</option></select></Field>
         {sug && <p className="quiet small">{sug.gaps.length} gaps without a work package{sug.already ? `; ${sug.already} are in one already` : ""}.</p>}
       </div>}
@@ -334,9 +336,9 @@ export function CollectWizard({ m, onClose }) {
       <Steps names={names} at={step} />
       {step === 0 && <div>
         <p className="quiet small">The entity types the people fill in: each gets the sheet with these types, holding what is there now.</p>
-        <div className="type-layers">{(t?.types || []).map((x) => <label key={x.code} className="type-choice">
+        <div className="type-domains">{(t?.types || []).map((x) => <label key={x.code} className="type-choice">
           <input type="checkbox" checked={types.includes(x.code)} onChange={(e) => setTypes(e.target.checked ? [...types, x.code] : types.filter((c) => c !== x.code))} />
-          {" "}{x.name} <span className="quiet small">{x.layer} · {x.entities}</span></label>)}</div>
+          {" "}{x.name} <span className="quiet small">{x.domain} · {x.entities}</span></label>)}</div>
       </div>}
       {step === 1 && <div>
         <p className="quiet small">People with a role on {m.name}. Only those whose role changes its content can load a sheet; give others access first

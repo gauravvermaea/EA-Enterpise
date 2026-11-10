@@ -3,7 +3,7 @@
 //   #/metamodel/<m>/types/<typeId>            the entities of one type as a table (+ shows each one's relations)
 //   #/metamodel/<m>/rels                      Relationship types: every type, how often used
 //   #/metamodel/<m>/rels/<relTypeId>          the relationships of one type
-//   #/metamodel/<m>/graph[/<kind>]            pictures: network, layered, impact chain, hierarchy map, matrix
+//   #/metamodel/<m>/graph[/<kind>]            pictures: network, by domain, impact chain, hierarchy map, matrix
 //   #/metamodel/<m>/entity/<id>[/relations|/history|/graph]   one entity
 // Every list has a CSV button; every picture opens in draw.io (D256) and saves as SVG, PNG, CSV.
 // Changing things arrives later: values and relationships in build phase 6; entity types,
@@ -19,6 +19,9 @@ import { fmtDate, fmtDateTime } from "./fmt";
 import { EntityTree } from "./Trees";
 import { EntityReasons, fieldClass, FieldQuality, q2, QualityBadge, QualityCell, RecheckAll, ScoreChip, useEntityQuality, useTypeQuality, useTypeScores } from "./QualityBits";
 import { EditButton, entityTypeSpec, mappingSpec, relationshipTypeSpec } from "./MetamodelEditor";
+import { EntityIcon } from "./DrawnView";
+import { elementTypes } from "./elements.js";
+import { LinkList, linksText } from "./Links";
 
 const EntityGraph = lazy(() => import("./EntityGraph"));
 const HierarchyMap = lazy(() => import("./HierarchyMap"));
@@ -133,11 +136,11 @@ export function EntityTypesTab({ model, m }) {
   const tScore = (t) => tq?.types?.find((x) => x.type === t.code);
   const [asTree, setAsTree] = useState(false);       // D250: the entity tree
   const [filter, setFilter] = useState("");
-  const [layer, setLayer] = useState("");
+  const [domain, setDomain] = useState("");
   const [withEntities, setWithEntities] = useState(true);
-  const { head, apply } = useSort("layer_order");
-  const types = useMemo(() => (mm ? mm.layers.flatMap((l, i) => l.entity_types.map((t) => ({
-    ...t, layer: l.name, layer_id: l.id, colour: l.colour, layer_order: i * 1000 + l.entity_types.indexOf(t),
+  const { head, apply } = useSort("domain_order");
+  const types = useMemo(() => (mm ? mm.domains.flatMap((l, i) => elementTypes(l).map((t) => ({
+    ...t, domain: l.name, domain_id: l.id, colour: l.colour, domain_order: i * 1000 + l.entity_types.indexOf(t),
   }))) : []), [mm]);
   if (!mm) return <Loading error={error} />;
   const treeSeg = (
@@ -150,33 +153,33 @@ export function EntityTypesTab({ model, m }) {
   const anyContent = types.some((t) => t.entity_count > 0);
   const f = filter.trim().toLowerCase();
   const shown = apply(types.filter((t) => (!f || `${t.name} ${t.code} ${t.description}`.toLowerCase().includes(f))
-    && (!layer || t.layer_id === layer) && (!withEntities || !anyContent || t.entity_count > 0)),
+    && (!domain || t.domain_id === domain) && (!withEntities || !anyContent || t.entity_count > 0)),
   (r, k) => r[k]);
   return (
     <div>
       {treeSeg}
       <div className="toolbar">
         <input className="search" style={{ maxWidth: 260 }} placeholder="Filter entity types" value={filter} onChange={(e) => setFilter(e.target.value)} />
-        <select value={layer} onChange={(e) => setLayer(e.target.value)}>
-          <option value="">All layers</option>
-          {mm.layers.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+        <select value={domain} onChange={(e) => setDomain(e.target.value)}>
+          <option value="">All domains</option>
+          {mm.domains.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
         </select>
         {anyContent && <label><input type="checkbox" checked={withEntities} onChange={(e) => setWithEntities(e.target.checked)} /> Only types with entities</label>}
-        <CsvButton name={`${m.name} - entity types`} rows={() => [["Entity type", "Layer", "Entities", "Attributes", "Code", "Description"],
-          ...shown.map((t) => [t.name, t.layer, t.entity_count, t.attribute_count, t.code, t.description])]} />
+        <CsvButton name={`${m.name} - entity types`} rows={() => [["Entity type", "Domain", "Entities", "Attributes", "Code", "Description"],
+          ...shown.map((t) => [t.name, t.domain, t.entity_count, t.attribute_count, t.code, t.description])]} />
         <span className="er-spacer" />
-        <EditButton model={model} m={m} label="+ Entity type" spec={() => entityTypeSpec(mm.layers)} />
+        <EditButton model={model} m={m} label="+ Entity type" spec={() => entityTypeSpec(mm.domains)} />
         <button className="ed-btn" onClick={() => go(`/metamodel/${model}/entry`)} title="Enter entities of any type on the Data entry tab">+ Entity</button>
       </div>
       <div className="scroll">
         <table className="grid-table click-rows">
-          <thead><tr>{head("name", "Entity type")}{head("layer_order", "Layer")}{head("entity_count", "Entities", { className: "num" })}
+          <thead><tr>{head("name", "Entity type")}{head("domain_order", "Domain")}{head("entity_count", "Entities", { className: "num" })}
             {head("attribute_count", "Attributes", { className: "num" })}{tq && <th className="num" title={`Each entity type's data quality as last calculated${tq.calculated_to ? ` (${fmtDateTime(tq.calculated_to)})` : ""}: completeness, rules, freshness`}>Quality</th>}{head("code", "Code")}<th>Description</th></tr></thead>
           <tbody>
             {shown.map((t) => (
               <tr key={t.id} onClick={() => go(`/metamodel/${model}/types/${t.id}`)}>
                 <td><Swatch colour={t.colour} /> <a href={`#/metamodel/${model}/types/${t.id}`}><strong>{t.name}</strong></a></td>
-                <td>{t.layer}</td>
+                <td>{t.domain}</td>
                 <td className="num">{t.entity_count}</td>
                 <td className="num">{t.attribute_count}</td>
                 {tq && <td className="num">{tScore(t) ? <a href={`#/metamodel/${model}/quality/type/${encodeURIComponent(t.name)}`}><ScoreChip score={tScore(t).score} bands={tq.bands}
@@ -275,7 +278,7 @@ export function TypeEntitiesTable({ model, m, typeId }) {
     <div>
       <p className="quiet crumbs">
         <a href={`#/metamodel/${model}/types`}>Entity types</a> / <Swatch colour={et.colour} /> <strong>{et.name}</strong>
-        <span> · {et.layer} layer · <a href={`#/metamodel/${model}/type/${et.id}`}>definition and rules</a>
+        <span> · {et.domain} domain · <a href={`#/metamodel/${model}/type/${et.id}`}>definition and rules</a>
           {" · "}<a href={`#/metamodel/${model}/diagram/${et.id}`}>in the ER diagram</a></span>
       </p>
       {treeSeg}
@@ -456,7 +459,7 @@ export function RelationshipsOfType({ model, m, relTypeId }) {
 // ---------------------------------------------------------------- graph tab
 const GRAPH_KINDS = [
   ["network", "Network", "Entities and their relationships; or one entity in the middle with what surrounds it"],
-  ["layers", "Layered", "Entities in bands by ArchiMate layer, top to bottom: read traceability from strategy down to technology"],
+  ["domains", "By domain", "Entities in bands by ArchiMate domain, top to bottom: read traceability from strategy down to technology"],
   ["impact", "Impact chain", "From one entity, follow the lines one way: what it leads to (impact) or what leads to it (dependencies)"],
   ["hierarchy", "Hierarchy map", "Parents holding their parts as nested boxes (the capability map), coloured by an attribute as a heat map"],
   ["matrix", "Matrix", "One entity type against another, with the relationships between them in the cells"],
@@ -528,7 +531,7 @@ function DetailsTab({ model, m, e, q }) {
           ...[["Display ID", e.display_id, "Generated", "display_id"], ["Description", e.description, "Text", "description"],
             ["Parent", e.parent_name, "Entity", "parent"], ["Status", e.status, "Workflow", "status"], ["Tags", (e.tags || []).join(", "), "Tags", "tags"]]
             .map(([label, v, t, code]) => ["Basic", label, v, t, "", fieldWarnings(code).map((w) => w.message).join("; ")]),
-          ...e.attributes.map((a) => [a.section, a.name, a.value, a.data_type_name, a.is_required ? "yes" : "", a.warnings.map((w) => w.message).join("; ")])]} />
+          ...e.attributes.map((a) => [a.section, a.name, a.data_type === "url" ? linksText(a.value) : a.value, a.data_type_name, a.is_required ? "yes" : "", a.warnings.map((w) => w.message).join("; ")])]} />
         <span className="er-spacer" />
         <EntityActions model={model} m={m} e={e} />
       </div>
@@ -550,6 +553,7 @@ function DetailsTab({ model, m, e, q }) {
                 <tr key={a.code} className={[a.warnings.length ? "has-warning" : "", hl(`value:${a.code}`), fieldClass(q, a.code)].join(" ").trim()}>
                   <th>{a.name}{a.is_required && <span className="req" title="Required">*</span>}</th>
                   <td>{empty ? <span className="quiet">not set</span>
+                    : a.data_type === "url" ? <LinkList value={a.value} />
                     : a.ref_id ? <a href={`#/metamodel/${model}/entity/${a.ref_id}`}>{a.value}</a>
                     : <>{a.value}{a.unit && ` ${a.unit}`}</>} <WasValue f={f(`value:${a.code}`)} /></td>
                   <td className="quiet" title={a.pick_list_values.length ? `One of: ${a.pick_list_values.join(", ")}` : undefined}>
@@ -823,7 +827,7 @@ function HistoryTab({ model, m, e }) {
                   <tr className={hl("description")}><th>Description</th><td className="pre">{e.description} <WasValue f={f("description")} /></td></tr>
                   <tr><th>Parent</th><td>{e.parent_name || <span className="quiet">-</span>}</td></tr>
                   <tr className={hl("status")}><th>Status</th><td>{e.status} <WasValue f={f("status")} /></td></tr>
-                  {e.attributes.map((a) => <tr key={a.code}><th>{a.name}</th><td>{a.value ?? <span className="quiet">not set</span>}</td></tr>)}
+                  {e.attributes.map((a) => <tr key={a.code}><th>{a.name}</th><td>{a.value == null ? <span className="quiet">not set</span> : a.data_type === "url" ? <LinkList value={a.value} /> : a.value}</td></tr>)}
                 </tbody>
               </table>
             </div>
@@ -841,7 +845,7 @@ const ENTITY_GRAPHS = [
   ["split", "Both ways", "What leads to it on the left (dependencies), what it leads to on the right (impact)"],
   ["impact", "One way", "Follow the lines out (impact) or in (dependencies) only, up to 6 steps"],
   ["tree", "Family tree", "Every parent up to the top and its parts below: where it sits in its hierarchy"],
-  ["layers", "By layer", "Its neighbours in the bands of the ArchiMate layers, to read traceability up and down"],
+  ["domains", "By domain", "Its neighbours in the bands of the ArchiMate domains, to read traceability up and down"],
   ["path", "Path to...", "The shortest chains connecting it to another entity you choose"],
   ["asof", "As it was", "Its relationships at a moment of its history: removed since in red, added since in green"],
 ];
@@ -970,16 +974,18 @@ export function EntityPage({ model, m, entityId, sub }) {
       <p className="quiet crumbs">
         <a href={`#/metamodel/${model}/types`}>Entity types</a> / <a href={`#/metamodel/${model}/types/${e.entity_type_id}`}>{e.entity_type}</a> / {e.display_id}
       </p>
+      {e.merged_from && <p className="status ok small">{e.merged_from} was merged into {e.name} as a duplicate: links to it open this one.</p>}
       <div className="entity-card">
         <div className="entity-card-head">
           <div className="entity-head">
             <h2><Swatch colour={e.colour} /> {e.name} <PendingMark kind={e.pending} model={model} /></h2>
-            <span className="quiet">{e.display_id} · {e.entity_type} · {e.layer} layer · {e.status} · metamodel v{e.created_mm_version}{e.modified_mm_version !== e.created_mm_version ? `, changed in v${e.modified_mm_version}` : ""}</span>
+            <span className="quiet">{e.display_id} · {e.entity_type} · {e.domain} domain · {e.status} · metamodel v{e.created_mm_version}{e.modified_mm_version !== e.created_mm_version ? `, changed in v${e.modified_mm_version}` : ""}</span>
             <Checks errors={errors} warnings={e.warnings.length - errors} messages={e.warnings.map((w) => w.message)} />
             {quality.data && <div className="q-entity-head"><QualityBadge q={quality.data} /> <a className="small" href={`#/metamodel/${model}/quality`}>Quality tab</a>
               <EntityReasons q={quality.data} /></div>}
           </div>
           {e.description && <p className="entity-desc">{e.description}</p>}
+          <EntityIcon model={model} m={m} e={e} />
           <Lineage e={e} />
           <div className="tabs sub" role="tablist">
             {tabs.map(([k, l]) => (
@@ -1005,6 +1011,6 @@ export function EntityPage({ model, m, entityId, sub }) {
 
 function MappingButton({ model, m, relTypes }) {
   const { data: mm } = useApi(`/api/v1/models/${model}/metamodel`);
-  const types = mm ? mm.layers.flatMap((l) => l.entity_types).filter((t) => t.status !== "retired") : [];
+  const types = mm ? mm.domains.flatMap((l) => elementTypes(l)).filter((t) => t.status !== "retired") : [];
   return <EditButton model={model} m={m} label="+ Mapping" spec={() => mappingSpec(types, relTypes)} />;
 }

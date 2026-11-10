@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deploy EA Explorer</title>
+<style>
+  :root { --bg: #f6f7f9; --panel: #fff; --text: #1d2330; --quiet: #5c6475; --line: #d9dde5; --accent: #1f5fbf;
+          --ok: #1e7a3c; --bad: #b3261e; --warn: #8a5a00; --code: #f0f2f5; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14171c; --panel: #1c2027; --text: #e6e8ec; --quiet: #9aa3b2; --line: #2e3440; --accent: #6ea2ff;
+            --ok: #5cc27e; --bad: #ff7b72; --warn: #e3b341; --code: #11141a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { padding: 18px 24px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; gap: 16px; align-items: baseline; }
+  header h1 { font-size: 20px; margin: 0; }
+  header .quiet { color: var(--quiet); }
+  main { max-width: 980px; margin: 0 auto; padding: 20px 16px 60px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 18px 20px; margin-bottom: 16px; }
+  .q { margin: 0 0 16px; }
+  .q > label, .q > .label { display: block; font-weight: 600; margin-bottom: 4px; }
+  .q .help { color: var(--quiet); font-size: 13px; margin: 2px 0 6px; }
+  .q input[type=text], .q input[type=password] { width: 100%; max-width: 560px; padding: 7px 9px; border: 1px solid var(--line);
+       border-radius: 6px; background: var(--bg); color: var(--text); font: inherit; }
+  .choice { display: block; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; margin: 4px 0; cursor: pointer; max-width: 700px; }
+  .choice:has(input:checked) { border-color: var(--accent); outline: 1px solid var(--accent); }
+  .choice input { margin-right: 8px; }
+  .buttons { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+  button { font: inherit; padding: 8px 16px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--text); cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  ol.steps { padding-left: 0; list-style: none; margin: 0; }
+  ol.steps li { padding: 5px 0; border-bottom: 1px solid var(--line); display: flex; gap: 10px; }
+  ol.steps li .mark { width: 22px; text-align: center; }
+  .running { color: var(--accent); font-weight: 600; } .done { color: var(--ok); } .failed { color: var(--bad); font-weight: 600; } .waiting { color: var(--quiet); }
+  pre.log { background: var(--code); border: 1px solid var(--line); border-radius: 6px; padding: 10px; max-height: 360px; overflow: auto;
+            font: 12.5px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
+  .status { padding: 10px 12px; border-radius: 6px; margin: 10px 0; }
+  .status.bad { border: 1px solid var(--bad); color: var(--bad); }
+  .status.ok { border: 1px solid var(--ok); color: var(--ok); }
+  .status.warn { border: 1px solid var(--warn); color: var(--warn); }
+  .hidden { display: none; }
+  .error { color: var(--bad); margin: 8px 0; white-space: pre-wrap; }
+  @media (max-width: 600px) { header { flex-direction: column; gap: 2px; } }
+</style>
+</head>
+<body>
+<header><h1>Deploy EA Explorer</h1><span class="quiet">eax deploy: the same steps as in the console. Nothing is changed until you choose Deploy.</span></header>
+<main>
+  <section id="ask" class="panel" aria-labelledby="ask-h">
+    <h2 id="ask-h" style="margin-top:0">Where and how</h2>
+    <form id="form" autocomplete="off"></form>
+    <div id="err" class="error" role="alert"></div>
+    <div class="buttons">
+      <button type="button" id="plan">Show the plan (runs nothing)</button>
+      <button type="button" class="primary" id="go">Deploy</button>
+      <button type="button" id="close">Close the wizard</button>
+    </div>
+  </section>
+  <section id="work" class="panel hidden" aria-live="polite">
+    <h2 id="work-h" style="margin-top:0">Deploying</h2>
+    <ol id="steps" class="steps"></ol>
+    <div id="failed" class="status bad hidden"></div>
+    <div id="decide" class="buttons hidden">
+      <button type="button" class="primary" data-choice="retry">Retry this step</button>
+      <button type="button" data-choice="back">Back to the answers</button>
+      <button type="button" data-choice="quit">Quit</button>
+    </div>
+    <div id="finished" class="status ok hidden"></div>
+    <h3>What it does</h3>
+    <pre id="log" class="log"></pre>
+    <div class="buttons"><button type="button" id="again" class="hidden">Back to the answers</button><button type="button" id="close2">Close the wizard</button></div>
+  </section>
+</main>
+<script>
+const KEY = "__KEY__";
+const answers = {};
+let questions = [];
+async function call(path, body) {
+  const r = await fetch(path, { method: body === undefined ? "GET" : "POST", headers: { "X-Deploy-Key": KEY, "Content-Type": "application/json" },
+                               body: body === undefined ? undefined : JSON.stringify(body) });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.message || r.statusText);
+  return data;
+}
+function el(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) { if (k === "text") e.textContent = v; else e.setAttribute(k, v); }
+  for (const k of kids) if (k) e.append(k);
+  return e;
+}
+async function refresh() {
+  const data = await call("/api/questions", { answers });
+  questions = data.questions;
+  const form = document.getElementById("form");
+  const focused = document.activeElement && document.activeElement.name;
+  form.replaceChildren();
+  for (const q of questions) {
+    const value = answers[q.key] !== undefined ? answers[q.key] : (q.default || "");
+    const box = el("div", { class: "q" });
+    if (q.choices) {
+      const fs = el("fieldset", { style: "border:0;padding:0;margin:0" }, el("legend", { class: "label", text: q.text }));
+      if (q.help) fs.append(el("div", { class: "help", text: q.help }));
+      for (const [k, label] of Object.entries(q.choices)) {
+        const input = el("input", { type: "radio", name: q.key, value: k });
+        if (k === value) input.checked = true;
+        input.addEventListener("change", () => { answers[q.key] = k; refresh(); });
+        fs.append(el("label", { class: "choice" }, input, label));
+      }
+      box.append(fs);
+    } else {
+      const id = "q-" + q.key;
+      box.append(el("label", { for: id, text: q.text + (q.required ? "" : " (optional)") }));
+      if (q.help) box.append(el("div", { class: "help", text: q.help }));
+      const input = el("input", { id, name: q.key, type: q.secret ? "password" : "text" });
+      input.value = value;
+      input.addEventListener("change", () => { answers[q.key] = input.value; refresh(); });
+      input.addEventListener("input", () => { answers[q.key] = input.value; });
+      box.append(input);
+    }
+    form.append(box);
+  }
+  if (focused) { const f = form.querySelector(`[name="${focused}"]`); if (f && f.type !== "radio") f.focus(); }
+}
+function collect() {
+  for (const q of questions) if (answers[q.key] === undefined) answers[q.key] = q.default || "";
+  return answers;
+}
+async function start(path) {
+  document.getElementById("err").textContent = "";
+  try {
+    await call(path, { answers: collect() });
+    document.getElementById("ask").classList.add("hidden");
+    document.getElementById("work").classList.remove("hidden");
+    document.getElementById("work-h").textContent = path === "/api/plan" ? "The plan (nothing is run)" : "Deploying";
+    poll();
+  } catch (e) { document.getElementById("err").textContent = e.message; }
+}
+const MARK = { waiting: "○", running: "▶", done: "✓", failed: "✕" };
+async function poll() {
+  let s;
+  try { s = await call("/api/state"); } catch (e) { return; }
+  const ol = document.getElementById("steps");
+  ol.replaceChildren(...s.steps.map((st, i) => el("li", { class: st.status }, el("span", { class: "mark", "aria-hidden": "true", text: MARK[st.status] || "" }),
+                                                   el("span", { text: `${i + 1}. ${st.title}` }), el("span", { class: "quiet", text: st.status === "running" ? " (running)" : "" }))));
+  const log = document.getElementById("log");
+  const atEnd = log.scrollTop + log.clientHeight >= log.scrollHeight - 20;
+  log.textContent = s.lines.join("\n");
+  if (atEnd) log.scrollTop = log.scrollHeight;
+  const failed = document.getElementById("failed"), decide = document.getElementById("decide"), fin = document.getElementById("finished");
+  failed.classList.toggle("hidden", s.status !== "failed");
+  decide.classList.toggle("hidden", s.status !== "failed");
+  if (s.failed) failed.textContent = `This step failed: ${s.failed.step}\n${s.failed.why}`;
+  const ended = ["done", "planned", "quit"].includes(s.status);
+  fin.classList.toggle("hidden", !ended);
+  fin.className = "status " + (s.status === "quit" ? "warn" : "ok") + (ended ? "" : " hidden");
+  fin.textContent = { done: "Done: EA Explorer is deployed. The address and the first sign-in are at the end of the log.",
+                      planned: "That is the plan. Back to the answers to change them, or Deploy to carry it out.",
+                      quit: "Stopped. Nothing more is done; the log says how far it got." }[s.status] || "";
+  document.getElementById("again").classList.toggle("hidden", !(ended || s.status === "asking"));
+  if (s.status === "asking") { back(); return; }
+  if (!ended) setTimeout(poll, 1000);
+}
+function back() {
+  document.getElementById("work").classList.add("hidden");
+  document.getElementById("ask").classList.remove("hidden");
+  refresh();
+}
+document.getElementById("plan").addEventListener("click", () => start("/api/plan"));
+document.getElementById("go").addEventListener("click", () => {
+  if (confirm("Deploy now? This creates and changes things (machines, the config file) as the answers say.")) start("/api/run");
+});
+for (const b of document.querySelectorAll("#decide button")) b.addEventListener("click", async () => { await call("/api/decide", { choice: b.dataset.choice }); poll(); });
+document.getElementById("again").addEventListener("click", back);
+for (const id of ["close", "close2"]) document.getElementById(id).addEventListener("click", async () => {
+  await call("/api/close", {}).catch(() => {});
+  document.body.replaceChildren(el("main", {}, el("p", { class: "panel", text: "The wizard is closed. You can close this tab." })));
+});
+call("/api/state").then((s) => { Object.assign(answers, Object.fromEntries(Object.entries(s.answers).filter(([, v]) => v !== ""))); refresh(); });
+</script>
+</body>
+</html>

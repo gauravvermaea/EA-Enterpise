@@ -11,7 +11,7 @@ import ProjectTree, { flatten } from "./ProjectTree";
 import { can, myInfo, needsRole, partOn, roles } from "./auth";
 import { useApi } from "./ModelViews";
 import { fmtDateTime } from "./fmt";
-import { KindMark } from "./ModelMarks";
+import { isRetiredModel, isRetiredProject, KindMark, ShowRetired, useShowRetired } from "./ModelMarks";
 
 const ModelTree = lazy(() => import("./ModelTree"));
 
@@ -100,7 +100,8 @@ export function ArchitectureWork() {
   const [level, setLevel] = useState(() => (route.match(/[?&]level=(strategic|segment|capability|transition)/) || [])[1] || "");
   const { data: lv } = useApi(tab === "models" && partOn("repository") ? "/api/v1/repository/model-levels" : null);
   const { data: pd, error: pe } = useApi(projectsOn ? "/api/v1/projects" : null);
-  const { data: models, error: me } = useApi("/api/v1/models?archived=false");
+  const { data: models, error: me } = useApi("/api/v1/models");
+  const [showRetired, setShowRetired] = useShowRetired();     // frozen and archived out of the way (D360)
   const { data: favs } = useApi("/api/v1/favourites");
   const pinned = new Set((favs || []).filter((f) => f.kind === "project" || f.kind === "model").map((f) => `${f.kind}:${f.id}`));
   const mine = new Set((myInfo()?.models || []).map((m) => String(m.id)));
@@ -109,13 +110,15 @@ export function ArchitectureWork() {
   const text = (x) => !q.trim() || `${x.name} ${x.description || ""} ${x.purpose || ""}`.toLowerCase().includes(q.trim().toLowerCase());
   const byPin = (k) => (a, b) => (pinned.has(`${k}:${b.id}`) ? 1 : 0) - (pinned.has(`${k}:${a.id}`) ? 1 : 0);
   const ps = (pd?.projects || []).filter((p) => text(p) && (!status || p.status === status) && (!purpose || p.purpose === purpose)
+      && (showRetired || status || !isRetiredProject(p))
       && (!onlyPinned || pinned.has(`project:${p.id}`)))
     .sort((a, b) => byPin("project")(a, b) || (a.status === "active" ? 0 : 1) - (b.status === "active" ? 0 : 1)
       || String(b.modified_at || b.created_at || "").localeCompare(String(a.modified_at || a.created_at || "")));
   const allModels = (models || []).filter((m) => super_ || mine.has(String(m.id)));
   const inLevel = (m, l) => (lv?.models || []).some((x) => x.model_id === String(m.id) && (l === "transition" ? x.role === "transition" : x.level === l));
   const ms = allModels.filter((m) => (!level || inLevel(m, level)) && text(m) && (!kind || (kind === "project" ? m.kind === "project" : m.kind !== "project"))
-      && (!status || (status === "frozen" ? m.frozen_at : !m.frozen_at)) && (!onlyPinned || pinned.has(`model:${m.id}`)))
+      && (!status || (status === "frozen" ? m.frozen_at : !m.frozen_at)) && (!onlyPinned || pinned.has(`model:${m.id}`))
+      && (showRetired || status === "frozen" || !isRetiredModel(m)))
     .sort((a, b) => byPin("model")(a, b) || (a.kind === "project" ? 0 : 1) - (b.kind === "project" ? 0 : 1)
       || String(b.modified_at || "").localeCompare(String(a.modified_at || "")));
   const purposes = [...new Set((pd?.projects || []).map((p) => p.purpose).filter(Boolean))].sort();
@@ -123,13 +126,13 @@ export function ArchitectureWork() {
   return (
     <section className="work-home">
       <h1>Architecture work</h1>
-      <p className="quiet">Your projects and your models. Open one to work in it: data entry, grids, diagrams, viewpoints, gap analysis,
+      <p className="quiet">Your projects and your models. Open one to work in it: data entry, grids, diagrams, views, gap analysis,
         reports, and the project's deliverables and sign-off. Setting up and changing models and projects is in Model admin and Project admin.</p>
       <div className="tabs" role="tablist">
         {projectsOn && <button role="tab" aria-selected={tab === "projects"} className={`tab${tab === "projects" ? " on" : ""}`} onClick={() => { setTab("projects"); setStatus(""); }}>
-          Projects <span className="small quiet">{(pd?.projects || []).length || ""}</span></button>}
+          Projects <span className="small quiet">{(pd?.projects || []).filter((p) => showRetired || !isRetiredProject(p)).length || ""}</span></button>}
         <button role="tab" aria-selected={tab === "models"} className={`tab${tab === "models" ? " on" : ""}`} onClick={() => { setTab("models"); setStatus(""); }}>
-          Models <span className="small quiet">{allModels.length || ""}</span></button>
+          Models <span className="small quiet">{allModels.filter((m) => showRetired || !isRetiredModel(m)).length || ""}</span></button>
       </div>
       <div className="row-gap filters">
         <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={tab === "projects" ? "Search projects" : "Search models"} aria-label="Search" />
@@ -147,6 +150,8 @@ export function ArchitectureWork() {
             <option value="">Any level</option>{Object.entries(LEVEL_NAMES).map(([k, n]) => <option key={k} value={k}>{n}</option>)}</select>
         </>}
         <label className="small"><input type="checkbox" checked={onlyPinned} onChange={(e) => setOnlyPinned(e.target.checked)} /> pinned only</label>
+        <ShowRetired count={tab === "projects" ? (pd?.projects || []).filter(isRetiredProject).length : allModels.filter(isRetiredModel).length}
+          show={showRetired} setShow={setShowRetired} />
         <span className="push-right view-toggle" role="group" aria-label="View">
           <button className={view === "tiles" ? "on" : ""} onClick={() => setV("tiles")} title="Tiles">▦ Tiles</button>
           <button className={view === "list" ? "on" : ""} onClick={() => setV("list")} title="List">☰ List</button>
@@ -164,7 +169,7 @@ export function ArchitectureWork() {
             <p className="quiet">The projects seen through the Architecture Repository: designed in phase 13.0.9. Empty for now.</p></div>
           : view === "tiles" || view === "levels" ? <div className="work-tiles">
           {ps.map((p) => (
-            <a key={p.id} className="work-tile" href={`#/projects/${p.id}`}>
+            <a key={p.id} className={`work-tile${isRetiredProject(p) ? " is-retired" : ""}`} href={`#/projects/${p.id}`}>
               <div className="tile-head"><b>{p.name}</b><Pin k="project" x={p} /></div>
               <div className="small"><span className={`rag ${p.status === "active" ? "green" : "off"} small`}>{PROJECT_STATUS[p.status] || p.status}</span> {p.purpose}
                 {p.is_library && <span className="chip">library project</span>}</div>
@@ -176,7 +181,7 @@ export function ArchitectureWork() {
         </div> : <table className="grid-table">
           <thead><tr><th /><th>Project</th><th>Status</th><th>Purpose</th><th className="num">Models</th><th className="num">Documents</th><th>Complete</th></tr></thead>
           <tbody>{ps.map((p) => (
-            <tr key={p.id}><td><Pin k="project" x={p} /></td><td><a href={`#/projects/${p.id}`}><b>{p.name}</b></a></td>
+            <tr key={p.id} className={isRetiredProject(p) ? "is-retired" : undefined}><td><Pin k="project" x={p} /></td><td><a href={`#/projects/${p.id}`}><b>{p.name}</b></a></td>
               <td><span className={`rag ${p.status === "active" ? "green" : "off"} small`}>{PROJECT_STATUS[p.status] || p.status}</span></td>
               <td>{p.purpose}</td><td className="num">{p.models}</td><td className="num">{p.documents}</td>
               <td className="small">{p.completion ? `${p.completion.percent}%` : ""}</td></tr>
@@ -190,7 +195,7 @@ export function ArchitectureWork() {
           : view === "tree" ? <ModelHierarchy models={models || []} shown={ms} Pin={Pin} />
           : view === "tiles" || view === "repo" ? <div className="work-tiles">
           {ms.map((m) => (
-            <a key={m.id} className="work-tile" href={`#/metamodel/${m.id}`}>
+            <a key={m.id} className={`work-tile${isRetiredModel(m) ? " is-retired" : ""}`} href={`#/metamodel/${m.id}`}>
               <div className="tile-head"><span><KindMark m={m} /> <b>{m.name}</b></span><Pin k="model" x={m} /></div>
               {m.frozen_at && <span className="rag off small">frozen</span>}
               {m.description && <p className="small quiet tile-desc">{m.description}</p>}
@@ -202,7 +207,7 @@ export function ArchitectureWork() {
         </div> : <table className="grid-table">
           <thead><tr><th /><th>Model</th><th className="num">Entities</th><th className="num">Relationships</th><th>Merges into</th><th>Changed</th></tr></thead>
           <tbody>{ms.map((m) => (
-            <tr key={m.id}><td><Pin k="model" x={m} /></td><td><KindMark m={m} /> <a href={`#/metamodel/${m.id}`}><b>{m.name}</b></a>{m.frozen_at && <span className="rag off small"> frozen</span>}</td>
+            <tr key={m.id} className={isRetiredModel(m) ? "is-retired" : undefined}><td><Pin k="model" x={m} /></td><td><KindMark m={m} /> <a href={`#/metamodel/${m.id}`}><b>{m.name}</b></a>{m.frozen_at && <span className="rag off small"> frozen</span>}</td>
               <td className="num">{m.entity_count ?? 0}</td><td className="num">{m.relationship_count ?? 0}</td><td className="small">{m.parent_model_name || ""}</td>
               <td className="small">{m.modified_at ? fmtDateTime(m.modified_at) : ""}</td></tr>
           ))}</tbody>

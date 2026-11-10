@@ -13,29 +13,33 @@
 //   #/metamodel/<model>/grid[/<type>|/relationships]   tab Grid: spreadsheet-style editing (GridPages.jsx, phase 7)
 //   #/metamodel/<model>/metamodel/grids/<kind>   metamodel grids: entity types, attributes, mappings... (phase 7)
 //   #/metamodel/<model>/reports          tab Reports: standard reports and the report catalogue (ModelReports.jsx)
+//   #/metamodel/<model>/reports/designer the report designer and the OData feed (ReportDesigner.jsx, phase 24)
+//   #/metamodel/<model>/kpis             tab KPIs: the model's KPI trends and its own KPIs (Kpis.jsx, phase 24)
 //   #/metamodel/<model>/changes[/requests|/history[/<commit>]]   tab Changes: uncommitted changes, commit requests, commits, merges (Changes.jsx, phase 8)
 //   #/metamodel/<model>/tags             tab Tags: frozen snapshots of the model (Versions.jsx, phase 8.3)
 //   #/metamodel/<model>/merge            tab Merge: merge an uploaded model into this one, conflicts decided (Merge.jsx, phase 8)
-//   #/metamodel/<model>/viewpoints[/<code>[/<view>]]   tab Viewpoints: the model through VP-01 to VP-26 and your own (Viewpoints.jsx, phase 8.2)
+//   #/metamodel/<model>/views[/<code>[/<view>]]   tab Views: the model through VP-01 to VP-26 and your own (Views.jsx, phase 8.2)
 import PinButton from "./PinButton";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { apiFetch, can, keycloak, signedIn, canOn, myRolesOn, roleName } from "./auth";
 import { CopyButton, LockBadge } from "./Library";
-import { KindMark, MarksLegend, ModelStateBadge, StatusMarks, readOnlyWhy } from "./ModelMarks";
+import { isRetiredModel, KindMark, liveModels, MarksLegend, ModelStateBadge, ShowRetired, StatusMarks, readOnlyWhy, useShowRetired } from "./ModelMarks";
 import { RecalculateButton } from "./QualityBits";
 import { MetamodelTree } from "./Trees";
 import {
   CsvButton, EntityPage, EntityTypesTab, GraphTab, RelationshipsOfType, RelationshipTypesTab, Swatch, TypeEntitiesTable, useApi,
 } from "./ModelViews";
 import {
-  attributeSpec, EditButton, entityTypeSpec, FailingChecks, lifecycleSpec, LockBanner, LockControl, mappingSpec,
+  attributeSpec, EditButton, entityTypeSpec, FailingChecks, lifecycleSpec, LockBanner, LockControl, mappingSpec, mappingUpdateSpec, multiplicityLabel,
   MetamodelHistory, PickLists, relationshipTypeSpec, removeAttributeSpec, ruleSpec, simpleSpec,
   changeableModel,
 } from "./MetamodelEditor";
 import ModelPeople from "./ModelPeople";
 import ModelReports from "./ModelReports";
+import KpisTab from "./Kpis";
 import SheetsTab from "./Sheets";
-import ViewpointsTab from "./Viewpoints";
+import ViewsTab from "./Views";
+import { DrawnViewPage } from "./DrawnView";
 import { ModelBusinessArtifacts } from "./BusinessArchitecture";
 import ChangesTab, { LiveCommits, usePendingCount } from "./Changes";
 import MergeTab from "./Merge";
@@ -43,11 +47,16 @@ import { TagPage, TagsTab } from "./Versions";
 import { DataEntryTab } from "./DataEntry";
 import { ChangeDocumentsTab, PushDownTab } from "./Notifications";
 import { ModelBackupsTab } from "./Backups";
-import QualityTab from "./Quality";
+import QualityTab, { Duplicates } from "./Quality";
+import ReportDesigner, { ODataTab } from "./ReportDesigner";
+import { MergeRequestsTab } from "./MergeBack";
 import { GridTab, MetamodelGrids } from "./GridPages";
 import { CopyBanner, DraftPage, Drafts, IconDialog, ModelActions, NewModelButton, UploadButton } from "./ModelOps";
+import { WorkbookButton } from "./MetamodelWorkbook";
 import { fmtDate } from "./fmt";
 import { modelOrigin } from "./modelOrigin";
+import { elementTypes } from "./elements.js";
+import PageNav from "./PageNav";
 
 // what kind of model it is, from where it came (owner, 7 Nov 2026)
 export function OriginChip({ m }) {
@@ -71,15 +80,18 @@ export function ModelList({ view, admin = false }) {
   const base = admin ? "model-admin" : "metamodel";
   const [search, setSearch] = useState("");
   const [kind, setKind] = useState("");
-  const [archived, setArchived] = useState(false);
+  const [showRetired, setShowRetired] = useShowRetired();
   // list or tiles, remembered for this person in this browser (owner, 6 Nov 2026)
   const [tiles, setTilesState] = useState(() => { try { return localStorage.getItem("eax.models.view") === "tiles"; } catch { return false; } });
   const setTiles = (v) => { setTilesState(v); try { localStorage.setItem("eax.models.view", v ? "tiles" : "list"); } catch { /* per-viewer convenience only */ } };
   const q = new URLSearchParams();
   if (search.trim()) q.set("search", search.trim());
   if (kind) q.set("kind", kind);
-  if (!archived) q.set("archived", "false");
-  const { data: models, error } = useApi(view === "drafts" ? null : `/api/v1/models?${q}`);
+  const { data: everyModel, error } = useApi(view === "drafts" ? null : `/api/v1/models?${q}`);
+  // frozen and archived models are out of the way unless asked for (D360); the hierarchy keeps them (greyed), so a
+  // family tree never loses a branch
+  const hidden = (everyModel || []).filter(isRetiredModel).length;
+  const models = everyModel && (showRetired || view === "hierarchy" ? everyModel : liveModels(everyModel));
   const tree = view === "hierarchy";
   const drafts = view === "drafts";
   return (
@@ -99,6 +111,7 @@ export function ModelList({ view, admin = false }) {
         <span className="tabs-right">
           <NewModelButton admin={admin} />
           <UploadButton />
+          <WorkbookButton />
         </span>
       </div>
       {drafts ? <Drafts /> : <>
@@ -108,7 +121,7 @@ export function ModelList({ view, admin = false }) {
         <select value={kind} onChange={(e) => setKind(e.target.value)}>
           {KINDS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
-        <label><input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} /> Show archived</label>
+        <ShowRetired count={hidden} show={showRetired} setShow={setShowRetired} />
         {!tree && <div className="seg small" role="tablist" aria-label="Show as">
           <button className={!tiles ? "on" : ""} onClick={() => setTiles(false)} title="A table: one row per model">☰ List</button>
           <button className={tiles ? "on" : ""} onClick={() => setTiles(true)} title="A tile per model, with its icon">▦ Tiles</button>
@@ -129,7 +142,7 @@ export function ModelList({ view, admin = false }) {
             <thead><tr><th>Model</th><th>Kind</th><th>Comes from</th><th>Owner</th><th>State</th><th className="num">Types</th><th className="num">Entities</th><th className="num">Relationships</th><th>Changed</th></tr></thead>
             <tbody>
               {models.map((m) => (
-                <tr key={m.id}>
+                <tr key={m.id} className={isRetiredModel(m) ? "is-retired" : undefined}>
                   <td>
                     <KindMark m={m} /> <a href={`#/${base}/${m.id}`}><strong>{m.name}</strong></a>
                     {m.version_label && <span className="quiet"> {m.version_label}</span>}
@@ -168,7 +181,7 @@ function ModelTiles({ models, empty, base = "metamodel" }) {
   return (
     <div className="model-tiles">
       {models.map((m) => (
-        <a key={m.id} className={`model-tile ${m.kind}${m.lifecycle === "archived" ? " archived" : ""}`} href={`#/${base}/${m.id}`}>
+        <a key={m.id} className={`model-tile ${m.kind}${m.lifecycle === "archived" ? " archived" : ""}${isRetiredModel(m) ? " is-retired" : ""}`} href={`#/${base}/${m.id}`}>
           <div className="model-tile-head"><KindMark m={m} big /><span><ModelStateBadge m={m} /> <StatusMarks m={m} /></span></div>
           <strong className="model-tile-name">{m.name}{m.version_label && <span className="quiet"> {m.version_label}</span>}</strong>
           <span className="small quiet">{m.kind_name}{m.industry ? ` · ${m.industry}` : ""} · {m.metamodel_name} <OriginChip m={m} /></span>
@@ -227,11 +240,15 @@ function Allowed({ title, list, model, m, typeName, outgoing }) {
             <tr key={rel}>
               <th>{rel}</th>
               <td>
-                {groups[rel].length >= 40 ? <em>any type ({groups[rel].length})</em>
-                  : groups[rel].map((a, i) => (
-                    <span key={a.other_type_id} className="mapping">{i > 0 && ", "}<a href={`#/metamodel/${model}/type/${a.other_type_id}`}>{a.other_type}</a>
-                      <EditButton model={model} m={m} label="×" className="tiny" title="Remove this mapping" spec={() => removeSpec(a)} /></span>
-                  ))}
+                {(groups[rel].length >= 40 ? groups[rel].filter((a) => a.source_multiplicity || a.target_multiplicity) : groups[rel]).map((a, i) => (
+                  <span key={a.other_type_id} className="mapping">{i > 0 && ", "}<a href={`#/metamodel/${model}/type/${a.other_type_id}`}>{a.other_type}</a>
+                    {multiplicityLabel(a.source_multiplicity, a.target_multiplicity) &&
+                      <span className="mult" title="Multiplicity, source end : target end">{multiplicityLabel(a.source_multiplicity, a.target_multiplicity)}</span>}
+                    <EditButton model={model} m={m} label="#" className="tiny" title="Set the multiplicity at each end"
+                      spec={() => mappingUpdateSpec(a, outgoing ? `${typeName} ${a.verb} ${a.other_type}` : `${a.other_type} ${a.verb} ${typeName}`)} />
+                    <EditButton model={model} m={m} label="×" className="tiny" title="Remove this mapping" spec={() => removeSpec(a)} /></span>
+                ))}
+                {groups[rel].length >= 40 && <em>{groups[rel].some((a) => a.source_multiplicity || a.target_multiplicity) ? "; " : ""}any type ({groups[rel].length})</em>}
               </td>
             </tr>
           ))}
@@ -248,7 +265,7 @@ function TypeDetail({ model, m, mm, typeId, holdsContent }) {
   if (error) return <p className="status bad">{error}</p>;
   if (!t) return <p>Loading...</p>;
   const hasEntities = !!(list && list.length);
-  const types = mm.layers.flatMap((l) => l.entity_types).filter((x) => x.status !== "retired");
+  const types = mm.domains.flatMap((l) => elementTypes(l)).filter((x) => x.status !== "retired");
   const retired = t.status === "retired";
   return (
     <div>
@@ -259,17 +276,19 @@ function TypeDetail({ model, m, mm, typeId, holdsContent }) {
           <EditButton model={model} m={m} label="+ Mapping" spec={() => mappingSpec(types, mm.relationship_types, t.id)} />
           <EditButton model={model} m={m} label="+ Rule" spec={() => ruleSpec(t)} />
           <span className="er-spacer" />
-          <EditButton model={model} m={m} label="Change type" spec={() => entityTypeSpec(mm.layers, t)} />
+          <EditButton model={model} m={m} label="Change type" spec={() => entityTypeSpec(mm.domains, t)} />
           {retired
             ? <EditButton model={model} m={m} label="Restore" spec={simpleSpec(`Restore ${t.name}`, "entity_type.restore", { id: t.id }, "The type is offered again for new entities and its entities can be changed again.")} />
             : <EditButton model={model} m={m} label="Retire" spec={simpleSpec(`Retire ${t.name}`, "entity_type.retire", { id: t.id },
               `A retired type is no longer offered for new entities${hasEntities ? ` and its ${list.length} entities become read-only` : ""} until it is restored. Nothing is removed.`, true, "Retire")} />}
         </div>
       <p className="quiet">
-        {t.layer} layer · {t.aspect} · display IDs {t.id_prefix}-0001 · code <code>{t.code}</code> ·
+        {t.domain} domain · {t.aspect} · display IDs {t.id_prefix}-0001 · code <code>{t.code}</code> ·
         SQL <code>eax.get_entity('{t.name}', '{t.table_name}')</code> ·{" "}
         <a href={`#/metamodel/${model}/diagram/${typeId}`}>show in the ER diagram</a>
       </p>
+      {!t.is_connector && <p className="quiet type-look">On drawn views: <span className="drawn-swatch" style={{ background: `#${t.drawio?.colour || t.fill_colour || "E4DED2"}` }} />{" "}
+        {t.notation ? t.notation.replace(/([a-z])([A-Z])/g, "$1 $2") : "a plain rounded box"}{t.fill_colour ? ` · its own colour #${t.fill_colour}` : " · the domain's colour"}</p>}
       {holdsContent && <p><a className="button" href={`#/metamodel/${model}/types/${typeId}`} title="The entity grid of this type, with its values">
         ▦ Open the {t.name} entities (grid){list ? ` · ${list.length}` : ""}</a></p>}
       {holdsContent && list && (
@@ -369,7 +388,7 @@ function MetamodelView({ model, m, typeId, holdsContent, sub, gridKind }) {
   if (view === "tree") return <>{seg}<MetamodelTree model={model} m={m} /></>;
   if (view === "grids") return <>{seg}<MetamodelGrids key={gridKind || "entity_types"} model={model} m={m} kindFromUrl={gridKind || "entity_types"} /></>;
   if (view === "history") return <>{seg}<MetamodelHistory model={model} m={m} /></>;
-  const types = mm.layers.flatMap((l) => l.entity_types).filter((x) => x.status !== "retired");
+  const types = mm.domains.flatMap((l) => elementTypes(l)).filter((x) => x.status !== "retired");
   return (
     <>
     {seg}
@@ -377,7 +396,7 @@ function MetamodelView({ model, m, typeId, holdsContent, sub, gridKind }) {
       <span className="quiet">Metamodel <strong>version {m.metamodel_version}</strong>: what may be stored and how it is checked.
         {changeableModel(m) && canOn(model, "model.metamodel") ? " Every change publishes a new version." : ""}</span>
       <span className="er-spacer" />
-      <EditButton model={model} m={m} label="+ Entity type" spec={() => entityTypeSpec(mm.layers)} />
+      <EditButton model={model} m={m} label="+ Entity type" spec={() => entityTypeSpec(mm.domains)} />
       <EditButton model={model} m={m} label="+ Relationship type" spec={relationshipTypeSpec()} />
       <EditButton model={model} m={m} label="+ Mapping" spec={() => mappingSpec(types, mm.relationship_types)} />
       {holdsContent && <EntityFinder model={model} />}
@@ -388,9 +407,9 @@ function MetamodelView({ model, m, typeId, holdsContent, sub, gridKind }) {
       </span>
     </div>
     <div className="mm">
-      <div className="layers">
-        {mm.layers.map((l) => (
-          <div key={l.id} className="layer">
+      <div className="domains">
+        {mm.domains.map((l) => (
+          <div key={l.id} className="domain">
             <h3><Swatch colour={l.colour} /> {l.name}</h3>
             <ul>
               {l.entity_types.map((t) => (
@@ -402,7 +421,7 @@ function MetamodelView({ model, m, typeId, holdsContent, sub, gridKind }) {
             </ul>
           </div>
         ))}
-        <div className="layer">
+        <div className="domain">
           <h3>Relationship types</h3>
           <ul>{mm.relationship_types.map((r) => (
             <li key={r.id} title={r.description} className={r.status === "retired" ? "retired" : ""}>
@@ -475,6 +494,21 @@ function descendsFrom(x, root, byId, up) {
   return false;
 }
 
+// the model page's groups (D478): the same in the Grouped and Menu styles; Manage only for those who administer the model
+const modelGroups = (mayAdmin) => [
+  ["content", "Content", "▤", ["entry", "grid", "hierarchy", "graph", "changes"]],
+  ["views", "Views", "◫", ["views", "business"]],
+  ["quality", "Quality", "✓", ["quality", "duplicates", "checks"]],
+  ["reports", "Reports", "▥", ["reports", "designer", "odata", "kpis"]],
+  ["metamodel", "Metamodel", "◇", ["types", "rels", "metamodel", "diagram"]],
+  // those who don't administer the model still see the tabs they always saw (nothing taken away, D289), under "More"
+  mayAdmin ? ["manage", "Manage", "⚙", MANAGE] : ["more", "More", "…", MANAGE],
+];
+const MANAGE = ["tags", "merge", "merge-requests", "pushdown", "documents", "import", "people", "backups"];
+// the third level, named in the breadcrumb
+const subLabelOf = (tab, itemId) => (tab === "views" && itemId === "custom" ? "Custom views" : tab === "views" && itemId === "standard" ? "Standard views"
+  : tab === "changes" && itemId === "history" ? "History" : "");
+
 function ModelPage({ model, view, itemId, sub }) {
   const { data: m, error } = useApi(`/api/v1/models/${model}`);
   const [showProps, setShowProps] = useState(false);
@@ -484,19 +518,24 @@ function ModelPage({ model, view, itemId, sub }) {
   if (!m) return <section><p>Loading...</p></section>;
   const holdsContent = m.kind !== "template";
   const v = view === "relationships" ? "rels" : view === "sheets" ? "import" : view;   // older links
+  // older links to screens that are tabs now (owner, 10 Nov 2026, D542): Quality > Duplicates, Reports > Report designer
   const tab = !v ? (holdsContent ? "types" : "metamodel")
-    : v === "type" ? "metamodel" : v === "entity" ? "types" : v;
+    : v === "type" ? "metamodel" : v === "entity" ? "types" : v === "drawn-views" ? "views"
+    : v === "quality" && itemId === "duplicates" ? "duplicates" : v === "reports" && itemId === "designer" ? "designer" : v;
   // every tab the model page always had (the owner wants them all here); Model admin has the same admin tabs and the wizards
   const tabs = [
     ...(holdsContent ? [["types", "Entity types", m.entity_type_count], ["entry", "Data entry", null], ["grid", "Grid", null], ["rels", "Relationship types", null],
-      ["graph", "Graph", null], ["viewpoints", "Viewpoints", null], ["business", "Business viewpoints", null], ["checks", "Failing checks", null]] : []),
-    ...(m.kind === "project" ? [["quality", "Quality", null]] : []),
-    ...(m.kind === "project" ? [["changes", pending ? `Changes (${pending})` : "Changes", null], ["merge", "Merge", null]] : []),
+      ["graph", "Graph", null], ["views", "Views", null], ["business", "Business views", null], ["checks", "Failing checks", null]] : []),
+    ...(m.kind === "project" ? [["quality", "Quality", null], ["duplicates", "Duplicates", null]] : []),
+    ...(m.kind === "project" || m.kind === "reference" ? [["kpis", "KPIs", null]] : []),
+    ...(m.kind === "project" ? [["changes", "Changes", pending || null], ["merge", "Merge", null], ["merge-requests", "Merge requests", null]] : []),
     ...(holdsContent ? [["tags", "Tags", null], ["import", "Import and export", null]] : []),
     ["metamodel", "Metamodel", null],
     ...(m.kind === "project" || m.kind === "template" ? [["pushdown", "Push down", null]] : []),
     ["documents", "Change documents", null],
-    ["diagram", "ER diagram", null], ["reports", "Reports", null], ["hierarchy", "Hierarchy", null],
+    ["diagram", "ER diagram", null], ["reports", "Reports", null],
+    ...(holdsContent ? [["designer", "Report designer", null], ["odata", "Power BI and Excel", null]] : []),
+    ["hierarchy", "Hierarchy", null],
     ...(changeableModel(m) ? [["people", "People", null]] : []),
     ...(canOn(model, "model.metamodel") && m.kind !== "template" ? [["backups", "Backups", null]] : []),
   ];
@@ -545,30 +584,35 @@ function ModelPage({ model, view, itemId, sub }) {
       <LockBanner m={m} />
       <CopyBanner m={m} />
       <LiveCommits model={model} m={m} />
-      <div className="tabs" role="tablist">
-        {tabs.map(([k, label]) => (
-          <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "tab on" : "tab"} onClick={() => go(`/metamodel/${model}/${k}`)}>{label}</button>
-        ))}
-      </div>
+      <PageNav page="model" tabs={tabs.map(([k, l, n]) => [k, l, k === "types" ? null : n])} groups={modelGroups(mayAdmin)} active={tab}
+        href={(k) => `#/metamodel/${model}/${k}`} ctx={{ id: model, m }} subLabel={subLabelOf(tab, itemId)}
+        crumbs={[{ label: "Models", href: "#/metamodel" }, { label: m.name, href: `#/metamodel/${model}` }]}>
       <div className="tab-panel" role="tabpanel">
       {v === "entity" && itemId ? <EntityPage model={model} m={m} entityId={itemId} sub={sub} />
         : tab === "types" ? (itemId ? <TypeEntitiesTable model={model} m={m} typeId={itemId} /> : <EntityTypesTab model={model} m={m} />)
         : tab === "rels" ? (itemId ? <RelationshipsOfType model={model} m={m} relTypeId={itemId} /> : <RelationshipTypesTab model={model} m={m} />)
         : tab === "graph" ? <GraphTab model={model} kind={itemId} />
-        : tab === "viewpoints" ? <ViewpointsTab model={model} m={m} code={itemId} sub={sub} />
+        : v === "drawn-views" && itemId ? <DrawnViewPage key={`${itemId}${window.location.hash.split("?")[1] || ""}`} model={model} m={m} view={decodeURIComponent(itemId)} />
+        : tab === "views" ? <ViewsTab model={model} m={m} code={itemId} sub={sub} />
         : tab === "business" ? <ModelBusinessArtifacts model={model} />
         : tab === "checks" ? <FailingChecks model={model} m={m} />
         : tab === "quality" ? <QualityTab model={model} m={m} drill={itemId} value={sub} />
+        : tab === "duplicates" ? <Duplicates model={model} m={m} />
+        : tab === "designer" ? <ReportDesigner model={model} m={m} />
+        : tab === "odata" ? <ODataTab model={model} />
         : tab === "hierarchy" ? <ModelLineageTab model={model} m={m} />
         : tab === "changes" ? <ChangesTab model={model} m={m} sub={itemId} itemId={sub} />
-        : tab === "reports" ? <ModelReports model={model} m={m} />
+        : tab === "reports" ? <ModelReports model={model} m={m} sub={itemId} />
+        : tab === "kpis" ? <KpisTab model={model} m={m} />
         : tab === "import" ? <SheetsTab model={model} m={m} sub={itemId} itemId={sub} />
         : tab === "grid" ? <GridTab key={itemId || "none"} model={model} m={m} typeFromUrl={itemId || ""} />
         : tab === "entry" ? <DataEntryTab key={itemId || "none"} model={model} m={m} typeFromUrl={itemId || ""} />
         : v === "type" ? <MetamodelView model={model} m={m} typeId={itemId} holdsContent={holdsContent} />
+        : tab === "merge-requests" ? <MergeRequestsTab m={m} />
         : ADMIN_VIEWS.includes(tab) ? <ModelAdminPanel model={model} m={m} tab={tab} itemId={itemId} sub={sub} />
         : <Suspense fallback={<p>Loading the diagram...</p>}><MetamodelDiagram model={model} focus={tab === "diagram" ? itemId || null : null} /></Suspense>}
       </div>
+      </PageNav>
     </section>
   );
 }

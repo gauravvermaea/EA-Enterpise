@@ -363,6 +363,10 @@ export default function Grid({
         </select>
       );
     }
+    if (c.type === "links") {   // a Link (D418): a line a link, "address | note"; Shift+Enter for another line
+      return <textarea autoFocus rows={3} defaultValue={editing.value} placeholder="address | note (a line each)" style={{ width: "100%", minWidth: 260 }}
+        onKeyDown={(e2) => { if (e2.key === "Enter" && e2.shiftKey) return; done(e2); }} onBlur={(e2) => commit(e2.target.value)} />;
+    }
     return <input autoFocus type={c.type === "date" ? "date" : "text"} defaultValue={c.type === "date" ? String(editing.value).slice(0, 10) : editing.value}
       ref={(el) => { if (el && c.type === "date" && !el.dataset.opened) { el.dataset.opened = "1"; try { el.showPicker?.(); } catch { /* typed instead */ } } }}
       onKeyDown={done} onBlur={(e2) => commit(e2.target.value)} list={c.suggest ? `dl-${c.key}` : undefined} />;

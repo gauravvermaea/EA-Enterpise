@@ -17,7 +17,7 @@ def test_clean_keeps_known_blocks_and_checks_links():
 
 
 def test_ea_links():
-    for good in ("ea:model:1f2e", "ea:entity:m1:e2", "ea:viewpoint:m1:VP-19", "ea:document:p1:d1", "ea:page:abc", "https://a.b/c", "mailto:a@b.c"):
+    for good in ("ea:model:1f2e", "ea:entity:m1:e2", "ea:view:m1:VP-19", "ea:document:p1:d1", "ea:page:abc", "https://a.b/c", "mailto:a@b.c"):
         assert bk.good_href(good), good
     for bad in ("ea:nothing:1", "ea:model:", "data:text/html,x", "//evil", "ea:model:a b"):
         assert not bk.good_href(bad), bad

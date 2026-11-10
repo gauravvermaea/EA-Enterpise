@@ -1,4 +1,4 @@
-"""Empty files to stand in for a viewpoint (owner, 9 Nov 2026): a placeholder viewpoint can be an empty Word, PowerPoint,
+"""Empty files to stand in for a view (owner, 9 Nov 2026): a placeholder view can be an empty Word, PowerPoint,
 Excel, PDF, draw.io, Markdown or text file, put in the project's files to fill in later. Each is made here, with no
 template and nothing but the placeholder's name in it (no extra libraries: Word and PowerPoint are written as the few
 XML parts they need)."""

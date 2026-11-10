@@ -91,7 +91,7 @@ Summary; details in [database.md](database.md).
 - Conventions: every table has a bigint `id` and a `guid` (uuid, what the API shows); table names are
   plural, foreign keys singular with `_id`; housekeeping columns `status_code`, `is_deleted`,
   `created_at/by`, `modified_at/by`, `row_version`. Nothing is hard-deleted: `is_deleted` plus history.
-- Each model owns its metamodel (layers, entity types, attribute types, item attributes, pick lists,
+- Each model owns its metamodel (domains, entity types, attribute types, item attributes, pick lists,
   relationship types, allowed relationships, validation rules) and its content (entities, attribute
   values, relationships).
 - Locks: `is_locked` (installer's permanent lock on templates and reference models; only the login

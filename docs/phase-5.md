@@ -4,7 +4,7 @@ Goal: everything in the repository can be reported on, in Superset or any SQL or
 models a person has; and the thirty standard reports of the requirements (phase 11 brought forward,
 D137) ship as Superset dashboards. Version **0.5.0**, migration `0009_reports`. Decisions D137 to D142.
 
-## Status: built and running (owner, 4 Nov 2026): the reports work; each of the 32 dashboards is checked in the end-to-end testing phase, 36.1 (D143)
+## Status: accepted and closed (owner, 4 Nov 2026, D143); each of the 32 dashboards is checked in the end-to-end testing phase, 36.1
 
 ## What phase 5 delivers
 
@@ -24,7 +24,7 @@ D137) ship as Superset dashboards. Version **0.5.0**, migration `0009_reports`. 
 
   | Code | Report | Charts |
   | --- | --- | --- |
-  | MO | Model overview | entities by layer and type, models, changes in the last 90 days |
+  | MO | Model overview | entities by domain and type, models, changes in the last 90 days |
   | SR-01 to SR-08 | Inventories: applications, capabilities, technology, data, processes, interfaces, actors, motivation | a summary pivot and the full list with *Open* links |
   | SR-09 to SR-15 | Matrices: application against capability, process, data (CRUD), technology; process against role; capability against value stream; application interactions | the matrix and the relationships behind it |
   | SR-16, SR-17 | Capability heatmap; technology lifecycle and end of life | heatmap pivots, end-of-life list |
@@ -36,7 +36,7 @@ D137) ship as Superset dashboards. Version **0.5.0**, migration `0009_reports`. 
 
   Standard reports work on any model that keeps the standard types (`rpt.std_roles`, D140).
 - **Filters you set yourself** on every dashboard (D141): the Model filter (several models at a time), drop-downs
-  for type, layer, owner, lifecycle, vendor, changed by or status where the report has them, number
+  for type, domain, owner, lifecycle, vendor, changed by or status where the report has them, number
   ranges for its measures (criticality, cost, fit, applications, dependants, completeness, similarity,
   steps away) and a time range where it has dates. **Threshold pickers** on the heatmaps and banded
   reports re-band the cells at once: SR-16 and the pick-list heatmaps *Medium from* and *High from*,

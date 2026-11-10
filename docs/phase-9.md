@@ -18,7 +18,7 @@ Goal: one place to see who changed what, without slowing the repository. Version
     - a model's own changes (lock, archive, rename);
     - the actions that are not a row change of their own: tags, gap analyses, comparison profiles, merges, commits
       and their requests, roll backs, models created, copied, published or deleted, roles given or removed, library
-      and metamodel draft steps, views and viewpoints, Keycloak role mappings.
+      and metamodel draft steps, saved views and views, Keycloak role mappings.
   - **One action, one row:** every change one person makes to one item in one save is a single row with its fields
     gathered. Changes made with no person set (the installer, the seed) are left out.
   - **Every route in is logged the same way:** screens, the API, MCP, merges, making a tag the latest.

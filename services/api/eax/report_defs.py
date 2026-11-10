@@ -82,9 +82,9 @@ REPORTS: list[dict[str, str]] = [
 ]
 
 
-# ================================================================ phase 8.2 (D161): viewpoints, TOGAF, dependencies, audiences
+# ================================================================ phase 8.2 (D161): views, TOGAF, dependencies, audiences
 # Everything below is product data: the seed brings the database tables in line with it on every start
-# (eax.seed.catalog), so the reports, the Reports tab and the Viewpoints tab read one list.
+# (eax.seed.catalog), so the reports, the Reports tab and the Views tab read one list.
 
 # ---------------------------------------------------------------- audiences (D153): who a report interests; not roles
 AUDIENCES: list[tuple[str, str, str]] = [
@@ -107,10 +107,10 @@ AUDIENCES: list[tuple[str, str, str]] = [
     ("data_steward", "Data steward", "Operations and control"),
 ]
 
-# ---------------------------------------------------------------- viewpoints (VP-01 to VP-26)
-# The 25 example viewpoints of the ArchiMate 4 Specification (Appendix C), and our Gap viewpoint (VP-26), as data: their names,
+# ---------------------------------------------------------------- views (VP-01 to VP-26)
+# The 25 example views of the ArchiMate 4 Specification (Appendix C), and our Gap view (VP-26), as data: their names,
 # purposes, stakeholders and element types as the specification gives them (checked against it, D234; "all core elements"
-# for the Layered viewpoint), the concerns in our own words. A model is shown through a viewpoint as a diagram, a
+# for the Layered view), the concerns in our own words. A model is shown through a view as a diagram, a
 # catalog, a matrix or a heat map coloured by an attribute (Section 13.4). Organisations add their own
 # (Library Admins); built-in ones cannot be changed.
 _ALL_RELS = ["Composition", "Aggregation", "Assignment", "Realization", "Serving", "Access", "Influence", "Association",
@@ -135,7 +135,7 @@ def _vp(n, name, category, purpose, concerns, stakeholders, elements, rels=None,
             "default_view": view, "togaf_artifact": togaf}
 
 
-VIEWPOINTS: list[dict] = [
+VIEWS: list[dict] = [
     _vp(1, "Organization", "Basic: composition", "Designing, deciding, informing",
         "Who is in the organisation, how it is structured and where people work",
         "Enterprise, Process and Domain Architects, managers, employees, shareholders",
@@ -293,7 +293,7 @@ VIEWPOINTS: list[dict] = [
         audiences=["enterprise_architect", "architecture_board", "portfolio_manager"]),
 ] + [
     # The TOGAF business architecture catalogues, matrices and diagrams (owner, 9 Nov 2026, D345): EA Explorer's own
-    # viewpoints, each named after the TOGAF artifact and opening in its usual form. Element types of both ArchiMate 4
+    # views, each named after the TOGAF artifact and opening in its usual form. Element types of both ArchiMate 4
     # (with the EA Explorer extensions) and the TOGAF 10 content metamodel, so each works on models of either.
     _vp(n, name, "TOGAF business architecture", purpose, concerns, stakeholders, elements, rels=rels, heat=heat,
         audiences=aud, view=view, togaf=name)
@@ -359,7 +359,7 @@ VIEWPOINTS: list[dict] = [
                                                "Requirement", "Process"], ["Influence", "Association"], "Owner", ["business_architect", "enterprise_architect"]),
     ]
 ]
-assert len(VIEWPOINTS) == 49
+assert len(VIEWS) == 49
 
 
 def _f(code, family, group, title, view, about, audiences, **extra):
@@ -368,12 +368,12 @@ def _f(code, family, group, title, view, about, audiences, **extra):
             "about": about, "audiences": audiences, **extra}
 
 
-for _v in VIEWPOINTS:
-    REPORTS.append(_f(_v["code"], "Viewpoint", _v["category"], f"{_v['name']} viewpoint", "vp_elements",
-                      f"The model through the {_v['name']} viewpoint: {_v['concerns'][0].lower()}{_v['concerns'][1:]}. "
+for _v in VIEWS:
+    REPORTS.append(_f(_v["code"], "View", _v["category"], f"{_v['name']} view", "vp_elements",
+                      f"The model through the {_v['name']} view: {_v['concerns'][0].lower()}{_v['concerns'][1:]}. "
                       "As a catalog, a matrix, a network and a heat map."
-                      + (f" From the {_v['source']}." if _v["source"] else " EA Explorer's own viewpoint."),
-                      _v["audiences"], viewpoint=_v["code"], source=_v["source"]))
+                      + (f" From the {_v['source']}." if _v["source"] else " EA Explorer's own view."),
+                      _v["audiences"], view_code=_v["code"], source=_v["source"]))
 
 # TOGAF 10 catalogs and matrices the standard reports did not have
 _T = "TOGAF catalogue"
@@ -470,8 +470,8 @@ REPORTS += [
     _f("GR-01", _G, "Gap analysis", "Gap analyses", "gap_analyses",
        "Every gap analysis: its template, baseline and target (models or tags), when compared, and how many gaps are open.",
        ["enterprise_architect", "architecture_board", "change_manager", "cio"]),
-    _f("GR-02", _G, "Gap analysis", "Gaps by layer and type", "gap_items",
-       "Kept, changed, new and eliminated elements by layer and entity type, for one or several gap analyses.",
+    _f("GR-02", _G, "Gap analysis", "Gaps by domain and type", "gap_items",
+       "Kept, changed, new and eliminated elements by domain and entity type, for one or several gap analyses.",
        ["enterprise_architect", "business_architect", "application_architect", "technology_architect"]),
     _f("GR-03", _G, "Gap analysis", "TOGAF gap matrix", "gap_matrix",
        "The TOGAF gap matrix: baseline elements down, target elements across; included, new and eliminated cells.",
@@ -501,6 +501,14 @@ REPORTS += [
     _f("QR-04", _Q, "Data quality", "Failing rules", "quality_findings",
        "The rules entities fail, errors first, and the entities failing each.",
        ["model_owner", "data_steward", "architecture_board"]),
+]
+
+# KPI trends (phase 24, D365, D431): the standard KPIs and each model's own, kept monthly and on every tag
+REPORTS += [
+    _f("KR-01", "KPI trends", "KPI trends", "KPI trends", "kpi_trends",
+       "Each model's KPIs over time: entities by type, applications by TIME and lifecycle, total cost, quality score, orphans, "
+       "end-of-life technology and the model's own KPIs, kept on the 1st of each month and on every tag.",
+       ["enterprise_architect", "architecture_board", "model_owner", "cio"]),
 ]
 
 # standard report audiences (D153, the table agreed on 4 Nov 2026)
@@ -543,10 +551,10 @@ assert all(set(r["audiences"]) <= _aud for r in REPORTS), [r["code"] for r in RE
 assert all(r["audiences"] for r in REPORTS), [r["code"] for r in REPORTS if not r["audiences"]]
 
 
-# The reports that go with each TOGAF business architecture viewpoint (owner, 9 Nov 2026, D352): shown beside it on the
-# Business viewpoints tab of a model and of a project. Each viewpoint is also a dashboard of its own (its code).
+# The reports that go with each TOGAF business architecture view (owner, 9 Nov 2026, D352): shown beside it on the
+# Business views tab of a model and of a project. Each view is also a dashboard of its own (its code).
 # Only what can be made from a model's elements and relationships: the Business Model Canvas is a project's own (D344).
-VIEWPOINT_REPORTS: dict[str, list[str]] = {
+VIEW_REPORTS: dict[str, list[str]] = {
     "VP-01": ["SR-07", "TM-09"], "VP-10": ["SR-05", "SR-13", "TM-12"], "VP-19": ["SR-02", "SR-16", "SR-20"],
     "VP-20": ["SR-14"], "VP-21": ["TC-03", "SR-08"], "VP-27": ["SR-07"], "VP-28": ["TC-09"], "VP-29": ["TC-03", "SR-08"],
     "VP-30": ["TC-06", "TM-12"], "VP-31": ["SR-02", "SR-16"], "VP-32": ["SR-14"], "VP-33": ["SR-14"],

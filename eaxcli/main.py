@@ -6,6 +6,7 @@ import shutil
 import sys
 from pathlib import Path
 
+from . import help as help_
 from . import info, stack
 from .core import (
     EAX,
@@ -31,150 +32,72 @@ from .core import (
     version,
 )
 
-HELP = """EA Explorer helper. Usage: {eax} <command> [options]
-(the launcher fetches uv into work/tools the first time and runs this Python program with it; phase 13.9, D331)
-
-Getting started
-  init [laptop|server]  Creates work/eaexplorer.env from the template for the deployment kind
-                        (laptop if not given) and the work folders. Nothing is generated: on a
-                        laptop every password is P^55w0rd1234&; on a server, replace every change-me
-                        value before starting. Refuses to overwrite an existing config file.
-  check                 Checks that Docker Desktop is running and that the config file and compose
-                        files are valid. Starts nothing.
-  run                   The everyday start, after the first clean-run: the same as up. Keeps the
-                        databases, documents and settings from last time.
-  up [service...] [--wait-all]
-                        Starts in two tiers (D255): the core first (sign-in, the API, the screens; you can sign
-                        in when it says ready), then Reports, Documents, draw.io and the sample data in the
-                        background. --wait-all starts everything and waits until all of it is up (also on
-                        run, debug and the clean-* commands).
-                        Builds our images, pulls the others, and starts every container in the
-                        background. Then prints the addresses and (laptop) the logins.
-                        Name services to start only those and what they depend on, for example
-                        "up api proxy" starts the API, PostgreSQL and nginx only (about 1 GB);
-                        the API is then at https://localhost/api/docs (laptop also http://).
-
-Finding problems
-  debug [service...] [--wait-all]
-                        Same as up, but does not stop on failure: it saves a diagnostics report and
-                        then keeps recording the containers' output to
-                        work/logs/containers-<date-time>.log until you press Ctrl+C.
-                        The containers keep running after Ctrl+C. "debug api" starts and records
-                        the API (and PostgreSQL) only.
-  diag                  Saves a diagnostics report into this run's log: Docker versions, memory and
-                        disk, image settings, every container's state, the last 300 log lines of
-                        each container, and the compose configuration (passwords masked).
-  status                Lists every container with its state and health, including stopped ones, then the file
-                        systems: Docker's disk, the work and backups folders, and this computer's drive (size, used, free).
-  logs [service]        Follows the logs of every container, or of one (for example: logs api).
-                        Ctrl+C to stop.
-
-Everyday use
-  url                   Prints the addresses to open (and the logins on a laptop).
-  trust [--remove]      Adds EA Explorer's local certificate (work/data/tls/ca.crt) to your Windows
-                        trusted root certificates, so the browser stops warning about https://localhost.
-                        Run it once after the first start: clean-run keeps the certificate. --remove
-                        takes EA Explorer's certificates out again.
-  logins                Prints every user name and password (laptop only).
-  down                  Stops and removes the containers. Data in Docker volumes and in work/ is kept.
-  backup [tag]          Takes an infrastructure backup now (every database, the document files, the
-                        certificate, the config file, the release and image versions) into
-                        work/backups/infrastructure, tagged (D216, D226).
-  backups [words]       Lists every backup: infrastructure (numbered, to restore) and application;
-                        with words, only those whose tag, name or maker has them (search by tag).
-  restore [name|tag|latest] [--what full|app|app+data|db|files] [--yes]
-                        Restores an infrastructure backup: by name, by tag (the newest with it) or
-                        latest (the newest good one). Without one it lists them to choose
-                        from, then asks what to restore and for RESTORE to confirm. full = everything;
-                        app = the config file; app+data = the config file, the repository and
-                        document databases and the document files; db = every database; files =
-                        the document files and the certificate. A backup of the current state is
-                        taken first; nothing live changes until all is restored cleanly; it can be
-                        run again. Works when the console is down (starts db, backup and ops).
-  restores              Lists every restore (infrastructure and model) with its status.
-  restore-log <id>      Shows a restore's whole log (also in work/backups/restores/<id>).
-  delete-backup <name>  Deletes an infrastructure backup (unpin it first if it is pinned).
-  delete-restore <id>   Forgets a finished restore and its log.
-  stop-backup           Stops the backups running (infrastructure: at once; application: after the
-                        model it is on); the partial backup is deleted. A restore cannot be stopped.
-  restore-app [run|tag|latest] [--yes]
-                        Restores every model of an application backup, each over itself (each backed
-                        up first); models no longer there are made again; newer models stay as they
-                        are. Needs the api container running.
-  maintenance on|off    Shows (or stops showing) the maintenance page to everyone, served by the
-                        proxy. Restores and up (an upgrade) switch it on and off themselves.
-  app-backup [tag]      Backs up every model now (an application backup), into work/backups/application.
-  restore-model         Lists the application backups and the models in them to choose from, then
-                        restores one as a new model or over itself (needs the api container running).
-  services              Lists the optional services (reports, documents, drawio, mcp, change_log,
-                        backups), whether each is on in the config file and its containers' state.
-  servers [n]           How many API and job servers run (D249): without n, shows them; with n (1 to 16), writes
-                        EAX_API_SERVERS (a dated copy of the config file first) and adds or removes servers now,
-                        without a restart (nginx spreads API calls across them). Also on Administration > Containers.
-  service <name> on|off Switches one optional service on or off: keeps a dated copy of the config file
-                        in work/config-history, writes the switch, then starts or stops its containers.
-                        Everything is on unless switched off (D191). Also in Administration > System
-                        settings > Services.
-
-Starting again
-  cleanup [--all] [--yes] [--certificate]
-                        Stops the containers and deletes everything in the work folder: the config
-                        file, logs and laptop data folders (including backups). With --all it also
-                        deletes the Docker volumes, so the databases and documents start empty.
-                        The local certificate (work/data/tls) is kept, so you need not trust it
-                        again; --certificate deletes it too. Asks you to type yes unless --yes is given.
-  clean-run [laptop|server] [--wait-all]
-                        Starts again from scratch in one step: cleanup --all --yes, then init
-                        (laptop if not given), then up. Deletes the databases and everything in
-                        the work folder without asking.
-  clean-debug [laptop|server] [--wait-all]
-                        The same, but ends with debug instead of up (keeps recording the
-                        containers' output until Ctrl+C).
-  clean-restart [laptop|server] [--wait-all]
-                        For testing a new version: down (stops and removes the running containers),
-                        then clean-run (cleanup --all --yes, init, up). Rebuilds our images and
-                        starts with empty databases; the trusted certificate is kept.
-
-When something is wrong
-  console [--server https://host] [--insecure]
-                        A numbered menu for getting EA Explorer back up, for anyone (D330): status, start,
-                        restart, stop, problems and logs, back up, restore (guided), reset a password (a
-                        person, Keycloak's administrator, break-glass, the database logins), users and roles,
-                        settings and switches, background tasks, health and data quality, the maintenance
-                        page, a diagnostics file, and a prompt for every eax command. On this machine nobody
-                        signs in; anything that changes or replaces data asks you to type YES. With --server
-                        it works on another installation through its API (sign in with Keycloak, your roles).
-                        Every command and the console in detail: docs/command-line-and-console.md.
-
-  help [command]        This text, or the part about one command.
-
-Logs: every command except help and cleanup writes its full output to
-work/logs/eax-<date-time>-<command>.log. When a Docker step fails, a diagnostics report is added to
-that log automatically, so the log file is all you need to send when something goes wrong."""
-
 DOCKER_COMMANDS = {"check", "up", "start-later", "debug", "status", "logs", "down", "backup", "backups", "restore", "restores",
                    "restore-log", "delete-backup", "delete-restore", "app-backup", "restore-model", "restore-app",
-                   "stop-backup", "services", "service"}
+                   "stop-backup", "services", "service", "import", "update", "rollback", "test", "standby"}
 KEEP = ("tls",)                       # in work/data: the local certificate, kept by cleanup (D107)
 KEEP_WORK = ("data", "tools")         # in work: data (its tls kept) and tools (uv and its Python, D331)
 
 
-def help_text() -> str:
-    return HELP.format(eax=EAX)
+def help_text(name: str = "") -> str:
+    """The help from eaxcli/help.txt (the one source for every form, D331): the overview, one command, or --all."""
+    return help_.render("py", EAX, WINDOWS, name)[0]
 
 
-def show_help(name: str = "") -> None:
-    if not name:
-        print(help_text())
+def show_help(name: str = "", arg: str = "") -> int:
+    text, code = help_.render("py", EAX, WINDOWS, name, arg)
+    print(text)
+    return code
+
+
+def document(options: list[str]) -> None:
+    """eax document: every command in full, in the console (a menu, page by page) or as a web page (asks which)."""
+    mode = "console" if "--console" in options else "web" if "--web" in options else ""
+    if not mode:
+        answer = input("Show the commands (1) here in the console or (2) as a web page in your browser? [1/2] ").strip()
+        mode = "web" if answer in ("2", "w", "web") else "console"
+    if mode == "web":
+        import os
+        import webbrowser
+        out = WORK / "docs" / "eax-commands.html"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(help_.document_html("py", EAX, WINDOWS).encode("utf-8"))
+        say(f"The commands as a web page: {out}")
+        if not os.environ.get("EAX_NO_BROWSER"):
+            webbrowser.open(out.resolve().as_uri())
         return
-    show = False
-    for line in help_text().splitlines():
-        if line.startswith("  ") and not line.startswith(" " * 24) and line[2:3].isalpha():
-            show = line.split()[0] == name
-        elif not line.startswith(" " * 24):
-            show = False
-        if show:
-            print(line)
+    while True:
+        say("")
+        say(f"EA Explorer commands ({EAX} document)", "cyan")
+        print(help_.render("py", EAX, WINDOWS, "--groups")[0])
+        try:
+            answer = input("Number, s to search, q to quit: ").strip()
+        except EOFError:
+            return
+        if answer in ("q", "Q"):
+            return
+        if answer in ("s", "S"):
+            try:
+                word = input("Search for: ").strip()
+            except EOFError:
+                return
+            _paged(help_.render("py", EAX, WINDOWS, "--search", word)[0])
+        elif answer.isdigit():
+            _paged(help_.render("py", EAX, WINDOWS, "--group", answer)[0])
+        elif answer:
+            say("Choose a number, s or q.")
+
+
+def _paged(text: str) -> None:
+    rows = max(10, shutil.get_terminal_size((80, 24)).lines - 2)
+    for i, line in enumerate(text.splitlines(), 1):
+        print(line)
+        if i % rows == 0 and sys.stdout.isatty():      # pages only on a terminal (piped or tested: all of it)
+            try:
+                if input("-- Enter for more, q to stop -- ").strip() == "q":
+                    return
+            except EOFError:
+                return
 
 
 # ---------------------------------------------------------------- starting again (no log: the logs folder goes)
@@ -243,6 +166,18 @@ def clean(command: str, rest: list[str], wait_all: bool) -> int:
         code = run_self(step)
         if code != 0:
             say(f"ERROR: {EAX} {' '.join(step)} failed (exit {code}); {command} stopped there.", "red")
+            return code
+    return 0
+
+
+def restart(wait_all: bool) -> int:
+    """restart: down, then up, each a run of its own (its own log). The data is kept."""
+    for step in (["down"], ["up", *(["--wait-all"] if wait_all else [])]):
+        say("")
+        say(f"=== {EAX} {' '.join(step)}", "cyan")
+        code = run_self(step)
+        if code != 0:
+            say(f"ERROR: {EAX} {' '.join(step)} failed (exit {code}); restart stopped there.", "red")
             return code
     return 0
 
@@ -418,8 +353,33 @@ def dispatch(command: str, rest: list[str], wait_all: bool) -> None:
         stack.interactive([*ops, command], rest)
     elif command == "app-backup":
         stack.interactive([*api, "backup"], rest)
+    elif command == "import":           # deliveries dropped in the import folder (phase 34, D466)
+        stack.interactive(["api", "python", "-m", "eax.deliveries_cli"], rest)
+    elif command in ("update", "rollback"):   # updating to a new release from git (phase 36, D417)
+        stack.backup_helpers()
+        stack.interactive([*ops, command], rest)
     elif command == "restore-model":
         stack.interactive([*api, "restore"], rest)
+    elif command == "test":             # test automation (phase 36.1, D367): build the runner, the ops helper runs it
+        compose(["--profile", "test", "build", "testrunner"])
+        stack.backup_helpers()
+        stack.interactive([*ops, "test"], [*rest, "--version", version()])
+    elif command == "standby":          # the database standby (phase 36.3, D527; EAX_COMPOSE_EXTRA=standby)
+        what = rest[0] if rest else "status"
+        if what == "status":
+            stack.interactive(["db", "psql", "-U", "postgres", "-c"],
+                              ["SELECT client_addr, state, sync_state, replay_lag FROM pg_stat_replication"])
+            stack.interactive(["db-standby", "psql", "-U", "postgres", "-c"],
+                              ["SELECT pg_is_in_recovery() AS following_the_primary, now() - pg_last_xact_replay_timestamp() AS behind_by"])
+        elif what == "promote":
+            say("The standby becomes the primary: it stops following and accepts changes. Then set EAX_DB_HOST=db-standby "
+                f"(or the standby's host) and run {EAX} up.")
+            if input("Type PROMOTE to go on: ").strip() != "PROMOTE":
+                say("Nothing changed.")
+                return
+            stack.interactive(["-u", "postgres", "db-standby", "pg_ctl", "promote", "-D"], ["/var/lib/postgresql/data"])
+        else:
+            raise Failure(f"Usage: {EAX} standby status|promote")
     elif command == "services":
         stack.show_services()
     elif command == "servers":
@@ -445,23 +405,37 @@ def dispatch(command: str, rest: list[str], wait_all: bool) -> None:
 
 def main(argv: list[str]) -> int:
     command = argv[0] if argv else "help"
+    rest = [a for a in argv[1:] if a]
+    if command in ("help", "-h", "--help", "/?"):
+        return show_help(rest[0] if rest else "", rest[1] if len(rest) > 1 else "")
+    if any(a in ("--help", "-h", "/?") for a in rest):
+        return show_help(command)     # <command> --help: the help of that command
     if command == "run":
         command = "up"                # run: the everyday start, the same as up
-    rest = [a for a in argv[1:] if a]
+    elif command == "stop":
+        command = "down"              # stop: the same as down (the data is kept)
     wait_all = "--wait-all" in rest
     rest = [a for a in rest if a != "--wait-all"]
-    if command in ("help", "-h", "--help", "/?"):
-        show_help(rest[0] if rest else "")
-        return 0
     try:
         if command in ("clean-run", "clean-debug", "clean-restart"):
             return clean(command, rest, wait_all)
+        if command == "restart":
+            return restart(wait_all)
         if command == "cleanup":
             cleanup(rest)
             return 0
         if command == "console":
             console(rest)
             return 0
+        if command == "document":
+            document(rest)
+            return 0
+        if command in ("deploy", "secrets"):    # phase 36 (D498, D504): one Python program for every form (D500)
+            if command == "deploy":
+                from . import deploy
+                return deploy.main(rest)
+            from . import secrets as vault
+            return vault.main(rest)
     except (Failure, KeyboardInterrupt) as exc:
         say(f"ERROR: {exc}" if isinstance(exc, Failure) else "Stopped.", "red")
         return 1

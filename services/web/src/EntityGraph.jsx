@@ -2,23 +2,25 @@
 // Three kinds of picture (prop kind):
 //   network  around an entity: the entity in the middle, its neighbours on rings by distance (1 to 3
 //            steps); or every entity of chosen types (ELK layered when small, stress when large)
-//   layers   the chosen types in horizontal bands by ArchiMate layer (strategy at the top, then
+//   domains   the chosen types in horizontal bands by ArchiMate domain (strategy at the top, then
 //            business, application, technology...), to read traceability from top to bottom
 //   impact   from one entity, follow the lines one way only (out: what it leads to, uses or
 //            contains; in: what leads to, uses or contains it), up to 6 steps, in columns by distance
 // Click a box to open its entity page (or, by choice, to put it in the middle). Drag a box to move
-// it, drag the background to pan, scroll to zoom. Open in draw.io (D256), or save as SVG, PNG or CSV (the lines).
+// it, drag the background to pan, scroll to zoom. Save as a drawn view, or download it (.drawio, SVG, PNG, CSV of the lines) (D407, D408).
 // For one entity (its page) there are also:
 //   split    both ways at once: what leads to it on the left, what it leads to on the right
 //   tree     its family tree: every parent up to the top, its parts down a chosen number of levels
-//   layers   its neighbourhood in the bands of the ArchiMate layers
+//   domains   its neighbourhood in the bands of the ArchiMate domains
 //   path     the shortest chains connecting it to a second entity
 //   asof     its relationships at a moment of its history: removed since in red, added since in green
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "./auth";
-import { downloadCsv, openDrawio, downloadPng, downloadSvg } from "./exporting";
+import { downloadCsv, downloadPng, downloadSvg } from "./exporting";
+import { PictureActions } from "./DrawnView";
 import { elk, relColour, straightSection, textWidth } from "./MetamodelDiagram";
 import { fmtDateTime } from "./fmt";
+import { elementTypes } from "./elements.js";
 
 const go = (path) => { window.location.hash = path; };
 const NAME_FONT = "600 12px system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif";
@@ -83,13 +85,13 @@ function rings(nodes, edges, focusId) {
   return boxes;
 }
 
-// every entity in the band of its layer, grouped by type, wrapping long bands
+// every entity in the band of its domain, grouped by type, wrapping long bands
 const BAND_LABEL = 150, BAND_MAX = 1500, GAP = 16;
 function bandsLayout(nodes) {
   const groups = [];
-  for (const n of [...nodes].sort((a, b) => a.layer_order - b.layer_order || a.entity_type.localeCompare(b.entity_type) || a.name.localeCompare(b.name))) {
+  for (const n of [...nodes].sort((a, b) => a.domain_order - b.domain_order || a.entity_type.localeCompare(b.entity_type) || a.name.localeCompare(b.name))) {
     let g = groups[groups.length - 1];
-    if (!g || g.layer !== n.layer) groups.push(g = { layer: n.layer, colour: n.colour, items: [] });
+    if (!g || g.domain !== n.domain) groups.push(g = { domain: n.domain, colour: n.colour, items: [] });
     g.items.push(n);
   }
   const boxes = {}, bands = [];
@@ -105,7 +107,7 @@ function bandsLayout(nodes) {
       lastType = n.entity_type;
     }
     const h = rowY + H + GAP - y;
-    bands.push({ y, height: h, label: g.layer, colour: g.colour });
+    bands.push({ y, height: h, label: g.domain, colour: g.colour });
     y += h + 10;
   }
   return { boxes, bands };
@@ -130,7 +132,7 @@ function chainLayout(nodes, focusId, direction) {
 
 async function layout(nodes, edges, focusId, kind, direction) {
   let boxes, bands = [];
-  if (kind === "layers") {
+  if (kind === "domains") {
     ({ boxes, bands } = bandsLayout(nodes));
   } else if (kind === "impact" && focusId) {
     boxes = chainLayout(nodes, focusId, direction);
@@ -175,7 +177,7 @@ async function layout(nodes, edges, focusId, kind, direction) {
 }
 
 // model: guid; focus: entity guid (fixed when the entity page shows it); lockFocus hides the type
-// choice; kind: network, layers or impact
+// choice; kind: network, domains or impact
 const FIRST_DEPTH = { impact: 3, split: 2, tree: 4, path: 6 };
 const ALL_NODES = ["impact", "split", "tree", "path", "asof"];   // kinds that show every entity they fetch
 const FOCUS_KINDS = ["impact", "split", "tree", "path", "asof"];  // kinds that need an entity to start from
@@ -183,14 +185,14 @@ const FOCUS_KINDS = ["impact", "split", "tree", "path", "asof"];  // kinds that 
 // the as-of answer of one entity as a graph: lines then, removed since and added since
 function asOfGraph(a, colour) {
   const me = a.entity;
-  const nodes = [{ id: me.id, name: me.name, display_id: me.display_id, entity_type: me.entity_type, colour, layer: "", focus: true, distance: 0 }];
+  const nodes = [{ id: me.id, name: me.name, display_id: me.display_id, entity_type: me.entity_type, colour, domain: "", focus: true, distance: 0 }];
   const seen = new Set([me.id]);
   const edges = [];
   const add = (r, status) => {
     if (!r.other_id) return;
     if (!seen.has(r.other_id)) {
       seen.add(r.other_id);
-      nodes.push({ id: r.other_id, name: r.other_name, display_id: r.other_display_id || "", entity_type: r.other_type || "", colour: r.other_colour, layer: "", distance: 1 });
+      nodes.push({ id: r.other_id, name: r.other_name, display_id: r.other_display_id || "", entity_type: r.other_type || "", colour: r.other_colour, domain: "", distance: 1 });
     }
     const out = r.direction === "outgoing";
     edges.push({ id: `${r.id}-${status}`, source: out ? me.id : r.other_id, target: out ? r.other_id : me.id,
@@ -201,7 +203,7 @@ function asOfGraph(a, colour) {
   return { model: "", nodes, edges, truncated: false, as_of: a.as_of };
 }
 
-// presetTypeCodes (a viewpoint, phase 8.2): start with these entity types chosen; onlyRels: show only these relationship types
+// presetTypeCodes (a view, phase 8.2): start with these entity types chosen; onlyRels: show only these relationship types
 export default function EntityGraph({ model, focus: fixedFocus = null, lockFocus = false, kind = "network", focusColour = null,
   presetTypeCodes = null, onlyRels = null }) {
   const [pathTo, setPathTo] = useState(null);           // paths: the second entity
@@ -223,7 +225,7 @@ export default function EntityGraph({ model, focus: fixedFocus = null, lockFocus
   const [view, setView] = useState({ x: 20, y: 20, k: 1 });
   const [moved, setMoved] = useState({});
   const [labels, setLabels] = useState(false);
-  const [loners, setLoners] = useState(kind === "layers");   // show entities without lines
+  const [loners, setLoners] = useState(kind === "domains");   // show entities without lines
   const [find, setFind] = useState("");
   const [entities, setEntities] = useState(null);
   const frame = useRef(null);
@@ -238,7 +240,7 @@ export default function EntityGraph({ model, focus: fixedFocus = null, lockFocus
     let live = true;
     apiFetch(`/api/v1/models/${model}/metamodel`).then((mm) => {
       if (!live) return;
-      const list = mm.layers.flatMap((l) => l.entity_types.map((t) => ({ ...t, colour: l.colour, layer: l.name })))
+      const list = mm.domains.flatMap((l) => elementTypes(l).map((t) => ({ ...t, colour: l.colour, domain: l.name })))
         .filter((t) => t.entity_count > 0);
       setMeta(list);
       if (presetTypeCodes) {
@@ -256,7 +258,7 @@ export default function EntityGraph({ model, focus: fixedFocus = null, lockFocus
     return () => { live = false; };
   }, [model, lockFocus, presetTypeCodes]);
 
-  useEffect(() => { setDepth(FIRST_DEPTH[kind] || 1); setLoners(kind === "layers"); setHidden([]); }, [kind]);
+  useEffect(() => { setDepth(FIRST_DEPTH[kind] || 1); setLoners(kind === "domains"); setHidden([]); }, [kind]);
 
   // as of: the moments of the entity's history (one per person per second), newest first
   useEffect(() => {
@@ -281,7 +283,7 @@ export default function EntityGraph({ model, focus: fixedFocus = null, lockFocus
 
   useEffect(() => {
     const q = new URLSearchParams();
-    const useFocus = focus && (kind !== "layers" || lockFocus);
+    const useFocus = focus && (kind !== "domains" || lockFocus);
     let url = `/api/v1/models/${model}/graph`;
     if (kind === "path") {
       if (!focus || !pathTo) { setData(null); return undefined; }
@@ -330,7 +332,7 @@ export default function EntityGraph({ model, focus: fixedFocus = null, lockFocus
     if (!shown) return;
     let live = true;
     setBusy(true);
-    const centre = kind !== "layers" && focus && shown.nodes.some((n) => n.id === focus) ? focus : null;
+    const centre = kind !== "domains" && focus && shown.nodes.some((n) => n.id === focus) ? focus : null;
     layout(shown.nodes, shown.edges, centre, kind, direction)
       .then((g) => { if (live) { setGraph(g); setMoved({}); fit(g); } })
       .catch((e) => live && setError(`Layout failed: ${e.message}`))
@@ -392,12 +394,14 @@ export default function EntityGraph({ model, focus: fixedFocus = null, lockFocus
   }, [find, entities]);
 
   const title = () => `${data?.model || "model"} - ${focusNode?.name || "entities"} (${{
-    network: "network", layers: "layered", impact: `impact ${direction}`, split: "both ways", tree: "family tree",
+    network: "network", domains: "by domain", impact: `impact ${direction}`, split: "both ways", tree: "family tree",
     path: `paths to ${data?.target?.name || ""}`, asof: `as of ${String(data?.as_of?.at || "").slice(0, 16).replace("T", " ")}`,
   }[kind]})`;
 
-  function exportDrawio() {
-    if (!graph) return;
+  // the picture for a drawn view or a download (D407, D408): bands, the entities in their places, the lines bound to the
+  // relationships they show
+  function picture() {
+    if (!graph) return null;
     const cells = (graph.bands || []).map((b, i) => ({
       id: `band${i}`, label: b.label, x: 0, y: b.y, w: b.width, h: b.height, fill: "f6f7f9", stroke: "d9dee5",
       dashed: true, fontColor: "5b6775", bold: true, align: "left",
@@ -405,13 +409,15 @@ export default function EntityGraph({ model, focus: fixedFocus = null, lockFocus
     for (const n of nodes) {
       const b = box(n.id);
       if (b) cells.push({ id: n.id, label: n.name, sub: `${n.entity_type} · ${n.display_id}`, x: b.x, y: b.y, w: b.width, h: b.height,
-        fill: n.colour, stroke: n.id === focus ? "1f5fb8" : "8a96a3", ea_type: n.entity_type, ea_id: n.id, ea_layer: n.layer });
+        fill: n.colour, stroke: n.id === focus ? "1f5fb8" : "8a96a3", ea_type: n.entity_type, ea_id: n.id, ea_domain: n.domain });
     }
-    openDrawio(title(), cells, edges.filter((e) => e.source !== e.target).map((e) => ({
+    return { title: title(), nodes: cells, edges: edges.filter((e) => e.source !== e.target).map((e) => ({
+      rel: e.relationship_type_code !== PARENT && e.status !== "removed" && /^[0-9a-f-]{36}$/i.test(e.id) ? e.relationship_type_code : null,
+      rel_id: /^[0-9a-f-]{36}$/i.test(e.id) ? e.id : null,
       source: e.source, target: e.target, label: labels || e.status === "removed" || e.status === "added" ? `${e.verb}${e.status === "removed" ? " (removed since)" : e.status === "added" ? " (added since)" : ""}` : "",
       colour: e.status === "removed" ? "b3261e" : e.status === "added" ? "1e7b3c" : lineColour(e.relationship_type_code),
       dashed: e.relationship_type_code === PARENT || !e.allowed || e.status === "removed",
-    })));
+    })) };
   }
 
   function exportCsv() {
@@ -428,7 +434,7 @@ export default function EntityGraph({ model, focus: fixedFocus = null, lockFocus
 
   function clickBox(n) {
     if (drag.current?.moved) return;
-    if (lockFocus || onClick === "open" || kind === "layers") go(`/metamodel/${model}/entity/${n.id}`);
+    if (lockFocus || onClick === "open" || kind === "domains") go(`/metamodel/${model}/entity/${n.id}`);
     else setFocus(n.id);
   }
 
@@ -492,7 +498,7 @@ export default function EntityGraph({ model, focus: fixedFocus = null, lockFocus
             </select>
           </label>
         )}
-        {focus && kind !== "asof" && (kind !== "layers" || lockFocus) && (
+        {focus && kind !== "asof" && (kind !== "domains" || lockFocus) && (
           <>
             <label>{kind === "tree" ? "Levels down" : kind === "path" ? "At most steps" : "Steps"}
               <select value={depth} onChange={(e) => setDepth(Number(e.target.value))}>
@@ -518,13 +524,13 @@ export default function EntityGraph({ model, focus: fixedFocus = null, lockFocus
         <button onClick={() => zoomAt(1.25, frame.current.clientWidth / 2, frame.current.clientHeight / 2)}>+</button>
         <button onClick={() => zoomAt(0.8, frame.current.clientWidth / 2, frame.current.clientHeight / 2)}>−</button>
         {Object.keys(moved).length > 0 && <button onClick={() => setMoved({})}>Reset layout</button>}
-        <button onClick={exportDrawio} title="Opens in draw.io in a new tab; save or export it there (File > Save as, Export as)">Open in draw.io</button>
         <button onClick={() => graph && downloadSvg(svgRef.current, graph.width, graph.height, title())}>SVG</button>
         <button onClick={() => graph && downloadPng(svgRef.current, graph.width, graph.height, title())}>PNG</button>
         <button onClick={exportCsv} title="The lines (and entities without lines) as a table">CSV</button>
+        <PictureActions model={model} picture={picture} images={false} disabled={!graph} />
       </div>
 
-      {!lockFocus && (!focus || kind === "layers") && !FOCUS_KINDS.includes(kind) && meta && (
+      {!lockFocus && (!focus || kind === "domains") && !FOCUS_KINDS.includes(kind) && meta && (
         <div className="er-chips">
           <span className="quiet">Entity types:</span>
           {meta.map((t) => (
@@ -563,7 +569,7 @@ export default function EntityGraph({ model, focus: fixedFocus = null, lockFocus
         {kind === "asof" && data?.as_of && <> · as it was on {fmtDateTime(data.as_of.at)}:{" "}
           {edges.filter((e) => e.status === "removed").length} removed since (red), {edges.filter((e) => e.status === "added").length} added since (green)</>}
         {kind === "asof" && moments && !moments.length && " · no recorded history"}
-        {focusNode && !["layers", "path", "asof"].includes(kind) && <> · {["impact", "split", "tree"].includes(kind) ? "start" : "middle"}: <a href={`#/metamodel/${model}/entity/${focusNode.id}`}>{focusNode.name}</a> ({focusNode.entity_type})</>}
+        {focusNode && !["domains", "path", "asof"].includes(kind) && <> · {["impact", "split", "tree"].includes(kind) ? "start" : "middle"}: <a href={`#/metamodel/${model}/entity/${focusNode.id}`}>{focusNode.name}</a> ({focusNode.entity_type})</>}
         {kind !== "impact" && !focus && types && !types.length && " · choose one or more entity types, or put an entity in the middle"}
         {kind === "impact" && !focus && " · choose an entity to start from in the search box"}
       </p>
@@ -628,14 +634,14 @@ export default function EntityGraph({ model, focus: fixedFocus = null, lockFocus
         </svg>
       </div>
       <p className="quiet er-info">
-        Boxes are entities, coloured by layer. Lines are relationships from source to target (dashed: not allowed by the
-        metamodel; dotted grey: part of a parent). {kind === "layers" ? "Bands are the ArchiMate layers, top to bottom. " : ""}
+        Boxes are entities, coloured by domain. Lines are relationships from source to target (dashed: not allowed by the
+        metamodel; dotted grey: part of a parent). {kind === "domains" ? "Bands are the ArchiMate domains, top to bottom. " : ""}
         {kind === "impact" ? "Columns are steps from the starting entity. " : ""}
         {kind === "split" ? "Left: what leads to it (dependencies); right: what it leads to (impact). " : ""}
         {kind === "tree" ? "Parents above, parts below. " : ""}
         {kind === "path" ? "Columns are steps from this entity to the other one (outlined). " : ""}
         {kind === "asof" ? "Red dashed: relationships it had then and has no longer; green: relationships added since. " : ""}Click a box to open its entity page.
-        Drag a box to move it, drag the background to move around, scroll to zoom. Open in draw.io opens it in a new tab, to edit, save or export there.
+        Drag a box to move it, drag the background to move around, scroll to zoom. Save as a drawn view keeps it, with this layout, as a drawn view of the model.
       </p>
     </div>
   );

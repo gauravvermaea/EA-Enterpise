@@ -200,6 +200,18 @@ def create_app() -> Flask:
         return run(lambda c: L.import_project(c, project, d.get("project_name") or "", d.get("library") or {}, d.get("actor") or "system",
                                                  bool(d.get("keep_sharing"))), write=True)
 
+    @app.get(f"{P}/internal/org/export")
+    def export_org():
+        internal()
+        with connect() as conn:
+            return jsonify(L.export_org(conn) or {})
+
+    @app.post(f"{P}/internal/org/import")
+    def import_org():
+        internal()
+        d = request.get_json(silent=True) or {}
+        return run(lambda c: L.import_org(c, d.get("library") or {}, d.get("actor") or "system"), write=True)
+
     @app.post(f"{P}/internal/seed")
     def seed():
         internal()

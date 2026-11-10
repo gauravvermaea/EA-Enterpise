@@ -6,7 +6,7 @@
 --   * the template a document was copied from
 --   * the dates each step was opened and closed, and its history
 --   * the project's own placement of entity types and entities in the content framework
---   * key questions and the viewpoints (or placeholder viewpoints) that answer them
+--   * key questions and the views (or placeholder views) that answer them
 --   * Business Model Canvases: current, target, working copies and scenarios, compared and cleaned up
 -- Rows only: the rules are in eax/repo_tags.py and eax/projects.py (D248).
 -- =====================================================================================
@@ -209,9 +209,9 @@ CREATE TABLE proj.board_members (
 );
 
 -- key questions (owner, 9 Nov 2026): the stakeholder questions the project's work answers, what we expect the answer or
--- the approach to be, and the viewpoints that answer each one (many to many: a question may need several viewpoints, a
--- viewpoint may answer several questions). A placeholder viewpoint stands in where no viewpoint fits: a text, or an
--- empty file (docx, pptx...) in the project's files; it stays in the project (never in the organisation's viewpoints)
+-- the approach to be, and the views that answer each one (many to many: a question may need several views, a
+-- view may answer several questions). A placeholder view stands in where no view fits: a text, or an
+-- empty file (docx, pptx...) in the project's files; it stays in the project (never in the organisation's views)
 CREATE TABLE proj.key_questions (
     id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     guid        uuid NOT NULL UNIQUE DEFAULT gen_random_uuid(),
@@ -236,7 +236,7 @@ CREATE TABLE proj.key_questions (
     changed_by  text NOT NULL DEFAULT '',
     changed_at  timestamptz
 );
-CREATE TABLE proj.placeholder_viewpoints (
+CREATE TABLE proj.placeholder_views (
     id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     guid        uuid NOT NULL UNIQUE DEFAULT gen_random_uuid(),
     project_id  bigint NOT NULL REFERENCES proj.projects (id) ON DELETE CASCADE,
@@ -251,7 +251,7 @@ CREATE TABLE proj.placeholder_viewpoints (
     UNIQUE (project_id, code)
 );
 -- what an answer points to (owner, 9 Nov 2026: "a summary of the answer pointing to artifacts with links"): a document in
--- the project's repository, or a link (a page, a report, a shared file); the viewpoints mapped to the question link too
+-- the project's repository, or a link (a page, a report, a shared file); the views mapped to the question link too
 CREATE TABLE proj.question_links (
     id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     question_id bigint NOT NULL REFERENCES proj.key_questions (id) ON DELETE CASCADE,
@@ -272,10 +272,10 @@ CREATE TABLE proj.question_events (
     note        text NOT NULL DEFAULT ''
 );
 CREATE INDEX question_events_question ON proj.question_events (question_id, at);
-CREATE TABLE proj.question_viewpoints (
+CREATE TABLE proj.question_views (
     question_id bigint NOT NULL REFERENCES proj.key_questions (id) ON DELETE CASCADE,
-    viewpoint   text NOT NULL,                             -- a viewpoint's code (VP-, PV-) or a placeholder's (PH-)
-    PRIMARY KEY (question_id, viewpoint)
+    view        text NOT NULL,                             -- a view's code (VP-, PV-) or a placeholder's (PH-)
+    PRIMARY KEY (question_id, view)
 );
 
 -- Business Model Canvases (owner, 9 Nov 2026): first-class in a project, free-standing from the models. A project has
@@ -349,11 +349,166 @@ SELECT lower(o.username), array_agg(DISTINCT k ORDER BY k), 'migration 0032'
  GROUP BY lower(o.username)
 ON CONFLICT (username) DO NOTHING;
 
--- the TOGAF business architecture viewpoints (owner, 9 Nov 2026, D345): the form a viewpoint opens in (catalog, matrix,
+-- the TOGAF business architecture views (owner, 9 Nov 2026, D345): the form a view opens in (catalog, matrix,
 -- diagram, heat, rels; empty: diagram) and the TOGAF artifact it gives
 ALTER TABLE core.viewpoints
     ADD COLUMN default_view   text NOT NULL DEFAULT '',
     ADD COLUMN togaf_artifact text NOT NULL DEFAULT '';
+
+-- relationship multiplicity (owner, 9 Nov 2026, D395): how many instances may take part at each end of an allowed
+-- relationship: n, * or n..m; empty constrains nothing (checked in Python, eax.multiplicity)
+ALTER TABLE core.allowed_relationships
+    ADD COLUMN source_multiplicity text NOT NULL DEFAULT '',
+    ADD COLUMN target_multiplicity text NOT NULL DEFAULT '';
+
+-- ArchiMate 4 domain colours (D392): a new domain starts Common's warm grey; existing domains are recoloured by the
+-- seed (eax.seed.recolour_domains), which runs as the installer and so may change the locked library models
+ALTER TABLE core.layers ALTER COLUMN colour SET DEFAULT 'E4DED2';
+
+-- ArchiMate 4 says domain, not layer (owner, 9 Nov 2026, D391), outright. The tables keep their internal names
+-- (core.layers, layer_id); what people and tools read is renamed. In the report views the entity type's domain is
+-- "domain"; where a row also carries the entities' own attributes (rpt.entities, rpt.entity_std and the typed views
+-- t_<type>, which have a Domain attribute) it is "type_domain" and "type_domain_code".
+ALTER VIEW rpt.entities RENAME COLUMN layer TO type_domain;
+ALTER VIEW rpt.entities RENAME COLUMN layer_code TO type_domain_code;
+ALTER VIEW rpt.entity_std RENAME COLUMN layer TO type_domain;
+ALTER VIEW rpt.entity_std RENAME COLUMN layer_code TO type_domain_code;
+ALTER VIEW rpt.catalogue RENAME COLUMN layer TO domain;
+ALTER VIEW rpt.mo_type_counts RENAME COLUMN layer TO domain;
+ALTER VIEW rpt.sr27_orphans RENAME COLUMN layer TO domain;
+ALTER VIEW rpt.vp_elements RENAME COLUMN layer TO domain;
+ALTER VIEW rpt.tc_locations RENAME COLUMN item_layer TO item_domain;
+ALTER VIEW rpt.dr_fan RENAME COLUMN layer TO domain;
+ALTER VIEW rpt.gap_items RENAME COLUMN layer TO domain;
+ALTER VIEW rpt.gap_matrix RENAME COLUMN layer TO domain;
+CREATE OR REPLACE FUNCTION rpt.refresh_typed_views() RETURNS integer
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, core, rpt AS $$
+DECLARE
+    t record;
+    a record;
+    v_cols text;
+    v_name text;
+    v_def text;
+    v_col text;
+    v_used text[];
+    v_changed integer := 0;
+    v_wanted text[] := ARRAY[]::text[];
+    v_base text[] := ARRAY['model_id', 'model_name', 'entity_id', 'entity_guid', 'display_id', 'name', 'description', 'entity_type_code',
+                           'entity_type', 'type_domain_code', 'type_domain', 'parent_id', 'parent_name', 'status', 'origin_guid', 'created_at',
+                           'created_by', 'modified_at', 'modified_by', 'link'];
+BEGIN
+    PERFORM pg_advisory_xact_lock(hashtext('rpt.refresh_typed_views'));
+    PERFORM set_config('eax.rls_bypass', 'on', true);
+    FOR t IN SELECT DISTINCT et.code FROM core.entity_types et JOIN core.models m ON m.id = et.model_id AND NOT m.is_deleted
+              WHERE NOT et.is_deleted ORDER BY et.code LOOP
+        v_name := 't_' || rpt.snake(t.code);
+        v_wanted := v_wanted || v_name;
+        v_cols := '';
+        v_used := v_base;
+        FOR a IN
+            SELECT lower(at.code) AS code, min(at.code) AS label,
+                   mode() WITHIN GROUP (ORDER BY at.data_type_code) AS data_type
+              FROM core.item_attributes i JOIN core.attribute_types at ON at.id = i.attribute_type_id
+              JOIN core.entity_types et ON et.id = i.entity_type_id AND et.code = t.code AND NOT et.is_deleted
+              JOIN core.models m ON m.id = i.model_id AND NOT m.is_deleted
+             WHERE NOT i.is_deleted
+             GROUP BY lower(at.code) ORDER BY 1
+        LOOP
+            v_col := rpt.snake(a.label);
+            IF v_col = '' OR v_col = ANY (v_used) THEN v_col := 'a_' || v_col; END IF;
+            v_used := v_used || v_col;
+            v_cols := v_cols || format(', %s AS %I',
+                CASE WHEN a.data_type IN ('integer', 'decimal', 'currency', 'percent')
+                          THEN format('max(v.value_number) FILTER (WHERE lower(v.attribute_code) = %L)', a.code)
+                     WHEN a.data_type = 'date' THEN format('max(v.value_date) FILTER (WHERE lower(v.attribute_code) = %L)', a.code)
+                     WHEN a.data_type = 'boolean' THEN format('bool_or(v.value_bool) FILTER (WHERE lower(v.attribute_code) = %L)', a.code)
+                     ELSE format('max(v.value_display) FILTER (WHERE lower(v.attribute_code) = %L)', a.code) END,
+                v_col);
+        END LOOP;
+        v_def := format('SELECT e.*%s FROM rpt.entities e LEFT JOIN rpt.entity_values v ON v.entity_id = e.entity_id '
+                        'WHERE e.entity_type_code = %L GROUP BY %s',
+                        v_cols, t.code, (SELECT string_agg('e.' || quote_ident(c), ', ') FROM unnest(v_base) c));
+        IF NOT EXISTS (SELECT 1 FROM rpt.typed_views WHERE view_name = v_name AND definition = v_def) THEN
+            IF to_regclass('rpt.' || quote_ident(v_name)) IS NOT NULL THEN
+                EXECUTE format('DROP VIEW rpt.%I', v_name);
+            END IF;
+            EXECUTE format('CREATE VIEW rpt.%I AS %s', v_name, v_def);
+            EXECUTE format('COMMENT ON VIEW rpt.%I IS %L', v_name, 'Entities of type ' || t.code || ' in every model, one column per attribute (D139)');
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'eax_report') THEN
+                EXECUTE format('GRANT SELECT ON rpt.%I TO eax_report', v_name);
+            END IF;
+            INSERT INTO rpt.typed_views (view_name, type_code, definition) VALUES (v_name, t.code, v_def)
+            ON CONFLICT (view_name) DO UPDATE SET definition = EXCLUDED.definition, type_code = EXCLUDED.type_code, refreshed_at = now();
+            v_changed := v_changed + 1;
+        END IF;
+    END LOOP;
+    -- types no model has any more
+    FOR t IN SELECT view_name FROM rpt.typed_views WHERE NOT (view_name = ANY (v_wanted)) LOOP
+        EXECUTE format('DROP VIEW IF EXISTS rpt.%I', t.view_name);
+        DELETE FROM rpt.typed_views WHERE view_name = t.view_name;
+        v_changed := v_changed + 1;
+    END LOOP;
+    PERFORM set_config('eax.rls_bypass', '', true);
+    RETURN v_changed;
+END;
+$$;
+SELECT rpt.refresh_typed_views();
+
+-- what was kept before in the old words: drafts' review comments, saved metamodels, snapshots, gap and common runs,
+-- changes waiting to be committed
+ALTER TABLE core.metamodel_draft_comments DROP CONSTRAINT metamodel_draft_comments_section_check;
+UPDATE core.metamodel_draft_comments SET section = 'domains' WHERE section = 'layers';
+ALTER TABLE core.metamodel_draft_comments ADD CONSTRAINT metamodel_draft_comments_section_check
+    CHECK (section IS NULL OR section IN ('domains', 'pick_lists', 'attributes', 'entity_types', 'relationship_types', 'allowed', 'rules'));
+DO $$
+DECLARE
+    c record;
+BEGIN
+    FOR c IN SELECT * FROM (VALUES ('core', 'model_tags', 'spec'), ('core', 'model_tags', 'snapshot'),
+                                   ('core', 'metamodel_drafts', 'spec'), ('core', 'metamodel_drafts', 'checks'),
+                                   ('core', 'metamodel_draft_events', 'spec'),
+                                   ('core', 'metamodel_version_changes', 'payload'), ('core', 'metamodel_version_changes', 'result'),
+                                   ('core', 'gap_analyses', 'summary'), ('core', 'gap_analyses', 'baseline'), ('core', 'gap_analyses', 'target'),
+                                   ('core', 'gap_runs', 'items'), ('core', 'gap_runs', 'baseline'), ('core', 'gap_runs', 'target'),
+                                   ('core', 'gap_runs', 'totals'), ('core', 'common_analyses', 'summary'), ('core', 'common_analyses', 'sides'),
+                                   ('core', 'common_runs', 'items'), ('core', 'common_runs', 'sides'), ('core', 'common_runs', 'totals'),
+                                   ('core', 'pending_changes', 'args'), ('core', 'pending_changes', 'base'), ('core', 'pending_changes', 'mine'),
+                                   ('core', 'commit_items', 'args'), ('core', 'commit_items', 'before'), ('core', 'commit_items', 'after'),
+                                   ('core', 'merge_sessions', 'plan'), ('core', 'merge_sessions', 'result'),
+                                   ('proj', 'project_templates', 'spec')) AS v (s, t, col) LOOP
+        EXECUTE format($q$UPDATE %I.%I SET %I = replace(replace(replace(replace(replace(replace(replace(%I::text,
+                            '"layers":', '"domains":'), '"layer":', '"domain":'), '"layer_id":', '"domain_id":'),
+                            '"layer_code":', '"domain_code":'), '"layer_order":', '"domain_order":'),
+                            '"section": "layers"', '"section": "domains"'), '"item_layer":', '"item_domain":')::jsonb
+                         WHERE %I::text LIKE '%%"layer%%' OR %I::text LIKE '%%"item_layer"%%'$q$,
+                       c.s, c.t, c.col, c.col, c.col, c.col);
+    END LOOP;
+END;
+$$;
+
+-- "Viewpoint" becomes "view" (owner, 9 Nov 2026, D399; brought forward from phase 28, D355), outright. The organisation's
+-- view library keeps its internal table names (core.viewpoints, rpt.viewpoints, rpt.vp_*); what people and the reporting
+-- tool see is renamed, and so are the project tables and columns
+ALTER TABLE proj.project_viewpoints RENAME TO project_views;
+ALTER TABLE proj.project_views RENAME COLUMN viewpoint TO view;
+ALTER TABLE proj.stakeholders RENAME COLUMN viewpoints TO views;
+ALTER VIEW rpt.viewpoints RENAME COLUMN viewpoint_code TO view_code;
+ALTER VIEW rpt.viewpoints RENAME COLUMN viewpoint TO view;
+ALTER VIEW rpt.vp_elements RENAME COLUMN viewpoint_code TO view_code;
+ALTER VIEW rpt.vp_elements RENAME COLUMN viewpoint TO view;
+ALTER VIEW rpt.vp_elements RENAME COLUMN viewpoint_category TO view_category;
+ALTER VIEW rpt.vp_relationships RENAME COLUMN viewpoint_code TO view_code;
+ALTER VIEW rpt.vp_relationships RENAME COLUMN viewpoint TO view;
+ALTER VIEW rpt.vp_element_values RENAME COLUMN viewpoint_code TO view_code;
+ALTER VIEW rpt.vp_element_values RENAME COLUMN viewpoint TO view;
+-- saved project kinds (templates) say views, and links to a model's views follow the new address
+UPDATE proj.project_templates
+   SET spec = regexp_replace(spec::text, '"([a-z_]*)viewpoint(s?)":', '"\1view\2":', 'g')::jsonb
+ WHERE spec::text ~ '"[a-z_]*viewpoints?":';
+UPDATE proj.key_questions SET answer = replace(answer, '/viewpoints/', '/views/') WHERE answer LIKE '%/viewpoints/%';
+UPDATE proj.key_questions SET approach = replace(approach, '/viewpoints/', '/views/') WHERE approach LIKE '%/viewpoints/%';
+UPDATE proj.question_links SET url = replace(url, '/viewpoints/', '/views/') WHERE url LIKE '%/viewpoints/%';
+UPDATE proj.stakeholders SET notes_html = replace(notes_html, '/viewpoints/', '/views/') WHERE notes_html LIKE '%/viewpoints/%';
 
 DO $$
 BEGIN

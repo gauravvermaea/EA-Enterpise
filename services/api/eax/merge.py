@@ -280,7 +280,7 @@ def _add_metamodel(conn, m: dict, spec: dict, gaps: dict, user) -> int:
 
     def codes(items, k="code"):
         return {str(i[k]).lower() for i in items}
-    for section in ("layers", "pick_lists", "attributes"):
+    for section in ("domains", "pick_lists", "attributes"):
         known = codes(merged[section])
         for item in spec.get(section) or []:
             if str(item["code"]).lower() not in known:
@@ -440,6 +440,13 @@ def apply(conn, model: Any, session: Any, user, decisions: dict | None = None, a
     result = {"recorded": len(ids), "committed": done["committed"] if done else 0, "commit": done["commit"] if done else None,
               "commit_number": done["number"] if done else None, "failed": failed[:200], "failed_count": len(failed),
               "left_out": left_out, "metamodel_version": version}
+    src = (plan.get("source_model") or {}).get("id")
+    if src:          # merging another model of this installation brings its new drawn views across (D354)
+        from . import drawn_views as dv
+        sm = _one(conn, "SELECT id FROM core.models WHERE guid = CAST(:g AS uuid)", g=src)
+        if sm:
+            result["drawn_views"] = dv.copy_views(conn, sm["id"], m["_id"], source="merge", only_new=True,
+                                                  actor=getattr(user, "username", None) or "system")
     conn.execute(text("""UPDATE core.merge_sessions SET status = 'applied', applied_at = now(), result = CAST(:r AS jsonb)
                          WHERE id = :i"""), {"r": json.dumps(result, default=str), "i": s["id"]})
     result["note"] = (f"Merged and committed as commit {done['number']}: everyone sees it now. Roll it back from "
@@ -584,4 +591,7 @@ def analyse_model(conn, model: Any, source: Any, user, with_data: bool = True) -
     data, name, _ = mo.export_package(conn, str(src["id"]), "zip", user.username, "content" if with_data else "metamodel")
     plan = analyse(conn, model, data, f"{src['name']} (model)", user, with_data)
     plan["source_model"] = {"id": str(src["id"]), "name": src["name"]}
+    # kept with the session, so applying it brings the source's new drawn views across (D354)
+    conn.execute(text("""UPDATE core.merge_sessions SET plan = jsonb_set(plan, '{source_model}', CAST(:s AS jsonb))
+                         WHERE guid = CAST(:g AS uuid)"""), {"s": json.dumps(plan["source_model"]), "g": plan["id"]})
     return plan

@@ -279,7 +279,7 @@
   {
    "phase": "B",
    "seq": 1,
-   "name": "Select reference models, viewpoints and tools",
+   "name": "Select reference models, views and tools",
    "source": "TOGAF 10",
    "marking": "Modified",
    "note": "The insurance reference model is Meridian's own capability map rather than an industry model. No SA composite insurer reference model was found that survived contact with the funeral book."
@@ -375,7 +375,7 @@
   {
    "phase": "C-D",
    "seq": 1,
-   "name": "Select reference models, viewpoints and tools",
+   "name": "Select reference models, views and tools",
    "source": "TOGAF 10",
    "marking": "Kept",
    "note": ""
@@ -471,7 +471,7 @@
   {
    "phase": "C-A",
    "seq": 1,
-   "name": "Select reference models, viewpoints and tools",
+   "name": "Select reference models, views and tools",
    "source": "TOGAF 10",
    "marking": "Kept",
    "note": ""
@@ -559,7 +559,7 @@
   {
    "phase": "D",
    "seq": 1,
-   "name": "Select reference models, viewpoints and tools",
+   "name": "Select reference models, views and tools",
    "source": "TOGAF 10",
    "marking": "Kept",
    "note": ""

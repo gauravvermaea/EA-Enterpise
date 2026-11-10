@@ -147,7 +147,7 @@ class ModelListQuery(Schema):
 
 class TypeCountOut(Schema):
     entity_type = fields.String()
-    layer = fields.String()
+    domain = fields.String()
     colour = fields.String()
     count = fields.Integer()
 
@@ -157,7 +157,7 @@ class RelationshipCountOut(Schema):
     count = fields.Integer()
 
 
-class LayerCountOut(Schema):
+class DomainCountOut(Schema):
     name = fields.String()
     colour = fields.String()
     types = fields.Integer()
@@ -168,13 +168,13 @@ class LibraryModelOut(ModelOut):
     built_on = fields.String(allow_none=True, metadata={"description": "The root metamodel it is built on (ArchiMate 4, ...)"})
     counts_by_type = fields.List(fields.Nested(TypeCountOut))
     relationship_counts = fields.List(fields.Nested(RelationshipCountOut))
-    layers = fields.List(fields.Nested(LayerCountOut))
+    domains = fields.List(fields.Nested(DomainCountOut))
     relationship_type_count = fields.Integer()
 
 
 class EntityTypeSummary(Schema):
     id = fields.UUID()
-    layer_id = fields.UUID()
+    domain_id = fields.UUID()
     code = fields.String()
     name = fields.String()
     description = fields.String()
@@ -188,9 +188,13 @@ class EntityTypeSummary(Schema):
     content_default = fields.String(metadata={"description": "Its built-in content framework areas"})
     repository_area = fields.String(metadata={"description": "The part of the Architecture Repository it is filed in (D318); empty: built in"})
     repository_default = fields.String(metadata={"description": "Its built-in Repository Area"})
+    notation = fields.String(metadata={"description": "The ArchiMate 4 element whose shape and icon it shows on drawn views; empty: a plain box (D354)"})
+    fill_colour = fields.String(metadata={"description": "Its own fill colour (RRGGBB); empty: its domain's"})
+    is_connector = fields.Boolean(metadata={"description": "A junction: not an element (D397)"})
+    drawio = fields.Dict(metadata={"description": "draw.io styles: box, shape (forms) and colour (phase 28)"})
 
 
-class LayerOut(Schema):
+class DomainOut(Schema):
     id = fields.UUID()
     code = fields.String()
     name = fields.String()
@@ -212,7 +216,7 @@ class RelationshipTypeOut(Schema):
 
 class Metamodel(Schema):
     model = fields.Nested(ModelOut)
-    layers = fields.List(fields.Nested(LayerOut))
+    domains = fields.List(fields.Nested(DomainOut))
     relationship_types = fields.List(fields.Nested(RelationshipTypeOut))
 
 
@@ -257,11 +261,13 @@ class AllowedOut(Schema):
     other_type_id = fields.UUID()
     other_type = fields.String()
     note = fields.String()
+    source_multiplicity = fields.String(metadata={"description": "How many sources one target may have: n, * or n..m; empty: any (D395)"})
+    target_multiplicity = fields.String(metadata={"description": "How many targets one source may have: n, * or n..m; empty: any (D395)"})
 
 
 class EntityTypeDetail(Schema):
     status = fields.String()
-    layer_id = fields.UUID()
+    domain_id = fields.UUID()
     id = fields.UUID()
     code = fields.String()
     name = fields.String()
@@ -269,12 +275,16 @@ class EntityTypeDetail(Schema):
     aspect = fields.String()
     id_prefix = fields.String()
     table_name = fields.String()
-    layer = fields.String()
+    domain = fields.String()
     colour = fields.String()
     content_area = fields.String(metadata={"description": "Its content framework areas, codes with commas (D309); empty: built in"})
     content_default = fields.String(metadata={"description": "Its built-in content framework areas"})
     repository_area = fields.String(metadata={"description": "The part of the Architecture Repository it is filed in (D318); empty: built in"})
     repository_default = fields.String(metadata={"description": "Its built-in Repository Area"})
+    notation = fields.String(metadata={"description": "The ArchiMate 4 element whose shape and icon it shows on drawn views; empty: a plain box (D354)"})
+    fill_colour = fields.String(metadata={"description": "Its own fill colour (RRGGBB); empty: its domain's"})
+    is_connector = fields.Boolean(metadata={"description": "A junction: not an element (D397)"})
+    drawio = fields.Dict(metadata={"description": "draw.io styles: box, shape (forms) and colour (phase 28)"})
     attributes = fields.List(fields.Nested(AttributeOut))
     rules = fields.List(fields.Nested(RuleOut))
     outgoing = fields.List(fields.Nested(AllowedOut), metadata={"description": "this type -> other type"})
@@ -307,7 +317,7 @@ class EntitySummaryOut(Schema):
     description = fields.String()
     entity_type = fields.String()
     entity_type_id = fields.UUID()
-    layer = fields.String()
+    domain = fields.String()
     colour = fields.String()
     parent_name = fields.String(allow_none=True)
     status = fields.String()
@@ -443,7 +453,7 @@ class EntityDetailOut(Schema):
     status = fields.String()
     entity_type = fields.String()
     entity_type_id = fields.UUID()
-    layer = fields.String()
+    domain = fields.String()
     colour = fields.String()
     parent_id = fields.UUID(allow_none=True)
     parent_name = fields.String(allow_none=True)
@@ -507,7 +517,7 @@ class TypeTableTypeOut(Schema):
     aspect = fields.String()
     id_prefix = fields.String()
     table_name = fields.String()
-    layer = fields.String()
+    domain = fields.String()
     colour = fields.String()
 
 
@@ -608,9 +618,9 @@ class GraphNodeOut(Schema):
     name = fields.String()
     entity_type = fields.String()
     entity_type_id = fields.UUID()
-    layer = fields.String()
+    domain = fields.String()
     colour = fields.String()
-    layer_order = fields.Integer()
+    domain_order = fields.Integer()
     focus = fields.Boolean()
     distance = fields.Integer(allow_none=True, metadata={"description": "Steps from the focus (negative: before it, for split and tree)"})
     target = fields.Boolean(metadata={"description": "Paths: the entity the paths lead to"})
@@ -737,8 +747,8 @@ class DiagramTypeOut(Schema):
     name = fields.String()
     table_name = fields.String()
     id_prefix = fields.String()
-    layer_id = fields.UUID()
-    layer = fields.String()
+    domain_id = fields.UUID()
+    domain = fields.String()
     colour = fields.String()
     entity_count = fields.Integer()
     attributes = fields.List(fields.Nested(DiagramAttributeOut))
@@ -748,24 +758,26 @@ class DiagramLinkOut(Schema):
     source = fields.UUID()
     target = fields.UUID()
     relationship_types = fields.List(fields.String(), metadata={"description": "Codes of the allowed relationship types"})
+    source_multiplicities = fields.List(fields.String(), metadata={"description": "Source end of each, in the same order (D395)"})
+    target_multiplicities = fields.List(fields.String(), metadata={"description": "Target end of each, in the same order (D395)"})
 
 
 class MetamodelDiagram(Schema):
     model = fields.Nested(ModelOut)
-    layers = fields.List(fields.Nested(LayerOut))
+    domains = fields.List(fields.Nested(DomainOut))
     entity_types = fields.List(fields.Nested(DiagramTypeOut))
     relationship_types = fields.List(fields.Nested(RelationshipTypeOut))
     links = fields.List(fields.Nested(DiagramLinkOut))
 
 
 class MermaidQuery(Schema):
-    layer = fields.List(fields.String(), load_default=None,
-                        metadata={"description": "Layers to show (name or code); repeat for several. All when left out"})
+    domain = fields.List(fields.String(), load_default=None,
+                        metadata={"description": "Domains to show (name or code); repeat for several. All when left out"})
     type = fields.String(load_default=None, metadata={"description": "Focus on this entity type and the types it may connect to"})
     rel = fields.List(fields.String(), load_default=None,
                       metadata={"description": "Relationship types to show; repeat for several. Default: all but Association and Specialization"})
     generic = fields.Boolean(load_default=False, metadata={"description": "Include Association and Specialization"})
-    connected = fields.Boolean(load_default=False, metadata={"description": "Also show types in other layers that the chosen layers connect to"})
+    connected = fields.Boolean(load_default=False, metadata={"description": "Also show types in other domains that the chosen domains connect to"})
     attributes = fields.Boolean(load_default=True, metadata={"description": "List each type's attributes"})
 
 

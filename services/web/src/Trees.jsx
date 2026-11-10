@@ -88,7 +88,7 @@ export function MetamodelTree({ model, m }) {
                 <li key={t.id} data-node={k} className={flash === k ? "tree-flash" : ""}>
                   <Toggle open={isOpen(k)} onClick={() => toggle(k)} />{" "}
                   <span className="tree-swatch" style={{ background: `#${t.colour}` }} /> <b className={hit(t.name) ? "tree-hit" : ""}>{t.name}</b>
-                  <span className="quiet small"> {t.layer} · {t.entities} entities{t.status === "retired" ? " · retired" : ""}</span>
+                  <span className="quiet small"> {t.domain} · {t.entities} entities{t.status === "retired" ? " · retired" : ""}</span>
                   {isOpen(k) && <ul>
                     {(!f || t.attributes.length > 0) && <li><Toggle open={isOpen(`a:${t.id}`)} onClick={() => toggle(`a:${t.id}`)} empty={!t.attributes.length} /> Attributes <span className="quiet small">({t.attributes.length})</span>
                       {isOpen(`a:${t.id}`) && <ul>{t.attributes.map((a) => <KeyValue key={a.code} k={<span className={hit(a.key) ? "tree-hit" : ""}>{a.key}</span>} v={a.value} />)}</ul>}</li>}

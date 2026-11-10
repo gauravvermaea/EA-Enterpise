@@ -1,5 +1,5 @@
-// The Business viewpoints tab of a model, also inside a project's Business artifacts tab (owner, 9 Nov 2026, D345, D352): the TOGAF business
-// architecture catalogues, matrices and diagrams that can be made from a model, each mapped to the viewpoint that
+// The Business views tab of a model, also inside a project's Business artifacts tab (owner, 9 Nov 2026, D345, D352): the TOGAF business
+// architecture catalogues, matrices and diagrams that can be made from a model, each mapped to the view that
 // shows it here and to its reports (its own dashboard and the standard reports that go with it), with how much of it
 // the model holds and what is missing (no elements yet, or types the metamodel lacks). Only what comes from the model:
 // the Business Model Canvas is a project's own (its own tab, D344).
@@ -19,13 +19,13 @@ function Status({ v }) {
 function Reports({ v, rep }) {
   if (!rep) return <span className="quiet small">…</span>;
   const byCode = Object.fromEntries((rep.reports || []).map((r) => [r.code, r]));
-  const codes = [v.code, ...((rep.viewpoint_reports || {})[v.code] || [])].filter((c) => byCode[c]);
+  const codes = [v.code, ...((rep.view_reports || {})[v.code] || [])].filter((c) => byCode[c]);
   if (!codes.length) return <span className="quiet small">–</span>;
   return (
     <div className="ba-reports">
       {codes.map((c) => (
         <a key={c} href={byCode[c].url} target="_blank" rel="noreferrer" className="small"
-          title={c === v.code ? "This viewpoint as a dashboard in the reporting tool" : byCode[c].title}>
+          title={c === v.code ? "This view as a dashboard in the reporting tool" : byCode[c].title}>
           {c === v.code ? "Dashboard" : `${c} ${byCode[c].title}`} ↗</a>
       ))}
     </div>
@@ -33,29 +33,29 @@ function Reports({ v, rep }) {
 }
 
 export function BusinessArtifacts({ model }) {
-  const { data, error } = useApi(model ? `/api/v1/models/${model}/viewpoints` : null);
+  const { data, error } = useApi(model ? `/api/v1/models/${model}/views` : null);
   const { data: rep } = useApi(model ? `/api/v1/models/${model}/reports` : null);
   if (error) return <p className="status bad">{error}</p>;
   if (!data) return <p className="quiet">Loading…</p>;
-  const vps = (data.viewpoints || data).filter((v) => v.togaf_artifact);
+  const vps = (data.views || data).filter((v) => v.togaf_artifact);
   const group = (v) => (v.default_view === "catalog" ? "catalog" : v.default_view === "matrix" ? "matrix" : "diagram");
   const n = { ok: vps.filter((v) => v.entities > 0).length, empty: vps.filter((v) => !v.entities && (v.types_defined || []).length).length };
   return (
     <div className="ba-tab">
       <p className="quiet small">The TOGAF business architecture catalogues, matrices and diagrams that can be made from this model, each with the
-        viewpoint that shows it and its reports.
+        view that shows it and its reports.
         <b> {n.ok}</b> of {vps.length} have content here; {n.empty} have their types but no elements yet
         {vps.length - n.ok - n.empty ? `; ${vps.length - n.ok - n.empty} need types this model's metamodel lacks` : ""}.</p>
       {GROUPS.map(([g, label]) => (
         <section key={g} className="ba-group">
           <h4>{label}</h4>
           <table className="grid-table ba-table">
-            <thead><tr><th>Artifact</th><th>Viewpoint</th><th>Reports</th><th>Shows</th><th>In this model</th></tr></thead>
+            <thead><tr><th>Artifact</th><th>View</th><th>Reports</th><th>Shows</th><th>In this model</th></tr></thead>
             <tbody>
               {vps.filter((v) => group(v) === g).map((v) => (
                 <tr key={v.code}>
                   <td><b>{v.togaf_artifact}</b><div className="small quiet">{v.concerns}</div></td>
-                  <td className="nowrap"><a href={`#/metamodel/${model}/viewpoints/${encodeURIComponent(v.code)}/${v.default_view || "diagram"}`}>
+                  <td className="nowrap"><a href={`#/metamodel/${model}/views/${encodeURIComponent(v.code)}/${v.default_view || "diagram"}`}>
                     {v.code}{v.name !== v.togaf_artifact ? ` ${v.name}` : ""}</a></td>
                   <td><Reports v={v} rep={rep} /></td>
                   <td className="small quiet">{v.element_types.filter((t) => (v.types_defined || []).includes(t)).map(spaced).join(", ") || v.element_types.map(spaced).join(", ")}</td>
@@ -77,7 +77,7 @@ export function ModelBusinessArtifacts({ model }) {
 
 // the project page's Business artifacts tab (owner, 9 Nov 2026): everything business architecture in the project in one
 // place: its Business Model Canvases (kept in the project, D344), its Phase B deliverables and artifacts with their
-// documents, and the business viewpoints of each of its models (with their reports)
+// documents, and the business views of each of its models (with their reports)
 export function ProjectBusinessArtifacts({ p }) {
   const models = [...p.models].sort((a, b) => (b.home ? 1 : 0) - (a.home ? 1 : 0) || a.name.localeCompare(b.name));
   const [model, setModel] = useState(models[0]?.id || "");
@@ -105,7 +105,7 @@ export function ProjectBusinessArtifacts({ p }) {
         <p className="small"><a href={`#/projects/${p.id}/phases`}>Open the phases</a></p>
       </section>
       <section className="ba-box">
-        <h4>Business viewpoints of the project's models</h4>
+        <h4>Business views of the project's models</h4>
         {!models.length ? <p className="quiet small">The project has no model yet.</p> : <>
           <label className="small">In the model <select value={model} onChange={(e) => setModel(e.target.value)} aria-label="Model">
             {models.map((m) => <option key={m.id} value={m.id}>{m.name}{m.home ? " (primary working model)" : ""}</option>)}</select></label>

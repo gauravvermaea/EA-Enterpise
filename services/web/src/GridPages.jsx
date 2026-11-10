@@ -10,14 +10,17 @@ import { fieldClass, q2, QualityCell, RecheckAll, ScoreChip, useTypeQuality } fr
 import { Modal } from "./ModelOps";
 import { metamodelEditable } from "./MetamodelEditor";
 import { refreshAll, Swatch, useApi } from "./ModelViews";
+import { liveModels } from "./ModelMarks";
+import { elementTypes } from "./elements.js";
+import { LinkList } from "./Links";
 
 const NUMERIC = ["integer", "decimal", "currency", "percent"];
-const cellType = (dt) => (dt === "list" ? "select" : dt === "boolean" ? "bool" : dt === "date" ? "date" : NUMERIC.includes(dt) ? "number" : "text");
+const cellType = (dt) => (dt === "url" ? "links" : dt === "list" ? "select" : dt === "boolean" ? "bool" : dt === "date" ? "date" : NUMERIC.includes(dt) ? "number" : "text");
 
 // ---------------------------------------------------------------- saved views (columns, filter, sort)
 export function ViewPicker({ model, kind, target, config, onApply }) {
   const params = new URLSearchParams({ kind, target: target || "", ...(model ? { model } : {}) });
-  const { data: views } = useApi(`/api/v1/views?${params}`);
+  const { data: views } = useApi(`/api/v1/saved-views?${params}`);
   const [saving, setSaving] = useState(false);
   const [chosen, setChosen] = useState("");
   const current = (views || []).find((v) => v.id === chosen);
@@ -43,7 +46,7 @@ function SaveViewDialog({ model, kind, target, config, existing, onClose, onSave
   return (
     <Modal title="Save view" onClose={onClose} actions={<button className="ed-btn" disabled={!name.trim()} onClick={async () => {
       try {
-        const out = await apiFetch("/api/v1/views", { method: "POST", body: JSON.stringify({
+        const out = await apiFetch("/api/v1/saved-views", { method: "POST", body: JSON.stringify({
           id: replace && existing ? existing.id : null, name, view_kind: kind, model, target: target || "", config, shared }) });
         refreshAll(); onSaved(out.id);
       } catch (err) { setMsg(err.message); }
@@ -70,7 +73,8 @@ export function SearchPage({ route }) {
   const [attribute, setAttribute] = useState(qs.get("attribute") || "");
   const [tag, setTag] = useState(qs.get("tag") || "");
   const [run, setRun] = useState(qs.toString());
-  const { data: models } = useApi("/api/v1/models");
+  const { data: models_ } = useApi("/api/v1/models?archived=false");
+  const models = models_ && liveModels(models_);   // never a frozen or archived model (D360)
   const { data, error } = useApi(run ? `/api/v1/search?${run}` : null);
   function go(e) {
     e?.preventDefault();
@@ -179,7 +183,8 @@ function EntityGrid({ model, m, typeId }) {
     { key: "parent_name", label: "Part of", width: 160, title: "The parent entity: its name or ID" },
     { key: "tags", label: "Tags", width: 140, title: "Separated by commas" },
     ...data.attributes.map((a) => ({ key: `v:${a.code}`, label: a.name, type: cellType(a.data_type), options: a.pick_list_values,
-      required: a.is_required, width: a.data_type === "long_text" ? 220 : 120, ...qCell(tq, a.code),
+      required: a.is_required, width: a.data_type === "long_text" || a.data_type === "url" ? 220 : 120, ...qCell(tq, a.code),
+      ...(a.data_type === "url" ? { render: (row) => <LinkList value={row[`v:${a.code}`]} inline /> } : {}),
       title: [a.data_type_name, a.unit, a.pick_list_values.length ? `One of: ${a.pick_list_values.join(", ")}` : "", a.data_type === "entity_ref" ? "an entity's name or ID" : ""].filter(Boolean).join(" · ") })),
     { key: "status", label: "Status", readOnly: true, width: 80 },
     { key: "relationship_count", label: "Rel.", readOnly: true, type: "number", width: 50 },
@@ -295,9 +300,9 @@ export function GridTab({ model, m, typeFromUrl }) {
           <select value={type} onChange={(e) => { setType(e.target.value); window.location.hash = `/metamodel/${model}/grid${e.target.value ? `/${e.target.value}` : ""}`; }}>
             <option value="">Choose...</option>
             <option value="relationships">Relationships (all types)</option>
-            {mm?.layers.map((l) => (
+            {mm?.domains.map((l) => (
               <optgroup key={l.id} label={l.name}>
-                {l.entity_types.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.entity_count ?? 0})</option>)}
+                {elementTypes(l).map((t) => <option key={t.id} value={t.id}>{t.name} ({t.entity_count ?? 0})</option>)}
               </optgroup>
             ))}
           </select></label>
@@ -319,7 +324,7 @@ function mmColumns(kind, ch) {
   switch (kind) {
     case "entity_types": return [
       { key: "name", label: "Name", required: true, width: 180 }, { key: "code", label: "Code", readOnly: true, createOnly: true, width: 140 },
-      { key: "layer", label: "Layer", type: "select", options: ch.layers, required: true, width: 130 },
+      { key: "domain", label: "Domain", type: "select", options: ch.domains, required: true, width: 130 },
       { key: "id_prefix", label: "ID prefix", width: 80 }, { key: "aspect", label: "Aspect", width: 110 },
       { key: "description", label: "Description", width: 260 },
       { key: "status", label: "Status", type: "select", options: ch.statuses, width: 90, title: "Retired: no new entities, existing ones read-only (D87)" },
@@ -343,6 +348,8 @@ function mmColumns(kind, ch) {
       { key: "source_type", label: "Source type", type: "select", options: ch.entity_types, required: true, width: 180 },
       { key: "relationship_type", label: "Relationship", type: "select", options: ch.relationship_types, required: true, width: 140 },
       { key: "target_type", label: "Target type", type: "select", options: ch.entity_types, required: true, width: 180 },
+      { key: "source_multiplicity", label: "Source end", width: 80, title: "How many sources one target may have: 1, * or a range (0..1, 1..*); empty: any (D395)" },
+      { key: "target_multiplicity", label: "Target end", width: 80, title: "How many targets one source may have: 1, * or a range (0..1, 1..*); empty: any (D395)" },
       { key: "note", label: "Note", width: 240 }, { key: "from_content", label: "Added from data entry", readOnly: true, type: "bool", width: 90 }];
     case "pick_list_values": return [
       { key: "pick_list", label: "Pick list", type: "select", options: ch.pick_lists, required: true, createOnly: true, readOnly: true, width: 180 },
@@ -365,8 +372,8 @@ function mmOps(kind, batch, ch) {
     const v = b.values, cur = b.cur, id = b.orig?.id;
     if (kind === "entity_types") {
       if (b.delete) { ops.push({ op: "entity_type.retire", id }); continue; }
-      if (!id) { ops.push({ op: "entity_type.create", name: cur.name, layer: cur.layer, code: cur.code || undefined, id_prefix: cur.id_prefix || undefined, aspect: cur.aspect || "", description: cur.description || "" }); continue; }
-      const upd = Object.fromEntries(["name", "layer", "id_prefix", "aspect", "description"].filter((k) => k in v).map((k) => [k, v[k] ?? ""]));
+      if (!id) { ops.push({ op: "entity_type.create", name: cur.name, domain: cur.domain, code: cur.code || undefined, id_prefix: cur.id_prefix || undefined, aspect: cur.aspect || "", description: cur.description || "" }); continue; }
+      const upd = Object.fromEntries(["name", "domain", "id_prefix", "aspect", "description"].filter((k) => k in v).map((k) => [k, v[k] ?? ""]));
       if (Object.keys(upd).length) ops.push({ op: "entity_type.update", id, ...upd });
       if ("status" in v) ops.push({ op: v.status === "retired" ? "entity_type.retire" : "entity_type.restore", id });
     } else if (kind === "relationship_types") {
@@ -391,8 +398,14 @@ function mmOps(kind, batch, ch) {
       if ("is_required" in v) upd.is_required = bool(v.is_required);
       if (Object.keys(upd).length) ops.push({ op: "attribute.update", item: id, ...upd });
     } else if (kind === "mappings") {
+      const ends = { source_multiplicity: cur.source_multiplicity || "", target_multiplicity: cur.target_multiplicity || "" };
+      // only the note or the ends changed: change the mapping in place (D395); a new source, type or target replaces it
+      if (id && !b.delete && !["source_type", "relationship_type", "target_type"].some((k) => k in v)) {
+        ops.push({ op: "mapping.update", id, note: cur.note || "", ...ends });
+        continue;
+      }
       if (id) ops.push({ op: "mapping.remove", id });
-      if (!b.delete) ops.push({ op: "mapping.add", relationship_type: cur.relationship_type, source_type: cur.source_type, target_type: cur.target_type, note: cur.note || "" });
+      if (!b.delete) ops.push({ op: "mapping.add", relationship_type: cur.relationship_type, source_type: cur.source_type, target_type: cur.target_type, note: cur.note || "", ...ends });
     } else if (kind === "pick_list_values") {
       if (b.delete && id) { ops.push({ op: "pick_list.retire_value", value_id: id }); continue; }
       if (!id) ops.push({ op: "pick_list.add_value", pick_list: ch.pick_list_ids[cur.pick_list] || cur.pick_list, value: cur.value });

@@ -1,5 +1,5 @@
 // The metamodel as an ER diagram, generated from the database every time it opens.
-//   #/metamodel/<model>/diagram           chosen layers (Business by default)
+//   #/metamodel/<model>/diagram           chosen domains (Business by default)
 //   #/metamodel/<model>/diagram/<typeId>  one entity type and every type it may connect to
 // Boxes are entity types with their attributes; lines are the allowed relationships, combined per
 // source and target type and labelled with the relationship types. Layout by ELK (elkjs), run in a
@@ -9,14 +9,14 @@
 //   up to LAYERED_MAX lines                                  ELK layered, right-angled lines
 //   otherwise                                                ELK stress, straight lines (layered takes minutes)
 // The choice of what to show follows the same rules as services/api/eax/diagram.py (scope).
-// Layered view (D124): each layer is a horizontal band, in the metamodel's layer order, with its types
-// inside; lines cross between the bands. ELK layered with one partition per layer when the diagram is
+// Domain view (D124): each domain is a horizontal band, in the metamodel's domain order, with its types
+// inside; lines cross between the bands. ELK layered with one partition per domain when the diagram is
 // small enough (right-angled lines), otherwise rows of boxes per band with straight lines.
 import { useEffect, useMemo, useRef, useState } from "react";
 import ELK from "elkjs/lib/elk-api.js";
 import elkWorkerUrl from "elkjs/lib/elk-worker.min.js?url";
 import { apiFetch } from "./auth";
-import { openDrawioXml } from "./exporting";
+import { PictureActions } from "./DrawnView";
 
 const GENERIC = ["Association", "Specialization"];
 const REL_COLOURS = {
@@ -39,18 +39,30 @@ export function textWidth(text, font = FONT) {
   return measureCtx.measureText(text).width;
 }
 
+// a relationship type on a line with its multiplicity, source end first (D395): "Association 1 : 0..*"
+export function multText(l, i) {
+  const sm = (l.source_multiplicities || [])[i] || "", tm = (l.target_multiplicities || [])[i] || "";
+  return sm || tm ? ` ${sm || "*"} : ${tm || "*"}` : "";
+}
+export const linkText = (l) => l.relationship_types.map((c, i) => c + multText(l, i)).join(", ");
+
 // ---------------------------------------------------------------- what to show (mirrors eax/diagram.py)
-export function scopeDiagram(data, { layers, focus, rels, connected }) {
+export function scopeDiagram(data, { domains, focus, rels, connected }) {
   const keep = new Set(rels);
   let links = data.links
-    .map((l) => ({ ...l, relationship_types: l.relationship_types.filter((c) => keep.has(c)) }))
+    .map((l) => {
+      const at = l.relationship_types.map((c, i) => i).filter((i) => keep.has(l.relationship_types[i]));
+      const pick = (arr) => at.map((i) => (arr || [])[i] || "");
+      return { ...l, relationship_types: pick(l.relationship_types), source_multiplicities: pick(l.source_multiplicities),
+        target_multiplicities: pick(l.target_multiplicities) };
+    })
     .filter((l) => l.relationship_types.length);
   let ids;
   if (focus) {
     links = links.filter((l) => l.source === focus || l.target === focus);
     ids = new Set([focus, ...links.map((l) => l.source), ...links.map((l) => l.target)]);
   } else {
-    const inside = new Set(data.entity_types.filter((t) => !layers.length || layers.includes(t.layer_id)).map((t) => t.id));
+    const inside = new Set(data.entity_types.filter((t) => !domains.length || domains.includes(t.domain_id)).map((t) => t.id));
     if (connected) {
       links = links.filter((l) => inside.has(l.source) || inside.has(l.target));
       ids = new Set([...inside, ...links.map((l) => l.source), ...links.map((l) => l.target)]);
@@ -64,20 +76,20 @@ export function scopeDiagram(data, { layers, focus, rels, connected }) {
 
 function nodeSize(t, showAttrs) {
   const attrs = showAttrs ? t.attributes : [];
-  let w = Math.max(textWidth(t.name, BOLD), textWidth(`${t.layer} · ${t.entity_count} entities`, FONT));
+  let w = Math.max(textWidth(t.name, BOLD), textWidth(`${t.domain} · ${t.entity_count} entities`, FONT));
   for (const a of attrs) w = Math.max(w, textWidth(`${a.name}${a.is_required ? " *" : ""}`) + 16 + textWidth(a.data_type_name));
   return { width: Math.ceil(Math.max(150, w + 2 * PAD)), height: HEADER + (attrs.length ? attrs.length * ROW + 8 : 0) };
 }
 
 // Ring layout, for a focus with many neighbours (the type in the middle, the neighbours around it)
-// and for small but dense diagrams (every type on the ring). Types are grouped by layer; lines are
+// and for small but dense diagrams (every type on the ring). Types are grouped by domain; lines are
 // straight. Same shape of result as ELK's, so the drawing code is shared.
-function radialLayout(part, focus, children, layerOrder) {
+function radialLayout(part, focus, children, domainOrder) {
   const box = Object.fromEntries(children.map((c) => [c.id, c]));
   const typeOf = Object.fromEntries(part.types.map((t) => [t.id, t]));
   const centre = focus ? box[focus] : { width: 0, height: 0 };
   const ring = children.filter((c) => c.id !== focus).sort((a, b) =>
-    (layerOrder[typeOf[a.id].layer_id] - layerOrder[typeOf[b.id].layer_id]) || typeOf[a.id].name.localeCompare(typeOf[b.id].name));
+    (domainOrder[typeOf[a.id].domain_id] - domainOrder[typeOf[b.id].domain_id]) || typeOf[a.id].name.localeCompare(typeOf[b.id].name));
   const need = ring.map((c) => Math.max(c.width, c.height) * 1.15 + 60);  // room along the ring
   const total = need.reduce((s, n) => s + n, 0);
   // ellipse twice as wide as high; perimeter ~ 2*pi*sqrt((a^2+b^2)/2)
@@ -127,11 +139,11 @@ function radialLayout(part, focus, children, layerOrder) {
   };
 }
 
-async function layout(part, showAttrs, showLabels, focus, layerOrder) {
+async function layout(part, showAttrs, showLabels, focus, domainOrder) {
   const children = part.types.map((t) => ({ id: t.id, ...nodeSize(t, showAttrs) }));
-  if (focus && part.types.length > RADIAL_MIN) return radialLayout(part, focus, children, layerOrder);
+  if (focus && part.types.length > RADIAL_MIN) return radialLayout(part, focus, children, domainOrder);
   if (!focus && part.links.length > DENSE * part.types.length && part.types.length <= RING_MAX) {
-    return radialLayout(part, null, children, layerOrder);
+    return radialLayout(part, null, children, domainOrder);
   }
   if (part.links.length > LAYERED_MAX) {
     // large: stress layout, then remove overlaps; lines are straight, labels go at their middle
@@ -162,7 +174,7 @@ async function layout(part, showAttrs, showLabels, focus, layerOrder) {
     },
     children,
     edges: part.links.map((l, i) => {
-      const text = l.relationship_types.join(", ");
+      const text = linkText(l);
       return {
         id: `e${i}`, sources: [l.source], targets: [l.target],
         labels: showLabels ? [{ id: `e${i}l`, text, width: Math.ceil(textWidth(text, "11px system-ui")) + 6, height: 14 }] : [],
@@ -172,11 +184,11 @@ async function layout(part, showAttrs, showLabels, focus, layerOrder) {
   return elk.layout(graph);
 }
 
-// ---------------------------------------------------------------- layered view: one band per layer
-export const BAND_GUTTER = 150;   // room at the left of each band for the layer's name
+// ---------------------------------------------------------------- domain view: one band per domain
+export const BAND_GUTTER = 150;   // room at the left of each band for the domain's name
 const BAND_PAD = 22, BAND_GAP = 26, ROW_GAP = 34, COL_GAP = 40, ROW_MAX = 1700;
 
-async function bandLayout(part, showAttrs, showLabels, layerOrder) {
+async function bandLayout(part, showAttrs, showLabels, domainOrder) {
   const children = part.types.map((t) => ({ id: t.id, ...nodeSize(t, showAttrs) }));
   const typeOf = Object.fromEntries(part.types.map((t) => [t.id, t]));
   if (part.links.length <= LAYERED_MAX) {
@@ -194,9 +206,9 @@ async function bandLayout(part, showAttrs, showLabels, layerOrder) {
           "elk.spacing.edgeNode": "16",
           "elk.layered.nodePlacement.strategy": "BRANDES_KOEPF",
         },
-        children: children.map((c) => ({ ...c, layoutOptions: { "elk.partitioning.partition": String(layerOrder[typeOf[c.id].layer_id] ?? 0) } })),
+        children: children.map((c) => ({ ...c, layoutOptions: { "elk.partitioning.partition": String(domainOrder[typeOf[c.id].domain_id] ?? 0) } })),
         edges: part.links.map((l, i) => {
-          const text = l.relationship_types.join(", ");
+          const text = linkText(l);
           return { id: `e${i}`, sources: [l.source], targets: [l.target],
             labels: showLabels ? [{ id: `e${i}l`, text, width: Math.ceil(textWidth(text, "11px system-ui")) + 6, height: 14 }] : [] };
         }),
@@ -205,13 +217,13 @@ async function bandLayout(part, showAttrs, showLabels, layerOrder) {
     } catch { /* fall through to rows */ }
   }
   // rows of boxes per band (large diagrams): straight lines, labels at their middle
-  const byLayer = {};
-  for (const c of children) (byLayer[typeOf[c.id].layer_id] ||= []).push(c);
-  const order = Object.keys(byLayer).sort((a, b) => (layerOrder[a] ?? 0) - (layerOrder[b] ?? 0));
+  const byDomain = {};
+  for (const c of children) (byDomain[typeOf[c.id].domain_id] ||= []).push(c);
+  const order = Object.keys(byDomain).sort((a, b) => (domainOrder[a] ?? 0) - (domainOrder[b] ?? 0));
   let y = BAND_PAD;
   const placed = [];
-  for (const layer of order) {
-    const row = byLayer[layer].sort((a, b) => typeOf[a.id].name.localeCompare(typeOf[b.id].name));
+  for (const domain of order) {
+    const row = byDomain[domain].sort((a, b) => typeOf[a.id].name.localeCompare(typeOf[b.id].name));
     let x = BAND_GUTTER, rowH = 0;
     for (const c of row) {
       if (x > BAND_GUTTER && x + c.width > BAND_GUTTER + ROW_MAX) { x = BAND_GUTTER; y += rowH + ROW_GAP; rowH = 0; }
@@ -250,12 +262,12 @@ function shiftRight(g, dx) {
   };
 }
 
-// The bands to draw behind the boxes: one per layer, from its highest box to its lowest, the full width
-export function bandsOf(boxes, types, layers, width) {
+// The bands to draw behind the boxes: one per domain, from its highest box to its lowest, the full width
+export function bandsOf(boxes, types, domains, width) {
   const typeOf = Object.fromEntries(types.map((t) => [t.id, t]));
   const out = [];
-  for (const l of layers) {
-    const inside = boxes.filter((b) => typeOf[b.id]?.layer_id === l.id);
+  for (const l of domains) {
+    const inside = boxes.filter((b) => typeOf[b.id]?.domain_id === l.id);
     if (!inside.length) continue;
     const top = Math.min(...inside.map((b) => b.y)) - BAND_PAD;
     const bottom = Math.max(...inside.map((b) => b.y + b.height)) + BAND_PAD;
@@ -284,7 +296,7 @@ const xml = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replac
 export function drawioXml(title, boxes, links, types, showAttrs, bands = []) {
   const byId = Object.fromEntries(types.map((t) => [t.id, t]));
   const cells = ['<mxCell id="0"/>', '<mxCell id="1" parent="0"/>'];
-  // layered view: the layer bands first, so they sit behind the boxes
+  // domain view: the domain bands first, so they sit behind the boxes
   bands.forEach((b, i) => cells.push(
     `<mxCell id="band_${i}" value="${xml(b.name)}" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#${b.colour};opacity=35;strokeColor=#${b.colour};` +
     `align=left;verticalAlign=top;spacingLeft=12;spacingTop=8;fontStyle=1;fontSize=14;" vertex="1" parent="1">` +
@@ -293,9 +305,9 @@ export function drawioXml(title, boxes, links, types, showAttrs, bands = []) {
     const t = byId[b.id];
     if (!t) continue;
     const attrs = showAttrs ? t.attributes.map((a) => `${xml(a.name)}${a.is_required ? " *" : ""}: <i>${xml(a.data_type_name)}</i>`).join("<br>") : "";
-    const label = `<b>${xml(t.name)}</b><br><font style="font-size:10px">${xml(t.layer)}</font>` + (attrs ? `<hr>${attrs}` : "");
+    const label = `<b>${xml(t.name)}</b><br><font style="font-size:10px">${xml(t.domain)}</font>` + (attrs ? `<hr>${attrs}` : "");
     cells.push(
-      `<UserObject id="t_${b.id}" label="${xml(label)}" ea_type="${xml(t.code)}" ea_id="${b.id}" ea_layer="${xml(t.layer)}">` +
+      `<UserObject id="t_${b.id}" label="${xml(label)}" ea_type="${xml(t.code)}" ea_id="${b.id}" ea_domain="${xml(t.domain)}">` +
       `<mxCell style="rounded=1;arcSize=4;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=8;spacingTop=4;` +
       `fillColor=#${t.colour || "eeeeee"};strokeColor=#8a96a3;fontSize=12;" vertex="1" parent="1">` +
       `<mxGeometry x="${Math.round(b.x)}" y="${Math.round(b.y)}" width="${Math.round(b.width)}" height="${Math.round(b.height)}" as="geometry"/>` +
@@ -306,7 +318,7 @@ export function drawioXml(title, boxes, links, types, showAttrs, bands = []) {
     const colour = (single ? relColour(l.relationship_types[0]) : "#6b7785").slice(1);
     const arrow = l.relationship_types.some((c) => c !== "Association") ? "block" : "none";
     cells.push(
-      `<mxCell id="r_${i}" value="${xml(l.relationship_types.join(", "))}" ` +
+      `<mxCell id="r_${i}" value="${xml(linkText(l))}" ` +
       `style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=${arrow};endFill=1;strokeColor=#${colour};fontSize=10;fontColor=#${colour};labelBackgroundColor=#ffffff;" ` +
       `edge="1" parent="1" source="t_${l.source}" target="t_${l.target}"><mxGeometry relative="1" as="geometry"/></mxCell>`);
   });
@@ -329,14 +341,14 @@ function Node({ t, box, showAttrs, focused, dim, onEnter, onLeave, onClick, onGr
   return (
     <g transform={`translate(${box.x},${box.y})`} opacity={dim ? 0.25 : 1} style={{ cursor: "move" }}
       onMouseEnter={onEnter} onMouseLeave={onLeave} onClick={onClick} onMouseDown={onGrab}>
-      <title>{`${t.name} (${t.layer})\nDrag to move; click to focus on this type`}</title>
+      <title>{`${t.name} (${t.domain})\nDrag to move; click to focus on this type`}</title>
       <rect width={box.width} height={box.height} rx="6" fill="#ffffff"
         stroke={focused ? "#1f5fb8" : "#8a96a3"} strokeWidth={focused ? 2.5 : 1} />
       <path d={`M0 6 a6 6 0 0 1 6 -6 h${box.width - 12} a6 6 0 0 1 6 6 v${HEADER - 6} h-${box.width} z`}
         fill={`#${t.colour || "eeeeee"}`} stroke="none" />
       <line x1="0" y1={HEADER} x2={box.width} y2={HEADER} stroke="#8a96a3" strokeWidth="0.8" />
       <text x={PAD} y="16" fontSize="13" fontWeight="600" fill="#1d2733" fontFamily="system-ui, sans-serif">{t.name}</text>
-      <text x={PAD} y="31" fontSize="11" fill="#5b6775" fontFamily="system-ui, sans-serif">{t.layer} · {t.entity_count} entities</text>
+      <text x={PAD} y="31" fontSize="11" fill="#5b6775" fontFamily="system-ui, sans-serif">{t.domain} · {t.entity_count} entities</text>
       {attrs.map((a, i) => (
         <g key={a.column_name} transform={`translate(0,${HEADER + 4 + i * ROW})`}>
           <title>{`${a.name}: ${a.data_type_name}${a.pick_list ? ` (${a.pick_list})` : ""}${a.is_required ? ", required" : ""}`}</title>
@@ -363,7 +375,7 @@ function Edge({ edge, link, names, dim, hot, showLabel }) {
   const label = showLabel ? (edge.labels?.[0]?.x !== undefined ? edge.labels[0] : mid) : null;
   return (
     <g opacity={dim ? 0.12 : 1}>
-      <title>{`${names[link.source]} → ${names[link.target]}: ${link.relationship_types.join(", ")}`}</title>
+      <title>{`${names[link.source]} → ${names[link.target]}: ${linkText(link)}`}</title>
       <path d={d} fill="none" stroke="transparent" strokeWidth="10" />
       <path d={d} fill="none" stroke={colour} strokeWidth={hot ? 2.2 : 1.2}
         markerEnd={directed ? `url(#arrow-${single ? link.relationship_types[0] : "mixed"})` : undefined} />
@@ -371,7 +383,7 @@ function Edge({ edge, link, names, dim, hot, showLabel }) {
         <text x={label.x + 3} y={label.y + 11} fontSize="11" fontFamily="system-ui, sans-serif"
           paintOrder="stroke" stroke="#ffffff" strokeWidth="3" strokeLinejoin="round">
           {link.relationship_types.map((c, i) => (
-            <tspan key={c} fill={relColour(c)}>{i ? ", " : ""}{c}</tspan>
+            <tspan key={c} fill={relColour(c)}>{i ? ", " : ""}{c}{multText(link, i)}</tspan>
           ))}
         </text>
       )}
@@ -383,7 +395,7 @@ function Edge({ edge, link, names, dim, hot, showLabel }) {
 export default function MetamodelDiagram({ model, focus }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
-  const [layers, setLayers] = useState(null);          // chosen layer ids
+  const [domains, setDomains] = useState(null);          // chosen domain ids
   const [rels, setRels] = useState(null);              // chosen relationship type codes
   const [showAttrs, setShowAttrs] = useState(true);
   const [showLabels, setShowLabels] = useState(true);
@@ -406,8 +418,8 @@ export default function MetamodelDiagram({ model, focus }) {
       .then((d) => {
         if (!live) return;
         setData(d);
-        const business = d.layers.find((l) => l.code === "business") || d.layers[0];
-        setLayers(business ? [business.id] : []);
+        const business = d.domains.find((l) => l.code === "business") || d.domains[0];
+        setDomains(business ? [business.id] : []);
         setRels(d.relationship_types.map((r) => r.code).filter((c) => !GENERIC.includes(c)));
       })
       .catch((e) => live && setError(e.message));
@@ -415,15 +427,15 @@ export default function MetamodelDiagram({ model, focus }) {
   }, [model]);
 
   const part = useMemo(
-    () => (data && layers && rels ? scopeDiagram(data, { layers, focus, rels, connected }) : null),
-    [data, layers, focus, rels, connected]);
+    () => (data && domains && rels ? scopeDiagram(data, { domains, focus, rels, connected }) : null),
+    [data, domains, focus, rels, connected]);
 
   useEffect(() => {
     if (!part) return;
     let live = true;
     setBusy(true);
-    const layerOrder = Object.fromEntries(data.layers.map((l, i) => [l.id, i]));
-    (arrange === "layers" ? bandLayout(part, showAttrs, showLabels, layerOrder) : layout(part, showAttrs, showLabels, focus, layerOrder))
+    const domainOrder = Object.fromEntries(data.domains.map((l, i) => [l.id, i]));
+    (arrange === "domains" ? bandLayout(part, showAttrs, showLabels, domainOrder) : layout(part, showAttrs, showLabels, focus, domainOrder))
       .then((g) => { if (live) { setGraph({ ...g, part }); setMoved({}); fit(g); } })
       .catch((e) => live && setError(`Layout failed: ${e.message}`))
       .finally(() => live && setBusy(false));
@@ -432,8 +444,8 @@ export default function MetamodelDiagram({ model, focus }) {
 
   function chooseArrange(a) {
     setArrange(a);
-    // a layered view of one layer says little: show them all (the chips still narrow it)
-    if (a === "layers" && !focus && data && layers && layers.length <= 1) setLayers(data.layers.map((l) => l.id));
+    // a domain view of one domain says little: show them all (the chips still narrow it)
+    if (a === "domains" && !focus && data && domains && domains.length <= 1) setDomains(data.domains.map((l) => l.id));
     try { localStorage.setItem("eax-er-arrange", a); } catch { /* the choice is only for this visit */ }
   }
 
@@ -491,9 +503,9 @@ export default function MetamodelDiagram({ model, focus }) {
     setList(list.includes(value) ? list.filter((x) => x !== value) : [...list, value]);
   }
 
-  function chooseLayer(id) {
-    if (focus) { setLayers([id]); go(`/metamodel/${model}/diagram`); return; }
-    toggle(layers, setLayers, id);
+  function chooseDomain(id) {
+    if (focus) { setDomains([id]); go(`/metamodel/${model}/diagram`); return; }
+    toggle(domains, setDomains, id);
   }
 
   function fileName(ext) {
@@ -539,17 +551,17 @@ export default function MetamodelDiagram({ model, focus }) {
     img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(text);
   }
 
-  function openDrawio() {
-    if (!graph) return;
-    const text = drawioXml(fileName("drawio").replace(/\.drawio$/, ""), boxes, links, data.entity_types, showAttrs, bands);
-    openDrawioXml(fileName("drawio").replace(/\.drawio$/, ""), text);
-    setNote("Opened in draw.io in a new tab: save or export it there (File > Save as, File > Export as).");
-    setTimeout(() => setNote(""), 6000);
+  // the diagram's own draw.io file: saved as a drawn view of the model (its boxes are types, not entities, so they stay
+  // plain shapes there) or downloaded (D407, D408)
+  function picture() {
+    if (!graph) return null;
+    const t = fileName("drawio").replace(/\.drawio$/, "");
+    return { title: t, xml: drawioXml(t, boxes, links, data.entity_types, showAttrs, bands) };
   }
 
   async function copyMermaid() {
     const q = new URLSearchParams();
-    if (focus) q.set("type", focus); else layers.forEach((l) => q.append("layer", l));
+    if (focus) q.set("type", focus); else domains.forEach((l) => q.append("domain", l));
     rels.forEach((r) => q.append("rel", r));
     if (connected) q.set("connected", "true");
     if (!showAttrs) q.set("attributes", "false");
@@ -564,7 +576,7 @@ export default function MetamodelDiagram({ model, focus }) {
   }
 
   if (error) return <p className="status bad">{error}</p>;
-  if (!data || !layers || !rels) return <p>Loading the metamodel...</p>;
+  if (!data || !domains || !rels) return <p>Loading the metamodel...</p>;
 
   const names = Object.fromEntries(data.entity_types.map((t) => [t.id, t.name]));
   const focusType = focus && data.entity_types.find((t) => t.id === focus);
@@ -591,17 +603,17 @@ export default function MetamodelDiagram({ model, focus }) {
   const near = hover ? new Set([hover, ...links.filter((l) => l.source === hover || l.target === hover)
     .flatMap((l) => [l.source, l.target])]) : null;
   const big = part && (part.types.length > 45 || part.links.length > 250);
-  const bands = arrange === "layers" && graph ? bandsOf(boxes, data.entity_types, data.layers, graph.width) : [];
+  const bands = arrange === "domains" && graph ? bandsOf(boxes, data.entity_types, data.domains, graph.width) : [];
 
   return (
     <div className="er">
       <div className="er-bar">
         <label>Focus on
           <select value={focus || ""} onChange={(e) => go(`/metamodel/${model}/diagram${e.target.value ? `/${e.target.value}` : ""}`)}>
-            <option value="">(layers below)</option>
-            {data.layers.map((l) => (
+            <option value="">(domains below)</option>
+            {data.domains.map((l) => (
               <optgroup key={l.id} label={l.name}>
-                {data.entity_types.filter((t) => t.layer_id === l.id).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                {data.entity_types.filter((t) => t.domain_id === l.id).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
               </optgroup>
             ))}
           </select>
@@ -614,8 +626,8 @@ export default function MetamodelDiagram({ model, focus }) {
         <div className="seg small" role="group" aria-label="Arrangement">
           <button className={arrange === "free" ? "on" : ""} onClick={() => chooseArrange("free")}
             title="Boxes placed to keep lines short and tidy">Free layout</button>
-          <button className={arrange === "layers" ? "on" : ""} onClick={() => chooseArrange("layers")}
-            title="One band per layer, top to bottom in the metamodel's layer order (Strategy, Business, Application, Technology...), with lines crossing between the bands">Layered</button>
+          <button className={arrange === "domains" ? "on" : ""} onClick={() => chooseArrange("domains")}
+            title="One band per domain, top to bottom in the metamodel's domain order (Strategy, Business, Application, Technology...), with lines crossing between the bands">By domain</button>
         </div>
         <label><input type="checkbox" checked={showAttrs} onChange={(e) => setShowAttrs(e.target.checked)} /> Attributes</label>
         <label><input type="checkbox" checked={showLabels} onChange={(e) => setShowLabels(e.target.checked)} /> Line labels</label>
@@ -625,20 +637,20 @@ export default function MetamodelDiagram({ model, focus }) {
         {Object.keys(moved).length > 0 && <button onClick={() => setMoved({})} title="Put dragged boxes back">Reset layout</button>}
         <button onClick={downloadSvg}>SVG</button>
         <button onClick={downloadPng}>PNG</button>
-        <button onClick={openDrawio} title="Opens in draw.io in a new tab; save or export it there (File > Save as, Export as)">Open in draw.io</button>
+        <PictureActions model={model} picture={picture} images={false} disabled={!graph} />
         <button onClick={copyMermaid}>Copy as Mermaid</button>
       </div>
 
       <div className={`er-chips${focus ? " off" : ""}`}>
-        <span className="quiet">Layers{focus ? " (choose one to leave the focus)" : ""}:</span>
-        {data.layers.map((l) => (
-          <button key={l.id} className={`chip${!focus && layers.includes(l.id) ? " on" : ""}`} onClick={() => chooseLayer(l.id)}>
+        <span className="quiet">Domains{focus ? " (choose one to leave the focus)" : ""}:</span>
+        {data.domains.map((l) => (
+          <button key={l.id} className={`chip${!focus && domains.includes(l.id) ? " on" : ""}`} onClick={() => chooseDomain(l.id)}>
             <span className="swatch" style={{ background: `#${l.colour}` }} /> {l.name}
           </button>
         ))}
         {!focus && <>
-          <button className="chip" onClick={() => setLayers(data.layers.map((l) => l.id))}>All</button>
-          <label className="quiet"><input type="checkbox" checked={connected} onChange={(e) => setConnected(e.target.checked)} /> plus connected types from other layers</label>
+          <button className="chip" onClick={() => setDomains(data.domains.map((l) => l.id))}>All</button>
+          <label className="quiet"><input type="checkbox" checked={connected} onChange={(e) => setConnected(e.target.checked)} /> plus connected types from other domains</label>
         </>}
       </div>
       <div className="er-chips">
@@ -654,15 +666,15 @@ export default function MetamodelDiagram({ model, focus }) {
 
       <p className="quiet er-info">
         {part && `${part.types.length} entity types, ${part.links.length} lines`}
-        {arrange === "layers" && part && ` · layered: ${new Set(part.types.map((t) => t.layer_id)).size} layers${part.links.length > LAYERED_MAX ? " (straight lines: a large diagram)" : ""}`}
+        {arrange === "domains" && part && ` · by domain: ${new Set(part.types.map((t) => t.domain_id)).size} domains${part.links.length > LAYERED_MAX ? " (straight lines: a large diagram)" : ""}`}
         {busy && " · laying out..."}
 
-        {big && " · a large diagram: choose a layer, fewer relationship types, or focus on one type"}
+        {big && " · a large diagram: choose a domain, fewer relationship types, or focus on one type"}
         {note && <strong> · {note}</strong>}
       </p>
 
       <div className="er-frame" ref={frame} onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={onUp}>
-        {part && !part.types.length && <p className="quiet er-empty">Nothing to show: choose a layer or a type.</p>}
+        {part && !part.types.length && <p className="quiet er-empty">Nothing to show: choose a domain or a type.</p>}
         <svg ref={svgRef} width="100%" height="100%">
           <defs>
             {[...Object.keys(REL_COLOURS), "mixed"].map((c) => (
@@ -703,8 +715,8 @@ export default function MetamodelDiagram({ model, focus }) {
         Boxes are entity types with their attributes (* required; every entity also has a display ID, name,
         description, parent, status and history). Lines are the relationships the metamodel allows, from source to
         target, combined per pair of types. Drag a box to move it, click it to focus on it; drag the background to
-        move around; scroll to zoom. SVG and PNG save what you see; Open in draw.io opens it in the platform's draw.io in
-        a new tab, to edit, save or export there.
+        move around; scroll to zoom. SVG and PNG save what you see; Save as a drawn view keeps it, with this layout, as a
+        drawn view of the model; .drawio downloads its file.
       </p>
     </div>
   );

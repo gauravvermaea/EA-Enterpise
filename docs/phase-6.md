@@ -4,13 +4,13 @@ Goal: people enter and change entities and relationships through forms generated
 Every save is visible to everyone at once; there are no commits yet (D61). Version **0.6.0**, migration
 `0010_data_entry`. Decisions D48, D49, D79, D144, D145.
 
-## Status: built (4 Nov 2026), waiting for test (or the end-to-end test in phase 36.1, D129)
+## Status: accepted and closed (owner, 4 Nov 2026, D146); end-to-end test in phase 36.1 (D129)
 
 ## What phase 6 delivers
 
 - **Forms from the metamodel**: every attribute of the entity type in its sections, with the right input
   for its data type (text, long text, whole and decimal numbers, currency, percent, date, yes/no, pick list,
-  web address, email, link to another entity), required marks, units and tooltips. Built-in fields: name,
+  link (one or more addresses, each with a note; D418), email, link to another entity), required marks, units and tooltips. Built-in fields: name,
   description, part of (parent), tags; the display ID is given on save.
 - **Wherever entities are listed** (an entity type's table, the Data entry tab, Failing checks): *✎* edits the
   entity in its form and *+ rel* relates it to more entities. Relationship lists (*Relationship types*, and each

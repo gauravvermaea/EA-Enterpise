@@ -3,14 +3,14 @@
 A model has a role in a project: current state, target state, transition state (numbered), scenario, reference (read
 only) or working copy. A project template is a specialised wizard with the decisions already taken: which models, in
 which roles and how each starts (an existing one, empty, a copy, a child kept linked), the purpose, scope, phases,
-viewpoints, whether there are goals and which model they go into, and which wizard steps are left out. 14 are shipped
+views, whether there are goals and which model they go into, and which wizard steps are left out. 14 are shipped
 (eax/seed/project_templates.json, added once); they are data: a Super Admin changes them, adds one, retires one, or
 saves a project as a new one. The wizard applies a template's decisions; the person can still change any of them in
 the full wizard ("Both", owner, 7 Nov 2026). Gap analyses are made by people on the gap screen, not by the template.
 
 Spec (jsonb):
     purpose, depth, domains[], phases[] (null: all) or items[] (library item ids), removed_steps {id: reason},
-    viewpoints[], goals (bool), primary (a role or null), skip[] (wizard steps left out), finish (a hint),
+    views[], goals (bool), primary (a role or null), skip[] (wizard steps left out), finish (a hint),
     stakeholders[{name, category, power, interest, concerns, role_title}] (suggested, D294),
     slots[{role, label, help, starts[existing|empty|copy|child], default_start, min, many, how}]
 """
@@ -29,7 +29,7 @@ from .metamodel_edit import EditError
 ROLES = {"current": "Current state", "target": "Target state", "transition": "Transition state", "scenario": "Scenario",
          "reference": "Reference", "working-copy": "Working copy"}
 STARTS = ("existing", "empty", "copy", "child", "library")
-STEPS = ("Goals and outcomes", "Sponsor", "Stakeholders", "Notes and files", "Reference", "Template libraries", "Viewpoints", "Principles", "Phase by phase")
+STEPS = ("Goals and outcomes", "Sponsor", "Stakeholders", "Notes and files", "Reference", "Template libraries", "Views", "Principles", "Phase by phase")
 
 _rows, _one = pj._rows, pj._one
 
@@ -107,7 +107,7 @@ def save(conn, user, code: str | None, data: dict) -> dict:
 
 def from_project(conn, user, project: Any, data: dict) -> dict:
     """Saves a project's decisions as a new template: its models by role and how each started, purpose, scope, the
-    deliverables in use, removed steps, viewpoints, goals and the primary model's role (not the models themselves)."""
+    deliverables in use, removed steps, views, goals and the primary model's role (not the models themselves)."""
     _need(user)
     p = pj.project_row(conn, project)
     models = _rows(conn, "SELECT how, role, model_guid::text AS g FROM proj.project_models WHERE project_id = :p ORDER BY role_seq NULLS FIRST",
@@ -125,7 +125,7 @@ def from_project(conn, user, project: Any, data: dict) -> dict:
                                                                 AND chosen AND library_id IS NOT NULL""", p=p["id"], c=p["cycle"])],
             "removed_steps": {str(r["library_id"]): r["removed_reason"] for r in _rows(conn, """SELECT library_id, removed_reason FROM proj.steps
                                                                 WHERE project_id = :p AND removed AND library_id IS NOT NULL""", p=p["id"])},
-            "viewpoints": [r["viewpoint"] for r in _rows(conn, "SELECT viewpoint FROM proj.project_viewpoints WHERE project_id = :p AND NOT own", p=p["id"])],
+            "views": [r["view"] for r in _rows(conn, "SELECT view FROM proj.project_views WHERE project_id = :p AND NOT own", p=p["id"])],
             "goals": bool(p.get("home_model")), "primary": primary, "skip": [], "slots": slots,
             "finish": "", "from_project": p["name"],
             "stakeholders": [{k: r[k] for k in ("name", "category", "power", "interest", "concerns", "role_title")}

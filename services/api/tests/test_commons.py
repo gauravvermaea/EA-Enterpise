@@ -13,10 +13,10 @@ WEB = ROOT.parent / "web" / "src"
 
 
 def _spec():
-    return {"layers": [{"code": "S", "name": "Strategy"}], "pick_lists": [],
+    return {"domains": [{"code": "S", "name": "Strategy"}], "pick_lists": [],
             "attributes": [{"code": "Owner", "name": "Owner"}],
-            "entity_types": [{"code": "Capability", "name": "Capability", "layer": "S", "attributes": [{"attribute": "Owner"}]},
-                             {"code": "Application", "name": "Application", "layer": "S", "attributes": []}],
+            "entity_types": [{"code": "Capability", "name": "Capability", "domain": "S", "attributes": [{"attribute": "Owner"}]},
+                             {"code": "Application", "name": "Application", "domain": "S", "attributes": []}],
             "relationship_types": [{"code": "serving", "name": "Serving"}], "allowed": []}
 
 
@@ -24,7 +24,7 @@ def _side(n, ents, rels=()):
     e = {}
     for g, code, name, did, owner in ents:
         e[g] = {"guid": g, "type_code": code, "entity_type": code, "name": name, "display_id": did, "origin": None, "values": {"Owner": owner},
-                "description": "", "parent": None, "status": "published", "tags": [], "layer": "Strategy"}
+                "description": "", "parent": None, "status": "published", "tags": [], "domain": "Strategy"}
     r = {f"r{n}{k}": {"guid": f"r{n}{k}", "type_code": "serving", "relationship_type": "Serving", "source": s, "target": t,
                       "source_name": e[s]["name"], "target_name": e[t]["name"], "name": ""} for k, (s, t) in enumerate(rels)}
     return {"kind": "model", "model_id": f"m{n}", "model": f"M{n}", "label": f"M{n} (now)", "spec": _spec(), "snapshot": {"entities": e, "relationships": r}}

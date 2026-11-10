@@ -9,16 +9,16 @@ A, B, C = ("22222222-0000-0000-0000-00000000000a", "22222222-0000-0000-0000-0000
            "22222222-0000-0000-0000-00000000000c")
 
 DATA = {
-    "layers": [{"id": L1, "code": "business", "name": "Business"},
+    "domains": [{"id": L1, "code": "business", "name": "Business"},
                {"id": L2, "code": "application", "name": "Application"}],
     "entity_types": [
-        {"id": A, "code": "BusinessActor", "name": "Business Actor", "table_name": "business_actor", "layer_id": L1,
+        {"id": A, "code": "BusinessActor", "name": "Business Actor", "table_name": "business_actor", "domain_id": L1,
          "attributes": [{"name": "Owner", "column_name": "owner", "data_type": "text", "is_required": True,
                          "pick_list": None, "unit": ""}]},
-        {"id": B, "code": "BusinessRole", "name": "Business Role", "table_name": "business_role", "layer_id": L1,
+        {"id": B, "code": "BusinessRole", "name": "Business Role", "table_name": "business_role", "domain_id": L1,
          "attributes": []},
         {"id": C, "code": "ApplicationComponent", "name": "Application Component",
-         "table_name": "application_component", "layer_id": L2,
+         "table_name": "application_component", "domain_id": L2,
          "attributes": [{"name": "Lifecycle", "column_name": "lifecycle", "data_type": "list", "is_required": False,
                          "pick_list": "Lifecycle", "unit": ""}]},
     ],
@@ -36,11 +36,11 @@ def ids(part):
     return {t["id"] for t in part["entity_types"]}
 
 
-def test_layer_alone_and_with_connected_types():
-    part = diagram.scope(DATA, layers=["business"])
+def test_domain_alone_and_with_connected_types():
+    part = diagram.scope(DATA, domains=["business"])
     assert ids(part) == {A, B} and len(part["links"]) == 1
     assert part["links"][0]["relationship_types"] == ["Assignment"]  # Association left out by default
-    part = diagram.scope(DATA, layers=["Business"], include_connected=True)
+    part = diagram.scope(DATA, domains=["Business"], include_connected=True)
     assert ids(part) == {A, B, C} and len(part["links"]) == 2
 
 
@@ -57,7 +57,7 @@ def test_chosen_relationship_types():
     assert part["relationship_types"] == ["Serving"] and len(part["links"]) == 1
 
 
-@pytest.mark.parametrize("kw", [{"layers": ["Nope"]}, {"entity_type": "Nope"}, {"relationship_types": ["Nope"]}])
+@pytest.mark.parametrize("kw", [{"domains": ["Nope"]}, {"entity_type": "Nope"}, {"relationship_types": ["Nope"]}])
 def test_unknown_names_are_reported(kw):
     with pytest.raises(LookupError):
         diagram.scope(DATA, **kw)

@@ -12,7 +12,7 @@ two tiers), D256 (open in draw.io) and D257 (the grid's commit icon), agreed wit
 
 - **The core starts first**: `db`, `setup`, `proxy`, `web`, `keycloak` and `api` (every copy). Before the API starts it
   applies the database upgrade and loads only the built-in models (ArchiMate 4, the insurance reference model, the
-  viewpoints and audiences, the laptop test users' roles). Keycloak now has a health check (it answers a realm).
+  views and audiences, the laptop test users' roles). Keycloak now has a health check (it answers a realm).
 - `eax up` (and `run`, `debug`, `clean-*`) waits until the API and Keycloak are **healthy**, showing each change, then
   says **"EA Explorer is ready after N s: you can sign in."**
 - **The rest starts after it, in the background**: `reports-init` and `reports`, `dms-broker` and `dms`, `drawio`,
@@ -47,10 +47,15 @@ two tiers), D256 (open in draw.io) and D257 (the grid's commit icon), agreed wit
 - `GET /api/v1/startup` (signed in; containers for IT and Super Admins), `GET /api/startup` (no sign-in; the parts'
   states only, used by the Reports set-up).
 
-### Open pictures in draw.io (D256)
+### Open pictures in draw.io (D256, replaced by D408 on 10 Nov 2026)
+
+**Replaced (D408):** the pictures no longer open a loose copy in draw.io. Each offers *Save as a drawn view* (a
+drawn view of the model keeping the layout, tidied, in the ArchiMate notation) and downloads (.drawio, PNG, SVG);
+see [phase-28.md](phase-28.md), "Views service". What follows is the 6 Nov design, kept for the record.
+
 
 - Every **.drawio** button is now **Open in draw.io**: the ER diagram, the entity graph, the hierarchy map, the model
-  tree, the relation matrix, the value stream map, the roadmap, and the viewpoint heat map and matrix.
+  tree, the relation matrix, the value stream map, the roadmap, and the view heat map and matrix.
 - The picture opens in a **new tab** in the platform's draw.io (`/drawio/`), named after the picture. The diagram travels
   in the address after `#` (compressed the way draw.io does it; that part never leaves the browser), so nothing is
   downloaded. Edit it there; save or export it with draw.io's **File > Save as** or **File > Export as** (.drawio, PNG,

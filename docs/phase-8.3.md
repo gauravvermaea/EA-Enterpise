@@ -31,7 +31,7 @@ and reports. Version **0.8.4**, migration `0014_tags` (phase 8 took 0.8.3). Deci
   model's **Actions > Compare...** opens it with that model's latest tag against the model now; a tag's *Compare with
   now* with that tag.
   1. **What to compare**: the baseline (left) and the target (right).
-  2. **Choose what counts** (the filter screen): every entity type of either side by layer with how many entities each
+  2. **Choose what counts** (the filter screen): every entity type of either side by domain with how many entities each
      side has; tick the types, and open a type with its **+** to choose its fields (name, description, parent, status,
      tags, display ID and every attribute) and its **relationships** (each relationship type, outgoing and incoming, with
      the types at the other end). The tool proposes the defaults: name, description, parent, every attribute and every
@@ -78,7 +78,7 @@ and reports. Version **0.8.4**, migration `0014_tags` (phase 8 took 0.8.3). Deci
     Excel (summary and comparison); nothing is saved;
   - **views**: the gap list, the **TOGAF gap matrix** (per type: baseline elements down, target elements across,
     included cells, an Eliminated column and a New row; types with gaps only, unless you tick for all), and the gaps by
-    layer and type;
+    domain and type;
   - **downloads**: Excel (overview, gaps, the TOGAF gap matrix, field changes) and Word (overview, summary, new,
     eliminated and changed elements by type with resolutions, work packages and notes).
 - **Gaps as Gap entities** (Model Admins): the chosen gaps (or all but the included ones) become Gap entities of the
@@ -91,7 +91,7 @@ and reports. Version **0.8.4**, migration `0014_tags` (phase 8 took 0.8.3). Deci
   (the result it was made or last brought up to date from; earlier results' tags stay), so one result's gaps can be
   found, filtered and reported on.
 - **Reports** (Superset, Reports tab > Gap analyses), each with the Model filter: **GR-01** gap analyses, **GR-02** gaps
-  by layer and type (pivot, bar, treemap), **GR-03** the TOGAF gap matrix, **GR-04** resolutions and work packages
+  by domain and type (pivot, bar, treemap), **GR-03** the TOGAF gap matrix, **GR-04** resolutions and work packages
   (and the gaps still undecided), **GR-05** the Gap entities in the models. 116 dashboards in all.
 - **MCP**: `list_model_tags`, `compare_models` (models or their tags), `list_gap_analyses` (every one you may see, or
   those stored in a model), `gap_analysis(analysis)`.
@@ -118,7 +118,7 @@ Regulatory Reporting Tool retired, Claims Platform renamed and a few values chan
 4. **Tags > Baseline 2026 > Compare with now** (opens the top-level Compare screen): *Next: choose what counts*; untick a few types, open one type's fields,
    untick Owner; save the profile; **3. Compare**. Click *changed*, open a row's fields; **Excel**.
 5. **Save as a gap analysis**: *Application Architecture gap analysis*. In the analysis set a resolution on a new gap,
-   tick three gaps and set *Enhance*, add a work package, write a note. Open **TOGAF gap matrix** and **By layer and
+   tick three gaps and set *Enhance*, add a work package, write a note. Open **TOGAF gap matrix** and **By domain and
    type**; download **Excel** and **Word**. **Add the gaps as Gap entities**, then open one (Gap entity ↗).
 6. **Compare again**: the notes stay. Set *Retire* on two gaps, compare again, and **compare with #1** (Excel): two
    resolutions changed. **Add the gaps as Gap entities** again: they now carry the tag of result #2 too. On the Gap

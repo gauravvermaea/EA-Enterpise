@@ -1,22 +1,27 @@
 """ArchiMate 4 starter metamodel and sample data, taken from the EA Repository Workbench 1.1 seed.
 
 Used by eax.seed.build to fill the template model and the sample model. Element list follows the
-42 ArchiMate 4 elements (Linked.Archi ArchiMate 4.0 taxonomy). Allowed
-relationships are DERIVED from the generic metamodel and marked
-Origin='ArchiMate4-derived (verify)' until checked against the spec's
-relationship tables.
+42 ArchiMate 4 elements. Domains (not layers), their colours and the allowed relationships follow the owner's
+ArchiMate 4 guide, *Modelling the Enterprise with ArchiMate 4* (owner, 9 Nov 2026, D392 to D394): the direct
+relationships it describes, plus the derived ones it says are drawn directly (each marked "derived" in its note).
+Composition is allowed exactly where aggregation is. Junctions wait for drawn views (phase 28).
 """
 
 # ---------------------------------------------------------------- domains
+# the ArchiMate 4 notation's colours, as in the guide's notation figures (D392): warm grey Common, yellow Business,
+# blue Application, green Technology, orange Strategy, purple Motivation, pink Implementation and Migration
 DOMAIN_COLOURS = {
-    "Common": "EEEEEE",
-    "Business": "FFFFB5",
-    "Application": "B5FFFF",
-    "Technology": "C9E7B7",
-    "Strategy": "F5DEAA",
-    "Motivation": "CCCCFF",
-    "Implementation & Migration": "FFE0E0",
+    "Common": "E4DED2",
+    "Business": "ECD678",
+    "Application": "B0D0D9",
+    "Technology": "BBD8AD",
+    "Strategy": "EFBD5D",
+    "Motivation": "D1BADC",
+    "Implementation & Migration": "F1BBB7",
 }
+# the colours before 0.15.1, so an upgrade recolours only what nobody changed
+OLD_DOMAIN_COLOURS = {"Common": "EEEEEE", "Business": "FFFFB5", "Application": "B5FFFF", "Technology": "C9E7B7",
+                      "Strategy": "F5DEAA", "Motivation": "CCCCFF", "Implementation & Migration": "FFE0E0"}
 
 # (TypeCode, Name, Domain, Aspect, IDPrefix)
 ENTITY_TYPES = [
@@ -84,6 +89,15 @@ EXTENSION_NOTE = "EA Explorer extension (not an element of the ArchiMate 4 Speci
 ENTITY_TYPES = ENTITY_TYPES + [t[:5] for t in EXTENSIONS]
 EXTENSION_DESCRIPTIONS = {t[0]: EXTENSION_NOTE + t[5] for t in EXTENSIONS}
 
+# Connectors (owner, 10 Nov 2026, D397, D402): the And and Or junction. Not an element: a repository object that joins
+# relationships of one type; each source and target through it must be allowed as if they were related directly
+# (eax.junctions). It is left out of catalogues and counts (core.entity_types.is_connector).
+CONNECTORS = [("Junction", "Junction", "Common", "Connector", "JNC")]
+CONNECTOR_TYPES = [t[0] for t in CONNECTORS]
+EXTENSION_DESCRIPTIONS["Junction"] = ("A junction (And or Or) joining relationships of one type; each source and target "
+                                      "through it must be allowed as if related directly")
+ENTITY_TYPES = ENTITY_TYPES + CONNECTORS
+
 # (RelCode, Name, Category, Directed, Description)
 REL_TYPES = [
     ("Composition", "composed of", "Structural", "Y", "Whole consists of parts that cannot exist without it (specialization of Aggregation)"),
@@ -115,6 +129,8 @@ G = {
     "EXTENSIONS": [t[0] for t in EXTENSIONS],
     "TECH_NODE": ["Node", "Device", "SystemSoftware", "Equipment", "Facility"],
 }
+G["IT_ACTIVE"] = ["ApplicationComponent", "Node", "Device", "SystemSoftware", "Equipment", "Facility"]
+G["PEOPLE"] = ["BusinessActor", "Role", "Collaboration"]
 G["ACTIVE"] = G["INT_ACTIVE"] + G["EXT_ACTIVE"] + G["NETWORK"]
 G["CORE"] = G["ACTIVE"] + G["BEHAVIOUR"] + G["PASSIVE"] + ["Product"]
 G["DYNAMIC"] = ["Service", "Process", "Function", "Event"]
@@ -125,106 +141,148 @@ R = []
 def allow(src, rel, tgt, note=""):
     R.append((src, rel, tgt, note))
 
-for rel in ("Composition", "Aggregation", "Specialization"):
+# structural: aggregation and composition (composition wherever aggregation is; mirrored at the end)
+for rel in ("Aggregation", "Specialization"):
     allow("*", rel, "SAME", "Element to element of the same type")
+allow("Process", "Aggregation", "Function", "Process and function aggregate each other, either way")
+allow("Function", "Aggregation", "Process", "Process and function aggregate each other, either way")
 allow("Grouping", "Aggregation", "*", "Grouping aggregates any concept")
-allow("Grouping", "Composition", "*", "Grouping composes any concept")
-allow("Location", "Aggregation", "*", "Location aggregates anything located there")
-allow("Plateau", "Aggregation", "G:CORE", "Plateau aggregates core elements")
-allow("Plateau", "Aggregation", "G:STRATEGY", "Plateau aggregates strategy elements")
-for tgt in ("G:BEHAVIOUR", "G:PASSIVE", "G:INT_ACTIVE", "G:EXT_ACTIVE"):
-    allow("Product", "Aggregation", tgt, "Product aggregates services, passive and active structure")
-    allow("Product", "Composition", tgt, "Product composes services, passive and active structure")
+allow("Location", "Aggregation", "*", "Location aggregates whatever is situated there")
+allow("Plateau", "Aggregation", "G:CORE", "Plateau aggregates what is in force during that state")
+allow("Plateau", "Aggregation", "G:STRATEGY", "Plateau aggregates what is in force during that state")
+allow("Plateau", "Aggregation", "G:MOTIVATION", "Motivation elements attach to plateaus by aggregation")
+allow("Product", "Aggregation", "Service", "Product: services, objects, artifacts and material offered as a whole")
+allow("Product", "Aggregation", "G:PASSIVE", "Product: services, objects, artifacts and material offered as a whole")
+allow("Product", "Aggregation", "G:INT_ACTIVE", "Product aggregates the active structure it offers")
+allow("Product", "Aggregation", "G:EXT_ACTIVE", "Product aggregates the active structure it offers")
+allow("Product", "Aggregation", "G:INT_BEHAVIOUR", "Product aggregates the behaviour it offers")
 allow("Collaboration", "Aggregation", "G:INT_ACTIVE", "Collaboration aggregates internal active structure")
-allow("BusinessActor", "Composition", "BusinessInterface", "Actor exposes interface")
-allow("ApplicationComponent", "Composition", "ApplicationInterface", "Component exposes interface")
-allow("G:TECH_NODE", "Composition", "TechnologyInterface", "Node exposes interface")
-allow("Node", "Composition", "G:TECH_NODE", "Node composed of devices, system software, equipment, facilities")
-allow("Node", "Aggregation", "G:TECH_NODE", "Node aggregates technology elements")
+allow("BusinessActor", "Aggregation", "BusinessInterface", "A business interface is aggregated by its actor")
+allow("ApplicationComponent", "Aggregation", "ApplicationInterface", "An application interface is aggregated by its component")
+allow("G:TECH_NODE", "Aggregation", "TechnologyInterface", "Nodes, devices, system software, equipment and facilities offer interfaces")
+allow("Node", "Aggregation", "G:TECH_NODE", "A node consists of devices, system software, equipment and facilities")
 allow("G:NETWORK", "Aggregation", "G:NETWORK", "Networks aggregate paths and networks")
+allow("CommunicationNetwork", "Aggregation", "G:TECH_NODE", "A network aggregates the infrastructure it is made of")
+allow("DistributionNetwork", "Aggregation", "G:TECH_NODE", "A network aggregates the infrastructure it is made of")
+allow("DistributionNetwork", "Aggregation", "BusinessActor", "A distribution network is partly made of people")
+allow("BusinessObject", "Aggregation", "BusinessObject", "")
 
+# assignment: who performs, hosts or answers for what
 allow("G:INT_ACTIVE", "Assignment", "G:INT_BEHAVIOUR", "Active structure performs behaviour")
 allow("G:INT_ACTIVE", "Assignment", "Event", "Active structure raises events")
-allow("G:EXT_ACTIVE", "Assignment", "Service", "Interface exposes service")
-allow("BusinessActor", "Assignment", "Role", "Actor fulfils role")
-allow("Collaboration", "Assignment", "Role", "Collaboration fulfils role")
-allow("G:INT_ACTIVE", "Assignment", "Role", "Active structure fulfils role (ArchiMate 4 generic Role)")
-allow("G:TECH_NODE", "Assignment", "Artifact", "Artifact deployed on technology")
-allow("Resource", "Assignment", "Capability", "Resource assigned to capability")
-allow("G:INT_ACTIVE", "Assignment", "WorkPackage", "Active structure assigned to work package")
+allow("G:INT_ACTIVE", "Assignment", "Role", "An internal active structure element is assigned to a role")
+allow("Role", "Assignment", "G:INT_BEHAVIOUR", "The role is assigned to the process or function")
+allow("G:EXT_ACTIVE", "Assignment", "Service", "An interface is assigned to the services it exposes")
+allow("BusinessActor", "Assignment", "BusinessObject", "An actor answers for a business object")
+allow("ApplicationComponent", "Assignment", "DataObject", "A component is the golden source of a data object")
+allow("BusinessActor", "Assignment", "Stakeholder", "A business actor holds a stakeholder's perspective")
+allow("Facility", "Assignment", "BusinessActor", "People work in buildings (crosses Technology to Business)")
+allow("Facility", "Assignment", "Equipment", "Equipment is installed and used in a facility")
+allow("Facility", "Assignment", "Material", "Material is stored in a facility")
+for s_ in ("Node", "Device", "SystemSoftware"):
+    allow(s_, "Assignment", "Artifact", "Deployment: the artifact runs on it")
+allow("Resource", "Assignment", "Capability", "Resources are assigned to the capabilities that draw on them")
+allow("Resource", "Assignment", "ValueStream", "Resources are assigned to the value streams that draw on them")
+allow("G:INT_ACTIVE", "Assignment", "WorkPackage", "A role (or actor) answers for a work package")
 
-allow("G:INT_BEHAVIOUR", "Realization", "Service", "Behaviour realizes service")
-allow("G:ACTIVE", "Realization", "Path", "Active structure realizes path (ArchiMate 4)")
-allow("Artifact", "Realization", "ApplicationComponent", "Artifact realizes component")
-allow("Artifact", "Realization", "DataObject", "Artifact realizes data object")
-allow("Artifact", "Realization", "SystemSoftware", "Artifact realizes system software")
-allow("DataObject", "Realization", "BusinessObject", "Data object realizes business object")
-allow("G:CORE", "Realization", "Capability", "Core elements realize capability")
-allow("G:CORE", "Realization", "Resource", "Core elements realize resource")
-allow("G:BEHAVIOUR", "Realization", "ValueStream", "Behaviour realizes value stream")
-allow("Capability", "Realization", "CourseOfAction", "Capability realizes course of action")
-allow("Resource", "Realization", "CourseOfAction", "Resource realizes course of action")
-allow("CourseOfAction", "Realization", "Outcome", "Course of action realizes outcome")
-allow("CourseOfAction", "Realization", "Goal", "Course of action realizes goal")
-for tgt in ("Requirement", "Principle", "Goal", "Outcome"):
-    allow("G:CORE", "Realization", tgt, "Core elements realize motivation")
-    allow("G:STRATEGY", "Realization", tgt, "Strategy elements realize motivation")
-allow("Requirement", "Realization", "Goal", "")
-allow("Requirement", "Realization", "Outcome", "")
-allow("Requirement", "Realization", "Principle", "")
-allow("Principle", "Realization", "Goal", "")
+# realization: the concrete makes the abstract real
+allow("G:INT_BEHAVIOUR", "Realization", "Service", "A service is the external face of internal behaviour")
+allow("CommunicationNetwork", "Realization", "Path", "A network realizes the path")
+allow("DistributionNetwork", "Realization", "Path", "A network realizes the path")
+allow("DataObject", "Realization", "BusinessObject", "Data object realizes business object (crosses domains)")
+allow("Material", "Realization", "BusinessObject", "Material realizes business object (crosses domains)")
+for t_ in ("ApplicationComponent", "DataObject", "SystemSoftware", "Device"):
+    allow("Artifact", "Realization", t_, "Implementation: the artifact makes it real")
+allow("G:BEHAVIOUR", "Realization", "Capability", "Only behaviour realizes a capability")
+allow("Grouping", "Realization", "Capability", "Core elements together, grouped, realize a capability")
+allow("G:BEHAVIOUR", "Realization", "ValueStream", "Behaviour realizes value streams")
+allow("G:ACTIVE", "Realization", "Resource", "Structure realizes a resource")
+allow("G:PASSIVE", "Realization", "Resource", "Structure realizes a resource")
+allow("Capability", "Realization", "CourseOfAction", "Capabilities realize a course of action")
+allow("Resource", "Realization", "CourseOfAction", "")
+allow("Capability", "Realization", "Outcome", "A capability realizes an outcome, never a goal directly")
+allow("ValueStream", "Realization", "Outcome", "A stage realizes an outcome")
+allow("CourseOfAction", "Realization", "Outcome", "A course of action realizes an outcome, and so reaches a goal")
+allow("G:CORE", "Realization", "Requirement", "A structure or behaviour element realizes a requirement")
+allow("G:STRATEGY", "Realization", "Requirement", "Strategy elements realize a requirement")
+for t_ in ("Principle", "Outcome", "Goal"):
+    allow("G:CORE", "Realization", t_, "derived: through the requirement it realizes")
+allow("Requirement", "Realization", "Principle", "The requirement realizes the principle")
 allow("Principle", "Realization", "Outcome", "")
-allow("Outcome", "Realization", "Goal", "")
+allow("Outcome", "Realization", "Goal", "What you get realizes what you want")
+allow("Requirement", "Realization", "Outcome", "derived")
+allow("Requirement", "Realization", "Goal", "derived")
+allow("Principle", "Realization", "Goal", "derived")
 allow("WorkPackage", "Realization", "Deliverable", "Work package produces deliverable")
-allow("Deliverable", "Realization", "G:CORE", "Deliverable realizes core element")
-allow("Deliverable", "Realization", "G:STRATEGY", "Deliverable realizes strategy element")
-allow("Deliverable", "Realization", "Plateau", "Deliverable realizes plateau")
+allow("Deliverable", "Realization", "G:CORE", "A deliverable may realize any core element")
+allow("Deliverable", "Realization", "G:STRATEGY", "A deliverable may realize any strategy element")
+allow("Deliverable", "Realization", "Plateau", "Plateaus are realized by deliverables")
+allow("Deliverable", "Realization", "Requirement", "Permitted shortcut for the indirect chain")
 
+# serving: the provider is used by the consumer
 allow("Service", "Serving", "G:BEHAVIOUR", "Service serves behaviour")
-allow("Service", "Serving", "G:ACTIVE", "Service serves active structure")
+allow("Service", "Serving", "G:INT_ACTIVE", "Service serves active structure")
 allow("Service", "Serving", "Capability", "")
 allow("Service", "Serving", "ValueStream", "")
-allow("G:EXT_ACTIVE", "Serving", "G:INT_ACTIVE", "Interface serves active structure")
-allow("G:INT_ACTIVE", "Serving", "G:INT_ACTIVE", "Active structure serves active structure")
+allow("G:EXT_ACTIVE", "Serving", "G:INT_ACTIVE", "derived: an interface serves the actor or role that uses it")
 allow("G:INT_BEHAVIOUR", "Serving", "G:BEHAVIOUR", "Behaviour serves behaviour")
-allow("Capability", "Serving", "Capability", "")
-allow("Capability", "Serving", "ValueStream", "")
-allow("ValueStream", "Serving", "ValueStream", "")
+# derived: walking a service's serving back along realization and assignment, software and technology serve what uses
+# them; people serve people. Never a person or role straight to software (the guide calls that out as wrong).
+allow("G:IT_ACTIVE", "Serving", "G:INT_ACTIVE", "derived: through the service it realizes")
+allow("G:PEOPLE", "Serving", "G:PEOPLE", "derived: through the service it realizes")
+allow("Capability", "Serving", "Capability", "Capabilities serve one another")
+allow("Capability", "Serving", "ValueStream", "The capability serves the stream, never the reverse")
 
+# access: behaviour reads, writes or creates passive structure
 allow("G:BEHAVIOUR", "Access", "G:PASSIVE", "Behaviour accesses passive structure")
-allow("G:INT_ACTIVE", "Access", "G:PASSIVE", "Active structure accesses passive structure (derived)")
-allow("G:EXT_ACTIVE", "Access", "G:PASSIVE", "Interface accesses passive structure (derived)")
+allow("G:INT_ACTIVE", "Access", "G:PASSIVE", "derived: through the behaviour it performs")
+allow("G:EXT_ACTIVE", "Access", "G:PASSIVE", "derived: through the service it exposes")
 allow("WorkPackage", "Access", "Deliverable", "")
 
+# influence always ends at a motivation element
 allow("G:MOTIVATION", "Influence", "G:MOTIVATION", "Motivation influences motivation")
-allow("G:CORE", "Influence", "G:MOTIVATION", "Core influences motivation")
-allow("G:STRATEGY", "Influence", "G:MOTIVATION", "Strategy influences motivation")
-allow("G:IMPLEMENTATION", "Influence", "G:MOTIVATION", "Implementation influences motivation")
+allow("G:CORE", "Influence", "G:MOTIVATION", "Weaker than realization: helps or hinders")
+allow("G:STRATEGY", "Influence", "G:MOTIVATION", "Weaker than realization: helps or hinders")
+allow("G:IMPLEMENTATION", "Influence", "G:MOTIVATION", "Weaker than realization: helps or hinders")
 
+# dynamic: between behaviour (all Common)
 allow("G:DYNAMIC", "Triggering", "G:DYNAMIC", "Behaviour triggers behaviour")
-allow("ValueStream", "Triggering", "ValueStream", "")
 allow("WorkPackage", "Triggering", "WorkPackage", "")
 allow("WorkPackage", "Triggering", "Event", "")
 allow("Event", "Triggering", "WorkPackage", "")
-allow("Plateau", "Triggering", "Plateau", "Transition between plateaus")
+allow("Plateau", "Triggering", "Plateau", "Plateaus are sequenced by triggering")
 allow("G:DYNAMIC", "Flow", "G:DYNAMIC", "Behaviour flows to behaviour")
-allow("ValueStream", "Flow", "ValueStream", "")
+allow("ValueStream", "Flow", "ValueStream", "Stages are joined by flow")
 allow("Capability", "Flow", "Capability", "")
-allow("G:INT_ACTIVE", "Flow", "G:INT_ACTIVE", "Active structure flow (derived)")
+allow("G:INT_ACTIVE", "Flow", "G:INT_ACTIVE", "derived: shorthand that hides which behaviours were involved")
 
 # the EA Explorer extensions (D345): stages make up a value stream or a product's life and follow one another;
 # capabilities serve stages; a scenario, control, contract or measure links to anything by association
-allow("ValueStream", "Composition", "ValueStreamStage", "EA Explorer extension")
+allow("ValueStream", "Aggregation", "ValueStreamStage", "EA Explorer extension")
 allow("ValueStreamStage", "Triggering", "ValueStreamStage", "EA Explorer extension")
 allow("ValueStreamStage", "Flow", "ValueStreamStage", "EA Explorer extension")
 allow("Capability", "Serving", "ValueStreamStage", "EA Explorer extension")
+allow("Resource", "Assignment", "ValueStreamStage", "EA Explorer extension")
+allow("ValueStreamStage", "Realization", "Outcome", "EA Explorer extension")
 allow("ValueStreamStage", "Realization", "Value", "EA Explorer extension")
-allow("Product", "Composition", "ProductLifecycleStage", "EA Explorer extension")
+allow("Product", "Aggregation", "ProductLifecycleStage", "EA Explorer extension")
 allow("ProductLifecycleStage", "Triggering", "ProductLifecycleStage", "EA Explorer extension")
 allow("Control", "Influence", "Process", "EA Explorer extension")
 allow("Contract", "Realization", "Service", "EA Explorer extension")
 allow("Measure", "Influence", "Outcome", "EA Explorer extension")
 allow("BusinessScenario", "Influence", "G:MOTIVATION", "EA Explorer extension")
+
+# a junction joins relationships of any one type (D397): the metamodel lets every type reach it and leave it; the rule
+# that each source and target through it is allowed as if direct is checked in Python (eax.junctions)
+for _rel in [r[0] for r in REL_TYPES]:
+    if _rel not in ("Aggregation", "Composition", "Specialization"):
+        allow("*", _rel, "Junction", "Through a junction (checked as if direct)")
+        allow("Junction", _rel, "*", "Through a junction (checked as if direct)")
+allow("*", "Aggregation", "Junction", "Through a junction (checked as if direct)")    # composition follows below
+allow("Junction", "Aggregation", "*", "Through a junction (checked as if direct)")
+
+# composition is allowed exactly where aggregation is
+R += [(s_, "Composition", t_, n_) for (s_, r_, t_, n_) in list(R) if r_ == "Aggregation"]
 allow("*", "Association", "*", "Association is always allowed")
 
 # ---------------------------------------------------------------- lists
@@ -249,6 +307,7 @@ LISTS = {
     "Severity": ["Error", "Warning"],
     "RelCategory": ["Structural", "Dependency", "Dynamic", "Other"],
     "Domain": list(DOMAIN_COLOURS.keys()),
+    "JunctionKind": ["And", "Or"],
 }
 
 # ---------------------------------------------------------------- attributes
@@ -294,7 +353,7 @@ ATTRS = [
     ("StartDate", "Start Date", "Date", "", "", "Start date"),
     ("EndDate", "End Date", "Date", "", "", "End date"),
     ("Measure", "Measure", "Text", "", "", "How achievement is measured"),
-    ("Url", "URL", "URL", "", "", "Link to documentation"),
+    ("Url", "Documents", "URL", "", "", "Links to more detailed documents: one or more, each with a note (D418)"),
     # the business architecture artifacts (D345)
     ("Importance", "Importance", "List", "Importance", "", "How much the capability matters to the strategy"),
     ("Investment", "Investment", "List", "Investment", "", "Where the capability's investment goes: invest, sustain or reduce"),
@@ -306,6 +365,7 @@ ATTRS = [
     ("Environment", "Environment", "LongText", "", "", "The setting: the business and technical environment"),
     ("DesiredOutcome", "Desired Outcome", "LongText", "", "", "What the scenario should achieve"),
     ("Target", "Target", "Text", "", "", "The value the measure should reach, and by when"),
+    ("JunctionKind", "Junction Kind", "List", "JunctionKind", "", "And: all of them; Or: one or more of them (D397)"),
 ]
 
 ALL_TYPES = [t[0] for t in ENTITY_TYPES]
@@ -338,8 +398,8 @@ for t in ["WorkPackage", "Plateau", "Deliverable"]:
 for t in ["Goal", "Outcome"]:
     MAP[t].append(("Measure", "N", "General"))
 for t in ["ApplicationComponent", "SystemSoftware", "Product", "Service", "Requirement", "Principle",
-          "Deliverable"]:
-    MAP[t].append(("Url", "N", "Links"))
+          "Deliverable", "WorkPackage"]:
+    MAP[t].append(("Url", "N", "Links"))   # a Link (D418): one or more, each with a note
 # the business architecture artifacts (D345)
 MAP["Capability"] += [("Importance", "N", "Assessment"), ("Investment", "N", "Assessment")]
 for t in ["ValueStreamStage", "ProductLifecycleStage"]:
@@ -350,6 +410,7 @@ MAP["Control"] += [("Priority", "N", "General"), ("Url", "N", "Links")]
 MAP["Contract"] += [("Vendor", "N", "Sourcing"), ("StartDate", "N", "Schedule"), ("EndDate", "N", "Schedule"),
                     ("AnnualCost", "N", "Financial"), ("Url", "N", "Links")]
 MAP["Measure"] += [("Measure", "N", "General"), ("Target", "N", "General")]
+MAP["Junction"] = [("JunctionKind", "Y", "General")]     # a connector carries nothing else (D397)
 
 # ---------------------------------------------------------------- rules
 # AttrCode, TypeCode('' = all), RuleType, Param1, Param2, Severity, Message
@@ -368,7 +429,6 @@ RULES = [
     ("TechnicalFit", "", "Range", "1", "5", "Error", "Technical fit must be a whole number from 1 to 5"),
     ("ProcessLevel", "", "Range", "0", "5", "Error", "Process level must be from 0 to 5"),
     ("CapabilityLevel", "", "Range", "1", "4", "Error", "Capability level must be from 1 to 4"),
-    ("Url", "", "Regex", r"^https?://\S+$", "", "Warning", "URL should start with http:// or https://"),
     ("GoLiveDate", "", "DateRange", "1990-01-01", "2100-12-31", "Warning", "Go-live date looks out of range"),
 ]
 
@@ -411,8 +471,8 @@ SAMPLE_ENTITIES = [
 ]
 SAMPLE_RELS = [
     # source name, RelCode, target name
-    ("Claims Platform", "Realization", "Claims Management"),
-    ("Policy Administration System", "Realization", "Policy Management"),
+    ("Claims Platform", "Assignment", "Register Claim"),
+    ("Register Claim", "Realization", "Claims Management"),
     ("Claims Platform", "Access", "Claim Record"),
     ("Policy Administration System", "Access", "Policy Record"),
     ("Claims Department", "Assignment", "Register Claim"),

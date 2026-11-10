@@ -188,6 +188,15 @@ def check_library() -> dict:
     return _http("Library", "Library (ours)", host, 8100, "/api/library/v1/health")
 
 
+def check_views() -> dict:
+    """The views service (phase 28, D405): drawn views in their own container and database."""
+    if (off := _off("Drawn views", "Views (ours)", "views")):
+        return off
+    import os
+    host = (os.environ.get("EAX_VIEWS_URL", "http://views:8110").split("//")[-1].split(":")[0]) or "views"
+    return _http("Drawn views", "Views (ours)", host, 8110, "/api/views/v1/health")
+
+
 def check_web() -> dict:
     return _http("Web screens", "nginx (ours)", "web", 8080, "/")
 
@@ -268,7 +277,8 @@ def check_break_glass() -> dict:
 
 
 CHECKS = [check_api, check_database, check_jobs, check_keycloak, check_web, check_proxy, check_reports,
-          check_dms, check_dms_broker, check_drawio, check_mcp, check_backup, check_library, check_break_glass]
+          check_dms, check_dms_broker, check_drawio, check_mcp, check_backup, check_library, check_views,
+          check_break_glass]
 
 
 def check_all() -> dict:

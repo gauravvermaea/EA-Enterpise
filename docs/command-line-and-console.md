@@ -8,8 +8,22 @@ installation:
 | Windows | `.\eax <command>` (PowerShell; `eax.cmd` starts `eax.ps1`) | `.\eax up` |
 | Linux, macOS | `./eax.sh <command>` | `./eax.sh up` |
 
-Both do the same; this page writes `eax` for either. `eax help` lists every command, and `eax help <command>` shows
-the part about one.
+Both do the same; this page writes `eax` for either.
+
+**Help.** `eax help` lists every command by group with one line each; `eax help <command>` (or `eax <command> --help`)
+shows one command in full with its options and examples; `eax help --all` shows every command in full. All forms
+(`eax.ps1`/`eax.cmd`, `eax.sh`, `eaxpy`) print the same help from one file, `eaxcli/help.txt` (D331): change the help
+there, and `tests/test_eax_help.py` checks that every command each script accepts is in it.
+
+**All the documentation, with examples: `eax document`.** It asks whether to show it in the console or as a web page
+(`--console` or `--web` skips the question):
+- **Web page:** one file, `work/docs/eax-commands.html`, opened in your browser. It needs no server and loads
+  nothing from outside: every command in full with its options and examples, grouped as in the help, with a contents
+  list, a search box, links to each command, the commands that delete data marked, the *Starting and stopping* table
+  below and a short part on the console. Light or dark, as your computer is set. It is made from `eaxcli/help.txt`
+  each time (the page `eaxcli/document.html` with the help copied in), so it always says what `eax help` says.
+- **Console:** a numbered menu of the groups. Choose a number to see that group's commands in full with examples, a
+  page at a time (Enter for more, q to stop); `s` searches by a word; `q` quits.
 
 **The Python version (phase 13.9, D331).** The same commands also exist as one Python program for every system:
 
@@ -29,15 +43,31 @@ start when something is wrong. It is a numbered menu that says what to do in pla
 
 ## Contents
 
+- [Starting and stopping](#starting-and-stopping): up (run), stop (down), restart, status
+- Help and documentation: help, document (above)
 - [Where things live](#where-things-live)
 - [Getting started](#getting-started): init, check, up, run
 - [Finding problems](#finding-problems): status, logs, diag, debug
-- [Everyday use](#everyday-use): url, logins, trust, down, services, service, servers, maintenance
+- [Everyday use](#everyday-use): url, logins, trust, services, service, servers, maintenance
 - [Backups and restores](#backups-and-restores)
+- [Updating to a new release](#updating-to-a-new-release): update, rollback
 - [Starting again](#starting-again): cleanup, clean-run, clean-debug, clean-restart
 - [The console](#the-console): the menu item by item, the command prompt, the console against another installation
 - [What is recorded](#what-is-recorded)
 - [Remote machines and the cloud (later)](#remote-machines-and-the-cloud-later)
+
+## Starting and stopping
+
+| Command | What it does | Your data |
+|---|---|---|
+| `eax up` (or `eax run`) | Starts EA Explorer: the core first, the rest in the background (`--wait-all` waits for everything). | Kept from last time |
+| `eax stop` (or `eax down`) | Stops EA Explorer: stops and removes the containers. Use it before shutting the computer down or to free memory. | **Kept**: databases, documents, settings, backups |
+| `eax restart` | `stop`, then `up` (each with its own log). For when something is stuck. | Kept |
+| `eax status` | Every container's state and health, and the disks. Changes nothing. | Kept |
+| `eax cleanup --all` | Stops EA Explorer and **deletes** the work folder and the databases (asks you to type yes). | **Deleted** (the trusted certificate is kept) |
+| `eax clean-restart` | Stops, **deletes everything** and starts fresh with the sample data. Does not ask. | **Deleted** |
+
+To stop without losing anything, always use `eax stop`.
 
 ## Where things live
 
@@ -48,13 +78,27 @@ Everything local is in the **work** folder (never committed to git):
 | `work/eaexplorer.env` | The config file: the deployment kind, addresses, passwords, service switches. Containers read it when they start. |
 | `work/config-history/` | A dated copy of the config file before every change made by the screens, `eax service`, `eax servers` or the console. |
 | `work/logs/` | One log per eax command (`eax-<date-time>-<command>.log`) and the console's log (`console-<date>.log`). |
-| `work/backups/infrastructure/` | Infrastructure backups (databases, document files, certificate, config file). |
+| `work/backups/infrastructure/` | Infrastructure backups (every database, document files, certificate, reports' home, import and export folders, config file). |
 | `work/backups/application/` | Application backups (every model, one file each). |
 | `work/backups/restores/` | Each restore's status and log. |
 | `work/data/tls/` | The local certificate (laptop). Kept by `cleanup` unless asked. |
 | `work/proxy/maintenance` | While this file exists, everyone sees the maintenance page. |
 
 ## Getting started
+
+### `eax deploy [--console|--web] [--kind K] [--plan] [--yes]`
+The guided deployment (phase 36, D498, D500): it asks **console or web page** first, then where: this **laptop**, a
+**server** (here, or another one over SSH; Docker is installed if missing), or **AWS**, **Azure** or **DigitalOcean**
+(the machine created from your credentials, or one you have). It makes the config file with every password
+generated, starts EA Explorer, checks it is healthy and shows the address and the first sign-in. `--plan` shows every
+command and runs nothing; a failed step asks Retry, Back or Quit. Not installed yet? The installer (`eax-deploy.cmd`
+or `eax-deploy.sh`) downloads the version you choose from the repository link, then runs this. Every step in detail:
+[deployment.md](deployment.md).
+
+### `eax secrets [show|push|pull] [--to|--from provider:name]`
+Keeps the passwords in a key vault as well (D504): `file:<path>`, `aws:<secret name>` (Secrets Manager) or
+`azure:<vault name>` (Key Vault). `push` stores the config file's values there; `pull` puts the vault's values back
+into the config file (a dated copy first, in work/config-history). See [deployment.md](deployment.md#4-passwords-from-a-key-vault-d504).
 
 ### `eax init [laptop|server]`
 Creates `work/eaexplorer.env` from the template for the kind of installation (laptop if not given), and the work
@@ -93,8 +137,7 @@ maintenance page until it has finished.
 | `eax url` | Prints the addresses to open (and, on a laptop, the logins). |
 | `eax logins` | Prints every user name and password (laptop only). |
 | `eax trust [--remove]` | Windows: adds the local certificate to the trusted root certificates, so the browser stops warning about `https://localhost`. `--remove` takes it out again. |
-| `eax down` | Stops and removes the containers. The data (Docker volumes and the work folder) is kept. |
-| `eax services` | The optional services (reports, documents, drawio, mcp, change_log, backups, library): whether each is on in the config file, and its containers' state. |
+| `eax services` | The optional services (reports, documents, drawio, mcp, change_log, backups, library, views): whether each is on in the config file, and its containers' state. |
 | `eax service <name> on\|off` | Switches an optional service on or off. It keeps a dated copy of the config file, writes the switch, then starts or stops the service's containers. Also in System admin › System settings › Services. |
 | `eax servers [n]` | How many API and job servers run. With n (1 to 16), it writes `EAX_API_SERVERS` (a dated copy first) and adds or removes servers without a restart. |
 | `eax maintenance on\|off` | Shows the maintenance page to everyone, or stops showing it. Restores and upgrades switch it themselves. |
@@ -109,14 +152,18 @@ System settings, or in the console (menu item 10). They are not eax commands bec
 
 There are two kinds of backup:
 
-- An **infrastructure backup** holds every database, the document files, the certificate, the config file, and the
-  release and image versions. It is what you need to rebuild the machine.
-- An **application backup** holds every model, one file each.
+- An **infrastructure backup** holds every database (the library's and the views' too, from their own servers when
+  they have them), the logins and roles, the document files, the certificate, the reports' home, the import and export
+  folders, the config file, and the release and image versions. It is what you need to rebuild the machine; restored on
+  a new server, it makes the logins and roles first (D410).
+- An **application backup** holds every model, one file each, every project with its documents, and the organisation
+  part: the organisation's own views and project templates, skills, the board and the enterprise library (D410).
 
 | Command | What it does |
 |---|---|
 | `eax backup [tag]` | An infrastructure backup now, with a tag to find it by. |
 | `eax app-backup [tag]` | An application backup now (needs the API running). |
+| `eax import [source\|--all] [--as user]` | Takes the files other systems dropped in their delivery folders (phase 34): each becomes a delivery, previewed and waiting for review on the model's Deliveries tab. Without a source: lists the sources, their folders and what waits. See [import-formats.md](import-formats.md). |
 | `eax backups [words]` | Lists every backup (infrastructure ones numbered); with words, only those whose tag, name or maker has them. |
 | `eax restore [name\|tag\|latest] [--what ...] [--yes]` | Restores an infrastructure backup (see the list of what it can put back below). Without a name it lists the backups to choose from, asks what to restore, and asks you to type RESTORE. A backup of the current state is taken first, and nothing live changes until everything is restored cleanly. It works when the screens are down. |
 | `eax restore-app [run\|tag\|latest] [--yes]` | Puts every model of an application backup back over itself (each model is backed up first). Models no longer there are made again; newer models stay as they are. |
@@ -133,12 +180,27 @@ What `eax restore --what` can put back:
 |---|---|
 | `full` | Everything |
 | `app` | The config file |
-| `app+data` | The config file, the repository and document databases, and the document files |
+| `app+data` | The config file, the repository, library, views and document databases, the document files, and the import and export folders |
 | `db` | Every database |
-| `files` | The document files and the certificate |
+| `files` | The document files (with Documents' database), the certificate, the reports' home, and the import and export folders |
 
 A **project backup** (one architecture project, with its documents and models) is made and restored on the project's
 page or in Project admin. One made by an older EA Explorer is upgraded as it is restored (D328).
+
+## Updating to a new release
+
+Phase 36 (D417, D511): see [phase-36-updates.md](phase-36-updates.md) and [release-process.md](release-process.md).
+
+| Command | What it does |
+|---|---|
+| `eax update` | Guided: the installed version, the channels (Prod; RC and Latest once enabled), the versions above the installed one with their notes; which one, now or at a time, and YES. A pinned full backup (code, databases, files, config) first, then the maintenance page while each release on the way is built and checked. The update runs in its own updater container; this window follows its log until EA Explorer restarts. |
+| `eax update --status` | The installed version, the repository link, the channels, the update running or waiting, the schedule and the history. |
+| `eax update --channel prod --to 0.20.0 [--at 22:00] [--yes]` | Not guided. `--at` schedules it (signed-in people see a banner beforehand). |
+| `eax update --url <link>` | Sets the repository link (EAX_UPDATE_GIT_URL). |
+| `eax update --retry` | A failed update: the failed step again, then the rest. |
+| `eax rollback [--yes]` | Back to the version before the last update: its code and its pre-update backup put back (work since is lost; the current state is backed up first). |
+
+The same on System admin › Updates (IT Admins and Super Admins).
 
 ## Starting again
 
@@ -251,7 +313,7 @@ A person's roles on a model stay on that model's People tab.
 
   Each setting is shown with its value and help; choose one to change it. These run in the API (start it first if it
   is down).
-- *Optional services on or off*: reports, documents, draw.io, MCP, change log, backups, library. This is the same as
+- *Optional services on or off*: reports, documents, draw.io, MCP, change log, backups, library, drawn views (views). This is the same as
   `eax service`, with a dated copy of the config file first.
 
 **11 Background tasks and job servers.**
@@ -313,15 +375,9 @@ Device Authorization Grant* on, with an audience mapper for `eax-api`).
   *console (on the machine)*.
 - Keycloak keeps its own record of password and role changes.
 
-## Remote machines and the cloud (later)
+## Remote machines and the cloud
 
-These are settled in the deployment phase (phase 36):
-- connecting the console to a **remote machine** whose API is down, for example over SSH, or with a small console
-  agent on the server;
-- how the console works when EA Explorer runs on an **Azure or AWS cluster**, where there is no single machine to
-  sign in to:
-  - the platform's own restarts and scaling replace Start, Stop and Restart;
-  - logs, backups and restores come from the cloud's services;
-  - passwords live in the key vault.
-
-See [todo.md](todo.md), *Productionising stories*.
+Deploying to a server over SSH and to AWS, Azure and DigitalOcean is `eax deploy` (phase 36, [deployment.md](deployment.md)):
+each cloud machine runs our Docker stack, so the console, logs, backups and restores work there as on any server
+(sign in to it over SSH and run `./eax.sh console`, or use `eax console --server https://<address>` from here).
+Passwords can be kept in a key vault (`eax secrets`). Several hosts and scaling out: 36.3.

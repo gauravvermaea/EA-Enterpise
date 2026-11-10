@@ -1,6 +1,6 @@
 """Import and export sheets (build phase 10.1, D197).
 
-POST   /models/<m>/sheets                 build sheets for the chosen types {types, format: xlsx|xlsm|zip}: a task (?wait=true: the file)
+POST   /models/<m>/sheets                 build sheets for the chosen types {types, format: xlsx|xlsm|zip, blank}: a task (?wait=true: the file)
 GET    /tasks/<t>/file                    the file a task made
 GET    /models/<m>/loads                  the loads of a model
 POST   /models/<m>/loads                  upload a sheet (multipart "file"): a load, previewed in the background
@@ -107,13 +107,13 @@ class Sheets(MethodView):
     @blp.response(200, Free)
     @require_auth()
     def get(self, model_id):
-        """The entity types to choose from, by layer, with how many entities each has"""
+        """The entity types to choose from, by domain, with how many entities each has"""
         def run(c):
             m, types = sh.types_of(c, model_id, [t["code"] for t in repo._rows(c, """SELECT code FROM core.entity_types
                                                                                       WHERE model_id = (SELECT id FROM core.models WHERE guid = :g)
                                                                                         AND NOT is_deleted""", g=str(model_id))])
             return {"model": {"id": str(m["id"]), "name": m["name"]},
-                    "types": [{"code": t["code"], "name": t["name"], "layer": t["layer"], "entities": t["n"],
+                    "types": [{"code": t["code"], "name": t["name"], "domain": t["domain"], "entities": t["n"],
                                "attributes": len(t["attributes"])} for t in types]}
         return _read(run)
 
@@ -125,14 +125,16 @@ class Sheets(MethodView):
         """Builds the sheets for the chosen entity types {types: [codes], format: xlsx|xlsm|zip}, with their data and the
         relationships between them (built now, D197). A task to follow; its file at GET /tasks/<id>/file"""
         types, fmt = data.get("types") or [], data.get("format") or "xlsx"
+        blank = bool(data.get("blank"))        # the published format's empty template (phase 34, D466)
         if fmt not in ("xlsx", "xlsm", "zip"):
             abort(400, message="format is xlsx, xlsm or zip (a CSV set).")
         if request.args.get("wait") == "true":
-            content, name, ctype = _read(lambda c: sh.build(c, model_id, types, fmt, g.user.username))
+            content, name, ctype = _read(lambda c: sh.build(c, model_id, types, fmt, g.user.username, blank))
             return _file(content, name, ctype)
         m = _read(lambda c: sh.types_of(c, model_id, types)[0])
-        return {"task": _task("sheet.build", model_id, f"Sheets of {m['name']} ({len(types) or 'every'} types, .{fmt})",
-                              {"types": types, "format": fmt})}
+        return {"task": _task("sheet.build", model_id, f"{'Empty template' if blank else 'Sheets'} of {m['name']} "
+                                                       f"({len(types) or 'every'} types, .{fmt})",
+                              {"types": types, "format": fmt, "blank": blank})}
 
 
 @blp.route("/models/<uuid:model_id>/collect")

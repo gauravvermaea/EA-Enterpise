@@ -28,17 +28,10 @@ def test_every_command_of_eax_ps1_is_in_eaxpy():
         assert f'"{c}"' in src
 
 
-def test_help_lists_the_same_commands_as_eax_ps1():
-    ps1 = (REPO / "eax.ps1").read_text(encoding="utf-8")
-    old = set(re.findall(r"^  ([a-z][a-z-]+)", ps1[ps1.index("$HelpText"):ps1.index("\n'@")], re.M))
-    new = set(re.findall(r"^  ([a-z][a-z-]+)", main.help_text(), re.M))
-    assert old == new
-
-
 def test_help_for_one_command(capsys):
     main.show_help("restore")
     out = capsys.readouterr().out
-    assert out.startswith("  restore [name|tag|latest]") and "RESTORE to confirm" in out and "restores " not in out
+    assert out.startswith("  restore [name|tag|latest]") and "RESTORE to confirm" in out and "  restores" not in out
 
 
 def test_secrets_are_masked():

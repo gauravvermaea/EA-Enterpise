@@ -47,7 +47,7 @@ def snapshot(conn, m: dict) -> dict:
     uses (snap_entity, snap_relationship), read in a few queries, keyed by guid."""
     mid = m["_id"]
     ents = _rows(conn, """SELECT e.id, e.guid, e.origin_guid, e.name, e.description, e.display_id, e.status_code AS status, e.tags,
-                                 p.guid AS parent, t.code AS type_code, t.name AS entity_type, l.name AS layer
+                                 p.guid AS parent, t.code AS type_code, t.name AS entity_type, l.name AS domain
                             FROM core.entities e JOIN core.entity_types t ON t.id = e.entity_type_id
                             JOIN core.layers l ON l.id = t.layer_id
                             LEFT JOIN core.entities p ON p.id = e.parent_entity_id
@@ -72,7 +72,7 @@ def snapshot(conn, m: dict) -> dict:
             tags = [t for t in tags.strip("{}").split(",") if t]
         st = {"kind": "entity", "guid": str(e["guid"]), "deleted": False, "name": e["name"], "description": e["description"] or "",
               "display_id": e["display_id"], "status": e["status"], "tags": sorted(tags), "parent": cm._s(e["parent"]),
-              "type_code": e["type_code"], "entity_type": e["entity_type"], "layer": e["layer"],
+              "type_code": e["type_code"], "entity_type": e["entity_type"], "domain": e["domain"],
               "origin": cm._s(e["origin_guid"]), "values": {}, "_value_ids": [], "relationships": []}
         by_id[e["id"]] = st
         entities[st["guid"]] = st
@@ -134,7 +134,7 @@ def _tag_out(t: dict) -> dict:
 
 def _insert(conn, m: dict, name: str, description: str, kind: str, actor: str) -> dict:
     side = side_of_model(conn, str(m["id"]))
-    snap = side["snapshot"]
+    snap = dict(side["snapshot"])
     try:
         row = _one(conn, """INSERT INTO core.model_tags (model_id, name, description, kind, commit_number, metamodel_version, spec,
                                                          snapshot, entity_count, relationship_count, created_by)
@@ -146,7 +146,21 @@ def _insert(conn, m: dict, name: str, description: str, kind: str, actor: str) -
         if "model_tags_name_idx" in str(exc.orig):
             raise EditError(f"{m['name']} already has a tag called '{name.strip()}'.", 409) from exc
         raise EditError(_db_message(exc), 409) from exc
+    _hold_views(conn, m, row)
     return row
+
+
+def _hold_views(conn, m: dict, row: dict) -> None:
+    """A tag keeps the drawn views as they are now (D354, D405): the views service holds each view's latest version for
+    it (never dropped while the tag is there); the tag's snapshot lists which. The service being off or down never stops
+    a tag: the snapshot says the views were not kept."""
+    from . import views_client as vc
+    try:
+        held = {"drawn_views": vc.hold_for_tag(m["id"], row["guid"])}
+    except vc.ViewsDown as exc:
+        held = {"drawn_views": [], "drawn_views_note": f"The drawn views were not kept with this tag: {exc}."}
+    conn.execute(text("UPDATE core.model_tags SET snapshot = snapshot || CAST(:h AS jsonb) WHERE id = :id"),
+                 {"h": json.dumps(held), "id": row["id"]})
 
 
 def list_tags(conn, model: Any) -> dict:
@@ -171,10 +185,10 @@ def list_all_tags(conn) -> dict:
 
 
 def _spec_names(spec: dict) -> tuple[dict, dict, dict]:
-    layers = {x["code"]: x["name"] for x in spec.get("layers") or []}
-    types = {x["code"]: {"name": x["name"], "layer": layers.get(x.get("layer"), x.get("layer") or "")} for x in spec.get("entity_types") or []}
+    domains = {x["code"]: x["name"] for x in spec.get("domains") or []}
+    types = {x["code"]: {"name": x["name"], "domain": domains.get(x.get("domain"), x.get("domain") or "")} for x in spec.get("entity_types") or []}
     attrs = {x["code"]: x["name"] for x in spec.get("attributes") or []}
-    return layers, types, attrs
+    return domains, types, attrs
 
 
 def get_tag(conn, model: Any, tag: Any) -> dict:
@@ -182,15 +196,15 @@ def get_tag(conn, model: Any, tag: Any) -> dict:
     m = repo.get_model(conn, model)
     t = _tag_row(conn, m, tag)
     spec, snap = cm._json(t["spec"]) or {}, cm._json(t["snapshot"]) or {}
-    _layers, types, _attrs = _spec_names(spec)
+    _domains, types, _attrs = _spec_names(spec)
     ents = snap.get("entities") or {}
     entities = sorted(({"id": g, "name": e.get("name") or "", "type_code": e.get("type_code"),
                         "entity_type": e.get("entity_type") or types.get(e.get("type_code"), {}).get("name") or e.get("type_code"),
-                        "layer": e.get("layer") or types.get(e.get("type_code"), {}).get("layer") or "",
+                        "domain": e.get("domain") or types.get(e.get("type_code"), {}).get("domain") or "",
                         "display_id": e.get("display_id") or "", "status": e.get("status") or "",
                         "parent": (ents.get(e.get("parent")) or {}).get("name") if e.get("parent") else None,
                         "values": len(e.get("values") or {})} for g, e in ents.items()),
-                      key=lambda x: (x["layer"], x["entity_type"], x["name"].lower()))
+                      key=lambda x: (x["domain"], x["entity_type"], x["name"].lower()))
     rels = sorted(({"id": g, "relationship_type": r.get("relationship_type") or r.get("type_code"), "verb": r.get("verb") or "",
                     "source": r.get("source"), "source_name": r.get("source_name") or (ents.get(r.get("source")) or {}).get("name"),
                     "target": r.get("target"), "target_name": r.get("target_name") or (ents.get(r.get("target")) or {}).get("name"),
@@ -198,13 +212,28 @@ def get_tag(conn, model: Any, tag: Any) -> dict:
                   key=lambda x: (x["relationship_type"] or "", (x["source_name"] or "").lower()))
     by_type: dict[str, dict] = {}
     for e in entities:
-        b = by_type.setdefault(e["type_code"], {"code": e["type_code"], "name": e["entity_type"], "layer": e["layer"], "count": 0})
+        b = by_type.setdefault(e["type_code"], {"code": e["type_code"], "name": e["entity_type"], "domain": e["domain"], "count": 0})
         b["count"] += 1
     return {**_tag_out(t), "model": {"id": str(m["id"]), "name": m["name"], "kind": m["kind"]},
-            "metamodel": {"layers": len(spec.get("layers") or []), "entity_types": len(spec.get("entity_types") or []),
+            "metamodel": {"domains": len(spec.get("domains") or []), "entity_types": len(spec.get("entity_types") or []),
                           "attributes": len(spec.get("attributes") or []), "relationship_types": len(spec.get("relationship_types") or []),
                           "pick_lists": len(spec.get("pick_lists") or []), "rules": len(spec.get("rules") or [])},
-            "types": sorted(by_type.values(), key=lambda b: (b["layer"], b["name"])), "entity_list": entities, "relationship_list": rels}
+            "types": sorted(by_type.values(), key=lambda b: (b["domain"], b["name"])), "entity_list": entities, "relationship_list": rels,
+            "drawn_views": [{"id": v["id"], "name": v["name"], "version": v.get("version")} for v in snap.get("drawn_views") or []],
+            "drawn_views_note": snap.get("drawn_views_note")}
+
+
+def tag_drawn_view(conn, model: Any, tag: Any, view: str) -> dict:
+    """A drawn view as the tag keeps it (D354): the version the views service holds for the tag, read only."""
+    from . import views_client as vc
+    m = repo.get_model(conn, model)
+    t = _tag_row(conn, m, tag)
+    try:
+        return {"tag": t["name"], **vc.tag_view(m["id"], t["guid"], view)}
+    except vc.ViewsDown as exc:
+        if exc.status == 404:
+            raise repo.NotFound(f"The tag {t['name']} keeps no drawn view {view!r}.") from exc
+        raise EditError(f"The drawn view cannot be opened just now: {exc}", 503) from exc
 
 
 def tag_entity(conn, model: Any, tag: Any, entity: Any) -> dict:
@@ -212,7 +241,7 @@ def tag_entity(conn, model: Any, tag: Any, entity: Any) -> dict:
     m = repo.get_model(conn, model)
     t = _tag_row(conn, m, tag)
     spec, snap = cm._json(t["spec"]) or {}, cm._json(t["snapshot"]) or {}
-    _layers, types, attrs = _spec_names(spec)
+    _domains, types, attrs = _spec_names(spec)
     ents = snap.get("entities") or {}
     e = ents.get(str(entity))
     if not e:
@@ -228,7 +257,7 @@ def tag_entity(conn, model: Any, tag: Any, entity: Any) -> dict:
             "name": e.get("name"), "description": e.get("description") or "", "display_id": e.get("display_id") or "",
             "status": e.get("status") or "", "tags": e.get("tags") or [],
             "entity_type": e.get("entity_type") or types.get(e.get("type_code"), {}).get("name"),
-            "layer": e.get("layer") or types.get(e.get("type_code"), {}).get("layer") or "",
+            "domain": e.get("domain") or types.get(e.get("type_code"), {}).get("domain") or "",
             "parent": {"id": e["parent"], "name": (ents.get(e["parent"]) or {}).get("name")} if e.get("parent") else None,
             "values": sorted(({"code": k, "label": attrs.get(k, k), "value": v} for k, v in (e.get("values") or {}).items()),
                              key=lambda x: x["label"].lower()),
@@ -255,6 +284,8 @@ def create_tag(conn, model: Any, user, name: str, description: str = "", lock: b
     if not (name or "").strip():
         raise EditError("Give the tag a name, for example Baseline 2026.")
     t = _insert(conn, m, name, description, "manual", user.username)
+    from . import kpis  # every tag keeps the KPIs as they are now (phase 24, D365)
+    kpis.on_tag(conn, m, t, user.username)
     if lock:
         t = _one(conn, """UPDATE core.model_tags SET is_locked = true, locked_by = :u, locked_at = now() WHERE id = :i RETURNING *""",
                  u=user.username.lower(), i=t["id"])
@@ -347,11 +378,11 @@ def _drop_entity(conn, m: dict, guid: str) -> None:
 
 def _remove_metamodel_extras(conn, m: dict, spec: dict) -> int:
     """Removes what the tag's metamodel does not have: entity types, relationship types, attributes, attributes
-    on types, pick lists and layers (their content is gone by now)."""
+    on types, pick lists and domains (their content is gone by now)."""
     mid = m["_id"]
     n = 0
     codes = {k: {str(i["code"]).lower() for i in spec.get(k) or []} for k in ("entity_types", "relationship_types", "attributes",
-                                                                                "pick_lists", "layers")}
+                                                                                "pick_lists", "domains")}
     on_type = {(t["code"].lower(), str(i["attribute"]).lower()) for t in spec.get("entity_types") or [] for i in t.get("attributes") or []}
     on_rel = {(r["code"].lower(), str(i["attribute"]).lower()) for r in spec.get("relationship_types") or []
               for i in r.get("attributes") or []}
@@ -375,7 +406,7 @@ def _remove_metamodel_extras(conn, m: dict, spec: dict) -> int:
                                 "AND entity_type_id = :i", m=mid, i=r["id"])
                 _exec(conn, f"UPDATE core.{table} SET is_deleted = true WHERE id = :i", i=r["id"])
                 n += 1
-    for table, section in (("attribute_types", "attributes"), ("pick_lists", "pick_lists"), ("layers", "layers")):
+    for table, section in (("attribute_types", "attributes"), ("pick_lists", "pick_lists"), ("layers", "domains")):
         for r in _rows(conn, f"SELECT id, code FROM core.{table} WHERE model_id = :m AND NOT is_deleted", m=mid):
             if r["code"].lower() not in codes[section]:
                 if table == "attribute_types":
@@ -421,7 +452,7 @@ def restore_tag(conn, model: Any, user, tag: Any, note: str = "") -> dict:
     _exec(conn, "SELECT set_config('eax.actor', :a, true)", a=user.username)
     # 1. the tag's metamodel: everything it has comes back (renamed and re-added parts included); parts removed
     #    since (by an earlier restore) are taken back rather than added again, so their codes stay theirs
-    for table, section in (("layers", "layers"), ("pick_lists", "pick_lists"), ("attribute_types", "attributes"),
+    for table, section in (("layers", "domains"), ("pick_lists", "pick_lists"), ("attribute_types", "attributes"),
                            ("entity_types", "entity_types"), ("relationship_types", "relationship_types")):
         codes = [str(i["code"]).lower() for i in tag_spec.get(section) or []]
         if codes:

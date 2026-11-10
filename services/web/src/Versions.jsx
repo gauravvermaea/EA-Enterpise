@@ -14,6 +14,7 @@ import { EntityPicker } from "./DataEntry";
 import { fmtDate, fmtDateTime } from "./fmt";
 import { TaskFiles } from "./TaskDrawer";
 import { downloadTask, runTask, trackTask, useAllTasks } from "./tasks";
+import { isRetiredModel, liveModels, useShowRetired } from "./ModelMarks";
 
 const Commons = lazy(() => import("./Commons"));
 const go = (path) => { window.location.hash = path; };
@@ -152,7 +153,7 @@ export function TagPage({ model, m, tagId, entityId }) {
           <tr><th>Made</th><td>{when(t.created_at)} by {t.created_by}</td></tr>
           <tr><th>Holds</th><td>commit {t.commit} · metamodel v{t.metamodel_version} · {t.entities} entities · {t.relationships} relationships</td></tr>
           <tr><th>Metamodel</th><td>{mm.entity_types} entity types · {mm.attributes} attributes · {mm.relationship_types} relationship types ·
-            {" "}{mm.pick_lists} pick lists · {mm.rules} rules · {mm.layers} layers</td></tr>
+            {" "}{mm.pick_lists} pick lists · {mm.rules} rules · {mm.domains} domains</td></tr>
           {t.locked && <tr><th>Locked</th><td>{when(t.locked_at)} by {t.locked_by}: never changed or deleted</td></tr>}
           {t.restored_at && <tr><th>Made the latest</th><td>{when(t.restored_at)} by {t.restored_by}</td></tr>}
         </tbody></table>
@@ -187,9 +188,9 @@ export function TagPage({ model, m, tagId, entityId }) {
         <span className="quiet small">As frozen in the tag; it never changes.</span>
       </div>
       {view === "types" && (
-        <table className="grid-table"><thead><tr><th>Layer</th><th>Entity type</th><th className="num">Entities</th></tr></thead>
+        <table className="grid-table"><thead><tr><th>Domain</th><th>Entity type</th><th className="num">Entities</th></tr></thead>
           <tbody>{t.types.map((x) => (
-            <tr key={x.code}><td className="small">{x.layer}</td>
+            <tr key={x.code}><td className="small">{x.domain}</td>
               <td><button className="linkish" onClick={() => { setType(x.code); setView("entities"); }}>{x.name}</button></td><td className="num">{x.count}</td></tr>
           ))}</tbody></table>
       )}
@@ -198,7 +199,7 @@ export function TagPage({ model, m, tagId, entityId }) {
           <tbody>
             {ents.slice(0, 500).map((e) => (
               <tr key={e.id}><td><a href={`#/metamodel/${model}/tags/${t.id}/${e.id}`}>{e.name}</a></td>
-                <td className="small">{e.entity_type} <span className="quiet">· {e.layer}</span></td><td className="small">{e.display_id}</td>
+                <td className="small">{e.entity_type} <span className="quiet">· {e.domain}</span></td><td className="small">{e.display_id}</td>
                 <td className="small">{e.status}</td><td className="small">{e.parent}</td><td className="num">{e.values}</td></tr>
             ))}
             {ents.length > 500 && <tr><td colSpan="6" className="quiet">The first 500 of {ents.length}: filter, or download the tag as Excel.</td></tr>}
@@ -233,7 +234,7 @@ function TagEntity({ model, t, entityId }) {
     <div className="versions">
       <p><a href={`#/metamodel/${model}/tags/${t.id}`}>← 🏷 {t.name}</a> · <a href={`#/metamodel/${model}/tags`}>Tags of {t.model.name}</a></p>
       <div className="merge-step">
-        <h3>{e.name} <span className="quiet">· {e.entity_type} · {e.layer}</span></h3>
+        <h3>{e.name} <span className="quiet">· {e.entity_type} · {e.domain}</span></h3>
         <p className="quiet small">As it was in the tag <b>{t.name}</b> ({when(t.created_at)}).{" "}
           {e.exists_now ? <a href={`#/metamodel/${model}/entity/${e.id}`}>Open it as it is now ↗</a> : <span className="status bad">It is no longer in {t.model.name}.</span>}
           {" · "}<a href={`#/compare?left=tag:${model}:${t.id}&right=model:${model}`}>Compare the tag with now</a></p>
@@ -325,7 +326,9 @@ export default function CompareScreen({ route }) {
 
 // one side: a model (any the person may open) as it is now, or one of its tags
 export function SidePicker({ label, value, onChange }) {
-  const { data: models } = useApi("/api/v1/models?archived=false");
+  const [showRetired] = useShowRetired();     // a frozen model as a baseline only when the person shows them (D360)
+  const { data: models_ } = useApi("/api/v1/models");
+  const models = models_ && (showRetired ? models_ : liveModels(models_).concat(models_.filter((x) => x.id === value.model && isRetiredModel(x))));
   const { data: tags } = useApi(value.model ? `/api/v1/models/${value.model}/tags` : null);
   const list = (models || []).filter((x) => x.kind !== "template");
   return (
@@ -428,9 +431,9 @@ function FilterScreen({ info, settings, setSettings, onCompare, busy }) {
     const cur = types[code] || [];
     setType(code, cur.includes(f) ? cur.filter((x) => x !== f) : [...cur, f]);
   };
-  const byLayer = useMemo(() => {
+  const byDomain = useMemo(() => {
     const out = {};
-    info.types.forEach((t) => { (out[t.layer || "Other"] = out[t.layer || "Other"] || []).push(t); });
+    info.types.forEach((t) => { (out[t.domain || "Other"] = out[t.domain || "Other"] || []).push(t); });
     return out;
   }, [info]);
   async function saveProfile() {
@@ -468,9 +471,9 @@ function FilterScreen({ info, settings, setSettings, onCompare, busy }) {
       </div>
       {msg && <p className="quiet">{msg}</p>}
       <div className="filter-grid">
-        {Object.entries(byLayer).map(([layer, list]) => (
-          <div key={layer} className="filter-layer">
-            <h4>{layer}</h4>
+        {Object.entries(byDomain).map(([domain, list]) => (
+          <div key={domain} className="filter-domain">
+            <h4>{domain}</h4>
             {list.map((t) => {
               const on = !!types[t.code];
               const chosen = types[t.code] || [];
@@ -613,11 +616,11 @@ export function CompareResult({ result, actions }) {
       {view === "entities" && <>
         <table className="grid-table compare-summary">
           <colgroup><col style={{ width: "18%" }} /><col style={{ width: "34%" }} /><col /><col /><col /><col /></colgroup>
-          <thead><tr><th>Layer</th><th>Entity type</th><th className="num">Kept</th><th className="num">Changed</th><th className="num">New</th><th className="num">Eliminated</th></tr></thead>
+          <thead><tr><th>Domain</th><th>Entity type</th><th className="num">Kept</th><th className="num">Changed</th><th className="num">New</th><th className="num">Eliminated</th></tr></thead>
           <tbody>
             {result.summary.filter((s) => s.changed + s.new + s.eliminated + s.kept).map((s) => (
               <tr key={s.entity_type} className={type === s.entity_type ? "on" : ""} onClick={() => setType(type === s.entity_type ? "" : s.entity_type)} style={{ cursor: "pointer" }}>
-                <td className="quiet">{s.layer}</td><td>{s.name}</td><td className="num">{s.kept || ""}</td><td className="num">{s.changed || ""}</td>
+                <td className="quiet">{s.domain}</td><td>{s.name}</td><td className="num">{s.kept || ""}</td><td className="num">{s.changed || ""}</td>
                 <td className="num">{s.new || ""}</td><td className="num">{s.eliminated || ""}</td>
               </tr>
             ))}
@@ -692,7 +695,9 @@ export function CompareResult({ result, actions }) {
 // ================================================================ gap analyses
 export function NewGapDialog({ baseline, target, settings, onClose }) {
   const { data } = useApi("/api/v1/gaps");
-  const { data: models } = useApi("/api/v1/models?archived=false");
+  const [showRetired] = useShowRetired();
+  const { data: models_ } = useApi("/api/v1/models");
+  const models = models_ && (showRetired ? models_ : liveModels(models_));
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
   const [template, setTemplate] = useState("all");
@@ -884,17 +889,17 @@ function GapResultsCompared() {
   const b = params.get("b");
   const { data, error } = useApi(a && b ? `/api/v1/gap-runs/compare?a=${a}&b=${b}&format=json` : null);
   const [picked, setChange] = useState(null);   // null: what moved, or everything when nothing moved
-  const [layer, setLayer] = useState("");
+  const [domain, setDomain] = useState("");
   const [q, setQ] = useState("");
   if (!a || !b) return <p className="status bad">Choose two results to compare. <a href="#/compare/gaps">← Gap analyses</a></p>;
   if (error) return <p className="status bad">{error}</p>;
   if (!data) return <p>Comparing...</p>;
   const moved = data.rows.filter((r) => !["Unchanged gap", "Not a gap in either"].includes(r.change)).length;
   const change = picked || (moved ? "changes" : "all");
-  const layers = [...new Set(data.rows.map((r) => r.layer))].filter(Boolean).sort();
+  const domains = [...new Set(data.rows.map((r) => r.domain))].filter(Boolean).sort();
   const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const rows = data.rows.filter((r) => (change === "all" || (change === "changes" ? !["Unchanged gap", "Not a gap in either"].includes(r.change) : r.change === change))
-    && (!layer || r.layer === layer) && words.every((w) => `${r.name} ${r.entity_type_name}`.toLowerCase().includes(w)));
+    && (!domain || r.domain === domain) && words.every((w) => `${r.name} ${r.entity_type_name}`.toLowerCase().includes(w)));
   const file = `${data.a.label} vs ${data.b.label}`.replace(/[^\w .#()-]+/g, "-").slice(0, 120);
   const side = (k) => (<tr><th>{k.toUpperCase()}</th><td><b>{data[k].label}</b> <span className="quiet">· {data[k].baseline} → {data[k].target}</span></td>
     <td className="small">{["new", "eliminated", "changed", "kept"].map((s) => `${(data[k].totals || {})[s] || 0} ${TOGAF[s].toLowerCase()}`).join(" · ")}</td></tr>);
@@ -914,7 +919,7 @@ function GapResultsCompared() {
         </div>
         {!moved && <p className="quiet small">Nothing moved between these two results: every gap has the same status and resolution in both.</p>}
         <div className="toolbar">
-          <select value={layer} onChange={(e) => setLayer(e.target.value)}><option value="">Every layer</option>{layers.map((l) => <option key={l}>{l}</option>)}</select>
+          <select value={domain} onChange={(e) => setDomain(e.target.value)}><option value="">Every domain</option>{domains.map((l) => <option key={l}>{l}</option>)}</select>
           <input className="search" placeholder="Filter by element or type" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 240 }} />
           <span className="quiet small">{rows.length} shown</span>
           <span className="tabs-right">
@@ -925,12 +930,12 @@ function GapResultsCompared() {
         <TaskFiles kinds={["gap.runs_compare"]} />
       </div>
       <table className="grid-table gap-compare">
-        <thead><tr><th>What happened</th><th>Layer</th><th>Entity type</th><th>Element</th><th>Status A</th><th>Status B</th>
+        <thead><tr><th>What happened</th><th>Domain</th><th>Entity type</th><th>Element</th><th>Status A</th><th>Status B</th>
           <th>Resolution A</th><th>Resolution B</th><th>Fields changed A</th><th>Fields changed B</th></tr></thead>
         <tbody>
           {rows.map((r, n) => (
             <tr key={`${r.entity_type_name}|${r.name}|${n}`} className={RUN_CLASS[r.change] || ""}>
-              <td><b>{r.change}</b></td><td className="small">{r.layer}</td><td className="small">{r.entity_type_name}</td><td>{r.name}</td>
+              <td><b>{r.change}</b></td><td className="small">{r.domain}</td><td className="small">{r.entity_type_name}</td><td>{r.name}</td>
               <td className="small">{TOGAF[r.status_a] || r.status_a || <span className="quiet">not in A</span>}</td>
               <td className="small">{TOGAF[r.status_b] || r.status_b || <span className="quiet">not in B</span>}</td>
               <td className="small">{r.resolution_a}</td><td className="small">{r.resolution_b}</td>
@@ -948,7 +953,7 @@ function GapAnalysis({ id }) {
   const { data: a, error } = useApi(`/api/v1/gaps/${id}`);
   const [view, setView] = useState("gaps");
   const [status, setStatus] = useState("gaps");
-  const [layer, setLayer] = useState("");
+  const [domain, setDomain] = useState("");
   const [q, setQ] = useState("");
   const [picked, setPicked] = useState(() => new Set());
   const [bulkRes, setBulkRes] = useState("");
@@ -964,9 +969,9 @@ function GapAnalysis({ id }) {
   const admin = canOn(model, "model.lock") && !m.is_locked;
   const mayEdit = canOn(model, "model.content");
   const live = a.items.filter((i) => !i.gone);
-  const layers = [...new Set(live.map((i) => i.layer))].sort();
+  const domains = [...new Set(live.map((i) => i.domain))].sort();
   const items = live.filter((i) => (status === "gaps" ? i.status !== "kept" : status === "undecided" ? i.status !== "kept" && !i.resolution
-    : status === "all" || i.status === status) && (!layer || i.layer === layer) && (!q || i.name.toLowerCase().includes(q.toLowerCase())));
+    : status === "all" || i.status === status) && (!domain || i.domain === domain) && (!q || i.name.toLowerCase().includes(q.toLowerCase())));
   async function act(what, fn, done) {
     setBusy(what); setErr(""); setMsg("");
     try { const out = await fn(); setMsg(typeof done === "function" ? done(out) : done); refreshAll(); } catch (e) { setErr(e.message); }
@@ -1005,9 +1010,9 @@ function GapAnalysis({ id }) {
         <div className="seg small">
           <button className={view === "gaps" ? "on" : ""} onClick={() => setView("gaps")}>Gaps</button>
           <button className={view === "matrix" ? "on" : ""} onClick={() => setView("matrix")}>TOGAF gap matrix</button>
-          <button className={view === "summary" ? "on" : ""} onClick={() => setView("summary")}>By layer and type</button>
+          <button className={view === "summary" ? "on" : ""} onClick={() => setView("summary")}>By domain and type</button>
         </div>
-        <select value={layer} onChange={(e) => setLayer(e.target.value)}><option value="">Every layer</option>{layers.map((l) => <option key={l}>{l}</option>)}</select>
+        <select value={domain} onChange={(e) => setDomain(e.target.value)}><option value="">Every domain</option>{domains.map((l) => <option key={l}>{l}</option>)}</select>
         <input className="search" placeholder="Filter by name" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 220 }} />
         <span className="tabs-right">
           {admin && <button disabled={!!busy} title="Each gap becomes a Gap entity of this model, associated with its elements and work packages (committed at once)"
@@ -1047,7 +1052,7 @@ function GapAnalysis({ id }) {
               <tr key={i.id} className={`cmp-${i.status}`}>
                 <td><input type="checkbox" checked={picked.has(i.id)} onChange={() => setPicked((x) => { const n = new Set(x); if (n.has(i.id)) n.delete(i.id); else n.add(i.id); return n; })} /></td>
                 <td className="small">{TOGAF[i.status]}</td>
-                <td><strong>{i.name}</strong> <span className="quiet small">{i.entity_type_name} · {i.layer}</span>
+                <td><strong>{i.name}</strong> <span className="quiet small">{i.entity_type_name} · {i.domain}</span>
                   {(i.target_here || i.baseline_here) && <EntityLink model={model} id={i.target_here ? i.target_guid : i.baseline_guid} />}
                   {i.gap_entity && <EntityLink model={model} id={i.gap_entity} label="Gap entity ↗" />}
                   {i.baseline_name && i.target_name && i.baseline_name !== i.target_name && <div className="quiet small">was {i.baseline_name}</div>}</td>
@@ -1066,7 +1071,7 @@ function GapAnalysis({ id }) {
           </tbody>
         </table>
       </>}
-      {view === "matrix" && <GapMatrix items={live.filter((i) => (!layer || i.layer === layer))} />}
+      {view === "matrix" && <GapMatrix items={live.filter((i) => (!domain || i.domain === domain))} />}
       {view === "summary" && <GapSummary items={live} />}
       {detail && <SideBySide path={`/api/v1/gaps/${a.id}/items/${detail.id}/detail`} title={`${detail.name}: baseline and target side by side`}
         onClose={() => setDetail(null)} />}
@@ -1087,7 +1092,7 @@ function GapMatrix({ items }) {
   const groups = {};
   items.forEach((i) => { (groups[i.entity_type] = groups[i.entity_type] || []).push(i); });
   const list = Object.values(groups).filter((g) => all || g.some((i) => i.status !== "kept"))
-    .sort((x, y) => (x[0].layer + x[0].entity_type_name).localeCompare(y[0].layer + y[0].entity_type_name));
+    .sort((x, y) => (x[0].domain + x[0].entity_type_name).localeCompare(y[0].domain + y[0].entity_type_name));
   return (
     <div>
       <label><input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} /> Show the types without gaps too</label>
@@ -1098,7 +1103,7 @@ function GapMatrix({ items }) {
         const tgt = g.filter((i) => i.target_name).slice(0, 40);
         return (
           <div key={g[0].entity_type} className="gap-matrix">
-            <h4>{g[0].entity_type_name} <span className="quiet small">{g[0].layer}</span></h4>
+            <h4>{g[0].entity_type_name} <span className="quiet small">{g[0].domain}</span></h4>
             <div className="scroll">
               <table className="grid-table matrix">
                 <thead><tr><th>Baseline \ Target</th>{tgt.map((j) => <th key={j.id} className="vert" title={j.target_name}><span>{j.target_name}</span></th>)}<th className="vert"><span>Eliminated</span></th></tr></thead>
@@ -1122,19 +1127,19 @@ function GapMatrix({ items }) {
 function GapSummary({ items }) {
   const rows = {};
   items.forEach((i) => {
-    const k = `${i.layer}|${i.entity_type_name}`;
-    rows[k] = rows[k] || { layer: i.layer, name: i.entity_type_name, kept: 0, changed: 0, new: 0, eliminated: 0 };
+    const k = `${i.domain}|${i.entity_type_name}`;
+    rows[k] = rows[k] || { domain: i.domain, name: i.entity_type_name, kept: 0, changed: 0, new: 0, eliminated: 0 };
     rows[k][i.status] += 1;
   });
-  const list = Object.values(rows).sort((x, y) => (x.layer + x.name).localeCompare(y.layer + y.name));
+  const list = Object.values(rows).sort((x, y) => (x.domain + x.name).localeCompare(y.domain + y.name));
   const max = Math.max(1, ...list.map((r) => r.kept + r.changed + r.new + r.eliminated));
   return (
     <table className="grid-table">
-      <thead><tr><th>Layer</th><th>Entity type</th><th>Included</th><th>Changed</th><th>New</th><th>Eliminated</th><th style={{ width: "35%" }} /></tr></thead>
+      <thead><tr><th>Domain</th><th>Entity type</th><th>Included</th><th>Changed</th><th>New</th><th>Eliminated</th><th style={{ width: "35%" }} /></tr></thead>
       <tbody>
         {list.map((r) => (
-          <tr key={r.layer + r.name}>
-            <td className="quiet">{r.layer}</td><td>{r.name}</td><td className="num">{r.kept}</td><td className="num">{r.changed || ""}</td>
+          <tr key={r.domain + r.name}>
+            <td className="quiet">{r.domain}</td><td>{r.name}</td><td className="num">{r.kept}</td><td className="num">{r.changed || ""}</td>
             <td className="num">{r.new || ""}</td><td className="num">{r.eliminated || ""}</td>
             <td><div className="gap-bar">{["kept", "changed", "new", "eliminated"].map((s) => r[s] > 0 &&
               <span key={s} className={`gb-${s}`} style={{ width: `${(100 * r[s]) / max}%` }} title={`${TOGAF[s]}: ${r[s]}`} />)}</div></td>

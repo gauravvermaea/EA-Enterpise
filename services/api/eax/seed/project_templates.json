@@ -14,7 +14,7 @@
         "technology"
       ],
       "phases": null,
-      "viewpoints": [
+      "views": [
         "VP-05",
         "VP-15",
         "VP-19",
@@ -183,7 +183,7 @@
         "D",
         "X"
       ],
-      "viewpoints": [
+      "views": [
         "VP-01",
         "VP-02",
         "VP-03",
@@ -297,7 +297,7 @@
         "F",
         "RM"
       ],
-      "viewpoints": [
+      "views": [
         "VP-07",
         "VP-15",
         "VP-18",
@@ -414,7 +414,7 @@
         "A",
         "X"
       ],
-      "viewpoints": [
+      "views": [
         "VP-05"
       ],
       "goals": false,
@@ -479,7 +479,7 @@
         "X",
         "H"
       ],
-      "viewpoints": [
+      "views": [
         "VP-05"
       ],
       "goals": false,
@@ -553,7 +553,7 @@
         "E",
         "RM"
       ],
-      "viewpoints": [
+      "views": [
         "VP-15",
         "VP-18",
         "VP-19",
@@ -667,7 +667,7 @@
         "application"
       ],
       "phases": null,
-      "viewpoints": [
+      "views": [
         "VP-14",
         "VP-16",
         "VP-17",
@@ -800,7 +800,7 @@
         "G",
         "RM"
       ],
-      "viewpoints": [
+      "views": [
         "VP-04",
         "VP-06",
         "VP-09",
@@ -948,7 +948,7 @@
         "F",
         "RM"
       ],
-      "viewpoints": [
+      "views": [
         "VP-02",
         "VP-08",
         "VP-11",
@@ -1068,7 +1068,7 @@
         "F",
         "RM"
       ],
-      "viewpoints": [
+      "views": [
         "VP-01",
         "VP-10",
         "VP-19",
@@ -1199,7 +1199,7 @@
         "F",
         "RM"
       ],
-      "viewpoints": [
+      "views": [
         "VP-18",
         "VP-19",
         "VP-20",
@@ -1310,7 +1310,7 @@
         "H",
         "X"
       ],
-      "viewpoints": [
+      "views": [
         "VP-05",
         "VP-17"
       ],
@@ -1404,7 +1404,7 @@
         "F",
         "G"
       ],
-      "viewpoints": [
+      "views": [
         "VP-02",
         "VP-08",
         "VP-11",
@@ -1517,7 +1517,7 @@
         "F",
         "RM"
       ],
-      "viewpoints": [
+      "views": [
         "VP-02",
         "VP-05",
         "VP-19",

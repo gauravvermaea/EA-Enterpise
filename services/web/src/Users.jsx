@@ -68,13 +68,14 @@ function RoleMapping() {
   const kcRoles = useLoad("/api/v1/keycloak-roles");
   const mappings = useLoad("/api/v1/role-mappings");
   const [kc, setKc] = useState("");
+  const [from, setFrom] = useState("role");        // a Keycloak role, or a directory group (phase 36, D503)
   const [app, setApp] = useState("");
   const [error, setError] = useState("");
   const editable = can("roles.map");
   const reload = () => { roles.reload(); mappings.reload(); kcRoles.reload(); };
   async function add(e) {
     e.preventDefault(); setError("");
-    try { await apiFetch("/api/v1/role-mappings", { method: "POST", body: JSON.stringify({ keycloak_role: kc, app_role: app }) }); setKc(""); reload(); }
+    try { await apiFetch("/api/v1/role-mappings", { method: "POST", body: JSON.stringify({ keycloak_role: (from === "group" ? "group:" : "") + kc.trim().replace(/^group:/i, ""), app_role: app }) }); setKc(""); reload(); }
     catch (err) { setError(err.message); }
   }
   async function remove(m) {
@@ -86,18 +87,21 @@ function RoleMapping() {
   return (
     <>
       <p className="quiet">Global roles come from Keycloak: each Keycloak role below gives one EA Explorer global role. People are given the
-        Keycloak roles in Keycloak (later also through directory groups, managed in Keycloak). A change here applies within 30 seconds.
+        Keycloak roles in Keycloak, or belong to a <strong>directory group</strong>: an Active Directory group reaching Keycloak through
+        its LDAP user federation, or an Entra ID group sent as a group claim (a group's name, or its object ID for Entra ID). Map a
+        group here and everyone in it gets the role at their next sign-in. A change here applies within 30 seconds.
         Roles on a model (Model Admin, Architect, Model Sub Admin, Report Viewer) are not mapped: they are given on each model's People tab.</p>
       {(roles.error || mappings.error) && <p className="status bad">{roles.error || mappings.error}</p>}
       <table className="grid-table">
-        <thead><tr><th>Global role</th><th>What it allows</th><th>Given by these Keycloak roles</th></tr></thead>
+        <thead><tr><th>Global role</th><th>What it allows</th><th>Given by these Keycloak roles and directory groups</th></tr></thead>
         <tbody>
           {(roles.data || []).filter((r) => r.scope !== "model").map((r) => (
             <tr key={r.code}>
               <td><strong>{r.name}</strong><br /><code className="quiet">{r.code}</code></td>
               <td className="small">{r.description}</td>
               <td>{(byRole[r.code] || []).map((m) => (
-                <span key={m.id} className="rchip">{m.keycloak_role}
+                <span key={m.id} className="rchip" title={m.keycloak_role.startsWith("group:") ? "A directory group" : "A Keycloak role"}>
+                  {m.keycloak_role.startsWith("group:") ? <>👥 {m.keycloak_role.slice(6)}</> : m.keycloak_role}
                   <button className="tiny" disabled={!editable} title={editable ? `Remove: ${m.keycloak_role} no longer gives ${r.name}` : `Changing the mapping: ${needsRole(["user-admin", "super-admin"])}`} onClick={() => remove(m)}>×</button></span>))}
                 {!(byRole[r.code] || []).length && <span className="quiet">none: nobody has it</span>}</td>
             </tr>
@@ -106,8 +110,13 @@ function RoleMapping() {
       </table>
       {(
         <form className="toolbar" onSubmit={add} title={editable ? undefined : `Changing the mapping: ${needsRole(["user-admin", "super-admin"])}`}>
-          <strong>Add a mapping:</strong> Keycloak role
-          <input list="kc-roles" className="search" style={{ maxWidth: 240 }} value={kc} onChange={(e) => setKc(e.target.value)} placeholder="a realm role" />
+          <strong>Add a mapping:</strong>
+          <select value={from} onChange={(e) => setFrom(e.target.value)} aria-label="Map a Keycloak role or a directory group">
+            <option value="role">Keycloak role</option>
+            <option value="group">Directory group</option>
+          </select>
+          <input list={from === "role" ? "kc-roles" : undefined} className="search" style={{ maxWidth: 240 }} value={kc} onChange={(e) => setKc(e.target.value)}
+            placeholder={from === "role" ? "a realm role" : "a group name, e.g. EA Architects"} aria-label={from === "role" ? "Keycloak role" : "Directory group"} />
           <datalist id="kc-roles">{(kcRoles.data || []).map((r) => <option key={r.name} value={r.name}>{r.description}</option>)}</datalist>
           gives
           <select value={app} onChange={(e) => setApp(e.target.value)}>

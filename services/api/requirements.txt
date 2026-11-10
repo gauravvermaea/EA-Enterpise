@@ -18,3 +18,5 @@ mcp>=2.3,<3
 reportlab>=4.2,<6
 # the text inside PDFs, for searching the reference library (phase 13.0.7, D299)
 pypdf>=4.3,<6
+# reading drawn views' draw.io files and icons safely (phase 28, D354)
+defusedxml>=0.7,<0.8

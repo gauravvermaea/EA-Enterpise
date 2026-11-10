@@ -23,8 +23,9 @@ def metamodel_grid(conn, model: Any, kind: str) -> dict:
     m = repo.get_model(conn, model)
     mid = m["_id"]
     choices = {
-        "layers": [r["name"] for r in _rows(conn, "SELECT name FROM core.layers WHERE model_id = :m AND NOT is_deleted ORDER BY sort_order", m=mid)],
+        "domains": [r["name"] for r in _rows(conn, "SELECT name FROM core.layers WHERE model_id = :m AND NOT is_deleted ORDER BY sort_order", m=mid)],
         "entity_types": [r["name"] for r in _rows(conn, """SELECT name FROM core.entity_types WHERE model_id = :m AND NOT is_deleted
+                                                              AND NOT is_connector
                                                             ORDER BY name""", m=mid)],
         "relationship_types": [r["name"] for r in _rows(conn, """SELECT name FROM core.relationship_types WHERE model_id = :m
                                                                   AND NOT is_deleted ORDER BY sort_order, name""", m=mid)],
@@ -37,7 +38,7 @@ def metamodel_grid(conn, model: Any, kind: str) -> dict:
     }
     if kind == "entity_types":
         rows = _rows(conn, """
-            SELECT t.guid AS id, t.name, t.code, l.name AS layer, t.id_prefix, t.aspect, t.description, t.status_code AS status,
+            SELECT t.guid AS id, t.name, t.code, l.name AS domain, t.id_prefix, t.aspect, t.description, t.status_code AS status,
                    (SELECT count(*) FROM core.entities e WHERE e.entity_type_id = t.id AND NOT e.is_deleted) AS entities
               FROM core.entity_types t JOIN core.layers l ON l.id = t.layer_id
              WHERE t.model_id = :m AND NOT t.is_deleted ORDER BY l.sort_order, t.sort_order, t.name""", m=mid)
@@ -59,8 +60,8 @@ def metamodel_grid(conn, model: Any, kind: str) -> dict:
              ORDER BY t.name NULLS LAST, ia.sort_order, a.name""", m=mid)
     elif kind == "mappings":
         rows = _rows(conn, """
-            SELECT ar.guid AS id, rt.name AS relationship_type, s.name AS source_type, t.name AS target_type, ar.note,
-                   ar.from_content
+            SELECT ar.guid AS id, rt.name AS relationship_type, s.name AS source_type, t.name AS target_type,
+                   ar.source_multiplicity, ar.target_multiplicity, ar.note, ar.from_content
               FROM core.allowed_relationships ar JOIN core.relationship_types rt ON rt.id = ar.relationship_type_id
               JOIN core.entity_types s ON s.id = ar.source_type_id JOIN core.entity_types t ON t.id = ar.target_type_id
              WHERE ar.model_id = :m AND NOT ar.is_deleted ORDER BY rt.sort_order, s.name, t.name""", m=mid)

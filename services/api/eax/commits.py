@@ -933,15 +933,38 @@ def _item(conn, commit_id: int, change_id: int | None, author: str, op: str, arg
 
 
 def commit(conn, model: Any, user, set_id: Any = None, change_ids: list | None = None, resolutions: dict | None = None,
-           message: str = "") -> dict:
+           message: str = "", relationships_only: bool = False) -> dict:
     """Commits uncommitted changes: the committer's own (no set given) or a requested change set, all of it
     or the chosen changes. Conflicts with content committed since must be resolved first (CommitConflict).
-    All or nothing; each item keeps the target before and after for a later roll back."""
+    All or nothing; each item keeps the target before and after for a later roll back.
+    relationships_only (a drawn view, D413): anyone who may change the model commits their own relationships and
+    junctions straight away; any other change among them still needs a committer."""
     m = _model(conn, model)
+    if relationships_only and not set_id:
+        rows = _changes_for(conn, m, user, None, change_ids)
+        if all(drawn_free(conn, m, r["op"], _json(r["args"]) or {}) for r in rows):
+            return _commit_rows(conn, m, user, rows, resolutions, message)
     if not may_commit(conn, user, m):
         raise EditError("Committing needs the Committer, Model Sub Admin or Model Admin role on this model. "
                         "Ask for a commit instead: the model's committers will see your changes.", 403)
     rows = _changes_for(conn, m, user, set_id, change_ids)
+    return _commit_rows(conn, m, user, rows, resolutions, message)
+
+
+def drawn_free(conn, m: dict, op: str, args: dict) -> bool:
+    """What a drawn view commits without a committer (D413): relationships, and junctions (connectors, not content)."""
+    if op.startswith("relationship."):
+        return True
+    if op == "entity.create":
+        try:
+            et = repo._find_type(conn, m["_id"], (args.get("data") or {}).get("entity_type"))
+        except repo.NotFound:
+            return False
+        return bool(et.get("is_connector"))
+    return False
+
+
+def _commit_rows(conn, m: dict, user, rows: list[dict], resolutions: dict | None, message: str) -> dict:
     _dependencies(conn, m, rows)
     resolutions = resolutions or {}
     conflicts = [c for c in (_conflict(conn, m, r, resolutions.get(str(r["guid"]))) for r in rows) if c]

@@ -17,7 +17,7 @@ import { fmtDateTime } from "./fmt";
 const DATA_TYPES = [
   ["text", "Text"], ["long_text", "Long text"], ["integer", "Whole number"], ["decimal", "Decimal number"],
   ["currency", "Currency amount"], ["percent", "Percentage"], ["date", "Date"], ["boolean", "Yes / no"],
-  ["list", "Pick list"], ["url", "Web address"], ["email", "Email address"], ["entity_ref", "Link to an entity"],
+  ["list", "Pick list"], ["url", "Link (one or more, with notes)"], ["email", "Email address"], ["entity_ref", "Link to an entity"],
 ];
 // [code, name, what it checks, parameters: [label, kind]]; kind: number, date, regex, attr, date_attr, text
 const RULE_TYPES = [
@@ -258,14 +258,27 @@ export function EditButton({ model, m, label, spec, className = "", title }) {
 }
 
 // ---------------------------------------------------------------- the forms
-export function entityTypeSpec(layers, t = null) {
-  const layerOptions = layers.map((l) => [l.id, l.name]);
+// the ArchiMate 4 elements a type may look like on drawn views (D354, eax/notation.py)
+export const NOTATIONS = ["ApplicationComponent", "ApplicationInterface", "Artifact", "Assessment", "BusinessActor", "BusinessInterface",
+  "BusinessObject", "Capability", "Collaboration", "CommunicationNetwork", "CourseOfAction", "DataObject", "Deliverable", "Device",
+  "DistributionNetwork", "Driver", "Equipment", "Event", "Facility", "Function", "Goal", "Grouping", "Location", "Material", "Meaning",
+  "Node", "Outcome", "Path", "Plateau", "Principle", "Process", "Product", "Requirement", "Resource", "Role", "Service", "Stakeholder",
+  "SystemSoftware", "TechnologyInterface", "Value", "ValueStream", "WorkPackage"];
+const notationOptions = () => NOTATIONS.map((n) => [n, n.replace(/([a-z])([A-Z])/g, "$1 $2")]);
+const lookFields = (t) => [
+  { name: "notation", label: "Look on drawn views (ArchiMate element)", type: "select", options: notationOptions(), initial: t?.notation || "",
+    sendEmpty: !!t, blank: "A plain rounded box", help: "The ArchiMate 4 shape and icon its entities show on drawn views" },
+  { name: "fill_colour", label: "Fill colour (optional)", initial: t?.fill_colour || "", sendEmpty: !!t, placeholder: "RRGGBB, e.g. ECD678",
+    help: "Empty: the domain's ArchiMate colour" },
+];
+export function entityTypeSpec(domains, t = null) {
+  const domainOptions = domains.map((l) => [l.id, l.name]);
   if (t) {
     return {
       title: `Change entity type ${t.name}`, op: "entity_type.update", fixed: { id: t.id },
       fields: [
         { name: "name", label: "Name", required: true, initial: t.name },
-        { name: "layer", label: "Layer", type: "select", options: layerOptions, initial: t.layer_id, blank: false },
+        { name: "domain", label: "Domain", type: "select", options: domainOptions, initial: t.domain_id, blank: false },
         { name: "id_prefix", label: "Display ID prefix", initial: t.id_prefix, help: "New entities get IDs like PREFIX-0001" },
         { name: "aspect", label: "Aspect", initial: t.aspect },
         { name: "content_area", label: "Content framework areas", type: "areas", initial: t.content_area || t.content_default || "", sendEmpty: true,
@@ -273,6 +286,7 @@ export function entityTypeSpec(layers, t = null) {
         { name: "repository_area", label: "Repository area", type: "select", initial: t.repository_area || "", sendEmpty: true,
           blank: `Built in: ${t.repository_default || "Architecture Landscape"}`, options: REPO_AREAS.map((r) => [r, r]),
           help: "The part of the Architecture Repository every entity of this type is filed in (set on the type, not on each entity)." },
+        ...lookFields(t),
         { name: "description", label: "Description", type: "textarea", initial: t.description, sendEmpty: true },
       ],
     };
@@ -282,13 +296,14 @@ export function entityTypeSpec(layers, t = null) {
     intro: "A new kind of thing the model can hold. Its attributes, rules and allowed relationships are added on its page.",
     fields: [
       { name: "name", label: "Name", required: true, placeholder: "for example Integration Platform" },
-      { name: "layer", label: "Layer", type: "select", options: layerOptions, required: true },
+      { name: "domain", label: "Domain", type: "select", options: domainOptions, required: true },
       { name: "id_prefix", label: "Display ID prefix", placeholder: "3 letters, for example INT", help: "Made from the name when left empty" },
       { name: "aspect", label: "Aspect", placeholder: "for example Active Structure" },
       { name: "content_area", label: "Content framework areas", type: "areas",
         help: "Where this type sits on a project's Content framework tab: one area or several. None ticked: where it sits by default." },
       { name: "repository_area", label: "Repository area", type: "select", blank: "Built in (from its content framework area)", options: REPO_AREAS.map((r) => [r, r]),
         help: "The part of the Architecture Repository every entity of this type is filed in." },
+      ...lookFields(null),
       { name: "description", label: "Description", type: "textarea" },
     ],
   };
@@ -395,8 +410,32 @@ export function mappingSpec(types, relTypes, source = null) {
       { name: "source_type", label: "Source entity type", type: "select", options: typeOptions, required: true, initial: source || "" },
       { name: "relationship_type", label: "Relationship type", type: "select", options: relTypes.filter((r) => r.status !== "retired").map((r) => [r.id, `${r.name} (${r.verb})`]), required: true },
       { name: "target_type", label: "Target entity type", type: "select", options: typeOptions, required: true },
+      ...multiplicityFields(),
       { name: "note", label: "Note" },
     ],
+  };
+}
+
+// relationship multiplicity (D395): how many instances may take part at each end; empty constrains nothing
+export const MULTIPLICITY_HELP = "A number (1), * (any number) or a range (0..1, 1..*, 2..5). Leave empty unless a constraint really binds.";
+export function multiplicityFields(a = null) {
+  return [
+    { name: "source_multiplicity", label: "Source end: how many sources one target may have", initial: a?.source_multiplicity || "", sendEmpty: !!a,
+      placeholder: "e.g. 1, 0..1, 1..*", help: MULTIPLICITY_HELP },
+    { name: "target_multiplicity", label: "Target end: how many targets one source may have", initial: a?.target_multiplicity || "", sendEmpty: !!a,
+      placeholder: "e.g. 1, 0..1, 1..*" },
+  ];
+}
+
+export function multiplicityLabel(s, t) {
+  return s || t ? `${s || "*"} : ${t || "*"}` : "";
+}
+
+export function mappingUpdateSpec(a, sentence) {
+  return {
+    title: `Multiplicity: ${sentence}`, op: "mapping.update", fixed: { id: a.id },
+    intro: "Constrains how many instances take part at each end (it never makes a relationship allowed). The data quality checks flag entities that break it.",
+    fields: [...multiplicityFields(a), { name: "note", label: "Note", initial: a.note || "", sendEmpty: true }],
   };
 }
 

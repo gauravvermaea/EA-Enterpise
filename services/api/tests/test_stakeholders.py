@@ -26,7 +26,7 @@ def test_class_from_power_and_interest():
 
 
 def test_clean():
-    c = sh.clean({"name": " CIO ", "power": "high", "interest": "l", "category": "corporate", "viewpoints": ["VP-05"],
+    c = sh.clean({"name": " CIO ", "power": "high", "interest": "l", "category": "corporate", "views": ["VP-05"],
                   "next_contact": "2026-12-01", "notes_html": "<p>x</p><script>y</script>"}, {"g1": 7})
     assert c["name"] == "CIO" and c["power"] == "H" and c["interest"] == "L" and "script" not in c["notes_html"]
     for bad in ({"name": ""}, {"name": "X", "power": "Z"}, {"name": "X", "category": "nope"}, {"name": "X", "class": "boss"},
@@ -74,4 +74,4 @@ def test_completion_and_steps():
     assert "SET done_at = NULL, done_by = NULL WHERE id = :s" in inspect.getsource(pj.add_substep)
     js = (WEB / "Projects.jsx").read_text()
     assert "export function Completion" in js and "useWhileBuilding" in js
-    assert 'setPart("steps")' in js and 'setPart("documents")' in js and 'setPart("viewpoints")' in js
+    assert 'setPart("steps")' in js and 'setPart("documents")' in js and 'setPart("views")' in js

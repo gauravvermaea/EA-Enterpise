@@ -5,7 +5,7 @@
 // From the roles phase (3.1) the list holds only the models the user may open.
 import { useEffect, useState } from "react";
 import { apiFetch } from "./auth";
-import { KINDS, marksText } from "./ModelMarks";
+import { isRetiredModel, isRetiredProject, KINDS, marksText } from "./ModelMarks";
 import { ModelIcon } from "./ModelIcon";
 
 const KEY = "eax.lastModel";
@@ -23,7 +23,7 @@ export default function ModelSwitcher({ route }) {
   useEffect(() => { if (inModel) remember(inModel); }, [inModel]);
   useEffect(() => {
     let live = true;
-    apiFetch("/api/v1/models?archived=false").then((m) => live && setModels(m)).catch(() => live && setModels([]));
+    apiFetch("/api/v1/models").then((m) => live && setModels(m)).catch(() => live && setModels([]));
     return () => { live = false; };
   }, []);
 
@@ -45,7 +45,8 @@ export default function ModelSwitcher({ route }) {
       <select value={m ? m.id : ""} onChange={(e) => choose(e.target.value)} aria-label="Change model">
         {!m && <option value="">Choose a model...</option>}
         {KIND_ORDER.map((k) => {
-          const list = models.filter((x) => x.kind === k);
+          // never a frozen or archived model, except the one you are in (D360)
+          const list = models.filter((x) => x.kind === k && (!isRetiredModel(x) || x.id === current));
           return list.length ? (
             <optgroup key={k} label={KIND_LABEL[k]}>
               {list.map((x) => <option key={x.id} value={x.id}>{KINDS[x.kind]?.glyph} {x.name}{x.version_label ? ` ${x.version_label}` : ""}{marksText(x) ? `  ${marksText(x)}` : ""}</option>)}
@@ -82,8 +83,9 @@ export function ProjectSwitcher({ route }) {
     const tab = inProject && parts[3] ? `/${parts[3]}` : "";
     window.location.hash = `/projects/${id}${tab}`;
   }
-  const libs = projects.filter((x) => x.is_library);
-  const work = projects.filter((x) => !x.is_library);
+  const offered = projects.filter((x) => !isRetiredProject(x) || x.id === current);    // never a frozen or merged one (D360)
+  const libs = offered.filter((x) => x.is_library);
+  const work = offered.filter((x) => !x.is_library);
   return (
     <div className={`model-switch${inProject ? " here" : ""}`} title={inProject ? "The project you are in" : "The last project you opened"}>
       <span className="model-switch-label">{inProject ? "Project" : "Last project"}</span>

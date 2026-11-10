@@ -2,7 +2,8 @@
 // under the base (or library project) it derives from: Empty project > TOGAF 10 project > Organisation base > projects.
 // Top-down or left-to-right, pan and zoom, click a box to open it (or onPick); draw.io, SVG and PNG.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { openDrawio, downloadPng, downloadSvg } from "./exporting";
+import { downloadPng, downloadSvg } from "./exporting";
+import { PictureActions } from "./DrawnView";
 import usePanZoom from "./usePanZoom";
 
 const W = 210, H = 64, GAP_X = 28, GAP_Y = 64;
@@ -74,10 +75,11 @@ export default function ProjectTree({ items, focus, onPick, height }) {
     const x1 = a.x + W / 2, y1 = a.y + H, x2 = b.x + W / 2, y2 = b.y, my = y1 + GAP_Y / 2;
     return `M${x1},${y1} V${my} H${x2} V${y2}`;
   };
-  function exportDrawio() {
-    openDrawio(title, t.nodes.map(({ m, x, y }) => ({ id: m.id, label: m.name, sub: STYLE[m.kind]?.label, x, y, w: W, h: H,
-      fill: STYLE[m.kind]?.fill, stroke: STYLE[m.kind]?.stroke, ea_type: "Project", ea_id: m.id, align: "center" })),
-    t.edges.map((e) => ({ source: e.from, target: e.to, arrow: false })));
+  // the tree as a picture to download (projects, not one model's: no drawn view, D406)
+  function picture() {
+    return { title, nodes: t.nodes.map(({ m, x, y }) => ({ id: m.id, label: m.name, sub: STYLE[m.kind]?.label, x, y, w: W, h: H,
+      fill: STYLE[m.kind]?.fill, stroke: STYLE[m.kind]?.stroke, align: "center" })),
+    edges: t.edges.map((e) => ({ source: e.from, target: e.to, arrow: false, route: "orthogonal" })) };
   }
   const hl = q.trim().toLowerCase();
   return (
@@ -92,7 +94,7 @@ export default function ProjectTree({ items, focus, onPick, height }) {
         <button onClick={() => fit(t.width, t.height, 1)}>Fit</button>
         <button onClick={() => zoomCentre(1.25)}>+</button>
         <button onClick={() => zoomCentre(0.8)}>−</button>
-        <button onClick={exportDrawio} title="Boxes and lines, opened in draw.io in a new tab">Open in draw.io</button>
+        <PictureActions picture={picture} images={false} />
         <button onClick={() => downloadSvg(svgRef.current, t.width, t.height, title)}>SVG</button>
         <button onClick={() => downloadPng(svgRef.current, t.width, t.height, title)}>PNG</button>
       </div>

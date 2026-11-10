@@ -1,13 +1,13 @@
-"""Brings the built-in viewpoints (VP-01 to VP-49) and the report audiences in line with eax/report_defs.py
+"""Brings the built-in views (VP-01 to VP-49) and the report audiences in line with eax/report_defs.py
 (build phase 8.2, D161). Run by the seed on every start as the installer's login; idempotent. An
-organisation's own viewpoints (not built in) are left alone.
+organisation's own views (not built in) are left alone.
 """
 
 from __future__ import annotations
 
 import json
 
-from ..report_defs import AUDIENCES, REPORTS, VIEWPOINTS
+from ..report_defs import AUDIENCES, REPORTS, VIEWS
 
 
 def _lit(v) -> str:
@@ -29,7 +29,7 @@ def catalog_sql() -> str:
                + ",\n    ".join(rows) + "\nON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name, "
                "audience_group = EXCLUDED.audience_group, sort_order = EXCLUDED.sort_order;\n")
     out.append("DELETE FROM core.report_audiences WHERE code NOT IN (" + ", ".join(_lit(c) for c, _n, _g in AUDIENCES) + ");\n")
-    for i, v in enumerate(VIEWPOINTS, 1):
+    for i, v in enumerate(VIEWS, 1):
         out.append(
             "INSERT INTO core.viewpoints (code, name, category, purpose, concerns, stakeholders, element_types, relationship_types,"
             " heat_attribute, audiences, is_builtin, source, sort_order, default_view, togaf_artifact) VALUES ("
@@ -42,7 +42,7 @@ def catalog_sql() -> str:
               " audiences = EXCLUDED.audiences, is_builtin = true, source = EXCLUDED.source, sort_order = EXCLUDED.sort_order,"
               " default_view = EXCLUDED.default_view, togaf_artifact = EXCLUDED.togaf_artifact, modified_at = now();\n")
     out.append("DELETE FROM core.viewpoints WHERE is_builtin AND code NOT IN ("
-               + ", ".join(_lit(v["code"]) for v in VIEWPOINTS) + ");\n")
+               + ", ".join(_lit(v["code"]) for v in VIEWS) + ");\n")
     links = sorted({(r["code"], a) for r in REPORTS for a in r["audiences"]})
     out.append("DELETE FROM core.report_audience_links;\n")
     out.append("INSERT INTO core.report_audience_links (report_code, audience_code) VALUES\n    "
@@ -51,4 +51,4 @@ def catalog_sql() -> str:
 
 
 def catalog_summary() -> str:
-    return json.dumps({"viewpoints": len(VIEWPOINTS), "audiences": len(AUDIENCES), "reports": len(REPORTS)})
+    return json.dumps({"views": len(VIEWS), "audiences": len(AUDIENCES), "reports": len(REPORTS)})

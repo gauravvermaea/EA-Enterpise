@@ -8,8 +8,8 @@ Rules
   * Relationship types: all except the catch-all ones (GENERIC) unless asked for.
   * Focus on one entity type: that type, every type it may connect to with the chosen relationship
     types (in either direction), and only the links that touch the focused type.
-  * Otherwise the chosen layers (all when none are chosen) and the links between their types; with
-    include_connected, also the types in other layers those types connect to.
+  * Otherwise the chosen domains (all when none are chosen) and the links between their types; with
+    include_connected, also the types in other domains those types connect to.
 """
 
 from __future__ import annotations
@@ -26,10 +26,10 @@ def _match(value: str, *candidates: Any) -> bool:
     return any(v == str(c).strip().lower() for c in candidates if c is not None)
 
 
-def scope(data: dict, layers: Iterable[str] | None = None, entity_type: str | None = None,
+def scope(data: dict, domains: Iterable[str] | None = None, entity_type: str | None = None,
           relationship_types: Iterable[str] | None = None, include_generic: bool = False,
           include_connected: bool = False, **_ignored) -> dict:
-    """The part of the diagram to draw. Raises LookupError for an unknown layer, type or relationship type."""
+    """The part of the diagram to draw. Raises LookupError for an unknown domain, type or relationship type."""
     all_rels = [r["code"] for r in data["relationship_types"]]
     if relationship_types:
         rels = []
@@ -59,14 +59,14 @@ def scope(data: dict, layers: Iterable[str] | None = None, entity_type: str | No
         links = [x for x in links if fid in (x["source"], x["target"])]
         ids = {fid} | {x["source"] for x in links} | {x["target"] for x in links}
     else:
-        chosen = list(layers or [])
-        layer_ids = set()
+        chosen = list(domains or [])
+        domain_ids = set()
         for want in chosen:
-            found = [str(lay["id"]) for lay in data["layers"] if _match(want, lay["id"], lay["code"], lay["name"])]
+            found = [str(lay["id"]) for lay in data["domains"] if _match(want, lay["id"], lay["code"], lay["name"])]
             if not found:
-                raise LookupError(f"No layer {want!r}. Known: {', '.join(lay['name'] for lay in data['layers'])}.")
-            layer_ids.update(found)
-        inside = {i for i, t in types.items() if not layer_ids or str(t["layer_id"]) in layer_ids}
+                raise LookupError(f"No domain {want!r}. Known: {', '.join(lay['name'] for lay in data['domains'])}.")
+            domain_ids.update(found)
+        inside = {i for i, t in types.items() if not domain_ids or str(t["domain_id"]) in domain_ids}
         if include_connected:
             links = [x for x in links if x["source"] in inside or x["target"] in inside]
             ids = inside | {x["source"] for x in links} | {x["target"] for x in links}

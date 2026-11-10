@@ -467,12 +467,12 @@ class GapEntities(MethodView):
 @blp.route("/gaps/<string:analysis_id>/migration-plan")
 class GapMigrationPlan(MethodView):
     @blp.doc(security=SECURITY, parameters=[{"in": "query", "name": "by", "schema": {"type": "string",
-                                                                                   "enum": ["layer", "type", "resolution", "each"]}}])
+                                                                                   "enum": ["domain", "type", "resolution", "each"]}}])
     @blp.response(200, Free)
     @require_auth()
     def get(self, analysis_id):
         """A first grouping of the open gaps into work packages, for the migration plan wizard (WIZ-017)"""
-        return _read(lambda c: gp.suggest_packages(c, gp.model_of(c, analysis_id), analysis_id, request.args.get("by") or "layer"))
+        return _read(lambda c: gp.suggest_packages(c, gp.model_of(c, analysis_id), analysis_id, request.args.get("by") or "domain"))
 
     @blp.doc(security=SECURITY)
     @blp.arguments(FreeIn)

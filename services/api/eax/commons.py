@@ -71,7 +71,7 @@ def fields_for(loaded: list[dict]) -> dict:
     for i in range(1, len(loaded)):
         info = cp.fields_for(loaded[0], loaded[i])
         for t in info["types"]:
-            x = types.setdefault(t["code"], {**{k: t[k] for k in ("code", "name", "layer")}, "fields": [], "counts": [0] * len(loaded),
+            x = types.setdefault(t["code"], {**{k: t[k] for k in ("code", "name", "domain")}, "fields": [], "counts": [0] * len(loaded),
                                              "default": False})
             have = {f["code"] for f in x["fields"]}
             x["fields"] += [f for f in t["fields"] if f["code"] not in have]
@@ -82,7 +82,7 @@ def fields_for(loaded: list[dict]) -> dict:
     for x in types.values():
         x["default"] = sum(1 for c in x["counts"] if c) >= 2     # only a type two sides have can have something in common
         x["in"] = sum(1 for c in x["counts"] if c)
-    return {"sides": [cp._label(s) for s in loaded], "types": sorted(types.values(), key=lambda t: (t["layer"] or "", t["name"])),
+    return {"sides": [cp._label(s) for s in loaded], "types": sorted(types.values(), key=lambda t: (t["domain"] or "", t["name"])),
             "relationship_types": sorted(rels.values(), key=lambda r: r["name"])}
 
 
@@ -188,7 +188,7 @@ def analyse(loaded: list[dict], st: dict) -> dict:
     for s in loaded:
         for t in s["spec"].get("entity_types") or []:
             tinfo.setdefault(t["code"], t)
-    layer_names = {lay["code"]: lay["name"] for s in loaded for lay in s["spec"].get("layers") or []}
+    domain_names = {lay["code"]: lay["name"] for s in loaded for lay in s["spec"].get("domains") or []}
     items, keep_idx = [], {}
     for c, mem in enumerate(clusters):
         first = ents[min(mem)][mem[min(mem)]]
@@ -207,7 +207,7 @@ def analyse(loaded: list[dict], st: dict) -> dict:
         t = tinfo.get(code) or {}
         keep_idx[c] = len(items)
         items.append({"key": "|".join(f"{i}:{g}" for i, g in sorted(mem.items())), "entity_type": code,
-                      "entity_type_name": first["entity_type"], "layer": layer_names.get(t.get("layer"), first.get("layer") or ""),
+                      "entity_type_name": first["entity_type"], "domain": domain_names.get(t.get("domain"), first.get("domain") or ""),
                       "name": first["name"], "members": members, "count": len(mem), "common": len(mem) >= thr, "differs": differs})
     # relationships: by type and the elements at their ends
     relationships = []
@@ -261,15 +261,15 @@ def analyse(loaded: list[dict], st: dict) -> dict:
     suggestions.sort(key=lambda s: -s["score"])
     summary: dict[str, dict] = {}
     for it in items:
-        s = summary.setdefault(it["entity_type"], {"entity_type": it["entity_type"], "name": it["entity_type_name"], "layer": it["layer"],
+        s = summary.setdefault(it["entity_type"], {"entity_type": it["entity_type"], "name": it["entity_type_name"], "domain": it["domain"],
                                                     "elements": 0, "common": 0, "differ": 0, "by_count": {}})
         s["elements"] += 1
         s["common"] += it["common"]
         s["differ"] += bool(it["common"] and it["differs"])
         s["by_count"][str(it["count"])] = s["by_count"].get(str(it["count"]), 0) + 1
-    items.sort(key=lambda x: (-x["count"], x["layer"] or "", x["entity_type_name"], x["name"].lower()))
+    items.sort(key=lambda x: (-x["count"], x["domain"] or "", x["entity_type_name"], x["name"].lower()))
     return {"items": items, "relationships": relationships, "suggestions": suggestions[:300],
-            "summary": sorted(summary.values(), key=lambda s: (s["layer"] or "", s["name"])), "totals": _totals(items, n, thr)}
+            "summary": sorted(summary.values(), key=lambda s: (s["domain"] or "", s["name"])), "totals": _totals(items, n, thr)}
 
 
 def _totals(items: list[dict], n: int, thr: int) -> dict:
@@ -345,7 +345,7 @@ def _store_items(conn, analysis_id: int, result: dict) -> None:
                                  entity_type_name = EXCLUDED.entity_type_name, layer = EXCLUDED.layer, name = EXCLUDED.name,
                                  members = EXCLUDED.members, sides_count = EXCLUDED.sides_count, is_common = EXCLUDED.is_common,
                                  differs = EXCLUDED.differs, gone = false"""),
-                     {"a": analysis_id, "k": it["key"], "t": it["entity_type"], "tn": it["entity_type_name"], "l": it["layer"] or "",
+                     {"a": analysis_id, "k": it["key"], "t": it["entity_type"], "tn": it["entity_type_name"], "l": it["domain"] or "",
                       "n": it["name"], "mem": json.dumps(it["members"]), "c": it["count"], "ic": it["common"],
                       "d": json.dumps(it["differs"], default=str), "note": (carry or {}).get("note") or "", "dec": (carry or {}).get("decision") or ""})
     conn.execute(text("UPDATE core.common_items SET gone = true WHERE analysis_id = :a AND NOT (match_key = ANY (CAST(:k AS text[])))"),
@@ -439,7 +439,7 @@ def list_analyses(conn, model: Any = None) -> dict:
 def get(conn, model: Any, analysis: Any) -> dict:
     m = repo.get_model(conn, model)
     a = _analysis(conn, m, analysis)
-    items = _rows(conn, """SELECT guid AS id, match_key, entity_type, entity_type_name, layer, name, members, sides_count, is_common,
+    items = _rows(conn, """SELECT guid AS id, match_key, entity_type, entity_type_name, domain AS domain, name, members, sides_count, is_common,
                                   differs, note, decision, gone, modified_by, modified_at
                              FROM core.common_items WHERE analysis_id = :a
                             ORDER BY gone, sides_count DESC, layer, entity_type_name, lower(name)""", a=a["id"])
@@ -578,8 +578,8 @@ def to_xlsx(data: dict) -> bytes:
     ws = wb.active
     ws.title = "Summary"
     t = data["totals"]
-    sheet(ws, ["Entity type", "Layer", "Elements", "Common", "Common, values differ"] + [f"In {k}" for k in range(len(labels), 0, -1)],
-          [[s["name"], s["layer"], s["elements"], s["common"], s["differ"]] + [s["by_count"].get(str(k), 0) for k in range(len(labels), 0, -1)]
+    sheet(ws, ["Entity type", "Domain", "Elements", "Common", "Common, values differ"] + [f"In {k}" for k in range(len(labels), 0, -1)],
+          [[s["name"], s["domain"], s["elements"], s["common"], s["differ"]] + [s["by_count"].get(str(k), 0) for k in range(len(labels), 0, -1)]
            for s in data["summary"]])
     ws.append([])
     ws.append([f"Common means in at least {t.get('threshold')} of {t.get('sides')}: {t.get('common')} of {t.get('elements')} elements; "

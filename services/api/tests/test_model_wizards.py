@@ -76,7 +76,7 @@ def test_five_areas_and_screens():
     assert "Model wizards" in mm and "<ModelActions" in mm and "ADMIN_VIEWS" in mm and '["people", "People", null]' in mm
     ma = (WEB / "ModelAdmin.jsx").read_text()
     for s in ("function WizardsHome", "function PickModel", "function MergeWizard", "function SplitWizard", "function ExtendWizard", "function FreezeDialog", "function HandOverWizard",
-              "function ReparentWizard", "By type", "By item", "Merge into the parent and freeze", "Propagate changes from the parent"):
+              "function ReparentWizard", "By type", "By item", "Send for merge into the parent", "Propagate changes from the parent"):
         assert s in ma
     pj = (WEB / "Projects.jsx").read_text()
     assert "export function ProjectAdmin" in pj and "Project wizards" in pj and "Copy from the library" in pj

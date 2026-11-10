@@ -78,7 +78,7 @@ records what is agreed, what is parked and what is still to discuss. Decision nu
 17. **Cycles**: an **ADM cycle as TOGAF defines it** (Preliminary to H, Requirements Management throughout). **Both**: a
     project can start a new cycle on itself (cycle 2, 3...; earlier cycles kept for history; the dashboard per cycle),
     or spawn a child project to run a cycle in parallel and merge back later.
-18. **Generating an artifact**: each library artifact can name its source, a report or viewpoint we already have
+18. **Generating an artifact**: each library artifact can name its source, a report or view we already have
     (catalogs and matrices as Excel, diagrams as draw.io, PDF where the report has one), run over the project's models;
     **Generate** saves it as a new version in the artifact's folder, and says when the model has changed since.
 19. **Built in four parts**, each tested and accepted before the next:
@@ -114,4 +114,4 @@ records what is agreed, what is parked and what is still to discuss. Decision nu
 
 ## Still to discuss
 
-- Which library artifact maps to which report or viewpoint (when 13.3 is planned).
+- Which library artifact maps to which report or view (when 13.3 is planned).

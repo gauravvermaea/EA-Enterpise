@@ -3,7 +3,7 @@
 Goal: work with many records at once, for content and for the metamodel, and find anything. Version
 **0.7.0**, migration `0011_grids`. Decisions D147 (plan order), D150.
 
-## Status: built (4 Nov 2026), waiting for test (or the end-to-end test in phase 36.1, D129)
+## Status: accepted and closed (4 Nov 2026, D157); end-to-end test in phase 36.1 (D129)
 
 ## What phase 7 delivers
 
@@ -55,7 +55,7 @@ Goal: work with many records at once, for content and for the metamodel, and fin
 ## Upgrading from phase 6
 
 `.\eax clean-restart`. New API: `/api/v1/models/<model>/grids/...`, `/metamodel/batch`, `/api/v1/search`,
-`/api/v1/views`, `/api/v1/favourites`.
+`/api/v1/saved-views`, `/api/v1/favourites`.
 
 ## Not in phase 7
 

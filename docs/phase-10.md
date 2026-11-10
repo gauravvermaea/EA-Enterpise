@@ -32,7 +32,7 @@ Goal: one place for administrators, and the settings the whole application follo
 - **Also in this build:**
   - **Hierarchy tab** on every model: where the model comes from (each model up to the root it was created from or
     merges into) and the models made from it, drawn as the model tree with this model outlined.
-  - **VP-26 Gap**, a viewpoint of our own (D185): Gap entities with the elements they are about and the work packages
+  - **VP-26 Gap**, a view of our own (D185): Gap entities with the elements they are about and the work packages
     and plateaus that close them, coloured by gap status; also a dashboard.
   - **Gap reports fixed** (D185): GR-01 to GR-05 failed with *permission denied for schema core*; their views now read
     through definer functions like the other report views. Every report view was run as the report login, and every
@@ -90,14 +90,14 @@ Goal: one place for administrators, and the settings the whole application follo
 3. **Restart the system...**, type RESTART: the page waits, then *The system is back*.
 4. **Health**: the containers. **Licences**. As `user_architect`: Administration shows Application settings (read only),
    Health and Licences; the others are greyed out.
-5. A model's **Hierarchy** tab; **Viewpoints > VP-26 Gap** on Protea Insurance; **Reports > Gap analyses > GR-01**
+5. A model's **Hierarchy** tab; **Views > VP-26 Gap** on Protea Insurance; **Reports > Gap analyses > GR-01**
    opens without errors.
 
 ## Checks
 
 - `tests/sql/phase10_checks.sql` (as the API's login): ends with "phase 10 checks passed". Earlier phases' checks pass.
 - `pytest services/api/tests`: `test_admin.py` (settings checked, Super Admin only, secrets never shown, licences, the
-  helper, the console), `test_reports.py` (every report says how to use and read it), `test_viewpoints.py` (VP-26).
+  helper, the console), `test_reports.py` (every report says how to use and read it), `test_views.py` (VP-26).
 
 ## Upgrading from 9
 

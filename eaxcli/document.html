@@ -1,0 +1,203 @@
+<!doctype html>
+<!-- eax document (D331): the eax commands as one page. Made by eax document from eaxcli/help.txt (copied in below as it
+     is), so the page always says what eax help says. Nothing is fetched: no fonts, scripts or links outside this file. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EA Explorer commands</title>
+<style>
+:root { --bg: #ffffff; --fg: #1d2330; --muted: #5d6675; --line: #dde2ea; --card: #f6f8fb; --accent: #2a5db0;
+        --code: #eef2f8; --danger: #a8231b; --danger-bg: #fdecea; --keep: #1d6b3a; --keep-bg: #e8f5ec; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #14171d; --fg: #e4e8ef; --muted: #9aa3b2; --line: #2b313c; --card: #1b1f27; --accent: #7aa7f0;
+          --code: #222833; --danger: #ff9b92; --danger-bg: #3a1d1b; --keep: #8fd6a6; --keep-bg: #183324; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header { padding: 20px 24px 12px; border-bottom: 1px solid var(--line); }
+header h1 { margin: 0 0 4px; font-size: 22px; }
+header p { margin: 0; color: var(--muted); }
+.layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); }
+nav { position: sticky; top: 0; align-self: start; height: 100vh; overflow: auto; padding: 16px; border-right: 1px solid var(--line); }
+nav input { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--fg); font: inherit; }
+nav ol { list-style: none; padding: 0; margin: 14px 0 0; }
+nav li { margin: 2px 0; }
+nav a { color: var(--fg); text-decoration: none; }
+nav a:hover { color: var(--accent); }
+nav .group > a { font-weight: 600; display: block; margin-top: 10px; }
+nav .cmd a { display: block; padding-left: 12px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; }
+main { padding: 16px 28px 60px; max-width: 980px; }
+h2 { margin: 32px 0 6px; font-size: 19px; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+.note { color: var(--muted); margin: 6px 0 10px; }
+.intro p { margin: 4px 0; }
+code, pre { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13.5px; }
+code { background: var(--code); padding: 1px 5px; border-radius: 4px; }
+td code { white-space: nowrap; }
+.cmd-card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; margin: 12px 0; }
+.cmd-card.deletes { border-left: 4px solid var(--danger); }
+.cmd-card h3 { margin: 0 0 4px; font-size: 16px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.cmd-card h3 a { color: inherit; text-decoration: none; }
+.cmd-card h3 a:hover::after { content: " #"; color: var(--muted); }
+.also { color: var(--muted); font-size: 13px; font-weight: normal; margin-left: 6px; }
+.summary { font-weight: 600; margin: 2px 0 6px; }
+.detail { white-space: pre-wrap; margin: 0 0 6px; font-family: inherit; font-size: 14.5px; }
+.examples { margin: 6px 0 0; }
+.examples pre { background: var(--code); border-radius: 6px; padding: 8px 10px; margin: 4px 0 0; overflow-x: auto; }
+.badge { display: inline-block; font: 600 12px system-ui, sans-serif; padding: 1px 8px; border-radius: 10px; margin-left: 8px; vertical-align: 2px; }
+.badge.deletes { background: var(--danger-bg); color: var(--danger); }
+table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+th, td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+th { background: var(--card); }
+td.kept { color: var(--keep); background: var(--keep-bg); }
+td.deleted { color: var(--danger); background: var(--danger-bg); font-weight: 600; }
+.hidden { display: none; }
+#nothing { color: var(--muted); }
+footer { color: var(--muted); margin-top: 40px; border-top: 1px solid var(--line); padding-top: 10px; }
+@media (max-width: 760px) { .layout { grid-template-columns: 1fr; } nav { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); } }
+</style>
+</head>
+<body>
+<header>
+  <h1>EA Explorer commands</h1>
+  <p>Every <code id="eax-name"></code> command in full, with examples. The same text as <code class="eax-help"></code>.</p>
+</header>
+<div class="layout">
+  <nav aria-label="Contents">
+    <label for="search" class="hidden">Search the commands</label>
+    <input id="search" type="search" placeholder="Search, e.g. backup or delete" autocomplete="off">
+    <ol id="toc">
+      <li class="group"><a href="#starting-and-stopping-at-a-glance">At a glance</a></li>
+    </ol>
+  </nav>
+  <main>
+    <section class="intro" id="intro"></section>
+
+    <h2 id="starting-and-stopping-at-a-glance">Starting and stopping at a glance</h2>
+    <table>
+      <thead><tr><th>Command</th><th>What it does</th><th>Your data</th></tr></thead>
+      <tbody>
+        <tr><td><code data-eax>up</code> (or <code data-eax>run</code>)</td><td>Starts EA Explorer: the core first, the rest in the background (<code>--wait-all</code> waits for everything).</td><td class="kept">Kept from last time</td></tr>
+        <tr><td><code data-eax>stop</code> (or <code data-eax>down</code>)</td><td>Stops EA Explorer: stops and removes the containers. Use it before shutting the computer down or to free memory.</td><td class="kept">Kept: databases, documents, settings, backups</td></tr>
+        <tr><td><code data-eax>restart</code></td><td><code>stop</code>, then <code>up</code> (each with its own log). For when something is stuck.</td><td class="kept">Kept</td></tr>
+        <tr><td><code data-eax>status</code></td><td>Every container's state and health, and the disks. Changes nothing.</td><td class="kept">Kept</td></tr>
+        <tr><td><code data-eax>cleanup --all</code></td><td>Stops EA Explorer and deletes the work folder and the databases (asks you to type yes).</td><td class="deleted">Deleted (the trusted certificate is kept)</td></tr>
+        <tr><td><code data-eax>clean-restart</code></td><td>Stops, deletes everything and starts fresh with the sample data. Does not ask.</td><td class="deleted">Deleted</td></tr>
+      </tbody>
+    </table>
+    <p class="note">To stop without losing anything, always use <code data-eax>stop</code>.</p>
+
+    <div id="commands"></div>
+    <p id="nothing" class="hidden">No command matches.</p>
+
+    <h2 id="the-console">The console</h2>
+    <p><code data-eax>console</code> is the place to start when something is wrong, for anyone: a numbered menu that
+      says what to do in plain words. It shows the status, starts, restarts and stops EA Explorer, shows problems and
+      logs, backs up and restores (guided), resets passwords, manages users and roles, settings and switches, and saves
+      a diagnostics file. Anything that changes or replaces data asks you to type <code>YES</code>; on this machine
+      nobody signs in. Its <em>c</em> item gives a prompt for every eax command. With <code>--server</code> it works on
+      another installation through its API.</p>
+    <footer id="footer"></footer>
+  </main>
+</div>
+<script type="text/plain" id="eax-form">__FORM__</script>
+<script type="text/plain" id="eax-cmd">__EAX__</script>
+<script type="text/plain" id="eax-windows">__WINDOWS__</script>
+<script type="text/plain" id="help-src">
+__HELP__
+</script>
+<script>
+(function () {
+  "use strict";
+  var get = function (id) { return document.getElementById(id).textContent.trim(); };
+  var FORM = get("eax-form"), EAX = get("eax-cmd"), WIN = get("eax-windows") === "true";
+  var TAGS = { win: 1, unix: 1, ps1: 1, sh: 1, py: 1 };
+  var keep = {}; keep[FORM] = 1; keep[WIN ? "win" : "unix"] = 1;
+
+  // the same reading of help.txt as eaxcli/help.py
+  function parse(text) {
+    var doc = { intro: [], sections: [], internal: [], footer: [] }, where = "intro", cmd = null;
+    text.split(/\r?\n/).forEach(function (raw) {
+      var line = raw.replace(/\s+$/, "");
+      if (line.charAt(0) === ";") return;
+      var m = /^\[(\w+)\] ?/.exec(line);
+      if (m && TAGS[m[1]]) { if (!keep[m[1]]) return; line = line.slice(m[0].length); }
+      if (where === "footer") { doc.footer.push(line); return; }
+      if (line === "@footer") { where = "footer"; return; }
+      if (line.indexOf("@internal ") === 0) { var r = line.slice(10), p = r.indexOf(" "); doc.internal.push([r.slice(0, p), r.slice(p + 1)]); return; }
+      if (line.indexOf("## ") === 0) { doc.sections.push({ title: line.slice(3), notes: [], commands: [] }); where = "section"; cmd = null; return; }
+      if (line.indexOf("### ") === 0) {
+        var rest = line.slice(4), q = rest.indexOf(" ");
+        cmd = { names: (q < 0 ? rest : rest.slice(0, q)).split("|"), args: q < 0 ? "" : rest.slice(q + 1), summary: "", detail: [], examples: [] };
+        doc.sections[doc.sections.length - 1].commands.push(cmd); return;
+      }
+      if (where === "intro") { if (line) doc.intro.push(line); return; }
+      if (line.indexOf(": ") === 0 && !cmd) { doc.sections[doc.sections.length - 1].notes.push(line.slice(2)); return; }
+      if (!cmd) return;
+      if (line.indexOf("> ") === 0) cmd.summary = line.slice(2);
+      else if (line.indexOf("$ ") === 0) cmd.examples.push(line.slice(2));
+      else if (line) cmd.detail.push(line);
+    });
+    while (doc.footer.length && !doc.footer[doc.footer.length - 1]) doc.footer.pop();
+    return doc;
+  }
+  function fix(s) {
+    s = s.split("{eax}").join(EAX);
+    if (WIN) s = s.replace(/\bwork\/[^\s,;)]*/g, function (w) { return w.replace(/\//g, "\\"); });
+    return s;
+  }
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+  function slug(s) { return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""); }
+
+  var doc = parse(document.getElementById("help-src").textContent);
+  document.getElementById("eax-name").textContent = EAX;
+  Array.prototype.forEach.call(document.querySelectorAll(".eax-help"), function (e) { e.textContent = EAX + " help <command>"; });
+  Array.prototype.forEach.call(document.querySelectorAll("code[data-eax]"), function (e) { e.textContent = EAX + " " + e.textContent; });
+  var intro = document.getElementById("intro");
+  doc.intro.forEach(function (l) { intro.appendChild(el("p", null, fix(l))); });
+
+  var box = document.getElementById("commands"), toc = document.getElementById("toc"), cards = [];
+  doc.sections.forEach(function (s) {
+    var deleting = /DELETE/.test(s.notes.join(" ") + " " + s.title.toUpperCase());
+    var h = el("h2", null, s.title); h.id = slug(s.title); box.appendChild(h);
+    var g = el("li", "group"); var ga = el("a", null, s.title); ga.href = "#" + h.id; g.appendChild(ga); toc.appendChild(g);
+    s.notes.forEach(function (n) { box.appendChild(el("p", "note", fix(n))); });
+    s.commands.forEach(function (c) {
+      var deletes = /DELETE/.test(c.summary) || (deleting && c.names[0] !== "stop");
+      var card = el("section", "cmd-card" + (deletes ? " deletes" : "")); card.id = "cmd-" + c.names[0];
+      var h3 = el("h3"); var a = el("a", null, EAX + " " + c.names[0] + (c.args ? " " + c.args : "")); a.href = "#" + card.id; h3.appendChild(a);
+      if (c.names.length > 1) h3.appendChild(el("span", "also", "(also: " + c.names.slice(1).join(", ") + ")"));
+      if (deletes) h3.appendChild(el("span", "badge deletes", "Deletes data"));
+      card.appendChild(h3);
+      card.appendChild(el("p", "summary", fix(c.summary)));
+      if (c.detail.length) card.appendChild(el("pre", "detail", fix(c.detail.join("\n"))));
+      if (c.examples.length) {
+        var ex = el("div", "examples"); ex.appendChild(el("strong", null, "Examples"));
+        ex.appendChild(el("pre", null, fix(c.examples.join("\n")))); card.appendChild(ex);
+      }
+      card.setAttribute("data-text", (c.names.join(" ") + " " + c.args + " " + c.summary + " " + c.detail.join(" ") + " " + c.examples.join(" ")).toLowerCase());
+      box.appendChild(card);
+      var li = el("li", "cmd"); var la = el("a", null, c.names[0]); la.href = "#" + card.id; li.appendChild(la); toc.appendChild(li);
+      cards.push({ card: card, li: li, head: h, gli: g });
+    });
+  });
+  var ch = el("li", "group"); var ca = el("a", null, "The console"); ca.href = "#the-console"; ch.appendChild(ca); toc.appendChild(ch);
+  var foot = document.getElementById("footer");
+  doc.footer.forEach(function (l) { foot.appendChild(el("p", null, fix(l))); });
+
+  var search = document.getElementById("search");
+  search.addEventListener("input", function () {
+    var w = search.value.trim().toLowerCase(), shown = 0, groups = {};
+    cards.forEach(function (x) {
+      var hit = !w || x.card.getAttribute("data-text").indexOf(w) >= 0;
+      x.card.classList.toggle("hidden", !hit); x.li.classList.toggle("hidden", !hit);
+      if (hit) { shown++; groups[x.head.id] = 1; }
+    });
+    cards.forEach(function (x) { var on = !w || groups[x.head.id]; x.head.classList.toggle("hidden", !on); x.gli.classList.toggle("hidden", !on); });
+    document.getElementById("nothing").classList.toggle("hidden", shown > 0);
+  });
+  if (location.hash) { var t = document.getElementById(location.hash.slice(1)); if (t) t.scrollIntoView(); }
+})();
+</script>
+</body>
+</html>

@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiDownload, apiFetch, can, canOn, needsRole } from "./auth";
 import { refreshAll, useApi } from "./ModelViews";
-import { KindMark, StatusMarks } from "./ModelMarks";
+import { KindMark, liveModels, StatusMarks } from "./ModelMarks";
 import { CopyButton, LockBadge } from "./Library";
 import { LockBanner, LockControl, changeableModel } from "./MetamodelEditor";
 import { ADMIN_VIEWS, ModelAdminPanel, ModelList } from "./Metamodel";
@@ -17,6 +17,8 @@ import {
 import { runTask } from "./tasks";
 import { CollectWizard, LoadDataWizard, MigrationWizard, QualityWizard } from "./GuidedWizards";
 import { fmtDateTime } from "./fmt";
+import { MergeRequestsTab, SendForMergeWizard } from "./MergeBack";
+import PageNav from "./PageNav";
 
 const go = (path) => { window.location.hash = path; };
 const post = (path, body) => apiFetch(path, { method: "POST", body: JSON.stringify(body || {}) });
@@ -36,10 +38,19 @@ const TABS = [
   ["people", "People", (m) => changeableModel(m)],
   ["tags", "Tags", (m) => m.kind !== "template"],
   ["merge", "Merge", (m) => m.kind === "project"],
+  ["merge-requests", "Merge requests", (m) => m.kind === "project"],
+  ["send", "Send for merge", (m) => m.kind === "project" && !!m.parent_model_id && !m.frozen_at],
   ["pushdown", "Push down", (m) => m.kind === "project" || m.kind === "template"],
   ["documents", "Change documents", () => true],
   ["backups", "Backups", (m) => m.kind !== "template" && canOn(m.id, "model.metamodel")],
   ["family", "Family", () => true],
+];
+
+// Model admin's groups (D478)
+const ADMIN_GROUPS = [
+  ["wizards", "Wizards", "✦", ["wizards"]],
+  ["changes", "Changes", "⇄", ["merge", "merge-requests", "send", "pushdown", "documents"]],
+  ["admin", "Admin", "⚙", ["metamodel", "people", "tags", "backups", "family"]],
 ];
 
 function AdminModelPage({ model, tab, itemId, sub }) {
@@ -64,7 +75,7 @@ function AdminModelPage({ model, tab, itemId, sub }) {
         {m.frozen_at ? <span className="rag off" title={m.frozen_note || ""}>❄ frozen {fmtDateTime(m.frozen_at)} by {m.frozen_by}</span>
           : <LockControl model={model} m={m} />}
         {m.is_locked && <CopyButton m={m} />}
-        <a className="button" href={`#/metamodel/${model}`} title="The model's own page: data entry, grids, viewpoints, reports">✏ Open the model</a>
+        <a className="button" href={`#/metamodel/${model}`} title="The model's own page: data entry, grids, views, reports">✏ Open the model</a>
       </div>
       <p className="quiet">{m.kind_name} · {m.metamodel_name} · {m.entity_type_count} entity types
         {m.kind !== "template" && ` · ${m.entity_count} entities · ${m.relationship_count} relationships`}
@@ -74,15 +85,33 @@ function AdminModelPage({ model, tab, itemId, sub }) {
         compared and reported on. Only a Super Admin unfreezes it.</div>}
       {!m.frozen_at && <LockBanner m={m} />}
       <CopyBanner m={m} />
-      <div className="tabs" role="tablist">
-        {tabs.map(([k, l]) => <button key={k} role="tab" aria-selected={t === k} className={t === k ? "tab on" : "tab"} onClick={() => go(`/model-admin/${model}/${k}`)}>{l}</button>)}
-      </div>
+      <PageNav page="admin" tabs={tabs.map(([k, l]) => [k, l, null])} groups={ADMIN_GROUPS} active={t} href={(k) => `#/model-admin/${model}/${k}`}
+        ctx={{ id: model, m }} crumbs={[{ label: "Model admin", href: "#/model-admin" }, { label: m.name, href: `#/model-admin/${model}` }]}>
       <div className="tab-panel" role="tabpanel">
         {t === "wizards" ? <Wizards m={m} />
           : t === "family" ? <Family m={m} />
+          : t === "merge-requests" ? <MergeRequestsTab m={m} />
+          : t === "send" ? <SendForMergeTab m={m} />
           : ADMIN_VIEWS.includes(t) ? <ModelAdminPanel model={model} m={m} tab={t} itemId={itemId} sub={sub} /> : null}
       </div>
+      </PageNav>
     </section>
+  );
+}
+
+// Model admin > Changes > Send for merge: the wizard's own tab (owner, 10 Nov 2026, D542); also a tile on Wizards
+function SendForMergeTab({ m }) {
+  const [open, setOpen] = useState(false);
+  const parent = { id: m.parent_model_id, name: m.parent_model_name };
+  return (
+    <div>
+      <h3>Send {m.name} for merge into {m.parent_model_name}</h3>
+      <p className="quiet">What changed in {m.name} since its starting point goes to {m.parent_model_name} as a merge request: its people review it change
+        by change (a change only {m.name} made is accepted already; one both made differently is a conflict to decide), then merge it. Afterwards you
+        freeze {m.name} or refresh it from its parent. Requests sent so far are on <a href={`#/model-admin/${m.id}/merge-requests`}>Merge requests</a>.</p>
+      <button className="primary" onClick={() => setOpen(true)}>Preview and send…</button>
+      {open && <SendForMergeWizard m={m} parent={parent} onClose={() => setOpen(false)} />}
+    </div>
   );
 }
 
@@ -101,8 +130,8 @@ const ALL = [
     { k: "split", title: "Split part of a model into a new one", text: "Chosen types or entities, copied or moved, as a child or separate", kinds: ["project"] },
   ]],
   ["Merge and propagate", [
-    { k: "up-freeze", title: "Merge into the parent and freeze", text: "Choose what goes in, by type then by item; tagged first; the child frozen after", kinds: ["project"] },
-    { k: "up", title: "Merge into the parent, keep working", text: "Choose what goes into the parent; the child stays open", kinds: ["project"] },
+    { k: "send", title: "Send for merge into the parent", text: "The child's changes, compared with its starting point, reviewed change by change by the parent's people; then freeze or refresh the child", kinds: ["project"] },
+    { k: "requests", title: "Review merge requests", text: "Children sent for merge: accept or reject each change, then merge", kinds: ["project"] },
     { k: "down", title: "Propagate changes from the parent", text: "Choose what comes down from the parent into the child", kinds: ["project"] },
     { k: "to-child", title: "Propagate to a child", text: "Choose what goes down from a model into one of its children", kinds: ["project"] },
   ]],
@@ -234,7 +263,6 @@ function Wizards({ m, only = null, onDone = null }) {
   const adminWhy = needsRole("model-admin", m.name);
   const parent = fam?.parent;
   const kids = fam?.children || [];
-  const parentAdmin = parent && canOn(parent.id, "model.lock");
   const fromWhy = m.is_draft && !ownsDraft(m) ? draftWhy(m) : needsRole(["model-creator", "library-admin"]) + (project ? ` (or Model Admin of ${m.name}, for a child)` : "");
   const notFrozen = frozen ? `${m.name} is frozen` : null;
 
@@ -251,10 +279,10 @@ function Wizards({ m, only = null, onDone = null }) {
         ok: project && !frozen && (admin || mayCreateFrom(m)), why: !project ? "Only a project model is split" : notFrozen || fromWhy },
     ]],
     ["Merge and propagate", [
-      { k: "up-freeze", title: "Merge into the parent and freeze", text: `Choose what goes into ${parent ? parent.name : "the parent"}, by type and then by item; ${m.name} is tagged first, then frozen`,
-        ok: !!parent && parentAdmin && admin && !frozen, why: !parent ? `${m.name} has no parent model` : notFrozen || (!parentAdmin ? needsRole("model-admin", parent.name) : adminWhy) },
-      { k: "up", title: "Merge into the parent, keep working", text: `Choose what goes into ${parent ? parent.name : "the parent"}; ${m.name} stays open`,
-        ok: !!parent && parentAdmin, why: !parent ? `${m.name} has no parent model` : needsRole("model-admin", parent.name) },
+      { k: "send", title: "Send for merge into the parent", text: `What changed since its starting point, reviewed change by change in ${parent ? parent.name : "the parent"}; then frozen or refreshed`,
+        ok: !!parent && admin && !frozen, why: !parent ? `${m.name} has no parent model` : notFrozen || adminWhy },
+      { k: "requests", title: "Merge requests", text: kids.length ? `Requests from ${kids.map((c) => c.name).join(", ")} to review, and ${m.name}'s own` : `${m.name}'s merge requests`,
+        ok: project, why: "Only project models merge", go: `/model-admin/${m.id}/merge-requests` },
       { k: "down", title: "Propagate changes from the parent", text: `Choose what comes down from ${parent ? parent.name : "the parent"} into ${m.name}`,
         ok: !!parent && admin && !frozen && !locked, why: !parent ? `${m.name} has no parent model` : notFrozen || (locked ? `${m.name} is locked` : adminWhy) },
       { k: "to-child", title: "Propagate to a child", text: kids.length ? `Choose what goes down into ${kids.map((c) => c.name).join(", ")}` : "Choose what goes down into one of its children",
@@ -369,8 +397,7 @@ function Wizards({ m, only = null, onDone = null }) {
       {open === "copy" && <NewModelDialog from={m} preset={{ link: "independent" }} admin onClose={close} />}
       {open === "library" && <NewModelDialog from={library ? m : undefined} admin onClose={close} />}
       {open === "split" && <SplitWizard m={m} onClose={close} />}
-      {open === "up-freeze" && parent && <MergeWizard target={parent} source={m} freeze onClose={close} />}
-      {open === "up" && parent && <MergeWizard target={parent} source={m} onClose={close} />}
+      {open === "send" && parent && <SendForMergeWizard m={m} parent={parent} onClose={close} />}
       {open === "down" && parent && <MergeWizard target={m} source={parent} onClose={close} />}
       {open === "to-child" && <ChildPick m={m} kids={kids} onClose={close} />}
       {open === "extend" && <ExtendWizard m={m} onClose={close} />}
@@ -670,7 +697,8 @@ function SplitWizard({ m, onClose }) {
 
 // ---------------------------------------------------------------- extend the metamodel from another model
 function ExtendWizard({ m, onClose }) {
-  const { data: models } = useApi("/api/v1/models?archived=false");
+  const { data: models_ } = useApi("/api/v1/models?archived=false");
+  const models = models_ && liveModels(models_);
   const [source, setSource] = useState("");
   const [prev, setPrev] = useState(null);
   const [pick, setPick] = useState({ entity_types: new Set(), relationship_types: new Set(), attributes: new Set() });
@@ -704,12 +732,12 @@ function ExtendWizard({ m, onClose }) {
             <option value="">Choose a model…</option>
             {(models || []).filter((x) => x.id !== m.id).map((x) => <option key={x.id} value={x.id}>{x.name}{x.version_label ? ` ${x.version_label}` : ""} ({x.kind_name})</option>)}
           </select></Field></div>
-        <p className="quiet small">An entity type brings its attributes, layer and pick lists; the allowed relationships between types {m.name} then has come too. One new metamodel version.</p>
+        <p className="quiet small">An entity type brings its attributes, domain and pick lists; the allowed relationships between types {m.name} then has come too. One new metamodel version.</p>
         {prev && <div className="wiz-cols">{SECTIONS.map(([k, l]) => (
           <div key={k} className="wiz-scroll"><h4>{l} <span className="quiet small">{prev[k].length}</span></h4>
             {!prev[k].length && <p className="quiet small">None that {m.name} lacks.</p>}
             {prev[k].map((x) => <label key={x.code} className="wiz-check"><input type="checkbox" checked={pick[k].has(x.code)} onChange={() => flip(k, x.code)} />
-              {x.name} <span className="quiet small">{x.layer || x.data_type || ""}</span></label>)}
+              {x.name} <span className="quiet small">{x.domain || x.data_type || ""}</span></label>)}
           </div>))}</div>}
       </>}
       {error && <p className="status bad">{error}</p>}
@@ -788,7 +816,8 @@ function HandOverWizard({ m, onClose }) {
 }
 
 function ReparentWizard({ m, parent, onClose }) {
-  const { data: models } = useApi("/api/v1/models?kind=project&archived=false");
+  const { data: models_ } = useApi("/api/v1/models?kind=project&archived=false");
+  const models = models_ && liveModels(models_);
   const [how, setHow] = useState(parent ? "detach" : "reparent");
   const [to, setTo] = useState("");
   const [busy, setBusy] = useState(false);

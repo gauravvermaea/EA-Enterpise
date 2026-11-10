@@ -270,6 +270,23 @@ def quality_digest(timestamp: int) -> None:
     log.info("quality digest sent to %s people", n)
 
 
+# ---------------------------------------------------------------- KPI trends (phase 24, D365, D431)
+@app.periodic(cron="7 * * * *")
+@app.task(name="eax.kpi_monthly", queue="default", queueing_lock="kpi_monthly")
+def kpi_monthly(timestamp: int) -> None:
+    """Every hour: each live model with no KPI snapshot for this month yet gets one, dated the 1st of the month; on the 1st
+    that is in the first hour, and a month missed while the server was off is taken as soon as it is back."""
+    from datetime import datetime
+
+    from . import backup_schedule as bs
+    from . import kpis
+    with get_engine().begin() as conn:
+        today = datetime.now(bs.zone(conn)).date()
+    n = kpis.take_monthly(lambda: get_engine().begin(), today)
+    if n:
+        log.info("monthly KPIs kept for %s models", n)
+
+
 # ---------------------------------------------------------------- architecture projects (phase 13, D260)
 
 @app.task(name="eax.project_repository", queue="default", queueing_lock="project_repository")
@@ -318,3 +335,65 @@ def project_repositories(timestamp: int) -> None:
             projects.build_repository(lambda: get_projects_engine().begin(), pid)
         except Exception as exc:  # noqa: BLE001 - kept on the project; tried again next minute
             log.warning("project %s repository: %s", pid, exc)
+
+
+# ---------------------------------------------------------------- surveys (phase 38.1, D448)
+
+@app.periodic(cron="7 * * * *")
+@app.task(name="eax.surveys", queue="default", queueing_lock="surveys")
+def surveys(timestamp: int) -> None:
+    """Every hour: surveys past their closing date close (a maturity assessment keeps its evidence and scores), and
+    automatic reminders go to those who have not answered."""
+    from . import surveys as sv
+    with get_engine().begin() as conn:
+        out = sv.housekeeping(conn)
+    if out["closed"] or out["reminded"]:
+        log.info("surveys: %s closed, %s reminded", out["closed"], out["reminded"])
+
+
+# ---------------------------------------------------------------- housekeeping (phase 35.1, D371, D444)
+
+@app.periodic(cron="40 2 * * *")
+@app.task(name="eax.housekeeping", queue="default", queueing_lock="housekeeping")
+def housekeeping(timestamp: int) -> None:
+    """Every night: the retention rules applied once a dry run of them is confirmed; until then, a dry run that waits
+    for an IT Admin or Super Admin to confirm it (System admin > Operations > Housekeeping)."""
+    from . import operations
+    with get_engine().begin() as conn:
+        out = operations.scheduled(conn)
+    if out:
+        log.info("housekeeping %s: %s", "dry run" if out["dry_run"] else "run",
+                 {k: v["archived"] + v["deleted"] for k, v in out["results"].items()})
+
+
+# ---------------------------------------------------------------- updates (phase 36, D417, D515)
+
+@app.periodic(cron="*/5 * * * *")
+@app.task(name="eax.update_watch", queue="default", queueing_lock="update_watch")
+def update_watch(timestamp: int) -> None:
+    """Every 5 minutes: the operations helper's record of updates copied into the database, and the Super Admins and
+    IT Admins told once when an update fails, finishes or is rolled back. Once a day (at 06:15): whether the installed
+    version is still supported (the Prod channel's releases, when a repository link is set)."""
+    from . import updates as up
+    from .api.admin import _ops_raw
+    try:
+        st = _ops_raw("GET", "/updates", timeout=15)
+    except Exception:  # noqa: BLE001 - the helper is down or being rebuilt: next time
+        return
+    with get_engine().begin() as conn:
+        up.sync(conn, st)
+        told = up.tell(conn)
+    if told:
+        log.info("updates: %s notification(s)", told)
+    from datetime import datetime
+    t = datetime.now()
+    if not (t.hour == 6 and 15 <= t.minute < 20) or not (st.get("settings") or {}).get("git_url"):
+        return
+    try:
+        got = _ops_raw("GET", "/updates/versions?channel=prod", timeout=200)
+    except Exception:  # noqa: BLE001
+        return
+    releases = [v["version"] for v in got.get("versions") or []] + [(st.get("installed") or {}).get("version") or ""]
+    with get_engine().begin() as conn:
+        up.tell_support(conn, (st.get("installed") or {}).get("version") or "", [r for r in releases if r])
+

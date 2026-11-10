@@ -3,8 +3,8 @@
 GET    /projects                                   the projects you are on (a Super Admin: all)
 POST   /projects                                   create one from the wizard's choices (any user with a global role)
 GET    /projects/library                           what the wizard offers: purposes, phases, steps, deliverables and
-                                                   artifacts, folders, templates, principles, viewpoints, roles
-GET    /projects/<p>                               the project: people, sign-off, models, viewpoints, principles, steps,
+                                                   artifacts, folders, templates, principles, views, roles
+GET    /projects/<p>                               the project: people, sign-off, models, views, principles, steps,
                                                    items, documents, repository state
 PUT    /projects/<p>/people                        {members: [{username, role}], signoff: {phase: [usernames]}}
 POST   /projects/<p>/items/<i>/choose              {chosen: true|false}: bring a not_for_use item in, or put one out
@@ -32,7 +32,7 @@ POST   /projects/<p>/documents/<d>/kind            {kind: Deliverable|Artifact}
 POST   /projects/<p>/documents/<d>/signoff         {note}: ask its signers to sign the current version off
 POST   /projects/<p>/signoffs/<r>/decide           {decision: approved|rejected, comment}: a signer's own decision
 POST   /projects/<p>/signoffs/<r>/record           a signer's decision given outside, with the evidence (multipart)
-POST   /projects/<p>/viewpoints                    {name, purpose, concerns, stakeholders, element_types}: one of its own
+POST   /projects/<p>/views                    {name, purpose, concerns, stakeholders, element_types}: one of its own
 POST   /projects/<p>/finish                        {mode: freeze|merge, target, models: {guid: keep|merge}, note} (background)
 
 Phase 13.0.3 (D281, D282):
@@ -77,6 +77,13 @@ GET    /projects/<p>/stakeholders                  the matrix (?format=csv); POS
 PUT    /projects/<p>/stakeholders/<s>              change one (the fields sent); DELETE takes it out
 GET    /projects/<p>/stakeholders/<s>/notes        its discussion notes; POST {held_on, title, html} adds one
 PUT    /projects/<p>/stakeholder-notes/<n>         change a discussion note; DELETE removes it
+
+The project's own uploads on Other views and documents (D461): anyone on the project uploads and downloads; the uploader,
+the Project Admin or Lead Architect, or a Super Admin replaces and deletes
+GET    /projects/<p>/other-uploads                 the uploads; POST multipart "file" (one or more), title, description
+PUT    /projects/<p>/other-uploads/<d>             {title, description}; DELETE deletes it
+POST   /projects/<p>/other-uploads/<d>/replace     multipart "file" (and note): the earlier file stays as an earlier version
+GET    /projects/<p>/other-uploads/<d>/versions    its files, newest first; GET .../download (?version=n)
 """
 
 from __future__ import annotations
@@ -160,7 +167,7 @@ class Projects(MethodView):
     def post(self, data):
         """Create a project from the wizard: name, purpose, description, parent (a rerun), libraries [template library
         ids, in order; default: every library offered to projects], models [{how: added|derived|
-        created, model | from, name, copy}], viewpoints, principles [{library_id} | {name, statement, rationale,
+        created, model | from, name, copy}], views, principles [{library_id} | {name, statement, rationale,
         implications}], removed_steps [{library_id, reason}], own_steps [{phase, name}], items [library ids chosen; the
         rest come in as not_for_use], kinds {library id: Deliverable|Artifact}, own_items [{phase, name, kind}], members
         [{username, role}], signoff {phase or "": [usernames]}"""
@@ -845,27 +852,27 @@ class RecordSignoff(MethodView):
                                                 f.get("comment", ""), name, data), write=True, action="project.signoff.recorded", obj=request_id)
 
 
-@blp.route("/projects/<string:project>/viewpoints")
-class ProjectViewpoints(MethodView):
+@blp.route("/projects/<string:project>/views")
+class ProjectViews(MethodView):
     @blp.doc(security=SECURITY)
     @blp.arguments(FreeIn)
     @blp.response(201, Free)
     @require_auth()
     def post(self, data, project):
-        """A viewpoint made for the project (contributors): code PV-<n>"""
-        return _run(lambda c: pw.add_viewpoint(c, project, g.user, data or {}), write=True, action="project.viewpoint", obj=project)
+        """A view made for the project (contributors): code PV-<n>"""
+        return _run(lambda c: pw.add_view(c, project, g.user, data or {}), write=True, action="project.view", obj=project)
 
 
-@blp.route("/projects/<string:project>/viewpoints/<string:code>/phase")
-class ProjectViewpointPhase(MethodView):
+@blp.route("/projects/<string:project>/views/<string:code>/phase")
+class ProjectViewPhase(MethodView):
     @blp.doc(security=SECURITY)
     @blp.arguments(FreeIn)
     @blp.response(200, Free)
     @require_auth()
     def post(self, data, project, code):
-        """The phase the project shows a viewpoint with: {phase} (empty: its usual one)"""
-        return _run(lambda c: pw.set_viewpoint_phase(c, project, g.user, code, (data or {}).get("phase") or ""), write=True,
-                    action="project.viewpoint.phase", obj=project)
+        """The phase the project shows a view with: {phase} (empty: its usual one)"""
+        return _run(lambda c: pw.set_view_phase(c, project, g.user, code, (data or {}).get("phase") or ""), write=True,
+                    action="project.view.phase", obj=project)
 
 
 @blp.route("/projects/<string:project>/key-questions")
@@ -874,7 +881,7 @@ class KeyQuestions(MethodView):
     @blp.response(200, Free)
     @require_auth()
     def get(self, project):
-        """The project's key questions, the viewpoints that answer each, and its placeholder viewpoints"""
+        """The project's key questions, the views that answer each, and its placeholder views"""
         from ..key_questions import read
         return _run(lambda c: read(c, project, g.user))
 
@@ -883,7 +890,7 @@ class KeyQuestions(MethodView):
     @blp.response(201, Free)
     @require_auth()
     def post(self, data, project):
-        """A key question (contributors): {question, asked_by, approach, viewpoints: [codes]}"""
+        """A key question (contributors): {question, asked_by, approach, views: [codes]}"""
         from ..key_questions import add_question
         return _run(lambda c: add_question(c, project, g.user, data or {}), write=True, action="project.question", obj=project)
 
@@ -895,7 +902,7 @@ class KeyQuestion(MethodView):
     @blp.response(200, Free)
     @require_auth()
     def put(self, data, project, qid):
-        """Change a key question: any of {question, asked_by, approach, viewpoints: [codes]}"""
+        """Change a key question: any of {question, asked_by, approach, views: [codes]}"""
         from ..key_questions import change_question
         return _run(lambda c: change_question(c, project, g.user, qid, data or {}), write=True, action="project.question", obj=qid)
 
@@ -903,7 +910,7 @@ class KeyQuestion(MethodView):
     @blp.response(200, Free)
     @require_auth()
     def delete(self, project, qid):
-        """Remove a key question (its viewpoints stay in the project)"""
+        """Remove a key question (its views stay in the project)"""
         from ..key_questions import delete_question
         return _run(lambda c: delete_question(c, project, g.user, qid), write=True, action="project.question.removed", obj=qid)
 
@@ -914,7 +921,7 @@ class KeyQuestionStatus(MethodView):
     @blp.response(200, Free)
     @require_auth()
     def post(self, project, qid, act):
-        """A key question's status: answer {answer, note, viewpoints} and reopen {note} (contributors); decide {decision:
+        """A key question's status: answer {answer, note, views} and reopen {note} (contributors); decide {decision:
         accepted | rejected, note} (the project's stakeholders, in the application); record {by, on, decision, note} with
         an optional evidence file as multipart "file" (contributors, a decision given outside the application)"""
         from .. import key_questions as kq
@@ -1084,14 +1091,14 @@ class CanvasItemRestore(MethodView):
         return _run(lambda c: cv.restore_item(c, project, g.user, iid), write=True, action="project.canvas.item", obj=iid)
 
 
-@blp.route("/projects/<string:project>/placeholder-viewpoints")
-class PlaceholderViewpoints(MethodView):
+@blp.route("/projects/<string:project>/placeholder-views")
+class PlaceholderViews(MethodView):
     @blp.doc(security=SECURITY)
     @blp.arguments(FreeIn)
     @blp.response(201, Free)
     @require_auth()
     def post(self, data, project):
-        """A placeholder viewpoint (contributors): {name, description, kind: text | file, file_type, questions: [ids]};
+        """A placeholder view (contributors): {name, description, kind: text | file, file_type, questions: [ids]};
         a file one's empty file is made in the project's files straight away when Documents is up"""
         from ..key_questions import add_placeholder, make_files
         out = _run(lambda c: add_placeholder(c, project, g.user, data or {}), write=True, action="project.placeholder", obj=project)
@@ -1101,7 +1108,7 @@ class PlaceholderViewpoints(MethodView):
         return out
 
 
-@blp.route("/projects/<string:project>/placeholder-viewpoints/files")
+@blp.route("/projects/<string:project>/placeholder-views/files")
 class PlaceholderFiles(MethodView):
     @blp.doc(security=SECURITY)
     @blp.response(200, Free)
@@ -1112,14 +1119,14 @@ class PlaceholderFiles(MethodView):
         return _run(lambda c: make_files(c, project, g.user), write=True, action="project.placeholder.files", obj=project)
 
 
-@blp.route("/projects/<string:project>/placeholder-viewpoints/<string:code>")
-class PlaceholderViewpoint(MethodView):
+@blp.route("/projects/<string:project>/placeholder-views/<string:code>")
+class PlaceholderView(MethodView):
     @blp.doc(security=SECURITY)
     @blp.arguments(FreeIn)
     @blp.response(200, Free)
     @require_auth()
     def put(self, data, project, code):
-        """Change a placeholder viewpoint's name or description"""
+        """Change a placeholder view's name or description"""
         from ..key_questions import change_placeholder
         return _run(lambda c: change_placeholder(c, project, g.user, code, data or {}), write=True, action="project.placeholder", obj=code)
 
@@ -1127,7 +1134,7 @@ class PlaceholderViewpoint(MethodView):
     @blp.response(200, Free)
     @require_auth()
     def delete(self, project, code):
-        """Remove a placeholder viewpoint (its file, if made, stays in the project's files)"""
+        """Remove a placeholder view (its file, if made, stays in the project's files)"""
         from ..key_questions import delete_placeholder
         return _run(lambda c: delete_placeholder(c, project, g.user, code), write=True, action="project.placeholder.removed", obj=code)
 
@@ -2162,7 +2169,7 @@ class Stakeholders(MethodView):
     @require_auth()
     def post(self, data, project):
         """Add a stakeholder: {name, organisation, role_title, category, power, interest, class, disrupt, understanding_now,
-        understanding_needed, commitment_now, commitment_needed, support_needed, concerns, viewpoints[], items[], approach,
+        understanding_needed, commitment_now, commitment_needed, support_needed, concerns, views[], items[], approach,
         frequency, channel, owner, email, phone, next_contact, notes_html}"""
         from .. import stakeholders as sh
         return _run(lambda c: sh.add(c, project, g.user, data or {}), write=True, action="project.stakeholder.added", obj=project)
@@ -2382,3 +2389,96 @@ class ReferenceSources(MethodView):
         """What a new project can copy into its Reference area: ?parent=<project>&template=<code>"""
         from .. import references as rf
         return _run(lambda c: rf.sources(c, g.user, request.args.get("parent") or None, request.args.get("template") or None))
+
+
+# ---------------------------------------------------------------- the project's own uploads (D461)
+@blp.route("/projects/<string:project>/other-uploads")
+class OtherUploads(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def get(self, project):
+        """The project's own uploads on Other views and documents, newest first"""
+        from .. import other_uploads as ou
+        return _run(lambda c: ou.listing(c, project, g.user))
+
+    @blp.doc(security=SECURITY)
+    @blp.response(201, Free)
+    @require_auth()
+    def post(self, project):
+        """Upload one or more files (multipart "file", repeated), with an optional title and description"""
+        from .. import other_uploads as ou
+        files = []
+        for f in request.files.getlist("file"):
+            data = f.read(ou.MAX_BYTES + 1)
+            if len(data) > ou.MAX_BYTES:
+                abort(413, message=f"{f.filename} is larger than {ou.MAX_BYTES // (1024 * 1024)} MB.")
+            files.append((f.filename or "file", data))
+        return _run(lambda c: ou.upload(c, project, g.user, files, request.form.get("title", ""), request.form.get("description", "")),
+                    write=True, action="project.other_upload.add", obj=project)
+
+
+@blp.route("/projects/<string:project>/other-uploads/<string:doc>")
+class OtherUpload(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth()
+    def put(self, data, project, doc):
+        """{title, description}: the uploader, the Project Admin or Lead Architect, or a Super Admin"""
+        from .. import other_uploads as ou
+        data = data or {}
+        return _run(lambda c: ou.update(c, project, g.user, doc, data.get("title"), data.get("description")),
+                    write=True, action="project.other_upload.change", obj=doc)
+
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def delete(self, project, doc):
+        """Delete an upload (the uploader, the Project Admin or Lead Architect, or a Super Admin)"""
+        from .. import other_uploads as ou
+        return _run(lambda c: ou.delete(c, project, g.user, doc), write=True, action="project.other_upload.delete", obj=doc)
+
+
+@blp.route("/projects/<string:project>/other-uploads/<string:doc>/replace")
+class OtherUploadReplace(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def post(self, project, doc):
+        """A new file for the upload (multipart "file", optional "note"); the earlier one stays as an earlier version"""
+        from .. import other_uploads as ou
+        f = request.files.get("file")
+        if not f:
+            abort(400, message="Send the file as multipart \"file\".")
+        data = f.read(ou.MAX_BYTES + 1)
+        if len(data) > ou.MAX_BYTES:
+            abort(413, message=f"{f.filename} is larger than {ou.MAX_BYTES // (1024 * 1024)} MB.")
+        return _run(lambda c: ou.replace(c, project, g.user, doc, f.filename or "", data, request.form.get("note", "")),
+                    write=True, action="project.other_upload.replace", obj=doc)
+
+
+@blp.route("/projects/<string:project>/other-uploads/<string:doc>/versions")
+class OtherUploadVersions(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def get(self, project, doc):
+        """The upload's files, newest first"""
+        from .. import other_uploads as ou
+        return {"versions": _run(lambda c: ou.versions(c, project, g.user, doc))}
+
+
+@blp.route("/projects/<string:project>/other-uploads/<string:doc>/download")
+class OtherUploadDownload(MethodView):
+    @blp.doc(security=SECURITY)
+    @require_auth()
+    def get(self, project, doc):
+        """Download the upload (?version=n for an earlier file)"""
+        from urllib.parse import quote
+
+        from .. import other_uploads as ou
+        v = request.args.get("version")
+        data, ctype, name = _run(lambda c: ou.download(c, project, g.user, doc, int(v) if v and v.isdigit() else None))
+        return Response(data, mimetype=ctype or "application/octet-stream",
+                        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}"})

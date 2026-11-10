@@ -17,8 +17,10 @@ import re
 import uuid
 from datetime import date
 
+from .. import notation
 from . import archimate4 as A
 from . import demo_estate as DEMO
+from . import industries as IND
 from . import insurance as INS
 from . import togaf10 as T10
 
@@ -111,6 +113,11 @@ def snake(code: str) -> str:
     return s.strip("_").lower()
 
 
+def entity_links(value: str, model: str, key: str) -> str:
+    """A seed Link value (D418): {entity:Name} becomes the app's link to that entity of the same seed model."""
+    return re.sub(r"\{entity:([^}]+)\}", lambda x: f"#/metamodel/{model}/entity/{gid(key, 'entity', x.group(1))}", value)
+
+
 def lit(v) -> str:
     """SQL literal for a seed value (seed data only: no user input reaches this)."""
     if v is None:
@@ -199,7 +206,7 @@ def metamodel_sql(model_key: str, origin_key: str | None) -> str:
         return gid(model_key, *parts), (gid(origin_key, *parts) if origin_key else None)
 
     out = []
-    # layers (the ArchiMate domains)
+    # domains (core.layers)
     rows = []
     for i, (domain, colour) in enumerate(A.DOMAIN_COLOURS.items(), 1):
         i_d, o = ids("layer", domain)
@@ -211,9 +218,9 @@ def metamodel_sql(model_key: str, origin_key: str | None) -> str:
     for i, (code, name, domain, aspect, prefix) in enumerate(A.ENTITY_TYPES, 1):
         i_d, o = ids("entity_type", code)
         rows.append([i_d, o, m, gid(model_key, "layer", domain), code, name, A.EXTENSION_DESCRIPTIONS.get(code, ""), aspect, prefix,
-                     snake(code), i * 10])
+                     snake(code), i * 10, notation.default_notation(code), code in A.CONNECTOR_TYPES])
     out.append(insert("entity_type", ["id", "origin_id", "model_id", "layer_id", "code", "name", "description", "aspect",
-                                      "id_prefix", "table_name", "sort_order"], rows))
+                                      "id_prefix", "table_name", "sort_order", "notation", "is_connector"], rows))
 
     # relationship types
     rows = []
@@ -301,6 +308,8 @@ def sample_content_sql(k: str = SAMPLE_KEY) -> str:
             col = STORAGE[dt]
             if dt == "date":
                 value = date.fromisoformat(value)
+            if dt == "url":
+                value = entity_links(value, m, k)
             row = {"value_text": None, "value_number": None, "value_date": None}
             row[col] = value
             vals.append([gid(k, "attribute_value", name, attr), m, gid(k, "attribute_type", attr), e,
@@ -319,6 +328,12 @@ def insurance_content_sql(k: str = INSURANCE_KEY, origin: str | None = None, kee
     """The insurance reference model's entities, attribute values, parents and relationships; or a
     copy of them in another model (key k), each entity pointing at the one it was copied from (origin)
     and only those keep(type_code, name) accepts (relationships only between entities kept)."""
+    return reference_content_sql(INS, k, origin, keep)
+
+
+def reference_content_sql(INS, k: str, origin: str | None = None, keep=None) -> str:
+    """A reference model's content (a module with ENTITIES and RELATIONSHIPS, like insurance.py and the industry
+    models of phase 39) in the model with key k."""
     m = gid("model", k)
     dtype = {code: DATA_TYPES[dt] for code, _n, dt, *_ in A.ATTRS}
     ents, vals, parents, rels = [], [], [], []
@@ -388,7 +403,7 @@ HISTORY_DEMO = [
         ("set", "Customer Portal", "Criticality", 5),
         ("set", "Customer Portal", "Hosting", "SaaS"),
         ("clear", "Customer Portal", "Vendor", None),
-        ("add", "Customer Portal", "Realization", "Claims Management"),
+        ("add", "Customer Portal", "Association", "Claims Management"),
         ("set", "Policy Administration System", "Lifecycle", "Phase Out"),
         ("set", "Policy Administration System", "Owner", "Head of Policy and Admin IT"),
     ]),
@@ -590,7 +605,7 @@ INSERT INTO core.quality_scope (model_id, measured, set_by) VALUES
 
 def demo_estate_sql() -> str:
     """Laptop demo model "Protea Insurance (demo estate)" (phase 8.2, D161): a whole fictitious estate on
-    ArchiMate 4, created from the template, so every viewpoint and report has data (eax.seed.demo_estate)."""
+    ArchiMate 4, created from the template, so every view and report has data (eax.seed.demo_estate)."""
     k = DEMO.DEMO_KEY
     m = gid("model", k)
     dtype = {code: DATA_TYPES[dt] for code, _n, dt, *_ in A.ATTRS}
@@ -604,6 +619,8 @@ def demo_estate_sql() -> str:
             dt = dtype[attr]
             if dt == "date":
                 value = date.fromisoformat(value)
+            if dt == "url":
+                value = entity_links(value, m, k)
             row = {"value_text": None, "value_number": None, "value_date": None}
             row[STORAGE[dt]] = value
             vals.append([gid(k, "attribute_value", name, attr), m, gid(k, "attribute_type", attr), e,
@@ -621,7 +638,7 @@ def demo_estate_sql() -> str:
         insert("model", cols, [[m, TEMPLATE_ID, DEMO.DEMO_NAME,
                                 "Demo model: Protea Insurance, a fictitious South African insurer, with a whole estate on "
                                 "ArchiMate 4 (motivation, strategy, business, application, technology, implementation and "
-                                "migration) so every viewpoint and report has data. Every name is invented.",
+                                "migration) so every view and report has data. Every name is invented.",
                                 "project", TEMPLATE_ID, None, "ArchiMate 4", "Protea architecture team", "Insurance"]]),
         metamodel_sql(k, TEMPLATE_KEY),
         insert("entity", ["id", "model_id", "entity_type_id", "name", "description"], ents),
@@ -629,6 +646,8 @@ def demo_estate_sql() -> str:
         insert("attribute_value", ["id", "model_id", "attribute_type_id", "entity_id", "value_text", "value_number",
                                    "value_date"], vals),
         insert("relationship", ["id", "model_id", "relationship_type_id", "source_entity_id", "target_entity_id"], rels),
+        "".join(f"UPDATE core.allowed_relationships SET source_multiplicity = {lit(sm)}, target_multiplicity = {lit(tm)} "
+                f"WHERE guid = '{gid(k, 'allowed_relationship', s, r, t)}'::uuid;\n" for s, r, t, sm, tm in DEMO.MULTIPLICITY),
     ])
 
 
@@ -637,27 +656,28 @@ def demo_estate_sql() -> str:
 # relationships as (relationship type, other entity, outgoing?)); a key keeps two same-named entities apart.
 RULE_DEMO_RULES = [
     # entity type, relationship type, other entity type, severity, message
-    ("ApplicationComponent", "Realization", "Capability", "warning", "An application realises at least one capability"),
+    ("ApplicationComponent", "Association", "Capability", "warning", "An application supports at least one capability"),
     ("ApplicationComponent", "Serving", "", "warning", "An application serves someone or something"),
-    ("Capability", "Realization", "Application Component", "warning", "A capability is realised by at least one application"),
+    ("Capability", "Association", "Application Component", "warning", "A capability is supported by at least one application"),
     ("Requirement", "Realization", "Goal", "error", "A requirement realises a goal"),
 ]
 RULE_DEMO_ENTITIES = [
     ("legacy-sheet", "ApplicationComponent", "Legacy Claims Spreadsheet",
-     "Rules demo: no owner, criticality out of range, a version and URL that break their patterns, a negative cost, "
+     "Rules demo: no owner, criticality out of range, a version that breaks its pattern, a document link that is only "
+     "text (kept, shown as text: D418), a negative cost, "
      "retiring without a retirement date, and no relationships",
      {"Lifecycle": "Retiring", "Criticality": 7, "Version": "v2 beta", "AnnualCost": -500, "Url": "intranet/claims"}, []),
     ("broker-portal-1", "ApplicationComponent", "Broker Portal",
-     "Rules demo: shares its name with another application, went live in 1985, retired before it went live, and realises "
+     "Rules demo: shares its name with another application, went live in 1985, retired before it went live, and supports "
      "no capability",
      {"Owner": "Broker Services", "Lifecycle": "Production", "Criticality": 3, "GoLiveDate": "1985-06-01",
       "RetirementDate": "1980-01-01"}, [("Serving", "Claims Department", True)]),
     ("broker-portal-2", "ApplicationComponent", "Broker Portal",
      "Rules demo: a second application with the same name; otherwise every rule passes",
      {"Owner": "Broker Services", "Lifecycle": "Phase In", "Criticality": 2, "Version": "0.9"},
-     [("Serving", "Claims Department", True), ("Realization", "Claims Management", True)]),
+     [("Serving", "Claims Department", True), ("Association", "Claims Management", True)]),
     ("fraud-detection", "Capability", "Fraud Detection",
-     "Rules demo: a capability level out of range, and no application realises it", {"Owner": "COO", "CapabilityLevel": 6}, []),
+     "Rules demo: a capability level out of range, and no application supports it", {"Owner": "COO", "CapabilityLevel": 6}, []),
     ("paperless-claims", "Requirement", "Paperless claims",
      "Rules demo: a requirement that realises no goal", {"Owner": "Claims Operations", "Priority": "Should"}, []),
     ("dc-exit", "WorkPackage", "Data Centre Exit",
@@ -701,11 +721,11 @@ def rules_demo_sql(k: str = KAROO_KEY) -> str:
 
 def lean_sql() -> str:
     """Laptop test models (D81): an organisation's own root metamodel built from scratch, created from the
-    Root model (not ArchiMate): Lean EA metamodel 1.0, with five types in three layers, four relationship
+    Root model (not ArchiMate): Lean EA metamodel 1.0, with five types in three domains, four relationship
     types and two attributes; and Karoo Digital, a project model created from it with a little content.
     The root is not locked: its Model Admin (user_model_creator on laptops) changes it."""
     k, p = LEAN_KEY, LEAN_PROJECT_KEY
-    layers = [("Business", "ffffb5"), ("Application", "b5ffff"), ("Technology", "c9e7b7")]
+    layers = [(d, A.DOMAIN_COLOURS[d].lower()) for d in ("Business", "Application", "Technology")]
     types = [("Capability", "Capability", "Business", "CAP"), ("BusinessProcess", "Business Process", "Business", "PRC"),
              ("Application", "Application", "Application", "APP"), ("DataEntity", "Data Entity", "Application", "DAT"),
              ("Platform", "Platform", "Technology", "PLT")]
@@ -771,7 +791,7 @@ def lean_sql() -> str:
         "SELECT set_config('eax.history_label', 'Laptop test models: a root metamodel from scratch', true);\n",
         insert("model", cols, [[gid("model", k), None, "Lean EA metamodel",
                                 "Test model: an organisation's own root metamodel built from scratch (from the Root model, "
-                                "not ArchiMate): five types in three layers. Its Model Admin changes it.",
+                                "not ArchiMate): five types in three domains. Its Model Admin changes it.",
                                 "template", EMPTY_ID, "Lean EA metamodel 1.0", False, "Karoo enterprise architecture", "1.0", ""]]),
         metamodel(k, None),
         insert("model", cols, [[pm, gid("model", k), "Karoo Digital (lean)",
@@ -843,7 +863,7 @@ def principles_sql() -> str:
 
 
 def seed_sql(with_template: bool = True, with_sample: bool = True, with_insurance: bool = True,
-             with_principles: bool = True, with_togaf10: bool = True) -> str:
+             with_principles: bool = True, with_togaf10: bool = True, with_industries=False) -> str:
     """What to load, as one script (run in one transaction, by the installer's login eax_migrator,
     because templates and reference models are locked). The others need the template."""
     parts = ["SELECT set_config('eax.actor', 'system:seed', true);\n"]
@@ -853,7 +873,7 @@ def seed_sql(with_template: bool = True, with_sample: bool = True, with_insuranc
             # the top of the model hierarchy (D81): every root metamodel is created from it
             insert("model", ["id", "name", "description", "kind_code", "metamodel_name", "is_locked", "owner"], [[
                 EMPTY_ID, "Root",
-                "The root of the model hierarchy: no layers, types or content. Every root metamodel (ArchiMate 4, "
+                "The root of the model hierarchy: no domains, types or content. Every root metamodel (ArchiMate 4, "
                 "ArchiMate 5 when it comes, an organisation's own) is created from it. Read-only.",
                 "template", "None", True, "EA Explorer"]]),
             insert("model", ["id", "name", "description", "kind_code", "source_model_id", "metamodel_name", "is_locked",
@@ -883,6 +903,19 @@ def seed_sql(with_template: bool = True, with_sample: bool = True, with_insuranc
             metamodel_sql(INSURANCE_KEY, TEMPLATE_KEY),
             insurance_content_sql(),
         ]
+    # the industry reference models (phase 39, D470): True for all, or a set of industry codes
+    for code, name, version, description, mod in IND.MODELS:
+        if with_industries is True or (with_industries and code in with_industries):
+            key = IND.key(code)
+            parts += [
+                f"SELECT set_config('eax.history_label', '{name} reference model', true);\n",
+                insert("model", ["id", "origin_id", "name", "description", "kind_code", "source_model_id",
+                                 "metamodel_name", "is_locked", "owner", "industry", "version_label"], [[
+                    gid("model", key), TEMPLATE_ID, f"{name} reference model", description,
+                    "reference", TEMPLATE_ID, "ArchiMate 4", True, "EA Explorer", name, version]]),
+                metamodel_sql(key, TEMPLATE_KEY),
+                reference_content_sql(mod, key),
+            ]
     if with_sample:
         parts += [
             "SELECT set_config('eax.history_label', 'Sample model', true);\n",

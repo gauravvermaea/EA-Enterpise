@@ -2,9 +2,10 @@
 
 A project backup is one zip file (eax-project-backup/1):
   backup.json                what it is: the project, when, by whom, what it holds
-  project/<table>.json       the project's rows: the project, its people and sign-off, models, viewpoints, libraries,
+  project/<table>.json       the project's rows: the project, its people and sign-off, models, views, libraries,
                              principles, folders, document classes (items), steps and sub steps, documents and their history,
-                             key questions and placeholder viewpoints,
+                             key questions and placeholder views, canvases, drawn views linked as evidence (with the
+                             view's name, to find it again in a model made again),
                              approval requests and decisions
   models/<guid>.eaxbackup.zip  a model backup (as Model admin makes) of each model the project works on (added, derived
                              or created); a model it only refers to is named, not copied
@@ -47,7 +48,7 @@ TABLES = [
     ("members", "project_id = :p", {}),
     ("signoff", "project_id = :p", {}),
     ("project_models", "project_id = :p", {}),
-    ("project_viewpoints", "project_id = :p", {}),
+    ("project_views", "project_id = :p", {}),
     ("project_libraries", "project_id = :p", {}),
     ("principles", "project_id = :p", {"inherited_from": None}),
     ("folders", "project_id = :p", {"mayan_cabinet_id": None}),
@@ -71,6 +72,8 @@ TABLES = [
     ("gov_decisions", """approval_id IN (SELECT a.id FROM proj.gov_approvals a JOIN proj.gov_records r ON r.id = a.record_id
                                           WHERE r.project_id = :p)""", {"approval_id": "gov_approvals"}),
     ("gov_history", "record_id IN (SELECT id FROM proj.gov_records WHERE project_id = :p)", {"record_id": "gov_records"}),
+    # scenario assessments (phase 27.1, D494): their document and governance decision re-pointed at the restored rows
+    ("scenario_assessments", "project_id = :p", {"document_id": "documents", "gov_record_id": "gov_records"}),
     ("charters", "project_id = :p", {}),
     ("phase_states", "project_id = :p", {}),
     ("task_statuses", "project_id = :p", {}),
@@ -84,8 +87,8 @@ TABLES = [
     ("question_links", "question_id IN (SELECT id FROM proj.key_questions WHERE project_id = :p)",
      {"question_id": "key_questions", "document_id": "documents"}),
     ("question_events", "question_id IN (SELECT id FROM proj.key_questions WHERE project_id = :p)", {"question_id": "key_questions"}),
-    ("placeholder_viewpoints", "project_id = :p", {"document_id": "documents"}),
-    ("question_viewpoints", "question_id IN (SELECT id FROM proj.key_questions WHERE project_id = :p)", {"question_id": "key_questions"}),
+    ("placeholder_views", "project_id = :p", {"document_id": "documents"}),
+    ("question_views", "question_id IN (SELECT id FROM proj.key_questions WHERE project_id = :p)", {"question_id": "key_questions"}),
     ("canvases", "project_id = :p", {"source_id": "canvases"}),
     ("canvas_items", "canvas_id IN (SELECT id FROM proj.canvases WHERE project_id = :p)", {"canvas_id": "canvases"}),
     ("canvas_documents", "canvas_id IN (SELECT id FROM proj.canvases WHERE project_id = :p)",
@@ -93,8 +96,10 @@ TABLES = [
     ("canvas_events", "canvas_id IN (SELECT id FROM proj.canvases WHERE project_id = :p)", {"canvas_id": "canvases"}),
     ("signoff_decisions", """request_id IN (SELECT r.id FROM proj.signoff_requests r JOIN proj.documents d ON d.id = r.document_id
                                              WHERE d.project_id = :p)""", {"request_id": "signoff_requests"}),
+    # drawn views as evidence (D408: links only): the view's name rides along so a model made again finds its view
+    ("view_evidence", "project_id = :p", {"item_id": "items", "question_id": "key_questions"}),
 ]
-NEW_GUID = {"projects", "items", "documents", "signoff_requests", "steps", "stakeholders", "stakeholder_notes", "tasks", "org_people", "standards", "gov_records", "gov_approvals", "cal_events", "sheets", "repo_tags", "key_questions", "placeholder_viewpoints", "canvases", "canvas_items"}   # tables whose guid is made new (when they have one)
+NEW_GUID = {"projects", "items", "documents", "signoff_requests", "steps", "stakeholders", "stakeholder_notes", "tasks", "org_people", "standards", "gov_records", "gov_approvals", "cal_events", "sheets", "repo_tags", "key_questions", "placeholder_views", "canvases", "canvas_items", "view_evidence", "scenario_assessments"}   # tables whose guid is made new (when they have one)
 
 
 def folder() -> Path:
@@ -166,6 +171,7 @@ def project_file(core, pc, user, p: dict, why: str = "", with_models: bool = Tru
         rows[table] = pj._rows(pc, f"SELECT * FROM proj.{table} WHERE {where} ORDER BY id" if "id" in _cols(pc, table)
                                else f"SELECT * FROM proj.{table} WHERE {where}", p=p["id"])
     models = rows["project_models"]
+    _evidence_names(rows["view_evidence"])
     buf = io.BytesIO()
     skipped_docs, model_files = [], []
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
@@ -207,6 +213,33 @@ def project_file(core, pc, user, p: dict, why: str = "", with_models: bool = Tru
                                  "(model backups) and the latest version of each document. Restore it on the project page "
                                  "(Admin › Back up and restore) or in Project admin; it comes back as a new project.\n")
     return buf.getvalue(), info
+
+
+def _evidence_names(rows: list[dict]) -> None:
+    """Each view-evidence row gets its view's name (view_name), from the views service, so that a model made again on
+    restore (its views with new ids) is matched by name. The service down: the rows go without names."""
+    from . import views_client as vc
+    names: dict[str, dict] = {}
+    for r in rows:
+        m = str(r["model_guid"])
+        if m not in names:
+            try:
+                names[m] = {v["id"]: v["name"] for v in (vc.list_views(m).get("views") or [])}
+            except Exception:  # noqa: BLE001 - views service off or down
+                names[m] = {}
+        r["view_name"] = names[m].get(str(r["view_guid"]), "")
+
+
+def _evidence_view(model_guid: str, row: dict) -> str | None:
+    """On restore into a model made again: the view of the same name there (None: not found, the row is left out)."""
+    from . import views_client as vc
+    try:
+        for v in vc.list_views(model_guid).get("views") or []:
+            if row.get("view_name") and v["name"] == row["view_name"]:
+                return v["id"]
+    except Exception:  # noqa: BLE001
+        return None
+    return None
 
 
 def _library_out(project_guid: str) -> dict:
@@ -385,6 +418,25 @@ def format_of(info: dict) -> int:
         return 0
 
 
+_OLD_VIEW_TABLES = {"project_viewpoints": "project_views", "placeholder_viewpoints": "placeholder_views",
+                    "question_viewpoints": "question_views"}
+
+
+def _view_words(z, names: set, data: dict) -> None:
+    """Rows written before "viewpoint" became "view" (owner, 9 Nov 2026, D399): the old table files and column names are
+    read into the new ones, so an older backup restores as it was."""
+    for old, new in _OLD_VIEW_TABLES.items():
+        if f"project/{old}.json" in names and not data.get(new):
+            data[new] = json.loads(z.read(f"project/{old}.json"))
+    for rows in (data.get("project_views") or [], data.get("question_views") or []):
+        for r in rows:
+            if "viewpoint" in r and "view" not in r:
+                r["view"] = r.pop("viewpoint")
+    for r in data.get("stakeholders") or []:
+        if "viewpoints" in r and "views" not in r:
+            r["views"] = r.pop("viewpoints")
+
+
 def upgrade(rows: dict, info: dict) -> list[str]:
     """Bring a backup's rows up to this installation's format, step by step; what was done, in words."""
     v = format_of(info)
@@ -441,6 +493,7 @@ def restore(core, pc, user, path: Path, new_name: str = "", over: bool = False, 
         names = set(z.namelist())
         data = {t: json.loads(z.read(f"project/{t}.json")) if f"project/{t}.json" in names else []
                 for t in ["projects"] + [t for t, _w, _m in TABLES]}
+        _view_words(z, names, data)               # a file from before views were called views (0.15.1, D399)
         upgraded = upgrade(data, info)             # an older file: its rows brought up to this installation's form
         lib_data = json.loads(z.read("library/library.json")) if "library/library.json" in names else None
         load = lambda t: data.get(t) or []  # noqa: E731
@@ -550,6 +603,16 @@ def restore(core, pc, user, path: Path, new_name: str = "", over: bool = False, 
                     if not g:
                         continue
                     r = {**r, "model_guid": g}
+                if table == "view_evidence":        # its model here (made again: its view found again by name)
+                    g = model_map.get(str(r["model_guid"]))
+                    if not g:
+                        continue
+                    if g != str(r["model_guid"]):
+                        vg = _evidence_view(g, r)
+                        if not vg:
+                            continue
+                        r = {**r, "view_guid": vg}
+                    r = {**r, "model_guid": g}
                 if table == "documents":
                     kept = current.get(str(r["guid"])) if over else None
                     if str(r["guid"]) not in has_file and not kept and not (r.get("link_url") or r.get("link_project")):
@@ -568,7 +631,7 @@ def restore(core, pc, user, path: Path, new_name: str = "", over: bool = False, 
                     elif vals[col] is not None:
                         vals[col] = ids[target].get(vals[col])
                         lost = lost or vals[col] is None
-                if lost and table not in ("steps", "tasks", "org_people", "placeholder_viewpoints", "key_questions", "canvases"):   # not a placeholder or a question: its file or evidence is simply gone
+                if lost and table not in ("steps", "tasks", "org_people", "placeholder_views", "key_questions", "canvases"):   # not a placeholder or a question: its file or evidence is simply gone
                     continue
                 if table == "principles":
                     vals["inherited_from"] = project_of.get(str(r.get("inherited_from")))

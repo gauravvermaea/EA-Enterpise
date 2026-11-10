@@ -1,7 +1,7 @@
 """Architecture projects and their repository (phase 13, D258 to D262).
 
 A project has a purpose (Strategy, Portfolio, Project, Solution or the user's own), its models (added, derived as a
-child, or created), its viewpoints, principles (from the library or its own; a child inherits its parent's), the ADM
+child, or created), its views, principles (from the library or its own; a child inherits its parent's), the ADM
 steps (TOGAF's and the library's, accepted or removed with the reason; its own added), the deliverables and artifacts
 (chosen, or placed as not_for_use in the same folders), its people and who signs off. It is set up in one pass by the
 wizard (create); its repository is then built in Mayan in the background (build_repository).
@@ -114,7 +114,7 @@ def library(conn) -> dict:
                                      WHERE l.kind = 'togaf' ORDER BY t.folder, t.name"""),
         "principles": _rows(conn, """SELECT id, code, set_name, category, name, statement, rationale, implications, tier
                                       FROM proj.lib_principles WHERE NOT retired ORDER BY set_name, code"""),
-        "viewpoints": _rows(core(conn), """SELECT code, name, category, purpose, element_types, source FROM core.viewpoints
+        "views": _rows(core(conn), """SELECT code, name, category, purpose, element_types, source FROM core.viewpoints
                                             WHERE code NOT LIKE 'PV-%' ORDER BY code"""),
         "item_templates": item_templates_all(conn),
         "template_index": template_index(conn),
@@ -314,8 +314,8 @@ def detail(conn, project: Any, user) -> dict:
                          LEFT JOIN core.models sm ON sm.id = m.source_model_id
                         WHERE m.guid::text = ANY (CAST(:g AS text[])) ORDER BY m.name""", g=list(how))] if how else []
     names = {r["code"]: r["name"] for r in _rows(core(conn), "SELECT code, name FROM core.viewpoints")}
-    out["viewpoints"] = [{"code": v["code"], "name": names.get(v["code"], v["code"])} for v in
-                         _rows(conn, "SELECT viewpoint AS code FROM proj.project_viewpoints WHERE project_id = :p ORDER BY viewpoint", p=p["id"])]
+    out["views"] = [{"code": v["code"], "name": names.get(v["code"], v["code"])} for v in
+                         _rows(conn, "SELECT view AS code FROM proj.project_views WHERE project_id = :p ORDER BY view", p=p["id"])]
     out["principles"] = _rows(conn, """SELECT pr.id, pr.code, pr.name, pr.statement, pr.rationale, pr.implications, pr.library_id,
                                               pr.area, pr.created_by, pp.name AS inherited_from, pr.mandatory,
                                               pr.origin_guid IS NOT NULL AS from_base, pr.guid::text AS guid, pr.origin_guid::text AS origin_guid,
@@ -358,7 +358,7 @@ def detail(conn, project: Any, user) -> dict:
     out["documents"] = documents(conn, p)
     out["hidden_documents"] = _one(conn, """SELECT count(*) FILTER (WHERE archived_at IS NOT NULL AND deleted_at IS NULL) AS archived,
                                                   count(*) FILTER (WHERE deleted_at IS NOT NULL) AS deleted
-                                             FROM proj.documents WHERE project_id = :p""", p=p["id"])
+                                             FROM proj.documents WHERE project_id = :p AND origin <> 'other'""", p=p["id"])
     out["signoff_quorum"] = p.get("signoff_quorum")
     out["document_tags"] = sorted({t for d in out["documents"] for t in (d.get("tags") or [])}, key=str.lower)
     out["folders"] = [r["path"] for r in _rows(conn, "SELECT path FROM proj.folders WHERE project_id = :p ORDER BY path", p=p["id"])]
@@ -377,10 +377,10 @@ def detail(conn, project: Any, user) -> dict:
     out["goals"] = pw.goals(conn, p)
     pend = p.get("pending_goals")
     out["pending_goals"] = pend if isinstance(pend, list) else __import__("json").loads(pend or "[]")
-    out["viewpoints"] = pw.viewpoint_status(conn, p)
+    out["views"] = pw.view_status(conn, p)
     from . import key_questions as kq
     kq_list = kq.listing(conn, p)
-    out["key_questions"], out["placeholder_viewpoints"] = kq_list["questions"], kq_list["placeholders"]
+    out["key_questions"], out["placeholder_views"] = kq_list["questions"], kq_list["placeholders"]
     out["placeholder_file_types"] = kq_list["file_types"]
     out["model_types"] = pw.model_types(conn, p)
     out["signoffs"] = pw.signoffs(conn, p, user)
@@ -418,6 +418,7 @@ def documents(conn, p: dict, show: tuple | list = ()) -> list[dict]:
                                  (d.mayan_document_id IS NULL AND d.link_url = '' AND d.link_project IS NULL) AS no_file
                             FROM proj.documents d LEFT JOIN proj.items i ON i.id = d.item_id
                            WHERE d.project_id = :p AND (d.archived_at IS NULL OR :arc) AND (d.deleted_at IS NULL OR :del)
+                             AND d.origin <> 'other'      -- the project's own uploads on Other views and documents (D461)
                            ORDER BY d.folder, d.file_name""", p=p["id"], arc="archived" in show, **{"del": "deleted" in show})
 
 
@@ -488,8 +489,8 @@ def create(conn, user, d: dict, sample: bool = False) -> dict:
             home = str(mm["id"])
     model_roles(conn, made, members, user)
     conn.execute(text("UPDATE proj.projects SET home_model = CAST(:h AS uuid) WHERE id = :p"), {"h": home, "p": p["id"]})
-    for v in d.get("viewpoints") or []:
-        conn.execute(text("INSERT INTO proj.project_viewpoints (project_id, viewpoint) VALUES (:p, :v) ON CONFLICT DO NOTHING"),
+    for v in d.get("views") or []:
+        conn.execute(text("INSERT INTO proj.project_views (project_id, view) VALUES (:p, :v) ON CONFLICT DO NOTHING"),
                      {"p": p["id"], "v": v})
     for n, lib in enumerate(libs):
         conn.execute(text("INSERT INTO proj.project_libraries (project_id, library_id, sort_order) VALUES (:p, :l, :s)"),
@@ -519,9 +520,9 @@ def create(conn, user, d: dict, sample: bool = False) -> dict:
     from . import governance as gov
     gov.charter_from_wizard(conn, p, user, d.get("charter"))      # the wizard's Charter step (owner, 8 Nov 2026)
     own_codes = {}
-    for v in d.get("own_viewpoints") or []:
+    for v in d.get("own_views") or []:
         if (v.get("name") or "").strip():
-            own_codes[str(v.get("key") or "")] = pw.add_viewpoint(conn, p["guid"], user, v)["code"]
+            own_codes[str(v.get("key") or "")] = pw.add_view(conn, p["guid"], user, v)["code"]
     from . import key_questions as kq
     kq.from_wizard(conn, p, user, d, own_codes, editing=False)      # the questions the work answers (owner, 9 Nov 2026)
     note = pw.write_goals(conn, project_row(conn, p["guid"]), user, d.get("goals"))
@@ -1311,6 +1312,8 @@ def accept(conn, project: Any, user, doc: str, note: str, evidence_name: str = "
     _need(conn, p, user, "contribute")
     d = _doc(conn, p, doc)
     _live(d)
+    if d.get("origin") == "other":      # the project's own uploads (D461) are never accepted or signed off
+        raise EditError(f"{_dname(d)} is one of the project's own uploads: it needs no approval.", 409)
     if d["checked_out_by"]:
         raise EditError(f"{_dname(d)} is checked out by {d['checked_out_by']}: check it in first.", 409)
     if d["state"] in ("Approved", "Accepted"):

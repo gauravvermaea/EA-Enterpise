@@ -12,11 +12,11 @@ from eax.metamodel_edit import EditError
 
 def _spec(**over):
     s = mo.empty_spec("Check", "Check", "1.0")
-    s["layers"] = [{"code": "biz", "name": "Business"}]
+    s["domains"] = [{"code": "biz", "name": "Business"}]
     s["attributes"] = [{"code": "Owner", "name": "Owner", "data_type": "text"}]
     s["entity_types"] = [
-        {"code": "App", "name": "Application", "layer": "biz", "attributes": [{"attribute": "Owner"}]},
-        {"code": "Cap", "name": "Capability", "layer": "biz", "attributes": []},
+        {"code": "App", "name": "Application", "domain": "biz", "attributes": [{"attribute": "Owner"}]},
+        {"code": "Cap", "name": "Capability", "domain": "biz", "attributes": []},
     ]
     s["relationship_types"] = [{"code": "Serves", "name": "Serving", "attributes": []}]
     s["allowed"] = [{"source": "App", "relationship": "Serves", "target": "Cap"},
@@ -34,7 +34,7 @@ def test_spec_diff_same_is_empty():
 def test_spec_diff_added_removed_changed():
     a = _spec()
     b = _spec()
-    b["entity_types"] = [dict(b["entity_types"][0], name="App"), {"code": "Goal", "name": "Goal", "layer": "biz", "attributes": []}]
+    b["entity_types"] = [dict(b["entity_types"][0], name="App"), {"code": "Goal", "name": "Goal", "domain": "biz", "attributes": []}]
     changes = {(d["section"], d["code"], d["change"]) for d in mo.spec_diff(a, b)}
     assert ("entity_types", "Goal", "added") in changes
     assert ("entity_types", "Cap", "removed") in changes

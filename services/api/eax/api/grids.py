@@ -169,7 +169,7 @@ class Search(MethodView):
 
 
 # ---------------------------------------------------------------- saved views and favourites
-@blp.route("/views")
+@blp.route("/saved-views")
 class Views(MethodView):
     @blp.doc(security=SECURITY)
     @blp.response(200, Free)
@@ -188,7 +188,7 @@ class Views(MethodView):
         return _write(lambda c: workspace.save_view(c, g.user.username, body), "view.save", body.get("model") or "", {"name": body["name"]})
 
 
-@blp.route("/views/<string:view_id>")
+@blp.route("/saved-views/<string:view_id>")
 class View(MethodView):
     @blp.doc(security=SECURITY)
     @blp.response(200, Free)

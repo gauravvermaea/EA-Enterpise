@@ -40,7 +40,7 @@ MM-023, MM-024, ADM-043 (versions), UI-017 to UI-019 (model screens). Decisions 
   both and turns to **warning** when they differ; so does the Database line of the service health.
   Every phase moves both: phase N is 0.N.0.
 - **Model screens for large models** (D50). Opening a model shows tabs:
-  - **Entity types**: every type with its layer, entity and attribute counts; filter, sort, only
+  - **Entity types**: every type with its domain, entity and attribute counts; filter, sort, only
     types with entities. Click a type for **its entities as a table**: one column per attribute,
     required ones marked, missing required values shaded, rule results per row (errors and warnings,
     hover to read), search, filter by rule result, choose columns, sort, 100 per page, CSV of what
@@ -125,7 +125,7 @@ version, so API and database stay in step).
 
 - **Graph tab, five kinds of picture:**
   - **Network:** chosen entity types, or one entity in the middle.
-  - **Layered:** bands by ArchiMate layer.
+  - **By domain:** bands by ArchiMate domain.
   - **Impact chain:** from one entity, follow the lines *out* (impact) or *in* (dependencies), up to 6
     steps, in columns by distance; only the relationship types switched on are followed.
   - **Hierarchy map:** nested parents and parts (the capability map), coloured by any attribute as a
@@ -147,7 +147,7 @@ version, so API and database stay in step).
   - *Both ways:* dependencies on the left, impact on the right.
   - *One way:* out or in, up to 6 steps.
   - *Family tree:* every parent up to the top, parts down 1 to 10 levels.
-  - *By layer:* its neighbours in ArchiMate layer bands.
+  - *By domain:* its neighbours in ArchiMate domain bands.
   - *Path to...:* the shortest chains to another entity you pick.
   - *As it was:* its relationships at a moment of its history, removed since in red, added since in
     green.
@@ -186,7 +186,7 @@ version, so API and database stay in step).
    - **Matrix:** Process by Role.
    - Click any box to open its page.
 5. Open **Adviser** > *Graph*: try *Both ways*, *Path to...* Quotation (3 steps: assigned to, realizes,
-   realizes) and *By layer*. Open **Market Intelligence** > *Family tree*. Open **Claims Platform** (sample
+   realizes) and *By domain*. Open **Market Intelligence** > *Family tree*. Open **Claims Platform** (sample
    model) > *Graph* > *As it was* and pick a moment before Pieter's last change: the link to Claims
    Department shows as added since.
 

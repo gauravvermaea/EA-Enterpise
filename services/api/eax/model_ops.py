@@ -35,6 +35,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
+from . import multiplicity, notation
 from . import repository as repo
 from .metamodel_edit import EditError, _db_message, code_from, snake_from
 from .reports import refresh_typed_views
@@ -86,11 +87,11 @@ def _guid_for(key: Any) -> str:
 # ================================================================ the metamodel as a document
 
 def metamodel_spec(conn, model: Any) -> dict:
-    """A model's metamodel as one JSON document (eax-metamodel/1): layers, pick lists, attributes,
+    """A model's metamodel as one JSON document (eax-metamodel/1): domains, pick lists, attributes,
     entity types with their attributes, relationship types, allowed relationships and rules, by code."""
     m = repo.get_model(conn, model)
     mid = m["_id"]
-    layers = _rows(conn, """SELECT code, name, colour, description FROM core.layers
+    domains = _rows(conn, """SELECT code, name, colour, description FROM core.layers
                              WHERE model_id = :m AND NOT is_deleted ORDER BY sort_order, name""", m=mid)
     lists = _rows(conn, """SELECT id AS _id, code, name, description FROM core.pick_lists
                             WHERE model_id = :m AND NOT is_deleted ORDER BY code""", m=mid)
@@ -108,8 +109,9 @@ def metamodel_spec(conn, model: Any) -> dict:
                                   i.quality_weight
                              FROM core.item_attributes i JOIN core.attribute_types a ON a.id = i.attribute_type_id
                             WHERE i.model_id = :m AND NOT i.is_deleted ORDER BY i.sort_order, a.name""", m=mid)
-    types = _rows(conn, """SELECT t.id AS _id, t.code, t.name, l.code AS layer, t.id_prefix, t.aspect, t.description,
-                                  t.status_code AS status, t.content_area, t.repository_area
+    types = _rows(conn, """SELECT t.id AS _id, t.code, t.name, l.code AS domain, t.id_prefix, t.aspect, t.description,
+                                  t.status_code AS status, t.content_area, t.repository_area, t.notation, t.fill_colour,
+                                  t.is_connector AS connector
                              FROM core.entity_types t JOIN core.layers l ON l.id = t.layer_id
                             WHERE t.model_id = :m AND NOT t.is_deleted ORDER BY l.sort_order, t.sort_order, t.name""", m=mid)
     rels = _rows(conn, """SELECT id AS _id, code, name, verb, category, is_directed AS directed, description, status_code AS status
@@ -121,7 +123,8 @@ def metamodel_spec(conn, model: Any) -> dict:
     for r in rels:
         r["attributes"] = [strip(i) for i in items if i["_r"] == r["_id"]]
         del r["_id"]
-    allowed = _rows(conn, """SELECT s.code AS source, rt.code AS relationship, t.code AS target, a.note
+    allowed = _rows(conn, """SELECT s.code AS source, rt.code AS relationship, t.code AS target, a.note,
+                                    a.source_multiplicity, a.target_multiplicity
                                FROM core.allowed_relationships a
                                JOIN core.entity_types s ON s.id = a.source_type_id
                                JOIN core.entity_types t ON t.id = a.target_type_id
@@ -134,12 +137,12 @@ def metamodel_spec(conn, model: Any) -> dict:
                              LEFT JOIN core.attribute_types at ON at.id = vr.attribute_type_id
                             WHERE vr.model_id = :m AND NOT vr.is_deleted ORDER BY vr.sort_order""", m=mid)
     return {"format": SPEC_FORMAT, "name": m["name"], "framework": m["metamodel_name"], "version": m["version_label"],
-            "layers": layers, "pick_lists": lists, "attributes": attrs, "entity_types": types,
+            "domains": domains, "pick_lists": lists, "attributes": attrs, "entity_types": types,
             "relationship_types": rels, "allowed": allowed, "rules": rules}
 
 
 def empty_spec(name: str = "", framework: str = "", version: str = "") -> dict:
-    return {"format": SPEC_FORMAT, "name": name, "framework": framework, "version": version, "layers": [],
+    return {"format": SPEC_FORMAT, "name": name, "framework": framework, "version": version, "domains": [],
             "pick_lists": [], "attributes": [], "entity_types": [], "relationship_types": [], "allowed": [], "rules": []}
 
 
@@ -162,7 +165,7 @@ def validate_spec(conn, spec: dict) -> list[dict]:
     data_types = {r["code"] for r in _rows(conn, "SELECT code FROM core.data_types")}
     rule_types = {r["code"] for r in _rows(conn, "SELECT code FROM core.rule_types")}
     seen: dict[str, set] = {}
-    for section in ("layers", "pick_lists", "attributes", "entity_types", "relationship_types"):
+    for section in ("domains", "pick_lists", "attributes", "entity_types", "relationship_types"):
         items = spec.get(section) or []
         if not isinstance(items, list):
             err(section, f"{section} must be a list.")
@@ -178,12 +181,12 @@ def validate_spec(conn, spec: dict) -> list[dict]:
             if code.lower() in seen[section]:
                 err(where, f"Code {code!r} is used twice in {section}.")
             seen[section].add(code.lower())
-    layers, lists = _codes(spec.get("layers") or []), _codes(spec.get("pick_lists") or [])
+    domains, lists = _codes(spec.get("domains") or []), _codes(spec.get("pick_lists") or [])
     attrs, types = _codes(spec.get("attributes") or []), _codes(spec.get("entity_types") or [])
     rels = _codes(spec.get("relationship_types") or [])
-    for code, layer in layers.items():
-        if layer.get("colour") and not re.fullmatch(r"#?[0-9A-Fa-f]{6}", str(layer["colour"])):
-            err(f"layers.{code}", f"Colour {layer['colour']!r} must be six hexadecimal digits, for example FFE680.")
+    for code, domain in domains.items():
+        if domain.get("colour") and not re.fullmatch(r"#?[0-9A-Fa-f]{6}", str(domain["colour"])):
+            err(f"domains.{code}", f"Colour {domain['colour']!r} must be six hexadecimal digits, for example FFE680.")
     for code, pl in lists.items():
         if not [v for v in pl.get("values") or [] if str(v).strip()]:
             err(f"pick_lists.{code}", "A pick list needs at least one value.")
@@ -197,8 +200,8 @@ def validate_spec(conn, spec: dict) -> list[dict]:
             err(f"attributes.{code}", f"Pick list {a['pick_list']!r} is not in the metamodel.")
     prefixes: dict[str, str] = {}
     for code, t in types.items():
-        if str(t.get("layer") or "").lower() not in layers:
-            err(f"entity_types.{code}", f"Layer {t.get('layer')!r} is not in the metamodel.")
+        if str(t.get("domain") or "").lower() not in domains:
+            err(f"entity_types.{code}", f"Domain {t.get('domain')!r} is not in the metamodel.")
         prefix = str(t.get("id_prefix") or "").upper()
         if prefix and not re.fullmatch(r"[A-Z][A-Z0-9]{0,5}", prefix):
             err(f"entity_types.{code}", f"Display ID prefix {prefix!r} must be 1 to 6 capital letters or digits.")
@@ -223,6 +226,11 @@ def validate_spec(conn, spec: dict) -> list[dict]:
         if key in keys:
             err(where, "This relationship is allowed twice.", "warning")
         keys.add(key)
+        for end in ("source_multiplicity", "target_multiplicity"):     # D395
+            try:
+                multiplicity.parse(a.get(end))
+            except ValueError as exc:
+                err(where, f"{end.replace('_', ' ').capitalize()}: {exc}")
     from .metamodel_edit import check_rule_params
     for n, r in enumerate(spec.get("rules") or []):
         where = f"rules[{n}]"
@@ -253,10 +261,11 @@ def validate_spec(conn, spec: dict) -> list[dict]:
 
 
 _FIELDS = {
-    "layers": ("name", "colour", "description"),
+    "domains": ("name", "colour", "description"),
     "pick_lists": ("name", "description", "values"),
     "attributes": ("name", "data_type", "pick_list", "unit", "description"),
-    "entity_types": ("name", "layer", "id_prefix", "aspect", "description", "content_area", "repository_area", "attributes"),
+    "entity_types": ("name", "domain", "id_prefix", "aspect", "description", "content_area", "repository_area", "notation",
+                     "fill_colour", "connector", "attributes"),
     "relationship_types": ("name", "verb", "category", "directed", "description", "attributes"),
 }
 
@@ -332,7 +341,7 @@ def apply_spec(conn, model_id: int, spec: dict, mode: str = "new", remove_missin
         counts["added"] += 1
         return _one(conn, f"INSERT INTO core.{table} ({names}) VALUES ({vals}) RETURNING id", m=model_id, code=code, **cols)["id"]
 
-    ids: dict[str, dict[str, int]] = {"layers": {}, "pick_lists": {}, "attributes": {}, "entity_types": {}, "relationship_types": {}}
+    ids: dict[str, dict[str, int]] = {"domains": {}, "pick_lists": {}, "attributes": {}, "entity_types": {}, "relationship_types": {}}
     taken = {"table_name": {r["n"] for r in _rows(conn, "SELECT lower(table_name) AS n FROM core.entity_types WHERE model_id = :m", m=model_id)},
              "column_name": {r["n"] for r in _rows(conn, "SELECT lower(column_name) AS n FROM core.attribute_types WHERE model_id = :m",
                                                    m=model_id)}}
@@ -344,10 +353,10 @@ def apply_spec(conn, model_id: int, spec: dict, mode: str = "new", remove_missin
             out, n = f"{base}_{n}", n + 1
         taken[kind].add(out.lower())
         return out
-    for n, layer in enumerate(spec.get("layers") or []):
-        ids["layers"][layer["code"].lower()] = upsert("layers", layer["code"], {
-            "name": layer["name"].strip(), "colour": str(layer.get("colour") or "DDDDDD").lstrip("#").upper(),
-            "description": layer.get("description") or "", "sort_order": (n + 1) * 10})
+    for n, domain in enumerate(spec.get("domains") or []):
+        ids["domains"][domain["code"].lower()] = upsert("layers", domain["code"], {
+            "name": domain["name"].strip(), "colour": str(domain.get("colour") or "DDDDDD").lstrip("#").upper(),
+            "description": domain.get("description") or "", "sort_order": (n + 1) * 10})
     for pl in spec.get("pick_lists") or []:
         pid = upsert("pick_lists", pl["code"], {"name": pl["name"].strip(), "description": pl.get("description") or ""})
         ids["pick_lists"][pl["code"].lower()] = pid
@@ -379,7 +388,7 @@ def apply_spec(conn, model_id: int, spec: dict, mode: str = "new", remove_missin
         while prefix in used_prefix:
             prefix = (prefix[:5] + "X")[:6]
         used_prefix.add(prefix)
-        cols = {"name": t["name"].strip(), "layer_id": ids["layers"][t["layer"].lower()], "id_prefix": prefix,
+        cols = {"name": t["name"].strip(), "layer_id": ids["domains"][t["domain"].lower()], "id_prefix": prefix,
                 "aspect": t.get("aspect") or "", "description": t.get("description") or "", "sort_order": (n + 1) * 10}
         if t.get("content_area") is not None:                   # where it sits in the content framework (D299)
             from .content_framework import clean_area
@@ -387,6 +396,15 @@ def apply_spec(conn, model_id: int, spec: dict, mode: str = "new", remove_missin
         if t.get("repository_area") is not None:                # where it is filed in the Architecture Repository (D318)
             from .content_framework import REPO_AREAS
             cols["repository_area"] = t["repository_area"] if t["repository_area"] in REPO_AREAS else ""
+        if t.get("notation") is not None:                       # its look on drawn views (D354); checked with the spec
+            cols["notation"] = t["notation"] if t["notation"] in notation.NOTATIONS else ""
+        if t.get("fill_colour") is not None:
+            try:
+                cols["fill_colour"] = notation.clean_colour(t["fill_colour"])
+            except ValueError:
+                cols["fill_colour"] = ""
+        if t.get("connector") is not None:
+            cols["is_connector"] = bool(t["connector"])
         if mode == "new" or not have("entity_types", t["code"]):
             cols["table_name"] = free("table_name", snake_from(t["name"]) or t["code"].lower())
         tid = upsert("entity_types", t["code"], cols)
@@ -428,13 +446,22 @@ def apply_spec(conn, model_id: int, spec: dict, mode: str = "new", remove_missin
         wanted.add((r, s, t))
         old = _one(conn, """SELECT id, is_deleted FROM core.allowed_relationships
                              WHERE relationship_type_id = :r AND source_type_id = :s AND target_type_id = :t""", r=r, s=s, t=t)
+        sm, tm = multiplicity.clean(a.get("source_multiplicity")), multiplicity.clean(a.get("target_multiplicity"))
         if not old:
-            _exec(conn, """INSERT INTO core.allowed_relationships (model_id, relationship_type_id, source_type_id, target_type_id, note)
-                           VALUES (:m, :r, :s, :t, :n)""", m=model_id, r=r, s=s, t=t, n=a.get("note") or "")
+            _exec(conn, """INSERT INTO core.allowed_relationships (model_id, relationship_type_id, source_type_id, target_type_id, note,
+                                                                   source_multiplicity, target_multiplicity)
+                           VALUES (:m, :r, :s, :t, :n, :sm, :tm)""", m=model_id, r=r, s=s, t=t, n=a.get("note") or "", sm=sm, tm=tm)
             counts["added"] += 1
-        elif old["is_deleted"]:
-            _exec(conn, "UPDATE core.allowed_relationships SET is_deleted = false WHERE id = :i", i=old["id"])
-            counts["added"] += 1
+        else:
+            if old["is_deleted"]:
+                _exec(conn, "UPDATE core.allowed_relationships SET is_deleted = false WHERE id = :i", i=old["id"])
+                counts["added"] += 1
+            if "source_multiplicity" in a or "target_multiplicity" in a:      # a spec from before D395 changes nothing
+                n = _exec(conn, """UPDATE core.allowed_relationships SET source_multiplicity = :sm, target_multiplicity = :tm
+                                          WHERE id = :i AND (source_multiplicity, target_multiplicity) IS DISTINCT FROM (CAST(:sm AS text), CAST(:tm AS text))""",
+                          i=old["id"], sm=sm, tm=tm).rowcount
+                if n and not old["is_deleted"]:
+                    counts["changed"] += 1
     # rules
     def rule_key(r):
         return (r.get("entity_type_id"), r.get("attribute_type_id"), r.get("field_name") or None, r["rule_type_code"],
@@ -536,6 +563,23 @@ def copy_into(conn, src_id: int, dst_id: int, content: bool) -> dict:
                            FROM core.entity_types s
                           WHERE s.model_id = :s AND d.model_id = :d AND lower(d.code) = lower(s.code)
                             AND s.repository_area <> '' AND d.repository_area <> s.repository_area"""), {"s": src_id, "d": dst_id})
+    # and each type's look on drawn views (D354) and whether it is a junction (D397)
+    conn.execute(text("""UPDATE core.entity_types d SET notation = s.notation, fill_colour = s.fill_colour, is_connector = s.is_connector
+                           FROM core.entity_types s
+                          WHERE s.model_id = :s AND d.model_id = :d AND lower(d.code) = lower(s.code)
+                            AND (d.notation, d.fill_colour, d.is_connector) IS DISTINCT FROM (s.notation, s.fill_colour, s.is_connector)"""),
+                 {"s": src_id, "d": dst_id})
+    # and the multiplicity at each end of an allowed relationship (D395)
+    conn.execute(text("""UPDATE core.allowed_relationships d SET source_multiplicity = s.source_multiplicity,
+                                                               target_multiplicity = s.target_multiplicity
+                           FROM core.allowed_relationships s
+                           JOIN core.entity_types ss ON ss.id = s.source_type_id JOIN core.entity_types st ON st.id = s.target_type_id
+                           JOIN core.relationship_types sr ON sr.id = s.relationship_type_id,
+                                core.entity_types ds, core.entity_types dt, core.relationship_types dr
+                          WHERE s.model_id = :s AND d.model_id = :d AND NOT s.is_deleted
+                            AND ds.id = d.source_type_id AND dt.id = d.target_type_id AND dr.id = d.relationship_type_id
+                            AND lower(ds.code) = lower(ss.code) AND lower(dt.code) = lower(st.code) AND lower(dr.code) = lower(sr.code)
+                            AND (s.source_multiplicity <> '' OR s.target_multiplicity <> '')"""), {"s": src_id, "d": dst_id})
     # and each attribute's data quality weight (D241), so a copy scores as its source does
     conn.execute(text("""UPDATE core.attribute_types d SET quality_weight = s.quality_weight
                            FROM core.attribute_types s
@@ -546,6 +590,14 @@ def copy_into(conn, src_id: int, dst_id: int, content: bool) -> dict:
                                FROM core.entities s
                               WHERE s.model_id = :s AND d.model_id = :d AND d.origin_guid = s.guid AND s.content_area <> ''"""),
                      {"s": src_id, "d": dst_id})
+        # entities' own icons come too (D354), and the drawn views, bound to the copy's own entities (D354)
+        conn.execute(text("""INSERT INTO core.entity_icons (entity_id, content_type, content, uploaded_by)
+                             SELECT d.id, i.content_type, i.content, i.uploaded_by
+                               FROM core.entity_icons i JOIN core.entities s ON s.id = i.entity_id
+                               JOIN core.entities d ON d.origin_guid = s.guid AND d.model_id = :d
+                              WHERE s.model_id = :s ON CONFLICT (entity_id) DO NOTHING"""), {"s": src_id, "d": dst_id})
+        from . import drawn_views
+        drawn_views.copy_views(conn, src_id, dst_id)     # the views service (D405); never fails the copy
     refresh_typed_views(conn)
     return dict(counts or {})
 
@@ -601,6 +653,9 @@ def create_model(conn, actor: str, p: dict) -> dict:
         content = copy in ("content", "history") and src["kind"] != "template"
     if not content:
         counts = copy_into(conn, src["_id"], row["id"], False)
+        if parent:                  # a child's starting point, which merging back compares with (D423)
+            from . import merge_back
+            merge_back.mark_start(conn, str(row["guid"]), actor)
         return {"model": repo.get_model(conn, str(row["guid"])), "copied": counts, "job": None}
     # content: the metamodel now, the content in the background
     _exec(conn, "UPDATE core.models SET copy_state = 'copying', copy_note = :n WHERE id = :i",
@@ -655,6 +710,9 @@ def run_copy(conn, source: str, target: str, actor: str, publish: bool = False) 
         counts["history_rows"] = load_history(conn, dst["id"], history_portable(conn, src["id"]), f"Before the copy, in {src['name']}")
     note = "Copied from {}: {}".format(src["name"], ", ".join(f"{v} {k.replace('_', ' ')}" for k, v in counts.items() if v))
     _exec(conn, "UPDATE core.models SET copy_state = '', copy_note = :n WHERE id = :i", i=dst["id"], n=note[:500])
+    if dst.get("parent_model_id"):  # a child's starting point, which merging back compares with (D423)
+        from . import merge_back
+        merge_back.mark_start(conn, str(dst["guid"]), actor)
     # nothing is published straight away (D131, D134): a copy is a draft, published by request and approval
     return counts
 
@@ -833,7 +891,14 @@ def delete_model(conn, model: Any, confirm_name: str, actor: str, backup_dir: st
         _exec(conn, "UPDATE core.models SET is_deleted = true WHERE id = :i", i=m["_id"])
     except DBAPIError as exc:
         raise EditError(_db_message(exc), 403 if "Not allowed" in str(exc.orig) else 409) from exc
-    return {"deleted": m["name"], "backup": backup}
+    # its views go with it (D405): marked deleted in the views service (the backup package above carries them)
+    from . import views_client as vc
+    note = None
+    try:
+        vc.delete_model(m["id"], actor)
+    except vc.ViewsDown as exc:
+        note = f"Its drawn views stay in the views service until it answers: {exc}."
+    return {"deleted": m["name"], "backup": backup, **({"views_note": note} if note else {})}
 
 
 # ================================================================ the library (D118)
@@ -1183,8 +1248,21 @@ def export_package(conn, model: Any, fmt: str = "zip", actor: str | None = None,
         if with_data:
             hist["rows"] = history_portable(conn, m["_id"])
             hist["changes"] = readable_history(conn, model)
-    manifest["includes"] = {"data": with_data, "history": bool(hist.get("rows")), "metamodel_history": content_level == "history"}
+    if with_data and fmt == "zip":   # the model's drawn views and its own views travel with it (D405, D406)
+        from . import views_client as vc
+        try:
+            hist["views"] = vc.export_model(m["id"], all_versions=content_level == "history")
+        except vc.ViewsDown as exc:
+            manifest["views_note"] = f"The drawn views were left out: {exc}."
+    if with_data and fmt == "zip":   # the entities' own icons travel with them (D403)
+        hist["icons"] = model_icons(conn, m["_id"])
+    if with_data and fmt == "zip":   # its own KPIs, their snapshots and its report designs (phase 24, D410, D435)
+        from . import kpis
+        hist["reports"] = kpis.export_model(conn, m["_id"])
+    manifest["includes"] = {"data": with_data, "history": bool(hist.get("rows")), "metamodel_history": content_level == "history",
+                            "views": bool(hist.get("views")), "icons": bool(hist.get("icons"))}
     manifest["counts"]["history_rows"] = len(hist.get("rows") or [])
+    manifest["counts"]["drawn_views"] = len((hist.get("views") or {}).get("drawn_views") or [])
     base = re.sub(r"[^A-Za-z0-9._-]+", "-", f"{m['name']} {m['version_label']}".strip()).strip("-") or "model"
     base += {"metamodel": "-metamodel", "content": "", "history": "-deep"}[content_level]
     return write_package(manifest, spec, content, hist, fmt, base)
@@ -1210,6 +1288,14 @@ def write_package(manifest: dict, spec: dict, content: dict, hist: dict | None, 
             if hist.get("rows") is not None:
                 z.writestr("history/changes.csv", _csv(hist["changes"], ["entity", "display_id", "entity_type", "at", "by", "kind", "item", "change", "field", "old", "new"]))
                 z.writestr("history/history.json", json.dumps(hist["rows"], ensure_ascii=False, default=str))
+        if hist.get("views"):
+            z.writestr("views/drawn_views.json", json.dumps(hist["views"], ensure_ascii=False, default=str))
+        for ic in hist.get("icons") or []:     # icons/<entity key>.svg|png and icons/icons.json (D403)
+            z.writestr(f"icons/{ic['key']}.{'svg' if ic['content_type'] == 'image/svg+xml' else 'png'}", ic["content"])
+        if hist.get("reports"):
+            z.writestr("reports/reports.json", json.dumps(hist["reports"], ensure_ascii=False, default=str))
+        if hist.get("icons"):
+            z.writestr("icons/icons.json", json.dumps([{"key": i["key"], "content_type": i["content_type"]} for i in hist["icons"]]))
         z.writestr("README.txt", "EA Explorer model package (eax-package/1). manifest.json says what it is and what it is built "
                                  "on; metamodel.json is the metamodel (eax-metamodel/1); entities/<TypeCode>.csv hold the "
                                  "entities of each type (key, display_id, name, description, parent, status, then one column per "
@@ -1220,12 +1306,13 @@ def write_package(manifest: dict, spec: dict, content: dict, hist: dict | None, 
 
 
 _XL_SHEETS = [  # sheet, section, columns
-    ("Layers", "layers", ["code", "name", "colour", "description"]),
+    ("Domains", "domains", ["code", "name", "colour", "description"]),
     ("Pick lists", "pick_lists", ["code", "name", "description", "values"]),
     ("Attributes", "attributes", ["code", "name", "data_type", "pick_list", "unit", "description", "quality_weight"]),
-    ("Entity types", "entity_types", ["code", "name", "layer", "id_prefix", "aspect", "description", "status"]),
+    ("Entity types", "entity_types", ["code", "name", "domain", "id_prefix", "aspect", "description", "status", "notation",
+                                      "fill_colour"]),
     ("Relationship types", "relationship_types", ["code", "name", "verb", "category", "directed", "description", "status"]),
-    ("Allowed", "allowed", ["source", "relationship", "target", "note"]),
+    ("Allowed", "allowed", ["source", "relationship", "target", "note", "source_multiplicity", "target_multiplicity"]),
     ("Rules", "rules", ["entity_type", "attribute", "field", "rule_type", "param1", "param2", "severity", "message"]),
 ]
 _XL_ITEMS = ["owner", "code", "attribute", "required", "section", "default", "help", "quality_weight"]
@@ -1305,7 +1392,17 @@ def read_package(data: bytes, filename: str = "") -> dict:
             rels = list(csv.DictReader(io.StringIO(z.read("relationships.csv").decode("utf-8-sig")))) \
                 if "relationships.csv" in names else []
             hist = json.loads(z.read("history/history.json")) if "history/history.json" in names else []
-            return {"manifest": manifest, "spec": spec, "entities": ents, "relationships": rels, "history": hist, "format": "zip"}
+            views = json.loads(z.read("views/drawn_views.json")) if "views/drawn_views.json" in names else None
+            icons = None
+            if "icons/icons.json" in names:
+                icons = []
+                for i in json.loads(z.read("icons/icons.json")):
+                    f = f"icons/{i['key']}.{'svg' if i['content_type'] == 'image/svg+xml' else 'png'}"
+                    if f in names:
+                        icons.append({"key": i["key"], "content_type": i["content_type"], "content": z.read(f)})
+            reports = json.loads(z.read("reports/reports.json")) if "reports/reports.json" in names else None
+            return {"manifest": manifest, "spec": spec, "entities": ents, "relationships": rels, "history": hist, "views": views,
+                    "icons": icons, "reports": reports, "format": "zip"}
         if "xl/workbook.xml" in names:
             return _from_xlsx(data)
     raise EditError("This zip is not an EA Explorer package: it has no manifest.json and metamodel.json.")
@@ -1420,6 +1517,50 @@ def analyse_package(conn, pkg: dict) -> dict:
             "errors": sum(1 for f in findings if f["level"] == "error"), "placements": places}
 
 
+def model_icons(conn, model_id: int) -> list[dict]:
+    """The entities' own icons of a model, by entity key (guid), for a package or backup (D403)."""
+    return [{"key": str(r["key"]), "content_type": r["content_type"], "content": bytes(r["content"])} for r in _rows(conn, """
+        SELECT e.guid AS key, i.content_type, i.content FROM core.entity_icons i JOIN core.entities e ON e.id = i.entity_id
+         WHERE e.model_id = :m AND NOT e.is_deleted ORDER BY e.guid""", m=model_id)]
+
+
+def load_icons(conn, model_id: int, icons: list[dict], actor: str, replace: bool = False) -> int:
+    """Icons from a package or backup onto the model's entities: by the entity's own guid (a backup put back over the model)
+    or its origin (a new model made from the package). replace: the model's other icons go (a restore over itself)."""
+    if replace:
+        conn.execute(text("""DELETE FROM core.entity_icons WHERE entity_id IN (SELECT id FROM core.entities WHERE model_id = :m)"""),
+                     {"m": model_id})
+    n = 0
+    for ic in icons or []:
+        ent = _one(conn, """SELECT id FROM core.entities WHERE model_id = :m AND NOT is_deleted
+                              AND (guid::text = :k OR origin_guid::text = :k) ORDER BY (guid::text = :k) DESC LIMIT 1""",
+                   m=model_id, k=str(ic["key"]))
+        if not ent or ic.get("content_type") not in ("image/svg+xml", "image/png"):
+            continue
+        conn.execute(text("""INSERT INTO core.entity_icons (entity_id, content_type, content, uploaded_by)
+                             VALUES (:e, :t, :c, :u) ON CONFLICT (entity_id) DO UPDATE
+                                SET content_type = EXCLUDED.content_type, content = EXCLUDED.content,
+                                    uploaded_by = EXCLUDED.uploaded_by, uploaded_at = now()"""),
+                     {"e": ent["id"], "t": ic["content_type"], "c": ic["content"], "u": actor})
+        n += 1
+    return n
+
+
+def _load_views(conn, row: dict, views: dict, actor: str) -> dict:
+    """A package's drawn views and own views into the new model (D405), bound to its entities: the package's keys are
+    their origin guids. The views service being down never stops the upload: it says the views were left out."""
+    from . import views_client as vc
+    ent_map = {r["o"]: r["g"] for r in _rows(conn, """SELECT origin_guid::text AS o, guid::text AS g FROM core.entities
+                                                     WHERE model_id = :m AND origin_guid IS NOT NULL""", m=row["id"])}
+    rel_map = {r["o"]: r["g"] for r in _rows(conn, """SELECT origin_guid::text AS o, guid::text AS g FROM core.relationships
+                                                     WHERE model_id = :m AND origin_guid IS NOT NULL""", m=row["id"])}
+    try:
+        got = vc.import_model(row["guid"], views, actor, ent_map, rel_map, source="package")
+        return {"drawn_views": got.get("drawn_views", 0), "own_views": got.get("own_views", 0)}
+    except vc.ViewsDown as exc:
+        return {"drawn_views": 0, "drawn_views_note": f"The drawn views were left out: {exc}."}
+
+
 def import_package(conn, pkg: dict, placement: str, actor: str, name: str | None = None, as_kind: str | None = None,
                    root: str | None = None, content_level: str | None = None) -> dict:
     """Loads a package (D108): placement root (under the root metamodel `root`, which its metamodel must
@@ -1482,6 +1623,13 @@ def import_package(conn, pkg: dict, placement: str, actor: str, name: str | None
     if level == "history" and pkg.get("history"):
         counts["history_rows"] = load_history(conn, row["id"], pkg["history"],
                                               f"Before the upload, in {mm.get('name')} ({man.get('exported_at') or 'package'})")
+    if level != "metamodel" and pkg.get("views"):
+        counts.update(_load_views(conn, row, pkg["views"], actor))
+    if level != "metamodel" and pkg.get("icons"):
+        counts["icons"] = load_icons(conn, row["id"], pkg["icons"], actor)
+    if level != "metamodel" and pkg.get("reports"):     # KPIs, snapshots and report designs (phase 24, D435)
+        from . import kpis
+        counts.update(kpis.import_model(conn, row["id"], pkg["reports"], actor))
     # like every new model, an upload starts as a draft and is published after review (D131)
     return {"model": repo.get_model(conn, str(row["guid"])), "root": root_model, "counts": counts}
 
@@ -1744,7 +1892,7 @@ def draft_out(d: dict, conn=None) -> dict:
            "applied_model_id": d.get("applied_guid"), "applied_model": d.get("applied_name"),
            "spec": spec, "checks": d["checks"] or [], "round": d.get("round") or 1,
            "open_comments": d.get("open_comments") or 0,
-           "counts": {k: len(spec.get(k) or []) for k in ("layers", "pick_lists", "attributes", "entity_types",
+           "counts": {k: len(spec.get(k) or []) for k in ("domains", "pick_lists", "attributes", "entity_types",
                                                            "relationship_types", "allowed", "rules")}}
     return out
 
@@ -1985,13 +2133,13 @@ def draft_reopen(conn, user, draft: Any, actor: str, note: str = "") -> dict:
     return draft_get(conn, user, d["guid"])
 
 
-SECTIONS = ("layers", "pick_lists", "attributes", "entity_types", "relationship_types", "allowed", "rules")
+SECTIONS = ("domains", "pick_lists", "attributes", "entity_types", "relationship_types", "allowed", "rules")
 
 
 def _remove_references(s: dict, section: str, gone: str) -> None:
     """When an item leaves a draft, what only made sense with it leaves too: an entity type's allowed
     relationships and rules; a relationship type's allowed relationships; an attribute's places on types
-    and its rules. Pick lists and layers still in use stay, and the checks say where."""
+    and its rules. Pick lists and domains still in use stay, and the checks say where."""
     low = lambda v: str(v or "").lower()  # noqa: E731
     if section == "entity_types":
         s["allowed"] = [a for a in s.get("allowed") or [] if gone not in (low(a.get("source")), low(a.get("target")))]

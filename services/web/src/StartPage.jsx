@@ -89,6 +89,7 @@ const MORE = [
   { name: "Search", text: "Search every model you may open", href: "#/search", live: true },
   { name: "Notifications", text: "What happened on your models and projects, requests, and your background tasks", href: "#/notifications", live: true },
   { name: "Change log", text: "Every change across the models, with who and when, and its export", href: "#/change-log", live: true },
+  { name: "Surveys", text: "Surveys to answer, and the ones you run: questions in sections with conditions, sent to people, roles, models or projects; results and Excel", href: "#/surveys", live: true },
   { name: "Model library", text: "Browse the root metamodels and reference models", href: "#/library", live: true },
   { name: "MCP", service: "mcp", text: "Connect your own language model to the repository", href: "#/mcp", live: true },
   { name: "API", text: "The REST API and its documentation", href: "/api/docs", live: true },

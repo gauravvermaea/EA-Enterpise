@@ -1,10 +1,10 @@
 // Key questions (owner, 9 Nov 2026): every piece of a project's work answers a stakeholder's question. Each question
-// says who asks it and the answer we expect (or how we will answer it); the viewpoints that answer it are mapped to it,
-// many to many (a question may need several viewpoints, a viewpoint may answer several questions). Where no viewpoint
-// fits, a placeholder viewpoint stands in: a text, or an empty file (docx, pptx, xlsx...) made in the project's files.
+// says who asks it and the answer we expect (or how we will answer it); the views that answer it are mapped to it,
+// many to many (a question may need several views, a view may answer several questions). Where no view
+// fits, a placeholder view stands in: a text, or an empty file (docx, pptx, xlsx...) made in the project's files.
 // Placeholders stay in the project (PH-01 ...).
 //   KeyQuestionsStep   the wizard's Key questions step
-//   QuestionMapping    the top of the wizard's Viewpoints step: the viewpoints (or placeholders) answering each question
+//   QuestionMapping    the top of the wizard's Views step: the views (or placeholders) answering each question
 //   KeyQuestionsPanel  the project's Key questions tab: status (open, answered, accepted by the stakeholder), the answer as a
 //                      summary linking to the artifacts that hold it, history; kept up by anyone who contributes
 import { useState } from "react";
@@ -34,8 +34,8 @@ export function KeyQuestionsStep({ d, set, names }) {
   return (
     <div>
       <p className="quiet small">The questions the project's stakeholders need answered: every piece of the project's work answers one of them.
-        For each, who asks it and the answer we expect, or how we will answer it. The next step (Viewpoints) maps the viewpoints that answer
-        each question: a question may need more than one viewpoint, and a viewpoint may answer more than one question. Where no viewpoint fits,
+        For each, who asks it and the answer we expect, or how we will answer it. The next step (Views) maps the views that answer
+        each question: a question may need more than one view, and a view may answer more than one question. Where no view fits,
         a placeholder (a text, or an empty Word, PowerPoint or other file) stands in.</p>
       {!qs.length && <p className="quiet small">No key questions yet. For example: {EXAMPLES.map((x) => <i key={x}>“{x}” </i>)}</p>}
       <datalist id="kq-askers">{(names || []).map((n) => <option key={n} value={n} />)}</datalist>
@@ -55,29 +55,29 @@ export function KeyQuestionsStep({ d, set, names }) {
           </div>
           <textarea className="wide" rows={2} placeholder="The answer we expect, or how we will answer it (the approach)"
             value={q.approach} onChange={(e) => upd(i, "approach", e.target.value)} aria-label={`Question ${i + 1}: expected answer or approach`} />
-          {(q.viewpoints || []).length > 0 && <p className="small quiet">Answered by {q.viewpoints.length} viewpoint{q.viewpoints.length > 1 ? "s" : ""} (Viewpoints step).</p>}
+          {(q.views || []).length > 0 && <p className="small quiet">Answered by {q.views.length} view{q.views.length > 1 ? "s" : ""} (Views step).</p>}
         </div>
       ))}
-      <button onClick={() => set("key_questions", [...qs, { key: newKey(), question: "", asked_by: "", approach: "", viewpoints: [] }])}>+ Add a key question</button>
+      <button onClick={() => set("key_questions", [...qs, { key: newKey(), question: "", asked_by: "", approach: "", views: [] }])}>+ Add a key question</button>
     </div>
   );
 }
 
-// the viewpoints a question can be mapped to in the wizard: refs are a code, "own:<key>" (made in this wizard) or
+// the views a question can be mapped to in the wizard: refs are a code, "own:<key>" (made in this wizard) or
 // "ph:<key>" (a placeholder made in this wizard)
 function wizardOptions(d, lib) {
-  const name = Object.fromEntries(lib.viewpoints.map((v) => [v.code, v.name]));
-  const gone = new Set(d.removed_viewpoints || []);
+  const name = Object.fromEntries(lib.views.map((v) => [v.code, v.name]));
+  const gone = new Set(d.removed_views || []);
   const gonePh = new Set(d.removed_placeholders || []);
   const project = [
-    ...d.viewpoints.map((c) => ({ ref: c, label: `${c} ${name[c] || ""}` })),
+    ...d.views.map((c) => ({ ref: c, label: `${c} ${name[c] || ""}` })),
     ...(d.existing_vps || []).filter((v) => !gone.has(v.code)).map((v) => ({ ref: v.code, label: `${v.code} ${v.name}` })),
-    ...d.own_viewpoints.filter((v) => v.name.trim()).map((v) => ({ ref: `own:${v.key}`, label: `new: ${v.name}` })),
+    ...d.own_views.filter((v) => v.name.trim()).map((v) => ({ ref: `own:${v.key}`, label: `new: ${v.name}` })),
   ];
-  const placeholders = d.placeholder_viewpoints.filter((p) => p.name.trim() && !gonePh.has(p.code))
+  const placeholders = d.placeholder_views.filter((p) => p.name.trim() && !gonePh.has(p.code))
     .map((p) => ({ ref: p.code || `ph:${p.key}`, label: phLabel(p) }));
-  const chosen = new Set(d.viewpoints);
-  const library = lib.viewpoints.filter((v) => !chosen.has(v.code)).map((v) => ({ ref: v.code, label: `${v.code} ${v.name}` }));
+  const chosen = new Set(d.views);
+  const library = lib.views.filter((v) => !chosen.has(v.code)).map((v) => ({ ref: v.code, label: `${v.code} ${v.name}` }));
   return { project, placeholders, library };
 }
 
@@ -102,18 +102,18 @@ function PlaceholderForm({ onAdd, onCancel, busy }) {
   );
 }
 
-function AddViewpoint({ opts, onPick }) {
+function AddView({ opts, onPick }) {
   return (
-    <select value="" onChange={(e) => e.target.value && onPick(e.target.value)} aria-label="Add a viewpoint that answers it">
-      <option value="">+ A viewpoint that answers it…</option>
-      {opts.project.length > 0 && <optgroup label="The project's viewpoints">{opts.project.map((o) => <option key={o.ref} value={o.ref}>{o.label}</option>)}</optgroup>}
+    <select value="" onChange={(e) => e.target.value && onPick(e.target.value)} aria-label="Add a view that answers it">
+      <option value="">+ A view that answers it…</option>
+      {opts.project.length > 0 && <optgroup label="The project's views">{opts.project.map((o) => <option key={o.ref} value={o.ref}>{o.label}</option>)}</optgroup>}
       {opts.placeholders.length > 0 && <optgroup label="Placeholders">{opts.placeholders.map((o) => <option key={o.ref} value={o.ref}>{o.label}</option>)}</optgroup>}
-      {opts.library.length > 0 && <optgroup label="The viewpoint library (chosen for the project too)">{opts.library.map((o) => <option key={o.ref} value={o.ref}>{o.label}</option>)}</optgroup>}
+      {opts.library.length > 0 && <optgroup label="The view library (chosen for the project too)">{opts.library.map((o) => <option key={o.ref} value={o.ref}>{o.label}</option>)}</optgroup>}
     </select>
   );
 }
 
-// ---------------------------------------------------------------- the wizard: Viewpoints step, top
+// ---------------------------------------------------------------- the wizard: Views step, top
 export function QuestionMapping({ d, set, lib }) {
   const [phFor, setPhFor] = useState(null);       // the question index a placeholder is being made for
   const opts = wizardOptions(d, lib);
@@ -121,54 +121,54 @@ export function QuestionMapping({ d, set, lib }) {
   const qs = d.key_questions.map((q, i) => ({ q, i })).filter(({ q }) => q.question.trim());
   const map = (i, ref) => {
     const q = d.key_questions[i];
-    if ((q.viewpoints || []).includes(ref)) return;
-    set("key_questions", d.key_questions.map((x, j) => (j === i ? { ...x, viewpoints: [...(x.viewpoints || []), ref] } : x)));
-    if (/^VP-|^PV-/.test(ref) && lib.viewpoints.some((v) => v.code === ref) && !d.viewpoints.includes(ref)
-      && !(d.existing_vps || []).some((v) => v.code === ref)) set("viewpoints", [...d.viewpoints, ref]);
+    if ((q.views || []).includes(ref)) return;
+    set("key_questions", d.key_questions.map((x, j) => (j === i ? { ...x, views: [...(x.views || []), ref] } : x)));
+    if (/^VP-|^PV-/.test(ref) && lib.views.some((v) => v.code === ref) && !d.views.includes(ref)
+      && !(d.existing_vps || []).some((v) => v.code === ref)) set("views", [...d.views, ref]);
   };
-  const unmap = (i, ref) => set("key_questions", d.key_questions.map((x, j) => (j === i ? { ...x, viewpoints: (x.viewpoints || []).filter((r) => r !== ref) } : x)));
+  const unmap = (i, ref) => set("key_questions", d.key_questions.map((x, j) => (j === i ? { ...x, views: (x.views || []).filter((r) => r !== ref) } : x)));
   function addPlaceholder(i, f) {
     const key = newKey();
-    set("placeholder_viewpoints", [...d.placeholder_viewpoints, { ...f, key, name: f.name.trim() }]);
-    set("key_questions", d.key_questions.map((x, j) => (j === i ? { ...x, viewpoints: [...(x.viewpoints || []), `ph:${key}`] } : x)));
+    set("placeholder_views", [...d.placeholder_views, { ...f, key, name: f.name.trim() }]);
+    set("key_questions", d.key_questions.map((x, j) => (j === i ? { ...x, views: [...(x.views || []), `ph:${key}`] } : x)));
     setPhFor(null);
   }
-  const updPh = (k, field, v) => set("placeholder_viewpoints", d.placeholder_viewpoints.map((p) => ((p.code || p.key) === k ? { ...p, [field]: v } : p)));
+  const updPh = (k, field, v) => set("placeholder_views", d.placeholder_views.map((p) => ((p.code || p.key) === k ? { ...p, [field]: v } : p)));
   function removePh(p) {
     const ref = p.code || `ph:${p.key}`;
-    set("key_questions", d.key_questions.map((x) => ({ ...x, viewpoints: (x.viewpoints || []).filter((r) => r !== ref) })));
+    set("key_questions", d.key_questions.map((x) => ({ ...x, views: (x.views || []).filter((r) => r !== ref) })));
     if (p.code && p.existing) set("removed_placeholders", [...(d.removed_placeholders || []), p.code]);
-    set("placeholder_viewpoints", d.placeholder_viewpoints.filter((x) => x !== p));
+    set("placeholder_views", d.placeholder_views.filter((x) => x !== p));
   }
-  const unanswered = qs.filter(({ q }) => !(q.viewpoints || []).length).length;
+  const unanswered = qs.filter(({ q }) => !(q.views || []).length).length;
   return (
     <div className="kq-mapping">
       <h3>Answering the key questions</h3>
-      {!qs.length && <p className="quiet small">No key questions (the Key questions step): choose the viewpoints below as they are.</p>}
-      {qs.length > 0 && <p className="quiet small">The viewpoints that answer each question. A viewpoint from the library is chosen for the project
-        too. Where none fits, add a placeholder: a text, or an empty file. {unanswered > 0 && <b>{unanswered} not answered by any viewpoint yet.</b>}</p>}
+      {!qs.length && <p className="quiet small">No key questions (the Key questions step): choose the views below as they are.</p>}
+      {qs.length > 0 && <p className="quiet small">The views that answer each question. A view from the library is chosen for the project
+        too. Where none fits, add a placeholder: a text, or an empty file. {unanswered > 0 && <b>{unanswered} not answered by any view yet.</b>}</p>}
       {qs.map(({ q, i }) => (
         <div key={q.id || q.key} className="goal-box kq-box">
           <div><b>Q{i + 1}</b> {q.question}{q.asked_by && <span className="quiet small"> · asked by {q.asked_by}</span>}</div>
           {q.approach && <div className="small quiet">Expected: {q.approach}</div>}
           <div className="kq-chips">
-            {(q.viewpoints || []).map((r) => (
+            {(q.views || []).map((r) => (
               <span key={r} className={`chip kq-chip${/^PH-|^ph:/.test(r) ? " ph" : ""}`}>{label[r] || r}
                 <button className="linkish" onClick={() => unmap(i, r)} aria-label={`Unlink ${label[r] || r}`}>×</button></span>
             ))}
-            {!(q.viewpoints || []).length && <span className="small quiet">not answered yet</span>}
+            {!(q.views || []).length && <span className="small quiet">not answered yet</span>}
           </div>
           {phFor === i ? <PlaceholderForm onAdd={(f) => addPlaceholder(i, f)} onCancel={() => setPhFor(null)} />
-            : <div className="row-gap"><AddViewpoint opts={opts} onPick={(r) => map(i, r)} />
-              <button className="linkish" onClick={() => setPhFor(i)}>+ No viewpoint fits: a placeholder</button></div>}
+            : <div className="row-gap"><AddView opts={opts} onPick={(r) => map(i, r)} />
+              <button className="linkish" onClick={() => setPhFor(i)}>+ No view fits: a placeholder</button></div>}
         </div>
       ))}
-      {d.placeholder_viewpoints.length > 0 && <>
-        <h3>Placeholder viewpoints</h3>
+      {d.placeholder_views.length > 0 && <>
+        <h3>Placeholder views</h3>
         <p className="quiet small">They stay in this project. A file one becomes an empty file in the project's files when the project is saved.</p>
-        {d.placeholder_viewpoints.map((p) => {
+        {d.placeholder_views.map((p) => {
           const ref = p.code || `ph:${p.key}`;
-          const answers = d.key_questions.map((q, i) => ((q.viewpoints || []).includes(ref) ? `Q${i + 1}` : null)).filter(Boolean);
+          const answers = d.key_questions.map((q, i) => ((q.views || []).includes(ref) ? `Q${i + 1}` : null)).filter(Boolean);
           return (
             <div key={p.code || p.key} className="own-row small">
               <b>{p.code || "new"}</b>
@@ -215,7 +215,7 @@ const AnswerText = ({ html }) => (/^\s*</.test(html || "")
   // eslint-disable-next-line react/no-danger -- cleaned by the server (eax/project_work.clean_html)
   ? <div className="rich-view" dangerouslySetInnerHTML={{ __html: html }} /> : <div>{html}</div>);
 
-// the answer: a summary (rich text), and what holds it: documents of the project and links (the viewpoints mapped to it link too)
+// the answer: a summary (rich text), and what holds it: documents of the project and links (the views mapped to it link too)
 function AnswerForm({ p, q, busy, onSave, onCancel }) {
   const [summary, setSummary] = useState(q.answer || "");
   const [docs, setDocs] = useState((q.links || []).filter((l) => l.document).map((l) => l.document));
@@ -225,7 +225,7 @@ function AnswerForm({ p, q, busy, onSave, onCancel }) {
   const name = (d) => d.title || d.file_name;
   const found = find.trim() ? all.filter((d) => !docs.includes(d.id) && `${name(d)} ${d.folder}`.toLowerCase().includes(find.toLowerCase())).slice(0, 8) : [];
   const updLink = (i, k, v) => setLinks(links.map((l, j) => (j === i ? { ...l, [k]: v } : l)));
-  const points = docs.length + links.filter((l) => l.url.trim()).length + q.viewpoints.length;
+  const points = docs.length + links.filter((l) => l.url.trim()).length + q.views.length;
   return (
     <div className="goal-box kq-box kq-answer-form">
       <label className="small"><b>The answer</b>: a summary, pointing to the artifacts that hold it</label>
@@ -248,8 +248,8 @@ function AnswerForm({ p, q, busy, onSave, onCancel }) {
         </div>
       ))}
       <button className="linkish small" onClick={() => setLinks([...links, { url: "", label: "" }])}>+ a link</button>
-      <p className="small quiet">{q.viewpoints.length ? `Its ${q.viewpoints.length} viewpoint${q.viewpoints.length > 1 ? "s" : ""} link too.` : "No viewpoint is mapped to it."}
-        {!points && <b> Point the answer to at least one document, link or viewpoint.</b>}</p>
+      <p className="small quiet">{q.views.length ? `Its ${q.views.length} view${q.views.length > 1 ? "s" : ""} link too.` : "No view is mapped to it."}
+        {!points && <b> Point the answer to at least one document, link or view.</b>}</p>
       <div className="row-gap">
         <button className="primary" disabled={!plain(summary) || !points || busy}
           onClick={() => onSave({ answer: summary, documents: docs, links: links.filter((l) => l.url.trim()) })}>
@@ -300,19 +300,19 @@ function NoteForm({ label, need, busy, onSave, onCancel, placeholder }) {
 
 // what the answer points to, as links
 function AnswerLinks({ p, q, phs, url, setMsg }) {
-  const vp = Object.fromEntries(p.viewpoints.map((v) => [v.code, v]));
+  const vp = Object.fromEntries(p.views.map((v) => [v.code, v]));
   return (
     <div className="kq-links small">
       {(q.links || []).map((l, i) => (l.document
         ? <button key={i} className="linkish" title={l.folder} onClick={() => apiDownload(`${url}/documents/${l.document}`, l.file_name).catch((e) => setMsg(e.message))}>📄 {l.title || l.file_name}</button>
         : <a key={i} href={l.url} target={l.url.startsWith("#") ? undefined : "_blank"} rel="noreferrer">🔗 {l.label || l.url}</a>))}
-      {q.viewpoints.map((c) => {
+      {q.views.map((c) => {
         const ph = phs.find((x) => x.code === c);
         if (ph) return ph.document
           ? <button key={c} className="linkish" onClick={() => apiDownload(`${url}/documents/${ph.document}`, ph.file_name).catch((e) => setMsg(e.message))}>📄 {c} {ph.name}</button>
           : <span key={c} className="quiet">◇ {c} {ph.name} (placeholder)</span>;
         const v = vp[c];
-        return v?.model ? <a key={c} href={`#/metamodel/${v.model}/viewpoints/${encodeURIComponent(c)}`}>◧ {c} {v.name}</a> : <span key={c}>◧ {c}</span>;
+        return v?.model ? <a key={c} href={`#/metamodel/${v.model}/views/${encodeURIComponent(c)}`}>◧ {c} {v.name}</a> : <span key={c}>◧ {c}</span>;
       })}
     </div>
   );
@@ -329,15 +329,15 @@ export function KeyQuestionsPanel({ p }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const qs = p.key_questions || [];
-  const phs = p.placeholder_viewpoints || [];
+  const phs = p.placeholder_views || [];
   const names = [...new Set([...(p.stakeholders || []).map((s) => s.name), ...qs.map((q) => q.asked_by)].filter(Boolean))];
-  const vpName = Object.fromEntries([...(lib?.viewpoints || []).map((v) => [v.code, `${v.code} ${v.name}`]),
-    ...p.viewpoints.map((v) => [v.code, `${v.code} ${v.name}`]), ...phs.map((x) => [x.code, phLabel(x)])]);
-  const have = new Set(p.viewpoints.map((v) => v.code));
+  const vpName = Object.fromEntries([...(lib?.views || []).map((v) => [v.code, `${v.code} ${v.name}`]),
+    ...p.views.map((v) => [v.code, `${v.code} ${v.name}`]), ...phs.map((x) => [x.code, phLabel(x)])]);
+  const have = new Set(p.views.map((v) => v.code));
   const opts = {
-    project: p.viewpoints.map((v) => ({ ref: v.code, label: `${v.code} ${v.name}` })),
+    project: p.views.map((v) => ({ ref: v.code, label: `${v.code} ${v.name}` })),
     placeholders: phs.map((x) => ({ ref: x.code, label: phLabel(x) })),
-    library: (lib?.viewpoints || []).filter((v) => !have.has(v.code)).map((v) => ({ ref: v.code, label: `${v.code} ${v.name}` })),
+    library: (lib?.views || []).filter((v) => !have.has(v.code)).map((v) => ({ ref: v.code, label: `${v.code} ${v.name}` })),
   };
   const url = `/api/v1/projects/${p.id}`;
   async function act(fn) {
@@ -348,8 +348,8 @@ export function KeyQuestionsPanel({ p }) {
   const post = (q, what, body) => act(() => apiFetch(`${url}/key-questions/${q.id}/${what}`, { method: "POST", body: JSON.stringify(body) }));
   const save = (q, f) => act(() => (q ? apiFetch(`${url}/key-questions/${q.id}`, { method: "PUT", body: JSON.stringify(f) })
     : apiFetch(`${url}/key-questions`, { method: "POST", body: JSON.stringify(f) })));
-  const setVps = (q, list) => act(() => apiFetch(`${url}/key-questions/${q.id}`, { method: "PUT", body: JSON.stringify({ viewpoints: list }) }));
-  const addPh = (q, f) => act(() => apiFetch(`${url}/placeholder-viewpoints`, { method: "POST", body: JSON.stringify({ ...f, questions: [q.id] }) }));
+  const setVps = (q, list) => act(() => apiFetch(`${url}/key-questions/${q.id}`, { method: "PUT", body: JSON.stringify({ views: list }) }));
+  const addPh = (q, f) => act(() => apiFetch(`${url}/placeholder-views`, { method: "POST", body: JSON.stringify({ ...f, questions: [q.id] }) }));
   const record = (q, f, file) => act(() => {
     const fd = new FormData();   // multipart: the evidence file goes with it
     Object.entries(f).forEach(([k, v]) => fd.append(k, v));
@@ -360,10 +360,10 @@ export function KeyQuestionsPanel({ p }) {
   const counts = Object.fromEntries(Object.keys(STATUS).map((k) => [k, qs.filter((q) => q.status === k).length]));
   const shown = qs.map((q, i) => ({ q, n: i + 1 })).filter(({ q }) => filter === "all" || q.status === filter);
   const noFile = phs.filter((x) => x.kind === "file" && !x.document);
-  const unlinked = p.viewpoints.filter((v) => !qs.some((q) => q.viewpoints.includes(v.code)));
+  const unlinked = p.views.filter((v) => !qs.some((q) => q.views.includes(v.code)));
   return (
     <div className="kq-panel">
-      <p className="quiet small">The questions this project's work answers. Each says who asks it and the answer we expect; the viewpoints mapped to it
+      <p className="quiet small">The questions this project's work answers. Each says who asks it and the answer we expect; the views mapped to it
         show the work. When it is answered, the answer is a summary pointing to the artifacts that hold it; the stakeholder then accepts it
         (in the application, or a contributor records an acceptance given outside, with evidence). A rejection opens it again.</p>
       <div className="row-gap kq-filters" role="tablist">
@@ -407,12 +407,12 @@ export function KeyQuestionsPanel({ p }) {
             onSave={(note) => post(q, "reopen", { note })} onCancel={() => setOpen(null)} />}
           {is(q, "map") && (
             <div className="kq-map">
-              <div className="kq-chips">{q.viewpoints.map((c) => (
+              <div className="kq-chips">{q.views.map((c) => (
                 <span key={c} className={`chip kq-chip${/^PH-/.test(c) ? " ph" : ""}`}>{vpName[c] || c}
-                  <button className="linkish" aria-label={`Unlink ${c}`} disabled={busy} onClick={() => setVps(q, q.viewpoints.filter((x) => x !== c))}>×</button></span>))}
-                {!q.viewpoints.length && <span className="small quiet">no viewpoint yet</span>}</div>
-              <div className="row-gap small"><AddViewpoint opts={opts} onPick={(r) => setVps(q, [...q.viewpoints, r])} />
-                <button className="linkish" onClick={() => setOpen([q.id, "placeholder"])}>+ No viewpoint fits: a placeholder</button>
+                  <button className="linkish" aria-label={`Unlink ${c}`} disabled={busy} onClick={() => setVps(q, q.views.filter((x) => x !== c))}>×</button></span>))}
+                {!q.views.length && <span className="small quiet">no view yet</span>}</div>
+              <div className="row-gap small"><AddView opts={opts} onPick={(r) => setVps(q, [...q.views, r])} />
+                <button className="linkish" onClick={() => setOpen([q.id, "placeholder"])}>+ No view fits: a placeholder</button>
                 <button className="linkish" onClick={() => setOpen(null)}>Done</button></div>
             </div>)}
           {is(q, "placeholder") && <PlaceholderForm busy={busy} onAdd={(f) => addPh(q, f)} onCancel={() => setOpen([q.id, "map"])} />}
@@ -424,7 +424,7 @@ export function KeyQuestionsPanel({ p }) {
                 <button className="linkish" onClick={() => setOpen([q.id, "reject"])}>Not accepted…</button></>}
               {may && q.status === "answered" && <button className="linkish" onClick={() => setOpen([q.id, "record"])}>Record the stakeholder's decision…</button>}
               {may && q.status !== "open" && <button className="linkish" onClick={() => setOpen([q.id, "reopen"])}>Open it again…</button>}
-              {may && <button className="linkish" onClick={() => setOpen([q.id, "map"])}>Viewpoints ({q.viewpoints.length})</button>}
+              {may && <button className="linkish" onClick={() => setOpen([q.id, "map"])}>Views ({q.views.length})</button>}
               {may && <button className="linkish" onClick={() => setOpen([q.id, "edit"])}>Edit the question</button>}
               {may && <button className="linkish" disabled={busy} onClick={() => act(() => apiFetch(`${url}/key-questions/${q.id}`, { method: "DELETE" }))}>Remove</button>}
               <button className="linkish" onClick={() => setHist({ ...hist, [q.id]: !hist[q.id] })}>History ({(q.history || []).length})</button>
@@ -436,7 +436,7 @@ export function KeyQuestionsPanel({ p }) {
       {may && (adding ? <QuestionForm names={names} busy={busy} onSave={(f) => save(null, f)} onCancel={() => setAdding(false)} />
         : <button onClick={() => setAdding(true)}>+ Add a key question</button>)}
       {phs.length > 0 && <>
-        <h4>Placeholder viewpoints</h4>
+        <h4>Placeholder views</h4>
         <table className="grid-table small">
           <thead><tr><th>Code</th><th>Name</th><th>What it will show</th><th>Kind</th><th>Answers</th>{may && <th />}</tr></thead>
           <tbody>
@@ -447,15 +447,15 @@ export function KeyQuestionsPanel({ p }) {
                   ? <button className="linkish" onClick={() => apiDownload(`${url}/documents/${x.document}`, x.file_name).catch((e) => setMsg(e.message))}>📄 {x.file_name}</button>
                   : <span className="quiet">.{x.file_type}: file not made yet</span>) : "text"}</td>
                 <td>{x.answers.map((id) => `Q${qs.findIndex((q) => q.id === id) + 1}`).join(", ") || <span className="quiet">nothing</span>}</td>
-                {may && <td><button className="linkish" disabled={busy} onClick={() => act(() => apiFetch(`${url}/placeholder-viewpoints/${x.code}`, { method: "DELETE" }))}>Remove</button></td>}
+                {may && <td><button className="linkish" disabled={busy} onClick={() => act(() => apiFetch(`${url}/placeholder-views/${x.code}`, { method: "DELETE" }))}>Remove</button></td>}
               </tr>
             ))}
           </tbody>
         </table>
-        {may && noFile.length > 0 && <button disabled={busy} onClick={() => act(() => apiFetch(`${url}/placeholder-viewpoints/files`, { method: "POST" }))}>
+        {may && noFile.length > 0 && <button disabled={busy} onClick={() => act(() => apiFetch(`${url}/placeholder-views/files`, { method: "POST" }))}>
           Make the {noFile.length} missing file{noFile.length > 1 ? "s" : ""}</button>}
       </>}
-      {qs.length > 0 && unlinked.length > 0 && <p className="small quiet">Viewpoints of the project that answer no key question yet: {unlinked.map((v) => v.code).join(", ")}.</p>}
+      {qs.length > 0 && unlinked.length > 0 && <p className="small quiet">Views of the project that answer no key question yet: {unlinked.map((v) => v.code).join(", ")}.</p>}
       {msg && <p className="small status">{msg}</p>}
     </div>
   );
@@ -465,10 +465,10 @@ export function KeyQuestionsPanel({ p }) {
 export async function makePlaceholderFiles(projectId) {
   for (let k = 0; k < 20; k += 1) {
     try {
-      const r = await apiFetch(`/api/v1/projects/${projectId}/placeholder-viewpoints/files`, { method: "POST" });
+      const r = await apiFetch(`/api/v1/projects/${projectId}/placeholder-views/files`, { method: "POST" });
       if (!r.left?.length) return "";
     } catch (e) { if (!/not built yet|being built|try again|Documents/i.test(e.message)) return e.message; }
     await new Promise((res) => setTimeout(res, 3000));
   }
-  return "Some placeholder files are not made yet: make them on the project's Viewpoints tab.";
+  return "Some placeholder files are not made yet: make them on the project's Views tab.";
 }

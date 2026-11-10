@@ -1,6 +1,6 @@
 """The "About this report" section at the top of every report (owner, 5 Nov 2026, D186): what it shows, how to use it
 and how to read it. Specific text for the standard, gap and dependency
-reports; the TOGAF catalogues and matrices, viewpoints and audience dashboards share a text per family, filled in with the
+reports; the TOGAF catalogues and matrices, views and audience dashboards share a text per family, filled in with the
 report's own subject.
 
 about(report) -> {"use": ..., "read": ...}
@@ -105,7 +105,7 @@ G: dict[str, tuple[str, str]] = {
     "GR-01": ("Use it to see every gap analysis, its baseline and target, and how much is still to decide.",
               "New and eliminated are the gaps to act on; changed shows what moves; undecided counts gaps with no resolution "
               "yet: drive it to zero before the migration plan is agreed. Open goes to the analysis in EA Explorer."),
-    "GR-02": ("Use it to see where the gaps are, by layer and entity type.",
+    "GR-02": ("Use it to see where the gaps are, by domain and entity type.",
               "Large bars show the parts of the architecture that change most between baseline and target, and so where the "
               "work and the risk are."),
     "GR-03": ("Use it as the TOGAF gap matrix: baseline elements down, target elements across.",
@@ -135,10 +135,10 @@ FAMILY: dict[str, tuple[str, str]] = {
     "TOGAF matrix": ("Use it as the TOGAF {title}: which items of one kind relate to which of another.",
                      "A filled cell is a relationship between the row and the column. Empty rows or columns are items with no "
                      "link to the other kind; very full rows or columns are hubs."),
-    "Viewpoint": ("Use it to look at the model the way the {title} viewpoint's stakeholders need: only the element and "
+    "View": ("Use it to look at the model the way the {title} view's stakeholders need: only the element and "
                   "relationship types that matter to their concerns.",
                   "The catalog lists the elements, the relationships table shows how they connect, and the heat map colours "
-                  "elements by the viewpoint's attribute. Missing elements of a type mean that part is not modelled yet."),
+                  "elements by the view's attribute. Missing elements of a type mean that part is not modelled yet."),
     "Audience": ("Use it as the starting dashboard for the {title}: the reports that matter to this audience, together.",
                  "Each chart is described where it comes from; open the full report from the Reports tab for detail."),
     "Gap analysis": ("Use it to follow gap analyses and their decisions.", "Read the counts by status and resolution."),
@@ -150,6 +150,14 @@ FAMILY: dict[str, tuple[str, str]] = {
     "Dependency": ("Use the filters to choose what to analyse.", "Read the dependants and dependencies by step."),
     "Standard": ("Use it to review the model with its owners.", "Blank values are data to complete."),
 }
+
+
+G["KR-01"] = ("Use it to follow how each model moves month by month and between tags: choose a KPI (Entities, Applications by "
+              "TIME, Total annual cost, Data quality score...) and the models to compare; Model Admins add their own KPIs on the "
+              "model page.",
+              "Each line is a model (and, for KPIs split by type, TIME class or lifecycle, each part of it); a point is a "
+              "snapshot kept on the 1st of a month or when the model was tagged. A rising orphan count or a falling quality "
+              "score is the model drifting; end-of-life technology that does not fall is a plan not acted on.")
 
 
 def about(report: dict) -> dict[str, str]:

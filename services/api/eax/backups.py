@@ -257,6 +257,7 @@ def application_backup(conn, user, tag: str, models: list[str] | None = None, ke
         if not wanted:
             _write_json(folder.parent / "manifest.json", manifest)
             _backup_projects(conn, user, folder.parent, manifest, tag)
+            _backup_organisation(conn, folder.parent, manifest)
     finally:
         _bypass(conn, False)
     p_ok = len([p for p in manifest["projects"] if p["status"] == "ok"])
@@ -269,6 +270,7 @@ def application_backup(conn, user, tag: str, models: list[str] | None = None, ke
     removed = cleanup(keep_n or keep(conn))
     return (f"Application backup '{manifest['tag']}': {ok} model{'s' if ok != 1 else ''}"
             f"{f', {p_ok} project' + ('s' if p_ok != 1 else '') + f' with {docs} documents' if manifest['projects'] else ''} backed up"
+            f"{', and the organisation part' if (manifest.get('organisation') or {}).get('status') == 'ok' else ''}"
             f"{f', {failed} failed' if failed else ''}."
             + (f" {missing} document files could not be read from Documents (is it running?): this backup is partial." if missing else ""),
             {"name": name, "models": ok, "projects": p_ok, "documents": docs, "failed": failed, "removed": removed})
@@ -293,6 +295,21 @@ def _backup_projects(conn, user, run_dir: Path, manifest: dict, tag: str) -> Non
             except Exception as exc:  # noqa: BLE001 - one project does not stop the others; it is listed with why
                 manifest["projects"].append({"id": str(p["guid"]), "name": p["name"], "file": "", "status": "failed",
                                              "error": str(exc)[:300]})
+
+
+ORG_FILE = "organisation.eaxorg.zip"
+
+
+def _backup_organisation(conn, run_dir: Path, manifest: dict) -> None:
+    """The organisation part (D410): what belongs to no model or project (org_backup)."""
+    from . import org_backup as ob
+    from .background import _projects_beside
+    try:
+        with _projects_beside(conn) as pc, zipfile.ZipFile(run_dir / ORG_FILE, "w", zipfile.ZIP_DEFLATED) as z:
+            info = ob.write(z, conn, pc)
+        manifest["organisation"] = {"file": ORG_FILE, "status": "ok", **info}
+    except Exception as exc:  # noqa: BLE001 - the models and projects are kept; the organisation part is said missing
+        manifest["organisation"] = {"file": "", "status": "failed", "error": str(exc)[:300]}
 
 
 def model_backup(conn, user, model: Any, why: str = "") -> tuple[str, dict]:
@@ -579,9 +596,33 @@ def _restore_over(conn, user, info: dict, z: zipfile.ZipFile, target: Any) -> tu
                      rc=len(side["snapshot"]["relationships"]), by=user.username.lower())[0]
     out = tg.restore_tag(conn, str(m["id"]), user, str(row["guid"]),
                          f"Restored the backup of {human(info['created'])} ({info.get('why') or 'no note'})")
+    views_note = _views_back(conn, m, z, user.username)
     return (f"{m['name']} is back as it was in the backup of {human(info['created'])} (commit {out['commit_number']}). "
-            f"What it was just before is kept as a model backup and as the tag '{out['before_tag']['name']}'.",
+            f"What it was just before is kept as a model backup and as the tag '{out['before_tag']['name']}'.{views_note}",
             {"model": str(m["id"]), "commit": out["commit"], "items": out["items"], "before_tag": out["before_tag"]})
+
+
+def _views_back(conn, m: dict, z: zipfile.ZipFile, actor: str) -> str:
+    """The backup's drawn views and own views put back over the model's (D405; the ones it had are in the model backup made
+    just before) and its entities' own icons. Same model, same entity guids: nothing to rebind."""
+    note = ""
+    try:
+        pkg = mo.read_package(z.read("package.zip"), "package.zip")
+    except Exception:  # noqa: BLE001 - an old backup: nothing to put back
+        return note
+    if pkg.get("icons") is not None:
+        mo.load_icons(conn, m["_id"], pkg["icons"], actor, replace=True)
+    if pkg.get("reports") is not None:     # its own KPIs, snapshots and report designs as they were (phase 24, D435)
+        from . import kpis
+        kpis.import_model(conn, m["_id"], pkg["reports"], actor, replace=True)
+    if pkg.get("views") is not None:
+        from . import views_client as vc
+        try:
+            got = vc.import_model(m["id"], pkg["views"], actor, source="package", replace=True)
+            note = f" Its drawn views are back ({got.get('drawn_views', 0)}) with its own views ({got.get('own_views', 0)})."
+        except vc.ViewsDown as exc:
+            note = f" Its drawn views were not put back: {exc}."
+    return note
 
 
 # ---------------------------------------------------------------- a whole application backup at once (D233)
@@ -617,6 +658,8 @@ def application_zip(name: str) -> Path:
             f = d / "projects" / (p.get("file") or "")
             if p.get("status") == "ok" and f.is_file():
                 z.write(f, f"projects/{f.name}")
+        if (d / ORG_FILE).is_file():
+            z.write(d / ORG_FILE, ORG_FILE)
     return out
 
 
@@ -638,6 +681,8 @@ def store_application_upload(path: Path, filename: str) -> dict:
         (d / "projects").mkdir(parents=True, exist_ok=True)
         for n in files + pfiles:
             (d / n).write_bytes(z.read(n))
+        if ORG_FILE in z.namelist():
+            (d / ORG_FILE).write_bytes(z.read(ORG_FILE))
     have = {Path(n).name for n in files + pfiles}
     manifest["models"] = [m for m in manifest.get("models") or [] if m.get("file") in have]
     manifest["projects"] = [p for p in manifest.get("projects") or [] if p.get("file") in have]
@@ -655,7 +700,7 @@ def restore_application(conn, user, name: str) -> tuple[str, dict]:
     d, manifest = _run(name)
     models = [m for m in manifest.get("models") or [] if m.get("status") == "ok"]
     projects = [p for p in manifest.get("projects") or [] if p.get("status") == "ok"]
-    if not models and not projects:
+    if not models and not projects and not (d / ORG_FILE).is_file():
         raise EditError("This application backup has no model to restore.", 409)
     rec = new_record("application", f"{manifest.get('tag') or name} ({human(manifest.get('created', ''))}), every model"
                      f"{' and project' if projects else ''}", "all", user.username)
@@ -725,12 +770,26 @@ def restore_application(conn, user, name: str) -> tuple[str, dict]:
             record_log(rec, f"{i}/{len(models)} {m['name']} FAILED (nothing changed for it): {exc}", rec["step"])
     p_done, p_ids, p_failed = _restore_projects(conn, user, d, projects, rec, remade, bool(manifest.get("uploaded"))) if projects else ([], [], [])
     failed += p_failed
+    org_msg = ""
+    if (d / ORG_FILE).is_file():           # the organisation part (D410)
+        from . import org_backup as ob
+        from .background import _projects_beside
+        try:
+            with _projects_beside(conn) as pc, zipfile.ZipFile(d / ORG_FILE) as z:
+                org_msg, problems = ob.restore(z, conn, pc, user.username)
+            failed += [f"organisation: {p}" for p in problems]
+            if org_msg:
+                record_log(rec, org_msg)
+        except Exception as exc:  # noqa: BLE001
+            failed.append(f"organisation: {exc}")
     rec["warnings"] = [f"Not restored: {f}" for f in failed]
     msg = (f"Every model of '{manifest.get('tag') or name}': {len(over)} put back, {len(made)} made again"
            f"{f', {len(kept)} kept as they are (root metamodels, library models, models made again before)' if kept else ''}{f', {len(failed)} failed' if failed else ''}.")
     if projects:
         msg += (f" {len(p_done)} of {len(projects)} projects put back as they were; their repositories are built again in "
                 "Documents and their documents put back within a few minutes.")
+    if org_msg:
+        msg += " " + org_msg
     record_log(rec, msg)
     record_end(rec, "failed" if failed and not (over or made) else "ok", "; ".join(failed)[:1000])
     _announce("ended", rec)

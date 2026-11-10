@@ -42,6 +42,9 @@ SERVICES: dict[str, tuple[str, str, str, list[str], str]] = {
                 "No backups are taken; eax backup and restore say the service is off."),
     "library": ("EAX_SERVICE_LIBRARY", "Library", "the library service", ["library"],
                 "The enterprise and project libraries are unavailable (their content is kept); the Library pages say it is off."),
+    "views": ("EAX_SERVICE_VIEWS", "Drawn views", "the views service", ["views"],
+              "Drawn views and the models' own views cannot be opened or saved (they are kept); the Views tab says it is off. "
+              "Tags, copies, merges and packages go on without them and say so."),
 }
 OFF = {"off", "false", "0", "no", "disabled"}
 

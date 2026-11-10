@@ -596,3 +596,34 @@ KINDS = {
 }
 tk.WORK.update(WORK)
 tk.KINDS.update(KINDS)
+
+
+# ---------------------------------------------------------------- merging a child into its parent (phases 19 and 20, D359)
+def mergeback_send(conn, t: dict, user) -> tuple[str, dict]:
+    """The child sent for merge: the changes worked out three-way and kept with the request."""
+    from . import merge_back as mb
+    tk.progress(20, "Comparing the child, its starting point and the parent")
+    out = mb.send(conn, str(t["model_guid"]), user, t["params"].get("note", ""))
+    return (f"Merge request {out['number']} sent: {out['counts']['total']} changes, {out['counts']['conflicts']} to decide.",
+            {**out, "_action": "merge_request.sent", "_details": {"request": out["id"]}})
+
+
+def mergeback_merge(conn, t: dict, user) -> tuple[str, dict]:
+    """Everything accepted goes into the parent (tagged first): one commit and the merge report."""
+    from . import merge_back as mb
+    tk.progress(20, "Tagging the parent and merging what was accepted")
+    out = mb.merge(conn, t["params"]["request"], user)
+    return out["message"], {**out, "_action": "merge_request.merged", "_details": {"request": out["id"]}}
+
+
+def mergeback_finish(conn, t: dict, user) -> tuple[str, dict]:
+    """After the merge: the child frozen, or refreshed from the parent (tagged first, a new starting point)."""
+    from . import merge_back as mb
+    tk.progress(20, "Freezing the child" if t["params"].get("choice") == "freeze" else "Refreshing the child from its parent")
+    out = mb.finish(conn, t["params"]["request"], user, t["params"].get("choice", ""), t["params"].get("note", ""))
+    return out["message"], {**out, "_action": "merge_request.closed", "_details": {"request": out["id"], "after": out["after"]}}
+
+
+tk.WORK.update({"mergeback.send": mergeback_send, "mergeback.merge": mergeback_merge, "mergeback.finish": mergeback_finish})
+tk.KINDS.update({"mergeback.send": "Send a model for merge into its parent", "mergeback.merge": "Merge a child into its parent",
+                 "mergeback.finish": "Freeze or refresh a merged child"})

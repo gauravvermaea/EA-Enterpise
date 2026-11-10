@@ -6,7 +6,7 @@
 // skills) show only the projects the person is on (a Super Admin: all); records are changed inside each project.
 import { SkillsRepository } from "./Skills";
 import { useEffect, useRef, useState } from "react";
-import { apiFetch } from "./auth";
+import { apiFetch, can } from "./auth";
 import { fmtDateTime } from "./fmt";
 import { refreshAll, useApi } from "./ModelViews";
 import { CalendarView } from "./Calendar";
@@ -49,6 +49,7 @@ function orgParts(base) {
     ] },
     capability: { title: "Architecture capability", colour: "#1f7a3a", items: [
       { label: "Skills repository", href: "#/repository/skills", note: "every user and the skills they gave themselves" },
+      ...(can("maturity.manage") ? [{ label: "EA capability maturity", href: "#/maturity", note: "assessments by questions and evidence, scores, gaps and the trend" }] : []),
       { label: "Organisation structure", href: "#/repository/people", note: "who works on each project, by role" },
       { label: "Architecture charter", href: ob && `${ob}/charter`, note: "the Organisation base's charter" },
     ] },
@@ -66,7 +67,7 @@ function projectParts(p) {
   const depth = (p.scope?.depth || "").toLowerCase();
   const level = (l, n) => ({ label: `${n} architectures`, href: depth === l ? `${pj}/models` : null,
     note: depth === l ? "the project's models" : depth ? `this project is ${depth}` : "the project's depth is not set (Edit › Scope)" });
-  const refBoth = { choose: [["The project's Reference area", `${pj}/reference`], ["The organisation's reference library", "#/reference-library"]],
+  const refBoth = { choose: [["The project's Reference area", `${pj}/library/reference`], ["The organisation's reference library", "#/reference-library"]],
     note: "the project's or the organisation's" };
   const gov = (kind) => `${pj}/governance?kind=${encodeURIComponent(kind)}`;
   const transition = (p.models || []).some((m) => m.role === "transition");
@@ -108,7 +109,7 @@ function projectParts(p) {
     outside: [
       { label: "External reference models", choose: [["The project's models", `${pj}/models`], ["The model library, reference models", "#/library?kind=reference"]],
         note: "the project's or the model library" },
-      { label: "External standards", choose: [["The project's Reference area", `${pj}/reference`], ["The organisation's reference library", "#/reference-library"]],
+      { label: "External standards", choose: [["The project's Reference area", `${pj}/library/reference`], ["The organisation's reference library", "#/reference-library"]],
         note: "the project's or the organisation's" },
       { label: "Architecture board", href: `${pj}/signoff`, note: "the project's sign-off people", tall: true },
     ],

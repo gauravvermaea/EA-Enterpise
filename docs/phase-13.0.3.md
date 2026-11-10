@@ -40,7 +40,7 @@ opens its wizard with its decisions already filled in:
 - **Primary working model:** chosen from the template's role (usually the target state).
 - **Purpose and scope:** depth and domains.
 - **Phases:** the deliverables and artifacts in use.
-- **Viewpoints.**
+- **Views.**
 - **Steps left out:** for example, no Goals step when the template has no goals.
 - **The way it finishes:** shown as a hint.
 
@@ -72,7 +72,7 @@ decisions to the wizard as it stands. Every decision stays editable, then and la
   template's name, icon, description and its decisions (JSON), or retires and offers one again.
 - **Save as a project template**, on a project, makes a new template from that project's decisions: its models by
   role and how each started (not the models themselves), purpose, scope, the deliverables in use, removed steps,
-  viewpoints, and goals into which role.
+  views, and goals into which role.
 - A project remembers the template it was made from, shown as a chip in its header.
 
 ## API

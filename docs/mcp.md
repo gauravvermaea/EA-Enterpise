@@ -4,7 +4,7 @@ EA Explorer ships an MCP (Model Context Protocol) server so you can use **your o
 (Claude, ChatGPT, an IDE assistant, a local model) with the repository. No model is shipped or
 hosted. The start page has an **MCP server** page with ready-to-copy connection settings.
 
-It has **79 tools** and **3 guided prompts** (build a project, build a model, fill a model): a language model can read
+It has **82 tools** and **3 guided prompts** (build a project, build a model, fill a model): a language model can read
 and analyse the repository and **build in it** (models, entities, relationships, projects, key questions, canvases),
 always as the signed-in person and with their permissions; what it adds stays that person's uncommitted change until
 committed, and metamodel drafts and quality rules wait for a person's review.
@@ -78,10 +78,10 @@ cannot tell who is asking. The laptop development token signs in as a Super Admi
 | --- | --- |
 | `list_models` | Every model you may read, with entity, relationship and type counts |
 | `list_library` | The model library: reference models with industry, version and counts by type |
-| `get_metamodel(model)` | Layers with their entity types, and the relationship types |
+| `get_metamodel(model)` | Domains with their entity types, and the relationship types |
 | `describe_entity_type(model, entity_type)` | Attributes (type, required, pick-list values), validation rules, allowed relationships both ways |
 | `allowed_relationships(model, source_type, target_type)` | Relationship types allowed from one type to another |
-| `get_metamodel_diagram(model, layers?, entity_type?, relationship_types?, include_generic?, include_connected?, with_attributes?)` | The metamodel (one or more layers, or one type and its neighbours) as a Mermaid ER diagram |
+| `get_metamodel_diagram(model, domains?, entity_type?, relationship_types?, include_generic?, include_connected?, with_attributes?)` | The metamodel (one or more domains, or one type and its neighbours) as a Mermaid ER diagram |
 | `list_entities(model, entity_type?)` | Every entity of a model, or of one type |
 | `get_entity(model, entity)` | One entity (guid, display ID or name) with attribute values, relationships, parent and parts |
 | `get_entity_table(model, entity_type, name?)` | One type as a table, one column per attribute (`eax.get_entity`) |
@@ -98,8 +98,8 @@ cannot tell who is asking. The laptop development token signs in as a Super Admi
 | `compare_metamodel_versions(model, from_version, to_version?)` | What differs in the metamodel between two versions (`to_version` defaults to the current one) |
 | `list_failing_checks(model, entity_type?)` | Every entity failing a check (rules, mandatory values, relationships outside the metamodel), with counts by type, rule and severity |
 | `search_entities(text, model?, entity_type?, attribute?, tag?)` | Search every model you may read (or one) in names, display IDs, descriptions, tags and attribute values; optionally one type, one attribute or one tag; each result says where it matched (phase 7) |
-| `list_viewpoints(model?)` | The viewpoints (VP-01 to VP-49 and the organisation's own); with a model, how many of its entities each shows (phase 8.2) |
-| `view_through_viewpoint(model, viewpoint)` | A model through one viewpoint: its elements with every value, and the relationships the viewpoint shows (phase 8.2) |
+| `list_views(model?)` | The views (VP-01 to VP-49 and the organisation's own); with a model, how many of its entities each shows (phase 8.2) |
+| `model_through_view(model, view)` | A model through one view: its elements with every value, and the relationships the view shows (phase 8.2) |
 | `value_stream_map(model)` | Value streams, their stages in order and the capabilities enabling each, with their values (phase 8.2) |
 | `roadmap(model)` | Work packages, deliverables and plateaus with dates and what each delivers (phase 8.2) |
 | `list_model_tags(model)` | A model's tags (frozen snapshots): name, when, by whom, commit, locked (phase 8.3) |
@@ -116,7 +116,7 @@ Metamodel drafts** and applies it, sends it back with comments, or rejects it.
 | --- | --- |
 | `get_metamodel_spec(model)` | A model's whole metamodel as one document (eax-metamodel/1), the pattern for drafts |
 | `start_metamodel_draft(name, kind?, base?, target?, version?, note?, spec?)` | A new root metamodel (empty or from a copy of `base`) or changes to `target`; `spec` gives everything at once |
-| `draft_set_item(draft, section, item)` | Add or change one layer, pick list, attribute, entity type, relationship type, allowed relationship or rule |
+| `draft_set_item(draft, section, item)` | Add or change one domain, pick list, attribute, entity type, relationship type, allowed relationship or rule |
 | `draft_remove_item(draft, section, code)` | Take an item out (with what depends on it) |
 | `draft_replace(draft, spec)` | Replace the whole document |
 | `get_metamodel_draft(draft)` | The draft with its checks, differences, review comments, changes since the last review and history |
@@ -160,13 +160,14 @@ always asks for your yes before it makes a model or a project.
 | `add_relationships(model, rows)` | Up to 1000 relationships; the metamodel's rules apply |
 | `list_my_changes(model)` · `commit_my_changes(model, message)` · `request_my_commit(model)` | In a working model, what the assistant adds is your uncommitted change until committed |
 | `tag_model(model, name)` | A baseline to compare with or copy from |
-| `list_projects()` · `list_project_templates()` · `get_project(project, part)` | Read projects (summary, steps, documents, classes, approvals, viewpoints) |
+| `list_drawn_views(model)` · `get_drawn_view(model, view, version?, with_xml?)` · `create_drawn_view(model, name, entities, include_relationships?)` | A model's drawn views (draw.io, D354): list them, read one (what is on it, as it is now), make one of chosen entities laid out by domain, saved as you |
+| `list_projects()` · `list_project_templates()` · `get_project(project, part)` | Read projects (summary, steps, documents, classes, approvals, views) |
 | `create_project(name, template, models, goals?)` | A project from a template, with its models (referred, added, derived, created) and goals |
 | `add_project_step` · `complete_project_step` · `repeat_project_step` | Steps at any time; completions kept as sub steps |
 | `add_document_class` · `set_document_class_needed` · `set_document_tags` | Document classes and tags |
 | `accept_document(project, document, evidence)` · `send_document_for_approval` | Accepted with evidence, or approval by the sign-off people (quorum) |
 
-| `save_key_question(project, question, asked_by?, approach?, viewpoints?, ...)` · `answer_key_question(project, question_id, answer, documents?, ...)` · `key_question_decision(project, question_id, decision, note?, stakeholder?)` | A project's key questions (D341, D342): add or change one with the viewpoints that answer it, answer it with links to the artifacts, record the stakeholder's acceptance |
+| `save_key_question(project, question, asked_by?, approach?, views?, ...)` · `answer_key_question(project, question_id, answer, documents?, ...)` · `key_question_decision(project, question_id, decision, note?, stakeholder?)` | A project's key questions (D341, D342): add or change one with the views that answer it, answer it with links to the artifacts, record the stakeholder's acceptance |
 | `business_model_canvas(project, canvas?, compare_with?)` · `change_business_model_canvas(project, action, ...)` | A project's Business Model Canvases (D344): list, read block by block, compare two; add, change or cross out items, make a working copy, make a clean canvas from one |
 
 Documents themselves (Word, Excel) are still uploaded on the project's Repository tab.
@@ -178,3 +179,13 @@ Documents themselves (Word, Excel) are still uploaded on the project's Repositor
 `eax.repository`, the same functions as the REST API, so **every build phase adds its repository
 functions there and the matching MCP tools at the same time**. Write tools (create and change
 content, through the staging and publishing workflow) arrive with data entry.
+
+## Phases 26/27 (0.18.0): model operations, analysis, the AI activity log, the remote connector
+See [phase-26-27.md](phase-26-27.md) and [mcp-capabilities.md](mcp-capabilities.md). In short:
+- about 120 tools and 11 prompts; every tool that changes something answers first with a **preview and a confirm
+  token**, and changes only when called again with the same arguments and `confirm=<token>`; the model is **tagged
+  first**; a read-only credential gets the reading tools only (D458, D484);
+- every call is in the **AI activity log** (MCP page > AI activity; `GET /api/v1/mcp/activity`) (D482);
+- answers carry **links** back to models and entities (D482);
+- on a server, add EA Explorer to an AI app as a **remote connector** (`https://<host>/mcp`) and sign in through
+  Keycloak in the browser: the Keycloak client is `eax-mcp`; add the app's callback address to it (D483).

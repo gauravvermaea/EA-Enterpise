@@ -51,14 +51,16 @@ def note_user(username: str, roles: list[str] | tuple[str, ...]) -> None:
 
 def catalogue(conn, model_id: int) -> dict[str, Any]:
     """The model's types and attributes with the report view and column each is in."""
-    rows = conn.execute(text("""SELECT layer, entity_type_code, entity_type, report_view, attribute_code, attribute,
+    rows = conn.execute(text("""SELECT domain, entity_type_code, entity_type, report_view, attribute_code, attribute,
                                        data_type, pick_list, pick_list_values, required, report_column
-                                  FROM rpt.catalogue WHERE model_id = :m
-                                 ORDER BY layer, entity_type, attribute"""), {"m": model_id}).mappings().all()
+                                  FROM rpt.catalogue c WHERE model_id = :m
+                                   AND NOT EXISTS (SELECT 1 FROM core.entity_types t WHERE t.model_id = c.model_id
+                                                     AND t.code = c.entity_type_code AND t.is_connector)   -- junctions (D397)
+                                 ORDER BY domain, entity_type, attribute"""), {"m": model_id}).mappings().all()
     types: dict[str, dict[str, Any]] = {}
     for r in rows:
         t = types.setdefault(r["entity_type_code"], {
-            "layer": r["layer"], "code": r["entity_type_code"], "name": r["entity_type"], "view": r["report_view"],
+            "domain": r["domain"], "code": r["entity_type_code"], "name": r["entity_type"], "view": r["report_view"],
             "attributes": []})
         if r["attribute_code"]:
             t["attributes"].append({
@@ -94,7 +96,7 @@ def model_reports(conn, model: Any) -> dict[str, Any]:
     out["reports_url"] = base
     from .report_about import about
     out["reports"] = [{**r, **about(r), "url": f"{base}/login/keycloak?next=/superset/dashboard/{r['slug']}/"} for r in REPORTS]
-    from .report_defs import AUDIENCES, VIEWPOINT_REPORTS
-    out["viewpoint_reports"] = VIEWPOINT_REPORTS
+    from .report_defs import AUDIENCES, VIEW_REPORTS
+    out["view_reports"] = VIEW_REPORTS
     out["audiences"] = [{"code": c, "name": n, "group": grp} for c, n, grp in AUDIENCES]
     return out

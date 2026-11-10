@@ -2,7 +2,7 @@
 -- 0001_library: the library service's own database (phase 15.2, owner, 9 Nov 2026, D346 to D350)
 --   * one organisation (enterprise) library and a library per project
 --   * a folder tree of any shape in each; entries are pages (simple blocks: headings, text, lists, tables, links),
---     links (to a web address or into EA Explorer: a model, project, entity, viewpoint, document, page) and the
+--     links (to a web address or into EA Explorer: a model, project, entity, view, document, page) and the
 --     occasional uploaded file (kept here, for search)
 --   * every change kept with its before and after, so it can be undone (light moderation: changes show at once)
 -- Rows only: the rules are in libsvc/library.py (D248).

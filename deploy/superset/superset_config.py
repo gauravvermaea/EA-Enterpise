@@ -125,3 +125,16 @@ FEATURE_FLAGS = {"DASHBOARD_RBAC": True, "EMBEDDED_SUPERSET": False, "ENABLE_TEM
 # links in report tables (Open in EA Explorer)
 HTML_SANITIZATION = True
 SQLLAB_CTAS_NO_LIMIT = True
+
+
+# ---- EA Explorer's report designer (phase 24, D434): /eax/designs/<guid>/open makes a design's dataset and opens the chart
+# builder. A failure to load it never stops Superset: only the designer's Open button is affected.
+try:
+    import sys as _sys
+
+    _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from eax_designer import bp as _eax_designer
+
+    BLUEPRINTS = [_eax_designer]
+except Exception as _exc:  # noqa: BLE001
+    print(f"EA Explorer WARNING: the report designer page is not available: {_exc}")

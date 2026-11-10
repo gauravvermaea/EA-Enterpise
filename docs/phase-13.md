@@ -1,6 +1,6 @@
 # Build phase 13: architecture projects, the project library and the repository in Documents
 
-Goal: set up an architecture project in one wizard (its purpose, models, viewpoints and artifacts, principles, ADM steps,
+Goal: set up an architecture project in one wizard (its purpose, models, views and artifacts, principles, ADM steps,
 deliverables, people and who signs off), and keep its documents in Documents (Mayan) with versions and check-out, edited
 in Office. Version **0.14.0**, migration `0022_projects`. Decisions D258 to D266, agreed with the owner on 6 Nov 2026
 before building (the design is in [design-architecture-projects.md](design-architecture-projects.md); the master list
@@ -52,7 +52,7 @@ its folders before uploading; or use ours as it is. Libraries can be added, offe
    template the picked libraries have for a chosen item is copied into its folder, named `<library>-<document>` (for
    example `TOGAF 10-TOGAF® Template - Architecture Vision.docx` and `EA Explorer-Architecture Vision.docx`).
 3. **Models**: add existing models, derive a child of one (a copy, with lineage), or create a new one.
-4. **Viewpoints and artifacts**: pick the viewpoints the project uses.
+4. **Views and artifacts**: pick the views the project uses.
 5. **Principles**: from the library, or the project's own (a child inherits its parent's).
 6. **Phase by phase**: for each ADM phase, its **steps** (accept, remove with a reason, add your own; removed standard
    steps always show crossed out) and its **deliverables and artifacts** from the library (chosen, or left as
@@ -166,7 +166,7 @@ task until the folder holds the files.
    starter files). Rebrand two of them, add a document to the Architecture Vision folder, zip the folders and upload
    the zip as *Thotnr 2027*: *loading*, then *n files*.
 4. Tick EA Explorer, TOGAF 10 and Thotnr 2027; **Finish the setup**. *New project* appears on Projects.
-5. Open the sample project: Overview (people, sign-off, models, template libraries, viewpoints), **Repository**
+5. Open the sample project: Overview (people, sign-off, models, template libraries, views), **Repository**
    (*ready*; each item's folder holds *EA Explorer-...*), Steps (one removed, crossed out), Principles.
 6. **Projects > New project**: walk the eight steps; in *Template libraries* pick EA Explorer and TOGAF 10 and add a
    library from a zip (it shows *not shared yet*); derive a child of Protea Insurance; remove a step with a reason;

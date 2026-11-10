@@ -1,7 +1,7 @@
 """Laptop demo model "Protea Insurance (demo estate)" (build phase 8.2, D161).
 
-A fictitious South African insurer with a whole estate on ArchiMate 4, so every viewpoint (VP-01 to
-VP-25, and the business architecture viewpoints with the EA Explorer extensions, D345), standard report, TOGAF catalogue and matrix and dependency report has something to show:
+A fictitious South African insurer with a whole estate on ArchiMate 4, so every view (VP-01 to
+VP-25, and the business architecture views with the EA Explorer extensions, D345), standard report, TOGAF catalogue and matrix and dependency report has something to show:
 motivation, strategy, business, application, technology and implementation and migration, with
 values for the attributes the reports use (lifecycle, criticality, cost in USD, TIME, fit scores,
 end of life, data classification, maturity...). Every company, product and vendor name is invented.
@@ -22,6 +22,23 @@ E: list[tuple[str, str, str, str, dict]] = []
 
 def ent(t: str, name: str, desc: str = "", parent: str = "", **attrs) -> None:
     E.append((t, name, desc, parent, attrs))
+
+
+# Link attributes (D418), each state: one link; several with notes; a repository document; an EA Explorer entity;
+# and the rest left empty. Every address is invented (example.com and the app's own paths).
+REPO_DOC = "#/reference-library?folder=10_Templates%2F04_TOGAF_Templates%2FPhase%20F%20-%20Migration%20Planning"
+REQ_DOCS = {
+    "Customers can lodge claims online": "https://docs.example.com/protea/claims/online-claims-requirements.pdf",
+    "Personal information is protected": ("https://docs.example.com/protea/security/privacy-standard.pdf | v2.1\n"
+                                          "https://docs.example.com/protea/security/data-handling.docx | draft v0.4, for comment\n"
+                                          "ftp://files.example.com/protea/audit/privacy-audit-2026.zip | audit evidence, March 2026"),
+}
+WP_DOCS = {
+    "Claims Digitisation Programme": ("https://docs.example.com/protea/programmes/claims-digitisation-charter.pdf | charter v1.3\n"
+                                      "https://docs.example.com/protea/programmes/claims-digitisation-plan.xlsx | plan, updated monthly"),
+    "Core Policy Replacement": f"{REPO_DOC} | migration planning templates in the reference library",
+    "Broker API Project": "{entity:Broker API Live} | what it delivers",
+}
 
 
 # motivation
@@ -67,7 +84,8 @@ for name, pr in [("Customers can lodge claims online", "Must"), ("Policies can b
                  ("Personal information is protected", "Must"), ("Claims are paid within 48 hours of approval", "Should"),
                  ("Brokers can quote through an API", "Should"), ("Single sign-on for staff", "Should"),
                  ("Regulatory returns produced automatically", "Must"), ("Core systems hosted in the cloud", "Could")]:
-    ent("Requirement", name, f"Requirement: {name.lower()}", Owner="Architecture Board", Priority=pr)
+    ent("Requirement", name, f"Requirement: {name.lower()}", Owner="Architecture Board", Priority=pr,
+        **({"Url": REQ_DOCS[name]} if name in REQ_DOCS else {}))
 ent("Meaning", "Peace of mind", "What cover means to a policyholder")
 ent("Value", "Faster payouts", "Value of quicker claim settlement to policyholders")
 ent("Value", "Lower premiums", "Value of a lower cost base passed to customers")
@@ -335,7 +353,8 @@ for name, start, end, pr in [("Claims Digitisation Programme", "2026-01-15", "20
                              ("Customer Data Programme", "2026-07-01", "2027-12-31", "Should"),
                              ("Broker API Project", "2026-05-01", "2026-12-15", "Should"),
                              ("Data Warehouse Decommission", "2027-01-01", "2027-09-30", "Could")]:
-    ent("WorkPackage", name, f"Work package: {name}", Owner="Programme Office", Priority=pr, StartDate=start, EndDate=end)
+    ent("WorkPackage", name, f"Work package: {name}", Owner="Programme Office", Priority=pr, StartDate=start, EndDate=end,
+        **({"Url": WP_DOCS[name]} if name in WP_DOCS else {}))
 for name, start, end in [("Online Claims Release", "2026-09-01", "2026-12-31"),
                          ("Cloud Policy Platform Live", "2027-01-01", "2027-03-31"),
                          ("Customer Master Data Live", "2026-10-01", "2026-12-31"),
@@ -395,6 +414,11 @@ rel("Core systems hosted in the cloud", "Realization", "Cloud first", "Cloud-hos
 rel("Claims Platform", "Realization", "Customers can lodge claims online")
 rel("Customer Portal", "Realization", "Customers can lodge claims online", "Policies can be bought online")
 rel("Payments Hub", "Realization", "Claims are paid within 48 hours of approval")
+# a junction (D397): online claims come through the portal or the app (Or), shown on the sample drawn views (phase 28)
+ent("Junction", "Online claim channels (Or)", "Either channel realises online claims", JunctionKind="Or")
+rel("Customer Portal", "Realization", "Online claim channels (Or)")
+rel("Mobile App", "Realization", "Online claim channels (Or)")
+rel("Online claim channels (Or)", "Realization", "Customers can lodge claims online")
 rel("Broker API Gateway", "Realization", "Brokers can quote through an API")
 rel("Identity and Access Management", "Realization", "Single sign-on for staff", "Personal information is protected")
 rel("Regulatory Reporting Tool", "Realization", "Regulatory returns produced automatically")
@@ -404,10 +428,10 @@ rel("Lower premiums", "Association", "Motor Cover", "Home Cover")
 rel("Peace of mind", "Association", "Funeral Plan", "Life Cover")
 
 # strategy
-rel("Digitise claims", "Realization", "Settle claims faster", "Online first notice of loss")
-rel("Move the core to the cloud", "Realization", "Modernise the core", "Cloud-hosted core")
+rel("Digitise claims", "Realization", "Online first notice of loss")
+rel("Move the core to the cloud", "Realization", "Cloud-hosted core")
 rel("Build a single customer view", "Realization", "One customer record")
-rel("Open up to brokers through APIs", "Realization", "Grow digital sales")
+rel("Open up to brokers through APIs", "Realization", "Straight-through underwriting")
 rel("Claims Management", "Realization", "Digitise claims")
 rel("Technology Management", "Realization", "Move the core to the cloud")
 rel("Customer Management", "Realization", "Build a single customer view")
@@ -514,32 +538,34 @@ for prod, svcs in {"Motor Cover": ["Claims Service", "Policy Servicing Service"]
                    "Funeral Plan": ["Claims Service", "Premium Collection Service"],
                    "Life Cover": ["Claims Service", "Policy Servicing Service"], "Business Cover": ["Broker Quoting Service"]}.items():
     rel(prod, "Aggregation", *svcs, "Policy")
-rel("Claims Platform", "Realization", "Claims Lodgement", "Claims Assessment", "Claims Settlement")
-rel("Fraud Analytics", "Realization", "Fraud Detection")
-rel("Policy Administration System", "Realization", "Policy Servicing", "Policy Issue", "Renewals")
-rel("Cloud Policy Platform", "Realization", "Policy Servicing", "Policy Issue", "Renewals")
-rel("Billing Engine", "Realization", "Billing and Collections")
-rel("Payments Hub", "Realization", "Claims Settlement", "Billing and Collections")
-rel("General Ledger", "Realization", "Financial Accounting")
-rel("Actuarial Modelling", "Realization", "Actuarial Valuation", "Pricing")
-rel("Regulatory Reporting Tool", "Realization", "Regulatory Reporting")
-rel("Customer Portal", "Realization", "Direct Sales", "Customer Service", "Claims Lodgement")
-rel("Mobile App", "Realization", "Direct Sales", "Claims Lodgement")
-rel("Broker Portal", "Realization", "Broker Management", "Quoting")
-rel("Broker API Gateway", "Realization", "Broker Management", "Quoting")
-rel("Customer Master Data Hub", "Realization", "Customer Insight", "Customer Onboarding")
-rel("CRM", "Realization", "Customer Service", "Customer Insight", "Direct Sales")
-rel("Contact Centre Telephony", "Realization", "Customer Service")
-rel("Document Management", "Realization", "Policy Servicing")
-rel("Data Warehouse", "Realization", "Customer Insight", "Regulatory Reporting", "Data Management")
-rel("Cloud Data Platform", "Realization", "Customer Insight", "Data Management")
-rel("Underwriting Rules Engine", "Realization", "Risk Assessment")
-rel("Quote Engine", "Realization", "Quoting", "Pricing")
-rel("Identity and Access Management", "Realization", "Security Management")
-rel("Security Monitoring", "Realization", "Security Management", "Risk Management")
-rel("Reinsurance Administration", "Realization", "Reinsurance")
-rel("Complaints Tracker", "Realization", "Compliance Monitoring")
-rel("Email Campaigns", "Realization", "Direct Sales")
+# an application supports a capability (ArchiMate 4: only behaviour realizes a capability, so the direct link is an
+# association; the strict chain, component assigned to a function that realizes the capability, follows below)
+rel("Claims Platform", "Association", "Claims Lodgement", "Claims Assessment", "Claims Settlement")
+rel("Fraud Analytics", "Association", "Fraud Detection")
+rel("Policy Administration System", "Association", "Policy Servicing", "Policy Issue", "Renewals")
+rel("Cloud Policy Platform", "Association", "Policy Servicing", "Policy Issue", "Renewals")
+rel("Billing Engine", "Association", "Billing and Collections")
+rel("Payments Hub", "Association", "Claims Settlement", "Billing and Collections")
+rel("General Ledger", "Association", "Financial Accounting")
+rel("Actuarial Modelling", "Association", "Actuarial Valuation", "Pricing")
+rel("Regulatory Reporting Tool", "Association", "Regulatory Reporting")
+rel("Customer Portal", "Association", "Direct Sales", "Customer Service", "Claims Lodgement")
+rel("Mobile App", "Association", "Direct Sales", "Claims Lodgement")
+rel("Broker Portal", "Association", "Broker Management", "Quoting")
+rel("Broker API Gateway", "Association", "Broker Management", "Quoting")
+rel("Customer Master Data Hub", "Association", "Customer Insight", "Customer Onboarding")
+rel("CRM", "Association", "Customer Service", "Customer Insight", "Direct Sales")
+rel("Contact Centre Telephony", "Association", "Customer Service")
+rel("Document Management", "Association", "Policy Servicing")
+rel("Data Warehouse", "Association", "Customer Insight", "Regulatory Reporting", "Data Management")
+rel("Cloud Data Platform", "Association", "Customer Insight", "Data Management")
+rel("Underwriting Rules Engine", "Association", "Risk Assessment")
+rel("Quote Engine", "Association", "Quoting", "Pricing")
+rel("Identity and Access Management", "Association", "Security Management")
+rel("Security Monitoring", "Association", "Security Management", "Risk Management")
+rel("Reinsurance Administration", "Association", "Reinsurance")
+rel("Complaints Tracker", "Association", "Compliance Monitoring")
+rel("Email Campaigns", "Association", "Direct Sales")
 rel("Claims Platform", "Serving", "Claims Department")
 rel("CRM", "Serving", "Customer Contact Centre", "Sales Department")
 rel("Policy Administration System", "Serving", "Underwriting Department")
@@ -557,6 +583,10 @@ rel("Validate Claim", "Serving", "Assess Claim")
 rel("Calculate Premium", "Serving", "Quote Policy")
 rel("Score Fraud Risk", "Serving", "Detect Fraud")
 rel("Generate Policy Documents", "Serving", "Issue Policy")
+rel("Validate Claim", "Realization", "Claims Assessment")
+rel("Calculate Premium", "Realization", "Pricing")
+rel("Score Fraud Risk", "Realization", "Fraud Detection")
+rel("Generate Policy Documents", "Realization", "Policy Issue")
 APP_IF = {"Policy Administration System": "Policy API", "Claims Platform": "Claims API", "Payments Hub": "Payments API",
           "Customer Master Data Hub": "Customer API", "Broker API Gateway": "Broker Quote API",
           "General Ledger": "Ledger File Interface"}
@@ -698,3 +728,12 @@ assert len(_names) == len(set(_names)), sorted({n for n in _names if _names.coun
 _known = set(_names)
 _bad = [(a, b) for a, _k, b in R if a not in _known or b not in _known]
 assert not _bad, _bad
+
+# relationship multiplicity (D395) on the demo estate's own metamodel: (source type, relationship, target type, source end,
+# target end). Every application supports at least one capability (some do not yet: the quality checks show them); a
+# data object has at most one golden source; an application interface belongs to exactly one component.
+MULTIPLICITY = [
+    ("ApplicationComponent", "Association", "Capability", "", "1..*"),
+    ("ApplicationComponent", "Assignment", "DataObject", "0..1", ""),
+    ("ApplicationComponent", "Aggregation", "ApplicationInterface", "1", ""),
+]

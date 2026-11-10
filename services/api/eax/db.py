@@ -69,7 +69,7 @@ def projects_separate() -> bool:
 def get_projects_engine() -> Engine:
     """The architecture projects' database (schema proj, D266): EAX_PROJECTS_DB_URL, or the repository's engine when it
     is empty (one database, one transaction). eax/projects.py never joins proj with another schema; what it needs from
-    the repository (models, viewpoints, model roles, notifications) goes through the repository connection."""
+    the repository (models, views, model roles, notifications) goes through the repository connection."""
     if not projects_separate():
         return get_engine()
     return create_engine(get_settings().projects_sqlalchemy_url, pool_pre_ping=True, pool_size=3, max_overflow=5,

@@ -11,6 +11,7 @@ import { SidePicker, sideOf } from "./Versions";
 import { fmtDateTime } from "./fmt";
 import { TaskFiles } from "./TaskDrawer";
 import { downloadTask, runTask } from "./tasks";
+import { liveModels, useShowRetired } from "./ModelMarks";
 
 const go = (path) => { window.location.hash = path; };
 const post = (path, body, method = "POST") => apiFetch(path, { method, body: JSON.stringify(body || {}) });
@@ -48,7 +49,9 @@ function CommonList() {
 
 // ---------------------------------------------------------------- set up
 function NewCommon() {
-  const { data: models } = useApi("/api/v1/models?archived=false&kind=project");
+  const [showRetired] = useShowRetired();     // frozen models only when the person shows them (D360)
+  const { data: models_ } = useApi("/api/v1/models?kind=project");
+  const models = models_ && (showRetired ? models_ : liveModels(models_));
   const [sides, setSides] = useState([{ model: "", tag: "" }, { model: "", tag: "" }]);
   const [info, setInfo] = useState(null);
   const [st, setSt] = useState(null);
@@ -132,12 +135,12 @@ function Setup({ info, st, setSt }) {
       </div>
       <p className="quiet small">Tick the entity types to look at (those at least two models have are ticked); open one with + to choose its fields.</p>
       <table className="grid-table small">
-        <thead><tr><th /><th>Entity type</th><th>Layer</th>{info.sides.map((s, i) => <th key={i} className="num" title={s.label}>{i + 1}</th>)}<th /></tr></thead>
+        <thead><tr><th /><th>Entity type</th><th>Domain</th>{info.sides.map((s, i) => <th key={i} className="num" title={s.label}>{i + 1}</th>)}<th /></tr></thead>
         <tbody>{info.types.map((t) => (
           <Fragment key={t.code}>
             <tr className={t.in < 2 ? "quiet" : ""}>
               <td><input type="checkbox" checked={!!types[t.code]} onChange={(e) => setType(t.code, e.target.checked ? t.fields.filter((f) => f.default && !f.code.startsWith("rel:")).map((f) => f.code) : null)} /></td>
-              <td>{t.name}</td><td className="quiet">{t.layer}</td>{t.counts.map((c, i) => <td key={i} className="num">{c || ""}</td>)}
+              <td>{t.name}</td><td className="quiet">{t.domain}</td>{t.counts.map((c, i) => <td key={i} className="num">{c || ""}</td>)}
               <td>{types[t.code] && <button className="linkish" onClick={() => setOpen((o) => ({ ...o, [t.code]: !o[t.code] }))}>{open[t.code] ? "−" : "+"} fields</button>}</td>
             </tr>
             {open[t.code] && types[t.code] && (
@@ -266,10 +269,10 @@ function CommonPage({ id }) {
         </>}
         {tab === "summary" && (
           <table className="grid-table">
-            <thead><tr><th>Entity type</th><th>Layer</th><th className="num">Elements</th><th className="num">Common</th><th className="num">Values differ</th>
+            <thead><tr><th>Entity type</th><th>Domain</th><th className="num">Elements</th><th className="num">Common</th><th className="num">Values differ</th>
               {Array.from({ length: n }, (_, k) => n - k).map((k) => <th key={k} className="num">In {k}</th>)}</tr></thead>
             <tbody>{a.summary.map((s) => (
-              <tr key={s.entity_type}><td><button className="linkish" onClick={() => { setType(s.entity_type); setTab("elements"); }}>{s.name}</button></td><td className="quiet">{s.layer}</td>
+              <tr key={s.entity_type}><td><button className="linkish" onClick={() => { setType(s.entity_type); setTab("elements"); }}>{s.name}</button></td><td className="quiet">{s.domain}</td>
                 <td className="num">{s.elements}</td><td className="num"><b>{s.common}</b></td><td className="num">{s.differ}</td>
                 {Array.from({ length: n }, (_, k) => n - k).map((k) => <td key={k} className="num">{s.by_count[String(k)] || ""}</td>)}</tr>))}</tbody>
           </table>)}

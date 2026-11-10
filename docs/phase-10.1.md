@@ -10,7 +10,7 @@ Goal: get data in and out of a model in bulk, with spreadsheets people already k
 A **Import and export** tab on every model that holds content, with four parts:
 
 - **Download and upload** (one screen):
-  - **Download**: choose entity types (by layer, filter, or every type with entities) and a format; the workbook is
+  - **Download**: choose entity types (by domain, filter, or every type with entities) and a format; the workbook is
     built on the fly from the metamodel: one sheet per type with every entity and its values, and a **Relationships**
     sheet with the relationships between the chosen types (it comes automatically). One download is both an export and
     the template to fill in.

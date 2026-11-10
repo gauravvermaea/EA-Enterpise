@@ -136,8 +136,11 @@ class Mappings(MethodView):
             abort(400, message=f"{body['app_role']!r} is not a global role (one of {', '.join(permissions.GLOBAL_ROLES)}); "
                                "model roles are given per model on the model's People tab.")
         kc_role = body["keycloak_role"].strip()
+        if kc_role.lower().startswith(permissions.GROUP_PREFIX):     # a directory group (phase 36, D503)
+            name = kc_role[len(permissions.GROUP_PREFIX):].strip()
+            kc_role = permissions.GROUP_PREFIX + name if name else ""
         if not kc_role:
-            abort(400, message="Give the Keycloak role.")
+            abort(400, message="Give the Keycloak role or the directory group.")
         with get_engine().begin() as conn:
             try:
                 row = conn.execute(text("""INSERT INTO core.role_mappings (keycloak_role, app_role) VALUES (:k, :a)

@@ -42,7 +42,7 @@ the automated suite.
   root can be a library model (D119). New marks: 🚧 not yet published, ⛔ withdrawn, ⏳ copying.
 - **Packages (D116).** *Actions > Download package (zip)*: `manifest.json`, `metamodel.json` (the
   whole metamodel, format `eax-metamodel/1`) and the content as CSV, one file per entity type plus
-  `relationships.csv`. *Download as Excel*: the same in one workbook (Manifest, Layers, Pick lists,
+  `relationships.csv`. *Download as Excel*: the same in one workbook (Manifest, Domains, Pick lists,
   Attributes, Entity types, Relationship types, Allowed, Rules, Type attributes, one sheet per entity
   type, Relationships). Both upload again. *Download the metamodel (JSON)*: the metamodel alone.
 - **Upload wizard (D108, D123)** (*Models > Upload a model*, and *Upload a model package* in the
@@ -95,10 +95,10 @@ the automated suite.
   it (a User Admin for global roles, the model's Model Admin for model roles). This covers the new
   phase 4 screens and the earlier ones: the metamodel edit buttons, *Lock...*, the People tab, the role
   mapping, the SQL and Users links, and the start page tiles.
-- **Layered ER diagram (D124).** *ER diagram > Layered*: one band per layer, top to bottom in the
-  metamodel's layer order, each entity type in its layer's band, lines crossing between the bands
-  (right-angled up to 200 lines, straight beyond). Choosing it with one layer selected shows all
-  layers; the layer chips still narrow it. The bands go into SVG, PNG and .drawio, and the choice is
+- **Domain bands in the ER diagram (D124).** *ER diagram > By domain*: one band per domain, top to bottom in the
+  metamodel's domain order, each entity type in its domain's band, lines crossing between the bands
+  (right-angled up to 200 lines, straight beyond). Choosing it with one domain selected shows all
+  domains; the domain chips still narrow it. The bands go into SVG, PNG and .drawio, and the choice is
   remembered in your browser.
 - **API**: `POST /api/v1/models`, `/models/<id>/archive|reactivate|publish|withdraw|restore|promote`,
   `DELETE /models/<id>?confirm=<name>`, `GET /models/<id>/package?format=zip|xlsx`,
@@ -121,7 +121,7 @@ the automated suite.
    **Independent model** (a copy you can compare). Hover the ⓘ marks for what each means.
 5. On your new model: *Actions > Move to another framework...* > *Lean EA metamodel*: see the type
    matches, change one, make a moved copy.
-6. Open *Insurance reference model > ER diagram* and press **Layered**: the layers as bands. Untick
+6. Open *Insurance reference model > ER diagram* and press **By domain**: the domains as bands. Untick
    Technology, Motivation and Implementation & Migration and turn attributes off for a readable picture; save as .drawio.
 7. Sign in as `user_architect`: *+ New model*, *Upload a model*, most of *Actions*, *Lock...* and the
    metamodel buttons are greyed out; hover one to see the role it needs.
@@ -188,7 +188,7 @@ Kept for when phase 4 is tested end to end (D129). Each line is what to do and w
    a model from it; Actions > Publish the model; now they can.
 7. **Greyed out, not hidden** (user_architect): New model, Upload, most of Actions, Lock and the metamodel
    buttons greyed, each tooltip naming the role needed; SQL and Users greyed in the top bar.
-8. **Layered ER diagram**: Insurance reference model > ER diagram > Layered: one band per layer; untick layers,
+8. **Domain bands in the ER diagram**: Insurance reference model > ER diagram > By domain: one band per domain; untick domains,
    save .drawio: the bands are in the file.
 9. **Database checks**: phase4_checks.sql as eax_app ends "phase 4 checks passed"; phases 1 and 2 (postgres),
    3 and 3.1 (eax_app) still pass.

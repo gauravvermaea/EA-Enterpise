@@ -1,4 +1,4 @@
-"""Owner, 7 Nov 2026 (evening): the project's Viewpoints, Reports, Gaps and Compare tabs; backing up and restoring a project
+"""Owner, 7 Nov 2026 (evening): the project's Views, Reports, Gaps and Compare tabs; backing up and restoring a project
 with its models and documents; Build now as a background task; MCP tools to build models and projects."""
 
 from pathlib import Path
@@ -11,21 +11,21 @@ ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT.parent / "web" / "src"
 
 
-def test_viewpoints_have_phases():
+def test_views_have_phases():
     for code in ("VP-05", "VP-19", "VP-24", "VP-16"):
-        assert pw.VIEWPOINT_PHASE[code]
+        assert pw.VIEW_PHASE[code]
     src = (ROOT / "eax" / "project_work.py").read_text()
-    assert "def set_viewpoint_phase" in src and '"models": per_model' in src
-    assert "/viewpoints/<string:code>/phase" in (ROOT / "eax" / "api" / "projects.py").read_text()
+    assert "def set_view_phase" in src and '"models": per_model' in src
+    assert "/views/<string:code>/phase" in (ROOT / "eax" / "api" / "projects.py").read_text()
     assert "ALTER TABLE proj.project_viewpoints ADD COLUMN phase text" in (ROOT / "migrations" / "sql" / "0028_repository_table.sql").read_text()
 
 
 def test_project_tabs():
     js = (WEB / "Projects.jsx").read_text()
-    for t in ('["viewpoints", "Viewpoints"]', '["reports", "Model reports"]', '["analysis", "Gaps and comparison"]', '["stakeholders", "Stakeholders"]', "<ProjectBackupPanel"):
+    for t in ('["views", "Views"]', '["reports", "Model reports"]', '["analysis", "Gaps and comparison"]', '["stakeholders", "Stakeholders"]', "<ProjectBackupPanel"):
         assert t in js
     tabs = (WEB / "ProjectTabs.jsx").read_text()
-    for s in ("export function ViewpointsByPhase", "export function ProjectReports", "export function ProjectGaps", "export function ProjectCompare",
+    for s in ("export function ViewsByPhase", "export function ProjectReports", "export function ProjectGaps", "export function ProjectCompare",
               "<NewGapDialog", "<ModelReports", "export function RestoreProjectFile", "Restore as a new project"):
         assert s in tabs
     assert "export function NewGapDialog" in (WEB / "Versions.jsx").read_text()
@@ -59,5 +59,6 @@ def test_mcp_build_tools():
               "async def commit_my_changes", "async def create_project", "async def get_project", "async def complete_project_step",
               "async def accept_document", "def build_a_project", "def fill_a_model"):
         assert t in src
-    assert "from . import mcp_build" in (ROOT / "eax" / "mcp_server.py").read_text()
+    server = (ROOT / "eax" / "mcp_server.py").read_text()
+    assert "from . import mcp_build" in server or "\n    mcp_build,\n" in server     # registered at the end of the server
     assert "how_to_build" in (ROOT / "eax" / "mcp_server.py").read_text()

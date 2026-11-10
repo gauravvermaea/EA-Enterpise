@@ -4,8 +4,10 @@
 // Saves as CSV (the grid) and opens in draw.io (a table of boxes, D256).
 import { useEffect, useMemo, useState } from "react";
 import { apiFetch } from "./auth";
-import { downloadCsv, openDrawio } from "./exporting";
+import { downloadCsv } from "./exporting";
+import { PictureActions } from "./DrawnView";
 import { relColour } from "./MetamodelDiagram";
+import { elementTypes } from "./elements.js";
 
 const initial = (r) => r.relationship_type_code === "Parent" ? "P" : (r.relationship_type || "?").slice(0, 2);
 
@@ -21,7 +23,7 @@ export default function RelationMatrix({ model }) {
     let live = true;
     apiFetch(`/api/v1/models/${model}/metamodel`).then((mm) => {
       if (!live) return;
-      const list = mm.layers.flatMap((l) => l.entity_types.map((t) => ({ ...t, colour: l.colour })))
+      const list = mm.domains.flatMap((l) => elementTypes(l).map((t) => ({ ...t, colour: l.colour })))
         .filter((t) => t.entity_count > 0);
       setTypes(list);
       const by = (code) => list.find((t) => t.code === code);
@@ -70,20 +72,23 @@ export default function RelationMatrix({ model }) {
     downloadCsv([[`${rt.name} \\ ${ct.name}`, ...grid.cols.map((c) => `${c.name} (${c.display_id})`)],
       ...grid.rows.map((r) => [`${r.name} (${r.display_id})`, ...grid.cols.map((c) => cellText(grid.cells[`${r.id}|${c.id}`]))])], title);
   }
-  function exportDrawio() {
-    const W = 120, H = 28, HW = 220, HH = 90;
+  // the matrix as a table of boxes (D407, D408): the row and column heads are the entities (in their notation), the
+  // cells say the relationships
+  function picture() {
+    if (!grid) return null;
+    const W = 120, H = 30, HW = 220, HH = 90;
     const cells = [{ id: "corner", label: `${rt.name} \\ ${ct.name}`, x: 0, y: 0, w: HW, h: HH, fill: "f6f7f9", bold: true }];
     grid.cols.forEach((c, j) => cells.push({ id: `c_${c.id}`, label: c.name, x: HW + j * W, y: 0, w: W, h: HH, fill: c.colour,
-      align: "center", fontSize: 11, ea_type: c.entity_type, ea_id: c.id }));
+      align: "center", fontSize: 11, ea_type: c.entity_type, ea_id: c.id, keepSize: true }));
     grid.rows.forEach((r, i) => {
-      cells.push({ id: `r_${r.id}`, label: r.name, x: 0, y: HH + i * H, w: HW, h: H, fill: r.colour, fontSize: 11, ea_type: r.entity_type, ea_id: r.id });
+      cells.push({ id: `r_${r.id}`, label: r.name, x: 0, y: HH + i * H, w: HW, h: H, fill: r.colour, fontSize: 11, ea_type: r.entity_type, ea_id: r.id, keepSize: true });
       grid.cols.forEach((c, j) => {
         const list = grid.cells[`${r.id}|${c.id}`];
         cells.push({ id: `x_${i}_${j}`, label: list ? list.map((x) => `${x.way} ${initial(x)}`).join(" ") : "", x: HW + j * W, y: HH + i * H,
-          w: W, h: H, fill: list ? "e8f0fb" : "ffffff", stroke: "d9dee5", align: "center", fontSize: 10 });
+          w: W, h: H, fill: list ? "e8f0fb" : "ffffff", stroke: "d9dee5", align: "center", fontSize: 10, keepSize: true });
       });
     });
-    openDrawio(title, cells, []);
+    return { title, nodes: cells, edges: [] };
   }
 
   return (
@@ -102,7 +107,7 @@ export default function RelationMatrix({ model }) {
         </label>
         <label><input type="checkbox" checked={onlyLinked} onChange={(e) => setOnlyLinked(e.target.checked)} /> Only rows and columns with relationships</label>
         <span className="er-spacer" />
-        <button onClick={exportDrawio} disabled={!grid}>Open in draw.io</button>
+        <PictureActions model={model} picture={picture} disabled={!grid} />
         <button onClick={exportCsv} disabled={!grid}>CSV</button>
       </div>
       {!grid ? <p className="quiet">Loading...</p> : (

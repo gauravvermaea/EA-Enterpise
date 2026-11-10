@@ -5,14 +5,14 @@ content already in it, keep every change as a numbered version with its history,
 that fails a check, and let a model be locked. Version **0.3.0**, migration `0005_metamodel_editing`.
 Decisions D64, D65, D67, D52, D72 to D76 and D87.
 
-## Status: built, waiting for Gaurav's test
+## Status: accepted on 4 November 2026 (0.3.0)
 
 ## What phase 3 delivers
 
 - **Metamodel editor** (Metamodel tab of a project model; the *+* buttons on the Entity types and
   Relationship types tabs open the same dialogs). Every dialog has **Check impact** (what the change
   would do, nothing saved) and **Save**:
-  - entity types: add, change (name, layer, display-ID prefix, aspect, description), retire, restore.
+  - entity types: add, change (name, domain, display-ID prefix, aspect, description), retire, restore.
     A retired type is no longer offered for new entities and its entities become read-only (enforced by
     the database) until it is restored (D87);
   - attributes on an entity type: add, change, remove. Every data type, a new or an existing pick

@@ -10,8 +10,9 @@ from __future__ import annotations
 KEY = "togaf10-content-metamodel-1.0"
 NAME = "TOGAF 10 content metamodel"
 
-LAYERS = [("Motivation", "CCCCFF"), ("Strategy", "F5DEAA"), ("Business", "FFFFB5"), ("Data", "B5FFFF"), ("Application", "B5FFFF"),
-          ("Technology", "C9E7B7"), ("Implementation and Migration", "FFE0E0"), ("Governance", "E0FFE0")]
+# in the ArchiMate 4 notation's colours (D392); Data takes Application's blue and Governance Motivation's purple (owner)
+LAYERS = [("Motivation", "D1BADC"), ("Strategy", "EFBD5D"), ("Business", "ECD678"), ("Data", "B0D0D9"), ("Application", "B0D0D9"),
+          ("Technology", "BBD8AD"), ("Implementation and Migration", "F1BBB7"), ("Governance", "D1BADC")]
 
 # (code, name, layer, ID prefix, content framework area, description)
 TYPES = [
@@ -68,6 +69,18 @@ TYPES = [
 ]
 
 # (code, verb, category, directed)
+# the nearest ArchiMate 4 notation of each TOGAF 10 type, for drawn views (phase 28, D354); none: a plain box
+NOTATION = {"Stakeholder": "Stakeholder", "Driver": "Driver", "Goal": "Goal", "Outcome": "Outcome", "Principle": "Principle",
+            "Requirement": "Requirement", "Constraint": "Requirement", "Assumption": "Assessment", "Gap": "Assessment",
+            "Capability": "Capability", "ValueStream": "ValueStream", "CourseOfAction": "CourseOfAction", "Actor": "BusinessActor",
+            "Role": "Role", "OrganisationUnit": "BusinessActor", "Function": "Function", "BusinessService": "Service",
+            "Contract": "BusinessObject", "Product": "Product", "Process": "Process", "Event": "Event", "Location": "Location",
+            "DataEntity": "DataObject", "LogicalDataComponent": "DataObject", "PhysicalDataComponent": "Artifact",
+            "ApplicationService": "Service", "LogicalApplicationComponent": "ApplicationComponent",
+            "PhysicalApplicationComponent": "ApplicationComponent", "TechnologyService": "Service",
+            "LogicalTechnologyComponent": "Node", "PhysicalTechnologyComponent": "Device", "WorkPackage": "WorkPackage",
+            "Measure": "Outcome"}
+
 RELS = [("Association", "associated with", "Dependency", False), ("Composition", "composed of", "Structural", True),
         ("Realization", "realizes", "Structural", True), ("Serving", "serves", "Dependency", True),
         ("Assignment", "assigned to", "Structural", True), ("Access", "accesses", "Dependency", True),
@@ -118,8 +131,9 @@ def sql(gid, insert, snake, empty_id: str) -> str:
             "template", empty_id, NAME, True, "EA Explorer", "10"]]),
         insert("layer", ["id", "model_id", "code", "name", "colour", "sort_order"],
                [[gid(k, "layer", n), m, snake(n), n, c, i * 10] for i, (n, c) in enumerate(LAYERS, 1)]),
-        insert("entity_type", ["id", "model_id", "layer_id", "code", "name", "description", "id_prefix", "table_name", "content_area", "sort_order"],
-               [[gid(k, "entity_type", c), m, gid(k, "layer", lay), c, n, d, pre, snake(c), area, i * 10]
+        insert("entity_type", ["id", "model_id", "layer_id", "code", "name", "description", "id_prefix", "table_name", "content_area",
+                               "sort_order", "notation"],
+               [[gid(k, "entity_type", c), m, gid(k, "layer", lay), c, n, d, pre, snake(c), area, i * 10, NOTATION.get(c, "")]
                 for i, (c, n, lay, pre, area, d) in enumerate(TYPES, 1)]),
         insert("relationship_type", ["id", "model_id", "code", "name", "verb", "category", "is_directed", "sort_order"],
                [[gid(k, "relationship_type", c), m, c, c, v, cat, directed, i * 10] for i, (c, v, cat, directed) in enumerate(RELS, 1)]),

@@ -14,9 +14,11 @@ import { refreshAll, Swatch, useApi } from "./ModelViews";
 import { PendingBanner, PendingMark } from "./ModelMarks";
 import { EntityChanges, useEntityChanges, WasValue } from "./Changes";
 import { fmtDateTime } from "./fmt";
+import { LinkEditor, LinkList } from "./Links";
 import { toneOf } from "./Quality";
 import { AreaChips, AreaPicker } from "./CfAreaPicker";
 import { fieldClass, FieldQuality, q2, QualityBadge, QualityCell, RecheckAll, ScoreChip, useEntityQuality, useTypeQuality } from "./QualityBits";
+import { elementTypes } from "./elements.js";
 
 const CONTENT_ROLES = ["architect", "model-sub-admin", "model-admin"];
 const me = () => currentUser().preferred_username || "";
@@ -103,10 +105,12 @@ export function ValueInput({ model, a, value, onChange, id }) {
     case "integer": case "decimal": case "currency": case "percent":
       return <input id={id} type="text" inputMode="decimal" value={v} onChange={(e) => onChange(e.target.value)}
         placeholder={a.data_type === "integer" ? "whole number" : "number"} />;
+    case "url":
+      return <LinkEditor id={id} value={v} onChange={onChange} />;
     case "entity_ref":
       return <EntityPicker model={model} value={value?.id || null} label={value?.name} onChange={(i, n) => onChange(i ? { id: i, name: n } : null)} />;
     default:
-      return <input id={id} type={a.data_type === "email" ? "email" : a.data_type === "url" ? "url" : "text"} value={v}
+      return <input id={id} type={a.data_type === "email" ? "email" : "text"} value={v}
         onChange={(e) => onChange(e.target.value)} />;
   }
 }
@@ -130,8 +134,11 @@ function LiveCheck({ list }) {
   return <>{list.map((w, i) => <span key={i} className={`sev ${w.severity} small`}>{w.message}</span>)}</>;
 }
 
-export function EntityFormDialog({ model, m, typeId, e, onClose, onSaved }) {
+// commit: from a drawn view (D413), {view}: the button is Save and commit, with a commit message, the required
+// attributes must be filled, and the change goes into the model at once (/drawn-views/change)
+export function EntityFormDialog({ model, m, typeId, e, onClose, onSaved, commit = null, onUseExisting = null }) {
   const { data: form, error } = useApi(`/api/v1/models/${model}/forms/${typeId || e?.entity_type_id}`);
+  const [commitMsg, setCommitMsg] = useState(commit ? `${e ? "Changed" : "Created"} on drawn view ${commit.view || ""}`.trim() : "");
   const [name, setName] = useState(e?.name || "");
   const [description, setDescription] = useState(e?.description || "");
   const [parent, setParent] = useState(e?.parent_id ? { id: e.parent_id, name: e.parent_name } : null);
@@ -165,6 +172,20 @@ export function EntityFormDialog({ model, m, typeId, e, onClose, onSaved }) {
     return () => clearTimeout(t);
   }, [form, values, name, description]);
   const liveFor = (code) => (live ? live.warnings.filter((w) => w.code.toLowerCase() === String(code).toLowerCase()) : null);
+  // a new name that looks like an existing one is a likely duplicate (phase 21, D361): said as you type, never blocking
+  const [similar, setSimilar] = useState([]);
+  const [askSame, setAskSame] = useState(null);   // drawn views (D454): the same name and type, asked before creating
+  useEffect(() => {
+    if (!form || (e && name.trim() === (e.name || "").trim()) || name.trim().length < 3) { setSimilar([]); return undefined; }
+    const t = setTimeout(async () => {
+      try {
+        const out = await apiFetch(`/api/v1/models/${model}/content/similar?${new URLSearchParams({ entity_type: form.entity_type.id, name, ...(e ? { entity: e.id } : {}),
+          ...(onUseExisting ? { all_types: "1", limit: "10" } : {}) })}`);
+        setSimilar(out.similar || []);
+      } catch { setSimilar([]); }
+    }, 450);
+    return () => clearTimeout(t);
+  }, [form, name]);   // eslint-disable-line react-hooks/exhaustive-deps
   if (!form || values === null) return <Modal title="Loading..." onClose={onClose}><p className="quiet">{error || "Loading the form..."}</p></Modal>;
   const sections = [];
   for (const a of form.attributes) {
@@ -192,7 +213,20 @@ export function EntityFormDialog({ model, m, typeId, e, onClose, onSaved }) {
   const qBad = (a) => a.quality_weight > 0 && !na(a.code) && !filled(values[a.code]);
   const qTotal = qItems.reduce((n, x) => n + x.w, 0);
   const quality = qTotal ? Math.round((100 * qItems.filter((x) => x.ok).reduce((n, x) => n + x.w, 0)) / qTotal) : 100;
-  async function save(another = false) {
+  // drawn views (D454): a new entity whose name is already in the model as the same type asks first: use it, or make another
+  const sameExact = () => similar.find((x) => x.same && x.same_type !== false);
+  async function save(another = false, sure = false) {
+    if (onUseExisting && !e && !sure) {
+      let hit = sameExact();
+      if (!hit && name.trim().length >= 3) {
+        try {
+          const out = await apiFetch(`/api/v1/models/${model}/content/similar?${new URLSearchParams({ entity_type: form.entity_type.id, name, all_types: "1", limit: "10" })}`);
+          setSimilar(out.similar || []);
+          hit = (out.similar || []).find((x) => x.same && x.same_type !== false);
+        } catch { /* the check is a help: without it the form still saves */ }
+      }
+      if (hit) { setAskSame(hit); return; }
+    }
     setBusy(true); setMsg("");
     const body = { values: changedValues() };
     if (!e) Object.assign(body, { entity_type: form.entity_type.id, name, description, parent: parent?.id || "", tags, content_areas: areas });
@@ -205,8 +239,11 @@ export function EntityFormDialog({ model, m, typeId, e, onClose, onSaved }) {
       body.row_version = e.row_version;
     }
     try {
-      const out = await apiFetch(e ? `/api/v1/models/${model}/content/entities/${e.id}` : `/api/v1/models/${model}/content/entities`,
-        { method: e ? "PATCH" : "POST", body: JSON.stringify(body) });
+      const out = commit
+        ? await apiFetch(`/api/v1/models/${model}/drawn-views/change`, { method: "POST", body: JSON.stringify({
+          op: e ? "entity.update" : "entity.create", args: e ? { entity: e.id, data: body } : { data: body }, view_name: commit.view || "", message: commitMsg }) })
+        : await apiFetch(e ? `/api/v1/models/${model}/content/entities/${e.id}` : `/api/v1/models/${model}/content/entities`,
+          { method: e ? "PATCH" : "POST", body: JSON.stringify(body) });
       refreshAll();
       if (out.saved_warnings?.length) { setSaved(out); setBusy(false); return; }
       if (another) {
@@ -215,6 +252,18 @@ export function EntityFormDialog({ model, m, typeId, e, onClose, onSaved }) {
       }
       onSaved?.(out); onClose();
     } catch (err) { setMsg(err.message); setBusy(false); }
+  }
+  if (askSame) {
+    return (
+      <Modal title="Already in the model" onClose={() => setAskSame(null)}
+        actions={<>
+          <button className="ed-btn" onClick={() => { onUseExisting(askSame); onClose(); }}>Use the existing one</button>
+          <button className="ed-btn secondary" onClick={() => { setAskSame(null); save(false, true); }}>Create another</button>
+          <button className="ed-btn secondary" onClick={() => setAskSame(null)}>Back to the form</button></>}>
+        <p className="similar-ask"><b>{askSame.name}</b> already exists as {aOrAn(askSame.type || form.entity_type.name)} ({askSame.display_id}). Use the existing one, or create another?</p>
+        <p className="quiet small">Using it shows it on the drawing instead of making a new {form.entity_type.name}; nothing you typed in the form is saved.</p>
+      </Modal>
+    );
   }
   if (saved) {
     return (
@@ -228,9 +277,14 @@ export function EntityFormDialog({ model, m, typeId, e, onClose, onSaved }) {
   return (
     <Modal wide title={e ? `Edit ${e.display_id} ${e.name}` : `New ${form.entity_type.name}`} onClose={onClose}
       actions={<>
-        {!e && <button className="ed-btn secondary" disabled={busy || !name.trim()} onClick={() => save(true)} title="Save and start the next one">Save and new</button>}
-        <button className="ed-btn" disabled={busy || !name.trim()} onClick={() => save(false)}>{busy ? "Saving..." : "Save"}</button>
+        {!e && !commit && <button className="ed-btn secondary" disabled={busy || !name.trim()} onClick={() => save(true)} title="Save and start the next one">Save and new</button>}
+        {commit ? <button className="ed-btn" disabled={busy || !name.trim() || missing.length > 0 || !commitMsg.trim()} onClick={() => save(false)}
+          title={missing.length ? `Fill the required attributes first: ${missing.map((a) => a.name).join(", ")}` : "Saved and committed at once, as you"}>{busy ? "Committing..." : "Save and commit"}</button>
+          : <button className="ed-btn" disabled={busy || !name.trim()} onClick={() => save(false)}>{busy ? "Saving..." : "Save"}</button>}
+        {commit && <button className="ed-btn secondary" onClick={onClose}>Cancel</button>}
       </>}>
+      {commit && <label className="ed-field drawn-commit-msg"><span>Commit message</span>
+        <input value={commitMsg} onChange={(ev) => setCommitMsg(ev.target.value)} aria-label="Commit message" /></label>}
       {msg && <p className={msg.startsWith("Saved") ? "status ok" : "status bad"}>{msg}</p>}
       {e && <EntityChanges model={model} entity={e} ec={ec} compact />}
       {eq.data && <p className="small"><QualityBadge q={eq.data} label="Data quality as saved" /> <span className="quiet">fields highlighted lower it; fill them, or mark one not applicable</span></p>}
@@ -241,7 +295,11 @@ export function EntityFormDialog({ model, m, typeId, e, onClose, onSaved }) {
       <div className="form-grid">
         <label className={`ed-field${f("name") ? " pending-field" : ""}`}><span>Name <span className="req">*</span> <WasValue f={f("name")} /></span>
           <input autoFocus value={name} onChange={(ev) => setName(ev.target.value)} />
-          <LiveCheck list={liveFor("name")} /></label>
+          <LiveCheck list={liveFor("name")} />
+          {onUseExisting && similar.length > 0 && <SimilarList model={model} list={similar} typeName={form.entity_type.name} onUse={(x) => { onUseExisting(x); onClose(); }} />}
+          {!onUseExisting && similar.length > 0 && <span className="status warn small similar-names">⚠ Looks like {similar.map((x, i) => (
+            <span key={x.id}>{i ? ", " : ""}<a href={`#/metamodel/${model}/entity/${x.id}`} target="_blank" rel="noopener noreferrer">{x.name}</a> ({x.display_id}{x.same ? ", the same name" : ""})</span>))}:
+            check it is not already there. You can still save.</span>}</label>
         <label className="ed-field"><span>Display ID</span>
           <input value={e?.display_id || ""} disabled placeholder={`${form.entity_type.id_prefix}-next number`} title="Given when saved" /></label>
         <label className={`ed-field wide${f("description") ? " pending-field" : ""}`}><span>Description <WasValue f={f("description")} /></span>
@@ -270,7 +328,7 @@ export function EntityFormDialog({ model, m, typeId, e, onClose, onSaved }) {
               const warn = now ? now.map((w) => w.message).join("; ") : cur?.warnings?.length ? cur.warnings.map((w) => w.message).join("; ") : "";
               const sev = now?.some((w) => w.severity === "error") ? "error" : "warning";
               return (
-                <div key={a.code} className={`ed-field${a.data_type === "long_text" ? " wide" : ""}${f(`value:${a.code}`) ? " pending-field" : ""}${qBad(a) ? " q-field-bad" : na(a.code) ? " q-field-na" : ""}`}>
+                <div key={a.code} className={`ed-field${a.data_type === "long_text" || a.data_type === "url" ? " wide" : ""}${f(`value:${a.code}`) ? " pending-field" : ""}${qBad(a) ? " q-field-bad" : na(a.code) ? " q-field-na" : ""}`}>
                   <label htmlFor={`f-${a.code}`} title={[a.description, a.data_type_name, a.pick_list_values.length ? `One of: ${a.pick_list_values.join(", ")}` : ""].filter(Boolean).join(" · ")}>
                     {a.name}{a.is_required && <span className="req" title="Required">*</span>}{a.unit && <span className="quiet"> ({a.unit})</span>} <span className="tip">ⓘ</span>
                     {a.quality_weight > 0 && <span className={`q-weight${filled(values[a.code]) ? " done" : ""}`} title={`Counts ${a.quality_weight} towards data quality (set in the metamodel)`}>{"●".repeat(Math.min(5, a.quality_weight))}</span>}
@@ -287,11 +345,36 @@ export function EntityFormDialog({ model, m, typeId, e, onClose, onSaved }) {
           </div>
         </fieldset>
       ))}
-      {missing.length > 0 && <p className="quiet">Required and still empty: {missing.map((a) => a.name).join(", ")}. You can save anyway; it shows as a warning (D48).</p>}
+      {missing.length > 0 && <p className={commit ? "status warn small" : "quiet"}>Required and still empty: {missing.map((a) => a.name).join(", ")}.
+        {commit ? " Fill them to commit from the drawn view." : " You can save anyway; it shows as a warning (D48)."}</p>}
       <p className="q-form small" title="Each field counts by its data quality weight (set in the metamodel); the description counts 1 and having a relationship 2">
         Data quality: <span className="q-mini"><span className={`q-bar-fill ${toneOf(quality, form.quality_bands || undefined)}`} style={{ width: `${quality}%` }} /></span>{" "}
         <b>{quality}% complete</b>{!e && " (add a relationship after saving for the rest)"}</p>
     </Modal>
+  );
+}
+
+const aOrAn = (w) => `${/^[aeiou]/i.test(String(w || "")) ? "an" : "a"} ${w}`;
+
+// names in the model that look like the one typed (D454, drawn views): the same type first, each with Use this one; other
+// types are shown with their type, to know, but the shape can only show an entity of its own type
+function SimilarList({ model, list, typeName, onUse }) {
+  const same = list.filter((x) => x.same_type !== false);
+  const other = list.filter((x) => x.same_type === false);
+  return (
+    <span className="similar-list small" role="group" aria-label="Already in the model">
+      <b>Already in the model:</b>
+      <ul>
+        {same.map((x) => (
+          <li key={x.id}><a href={`#/metamodel/${model}/entity/${x.id}`} target="_blank" rel="noopener noreferrer">{x.name}</a>
+            <span className="quiet"> {x.type || typeName} · {x.display_id}{x.same ? " · the same name" : ` · ${x.score}% alike`}</span>{" "}
+            <button type="button" className="ed-btn small" onClick={() => onUse(x)} title="Show this one on the drawing instead of making a new one">Use this one</button></li>))}
+        {other.map((x) => (
+          <li key={x.id} className="similar-other"><a href={`#/metamodel/${model}/entity/${x.id}`} target="_blank" rel="noopener noreferrer">{x.name}</a>
+            <span className="quiet"> {aOrAn(x.type)} · {x.display_id}{x.same ? " · the same name" : ` · ${x.score}% alike`} · another type, so the shape ({aOrAn(typeName)}) can't show it</span></li>))}
+      </ul>
+      <span className="quiet">Check it is not already there; you can still create a new one.</span>
+    </span>
   );
 }
 
@@ -559,7 +642,7 @@ function EntryRow({ model, m, form, row, cols, access, onRelate, tq }) {
       {cols.map((a) => {
         const ov = row.overrides?.[a.code];
         return <td key={a.code} className={`${ov ? "override" : ""} ${fieldClass(tq?.entities?.[row.id], a.code)}`.trim()}
-          title={ov ? `Saved although it fails: ${ov.rules.map((r) => r.message).join("; ")} (by ${ov.by})` : qWhy(tq, row.id, a.code)}>{cellValue(row, a)}</td>;
+          title={ov ? `Saved although it fails: ${ov.rules.map((r) => r.message).join("; ")} (by ${ov.by})` : qWhy(tq, row.id, a.code)}>{a.data_type === "url" ? <LinkList value={cellValue(row, a)} inline /> : cellValue(row, a)}</td>;
       })}
       <td className="quiet">{(row.tags || []).join(", ")}</td>
       <td className="nowrap">
@@ -583,7 +666,7 @@ export function DataEntryTab({ model, m, typeFromUrl }) {
   const [relateTo, setRelateTo] = useState(null);
   const [hidden, setHidden] = useState([]);
   useEffect(() => { setNewRows(0); setHidden([]); }, [type]);
-  const types = mm ? mm.layers.flatMap((l) => l.entity_types.map((t) => ({ ...t, layer: l.name }))) : [];
+  const types = mm ? mm.domains.flatMap((l) => elementTypes(l).map((t) => ({ ...t, domain: l.name }))) : [];
   const access = contentAccess(model, m, data?.retired);
   const cols = data ? data.attributes.filter((a) => !hidden.includes(a.code)) : [];
   const f = filter.trim().toLowerCase();
@@ -594,9 +677,9 @@ export function DataEntryTab({ model, m, typeFromUrl }) {
         <label title="Choose an entity type: its fields become the columns">Entity type{" "}
           <select value={type} onChange={(ev) => { setType(ev.target.value); window.location.hash = `/metamodel/${model}/entry${ev.target.value ? `/${ev.target.value}` : ""}`; }}>
             <option value="">Choose...</option>
-            {mm?.layers.map((l) => (
+            {mm?.domains.map((l) => (
               <optgroup key={l.id} label={l.name}>
-                {l.entity_types.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.entity_count ?? 0})</option>)}
+                {elementTypes(l).map((t) => <option key={t.id} value={t.id}>{t.name} ({t.entity_count ?? 0})</option>)}
               </optgroup>
             ))}
           </select></label>

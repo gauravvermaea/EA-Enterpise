@@ -181,8 +181,8 @@ way a model joins a project.
 ## And later that evening (D291)
 
 **The project page**
-- **Viewpoints**: the project's viewpoints by ADM phase. Each one opens in the project model you choose; models that can
-  show every element type come first (✓), the others say what they lack. A viewpoint can be moved to another phase.
+- **Views**: the project's views by ADM phase. Each one opens in the project model you choose; models that can
+  show every element type come first (✓), the others say what they lack. A view can be moved to another phase.
 - **Reports**: the project's status phase by phase (steps done, classes with documents, documents by state, checked
   out), what is waiting for approval, the goals, CSV for Excel, and each model's reports.
 - **Gaps**: a new gap analysis between two of the project's models, and the ones already made.
@@ -205,7 +205,7 @@ way a model joins a project.
 
 ### How to check it
 1. Open the sample Protea transformation project and look at its new tabs.
-   - **Viewpoints**: click B, change the model for VP-05 and open it.
+   - **Views**: click B, change the model for VP-05 and open it.
    - **Reports**: download the CSV.
    - **Gaps**: Protea Insurance to Protea claims target 2028, then + New gap analysis.
 2. Back up the project:
@@ -261,7 +261,7 @@ Before the owner's test, the code was reviewed for bugs and inconsistencies. Fix
 - **Power** and **interest** (High/Medium/Low) place it on the grid and give its class: Key players, Keep satisfied, Keep
   informed or Minimal effort. The class can be set by hand (✎ shows it was).
 - **Position**: ability to disrupt; understanding and commitment now and needed (a gap is marked); support needed.
-- **Concerns** and the viewpoints and document classes that answer them (one with none is flagged).
+- **Concerns** and the views and document classes that answer them (one with none is flagged).
 - **Engagement**: approach (from the class unless set), how often, channel, who looks after them, next contact (overdue
   in red), last contact (the latest discussion note).
 - **Notes** (rich text) and **Discussions**: any number of dated rich-text notes.
@@ -275,7 +275,7 @@ goes back to Draft.
 **Steps**: completing a sub step no longer completes its step; someone ticks the step itself. **+ sub step** opens the
 step again.
 
-**Home** has three sub-tabs: Documents, Steps, Viewpoints. **Gaps and comparison** is one project tab with gap analyses,
+**Home** has three sub-tabs: Documents, Steps, Views. **Gaps and comparison** is one project tab with gap analyses,
 comparison and common analyses.
 
 **Also**: several files at once in Add a document; the wizard's files wait for the repository; the lists refresh while a
@@ -285,13 +285,13 @@ repository is being built, and the task says the repository is still being built
 1. New project › Transformation: the Stakeholders step lists ten suggestions with their classes and the grid; change one,
    remove one, add one.
 2. The project's **Stakeholders** tab: the grid and the matrix. Open the CIO: set commitment now Low and needed High (the
-   gap shows), tick a viewpoint and a document class, a next contact in the past (overdue). Discussions › + Note a
+   gap shows), tick a view and a document class, a next contact in the past (overdue). Discussions › + Note a
    discussion: it becomes the last contact. Set the class by hand. CSV.
 3. As `user_stakeholder`: the matrix shows, nothing can be changed.
 4. Derive a project from it: the stakeholders come too.
 5. Completion: tick a step (it rises), + sub step on it (it falls), tick the sub step (it stays), tick the step (it rises).
    Approve a deliverable (it rises).
-6. Home: Documents, Steps and Viewpoints sub-tabs; the document names no longer wrap under the D/A mark.
+6. Home: Documents, Steps and Views sub-tabs; the document names no longer wrap under the D/A mark.
 
 ## Not in this phase (to-do list)
 

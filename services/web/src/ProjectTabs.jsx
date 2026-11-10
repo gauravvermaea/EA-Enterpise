@@ -1,5 +1,5 @@
 // The project page's analysis tabs (owner, 7 Nov 2026):
-//   Viewpoints   by ADM phase; for each, choose which of the project's models to see it in (the ones that can show it first)
+//   Views   by ADM phase; for each, choose which of the project's models to see it in (the ones that can show it first)
 //   Reports      the project's own status report (steps, deliverables, documents, approvals, goals) and each model's reports
 //   Gaps         gap analyses between two of the project's models (as the Gap analysis screen does), and the ones already made
 //   Compare      two of the project's models (or one of their tags) side by side, and common analyses of its models
@@ -35,30 +35,30 @@ function projectModels(p) {
   return [...p.models].sort((a, b) => (b.home ? 1 : 0) - (a.home ? 1 : 0) || a.name.localeCompare(b.name));
 }
 
-// ------------------------------------------------------------------ Viewpoints
+// ------------------------------------------------------------------ Views
 // fixed: one phase only (the project's Phases tab, owner, 8 Nov 2026): no phase tabs
-export function ViewpointsByPhase({ p, fixed }) {
-  const [phase0, setPhase] = useState(() => p.viewpoints.find((v) => v.phase)?.phase || "A");
+export function ViewsByPhase({ p, fixed }) {
+  const [phase0, setPhase] = useState(() => p.views.find((v) => v.phase)?.phase || "A");
   const phase = fixed || phase0;
-  const [pick, setPick] = useState({});          // viewpoint code -> the model chosen to see it in
+  const [pick, setPick] = useState({});          // view code -> the model chosen to see it in
   const [msg, setMsg] = useState("");
   const qs = p.key_questions || [];
-  const answers = (code) => qs.map((q, i) => (q.viewpoints.includes(code) ? { n: i + 1, q } : null)).filter(Boolean);
-  const list = p.viewpoints.filter((v) => phase === "*" || v.phase === phase);
+  const answers = (code) => qs.map((q, i) => (q.views.includes(code) ? { n: i + 1, q } : null)).filter(Boolean);
+  const list = p.views.filter((v) => phase === "*" || v.phase === phase);
   async function move(v, ph) {
     setMsg("");
-    try { const r = await apiFetch(`/api/v1/projects/${p.id}/viewpoints/${encodeURIComponent(v.code)}/phase`, { method: "POST", body: JSON.stringify({ phase: ph }) }); setMsg(r.message); refreshAll(); }
+    try { const r = await apiFetch(`/api/v1/projects/${p.id}/views/${encodeURIComponent(v.code)}/phase`, { method: "POST", body: JSON.stringify({ phase: ph }) }); setMsg(r.message); refreshAll(); }
     catch (e) { setMsg(e.message); }
   }
   return (
     <div>
-      <p className="quiet small">The viewpoints this project uses, by ADM phase. Choose the model to see a viewpoint in: the project's models that
-        have every element type it shows come first (✓); the others show what they lack. Viewpoints are chosen in the project wizard
-        (✎ Edit › Viewpoints); a phase can be changed here.</p>
-      {!fixed && <PhaseTabs p={p} phase={phase} setPhase={setPhase} count={(c) => p.viewpoints.filter((v) => v.phase === c).length} />}
-      {fixed && !list.length && <p className="quiet small">No viewpoint is placed in this phase.</p>}
+      <p className="quiet small">The views this project uses, by ADM phase. Choose the model to see a view in: the project's models that
+        have every element type it shows come first (✓); the others show what they lack. Views are chosen in the project wizard
+        (✎ Edit › Views); a phase can be changed here.</p>
+      {!fixed && <PhaseTabs p={p} phase={phase} setPhase={setPhase} count={(c) => p.views.filter((v) => v.phase === c).length} />}
+      {fixed && !list.length && <p className="quiet small">No view is placed in this phase.</p>}
       <table className="grid-table vp-table">
-        <thead><tr><th>Viewpoint</th><th>Concerns · stakeholders</th><th>Answers</th><th>See it in</th><th /><th>Phase</th></tr></thead>
+        <thead><tr><th>View</th><th>Concerns · stakeholders</th><th>Answers</th><th>See it in</th><th /><th>Phase</th></tr></thead>
         <tbody>
           {list.map((v) => {
             const models = [...(v.models || [])].sort((a, b) => a.missing.length - b.missing.length);
@@ -73,14 +73,14 @@ export function ViewpointsByPhase({ p, fixed }) {
                   {models.map((x) => <option key={x.model} value={x.model}>{x.missing.length ? "· " : "✓ "}{x.name}{x.missing.length ? ` (lacks ${x.missing.length})` : ""}</option>)}
                 </select> : <span className="quiet small">The project has no model yet.</span>}
                   {cm && cm.missing.length > 0 && <div className="small quiet">lacks {cm.missing.join(", ")}</div>}</td>
-                <td className="nowrap">{cm && <a href={`#/metamodel/${cm.model}/viewpoints/${encodeURIComponent(v.code)}`}>Open</a>}
+                <td className="nowrap">{cm && <a href={`#/metamodel/${cm.model}/views/${encodeURIComponent(v.code)}`}>Open</a>}
                   {cm && cm.missing.length > 0 && <> · <a href={`#/metamodel/${cm.model}/metamodel`}>add the types</a></>}</td>
                 <td>{p.may_contribute ? <select value={v.phase || ""} onChange={(e) => move(v, e.target.value)} aria-label={`${v.code}: phase`}>
                   <option value="">usual</option>{p.phases.map((ph) => <option key={ph.code} value={ph.code}>{shortPhase(ph)}</option>)}</select> : v.phase}</td>
               </tr>
             );
           })}
-          {!list.length && <tr><td colSpan={6} className="quiet small">{p.viewpoints.length ? "No viewpoint in this phase." : "No viewpoints chosen: ✎ Edit › Viewpoints."}</td></tr>}
+          {!list.length && <tr><td colSpan={6} className="quiet small">{p.views.length ? "No view in this phase." : "No views chosen: ✎ Edit › Views."}</td></tr>}
         </tbody>
       </table>
       {msg && <p className="small status">{msg}</p>}

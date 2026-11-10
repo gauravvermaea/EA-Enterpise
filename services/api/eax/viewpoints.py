@@ -134,7 +134,7 @@ def model_viewpoint(conn, model: Any, code: str) -> dict:
     vp = get_viewpoint(conn, code)
     ents = _rows(conn, """
         SELECT e.id AS _id, e.guid AS id, e.display_id, e.name, e.description, t.code AS type_code, t.name AS entity_type,
-               t.guid AS entity_type_id, l.name AS layer, l.colour, l.sort_order AS layer_order, pe.name AS parent
+               t.guid AS entity_type_id, l.name AS domain, l.colour, l.sort_order AS domain_order, pe.name AS parent
           FROM core.entities e JOIN core.entity_types t ON t.id = e.entity_type_id JOIN core.layers l ON l.id = t.layer_id
           LEFT JOIN core.entities pe ON pe.id = e.parent_entity_id
          WHERE e.model_id = :m AND NOT e.is_deleted AND t.code = ANY (:types)
@@ -158,7 +158,7 @@ def model_viewpoint(conn, model: Any, code: str) -> dict:
     for e in ents:
         if not types or types[-1]["code"] != e["type_code"]:
             if not any(t["code"] == e["type_code"] for t in types):
-                types.append({"code": e["type_code"], "name": e["entity_type"], "id": e["entity_type_id"], "layer": e["layer"],
+                types.append({"code": e["type_code"], "name": e["entity_type"], "id": e["entity_type_id"], "domain": e["domain"],
                               "colour": e["colour"], "count": 0})
         next(t for t in types if t["code"] == e["type_code"])["count"] += 1
     heat = next((a for a in attributes if a.replace(" ", "").lower() == vp["heat_attribute"].lower()), None)

@@ -5,6 +5,14 @@ Tick an item (`[x]`) when it is done; remove it at the next tidy-up.
 
 ## Waiting on a test (Gaurav)
 
+- [ ] **Test backups that carry everything** (D410, 10 Nov 2026): `.\eax up` (the backup container mounts the reports'
+  home and the import and export folders); `.\eax backup check` and look at its `manifest.json` (`contents`: every
+  database, the file sets, what is not included and why); `.\eax restore check --what full`; on Administration >
+  Backups, Back up every model now, then Restore all (the organisation part: own views, project templates, skills, the
+  board, the enterprise library); a model put back over itself has its drawn views and icons as in the backup; a
+  project restored as new keeps its evidence links. On a second server (or a fresh `clean-restart`), restore a backup
+  from the first: the logins and roles are made. Older backups still restore (they say what they lack).
+
 - [x] **Accept phase 1** (accepted 4 Nov 2026).
 - [x] **Accept phase 2** (accepted 4 Nov 2026; checks passed, MCP tried from Claude Code).
 - [x] **Phase 2 closed** (4 Nov 2026, version 0.2.1).
@@ -44,19 +52,23 @@ Tick an item (`[x]`) when it is done; remove it at the next tidy-up.
   accepted or changed, sub-folders following their parent; then each file to a deliverable or artifact of the phase, a
   new item of the library in that phase, or a phase-level document. Every zip upload is mapped separately (nothing remembered), the TOGAF 10 zip included (its template names
   give the suggestions; the person confirms).
+- [x] **Hide frozen and archived models and projects** (owner, 9 Nov 2026, D360; built 9 Nov 2026 in 0.15.1): the model and project lists, the start page tiles, Architecture work and the switchers show only live ones; a *Show frozen and archived (n)* checkbox brings them back, greyed, remembered per person; switchers and pickers never offer them.
 - [x] **Test phase 15.2, the library** (0.15.1; accepted 9 Nov 2026, D356): `.\eax clean-restart`; Enterprise library on the menu (the sample folders, *Start here*, search for "claims"), a project's Library tab (Protea Claims: shown in the enterprise library; Fynbos Board reporting pack: its own address), make and edit a page with a table and links, upload a file, Recent changes and undo as `user_library_admin`, System settings › Enterprise library set to link and to off, `.\eax service library off` and on, a project backup and restore with its library. See [phase-15.2.md](phase-15.2.md).
 - [ ] **Test phase 13** (0.14.0): `.\eax clean-restart`, the one-time TOGAF template task (D262) and the template library setup (D264), then the demo and checks in [phase-13.md](phase-13.md). The Mayan API calls (cabinets, upload, versions, check-out) are untested against a running Mayan until then.
 - [ ] **Test phase 13.0.2** (0.14.1): every slow button as a background task, the task drawer and the Background tasks tab (D273): the checks in [phase-13.0.2.md](phase-13.0.2.md); first the merge that gave a 500.
 - [ ] **Fix later (owner, 6 Nov 2026): `dms` and `reports-init` show a problem** on Administration > Containers after the phase 12.1 start. Looked at on 6 Nov 2026 (container logs, docker inspect, docker stats); not caused by the new start-up order:
   - **`dms` (Mayan) runs out of memory.** *Changed in phase 13 (D263): 2 web workers, one task per queue, 3 GB; check it stays up.* Its laptop limit is 2 GB (deploy/compose/docker-compose.laptop.yml); about 40 s after it starts its web server and Celery workers run together, and Docker kills processes (`Worker was sent SIGKILL! Perhaps out of memory?`, `mayan-edms-worker_b/e terminated by SIGKILL`; inspect: `OOMKilled=true`). Supervisor restarts them, so it keeps running, at about 1.66 GB of 2 GB (83%). Fix: fewer Mayan workers on a laptop (its gunicorn and Celery worker counts) or a higher limit, or both; the same 98% was seen before.
   - **`reports-init` finished well but shows unhealthy.** It exited 0 (*report datasets ready (104 datasets, 47 added)*, *Superset ready*), but it uses the Superset image, whose built-in health check expects the Superset server on port 8088, which the set-up container never runs, so Docker marks it unhealthy and the Containers summary shows Problem. Fix: `healthcheck: disable: true` on reports-init, and treat a set-up container that exited 0 as done (green) in the Containers summary.
-- [ ] **Fix later (owner, 6 Nov 2026): the draw.io diagrams need tidying.** Now that every picture opens in draw.io (D256), the layouts show too much spacing and look poor. Go through each one and fix the layout (box sizes, gaps, alignment, nesting, line routing): the ER diagram (MetamodelDiagram.jsx drawioXml), the entity graph, the hierarchy map, the model tree, the relation matrix, the value stream map and the roadmap (Maps.jsx), and the viewpoint heat map and matrix (Viewpoints.jsx); the shared builder is exporting.js drawioXml.
+- [x] **Done 10 Nov 2026 (D408):** the pictures are tidied when saved as a drawn view or downloaded: the shared builder (exporting.js `tidy`, `drawioXml`) snaps boxes to the grid, gives entities their minimum size and their type's ArchiMate notation, grows containers round their parts, draws lines as the picture does (straight; elbows for the trees) and binds them to the relationships; heat maps, the matrices, the value stream map and the roadmap were re-spaced; each checked as a drawn view. **Was (owner, 6 Nov 2026): the draw.io diagrams need tidying.** Now that every picture opens in draw.io (D256), the layouts show too much spacing and look poor. Go through each one and fix the layout (box sizes, gaps, alignment, nesting, line routing): the ER diagram (MetamodelDiagram.jsx drawioXml), the entity graph, the hierarchy map, the model tree, the relation matrix, the value stream map and the roadmap (Maps.jsx), and the view heat map and matrix (Views.jsx); the shared builder is exporting.js drawioXml.
 - [ ] **Test phase 8.3** (0.8.4): `.\eax clean-restart`, the demo and checks in [phase-8.3.md](phase-8.3.md).
 - [ ] **Test phase 9** (0.9.0), with 8.3: `.\eax clean-restart`, the demo and checks in [phase-9.md](phase-9.md).
 - [ ] **Test phase 10** (0.10.0), with 8.3 and 9: the demo and checks in [phase-10.md](phase-10.md).
 - [ ] **Test phase 10.1** (0.10.1): the demo and checks in [phase-10.1.md](phase-10.1.md); open the .xlsm in Excel.
-- [ ] **Design discussion for draw.io (web), phases 28 and 29** (D174): before building, agree how draw.io connects to a model, the stencil of entity and relationship types, harvest and saves. The desktop app is not supported.
-- [ ] **Phase 28-29 rule (D167)**: draw.io diagram saves go through `POST /models/<model>/changes/batch`, so they are committed like every other change.
+- [x] **Design discussion for draw.io (web), phases 28 and 29** (D174): agreed 9 Nov 2026 (D354 to D398), see [phase-28.md](phase-28.md).
+- [x] **Phase 28-29 rule (D167)**: superseded by D354: a view's file is saved as a version of the view; the relationships drawn are each person's uncommitted changes, committed like every other change.
+- [ ] **Test phases 28 and 29** (0.16.0, migration 0033): a model's Views tab › Drawn views and the editor ([phase-28.md](phase-28.md), As built: the screens), on the sample drawn views of the demo estate.
+- [ ] **Phase 28 screens, left out**: *Save as a drawn view* for the capability and hierarchy maps; picking a drawn view as evidence from a deliverable's own page (today from the editor).
+- [ ] **Phase 28 follow-ups**: offer the junction type to models made before 0.16.0; carry drawn views in model packages (file merges, other installations); leave the junction type out of catalogues, counts and reports where it shows as an element.
 - [ ] **Phase 10: clean up the start page (owner, 5 Nov 2026, D163). Discuss with the owner first, then build.** It has grown into a list of build features
   (Grid, Data entry...) that mean little to a user. Rework it with the home dashboard: start from what a person wants
   to do (my models, my favourites and recent items, find something, my reports and dashboards for my audience,
@@ -169,7 +181,7 @@ Tick an item (`[x]`) when it is done; remove it at the next tidy-up.
 ## Open Group reports and views (owner, 4 Nov 2026): for the discussion after phase 6
 
 - [ ] Follow the Open Group: the TOGAF 10 catalogs, matrices and diagrams by ADM phase, the 25 ArchiMate 4 example
-  viewpoints (basic, motivation, strategy, implementation and migration) and the business architecture maps (capability
+  views (basic, motivation, strategy, implementation and migration) and the business architecture maps (capability
   map heat-mapped by maturity, importance, investment or risk; value stream map; value stream x capability with heat;
   organisation map; information map; strategy to capability tracing). Gaps found against the 30 standard reports:
   principles, stakeholder map, contract/measure, location and glossary catalogs; strategy/capability,
@@ -179,13 +191,13 @@ Tick an item (`[x]`) when it is done; remove it at the next tidy-up.
   layered views, environments and platform decomposition, technology standards, project context, benefits, migration
   and implementation and migration, outcome realisation, resource map, requirements realisation. Diagram-type views
   overlap with the standard views (phases 30-31, draw.io); the catalogs and matrices are Superset reports.
-- [ ] Checked against the ArchiMate 4 Specification (owner's copy, 4 Nov 2026): Appendix C has 25 example viewpoints
+- [ ] Checked against the ArchiMate 4 Specification (owner's copy, 4 Nov 2026): Appendix C has 25 example views
   (13 basic in four categories: composition, support, cooperation, realization; 4 motivation; 5 strategy; 3
   implementation and migration), each with stakeholders, concerns, purpose, scope and the element types it allows
-  (grouping and junctions in all; Layered allows every core element). Section 13.4: a viewpoint's representation may
+  (grouping and junctions in all; Layered allows every core element). Section 13.4: a view's representation may
   be a diagram, a catalog, a matrix or another visualisation, and attribute profiles can colour views as heat maps.
-  Our ArchiMate 4 template matches the 3.2 to 4 changes (Appendix E.4). Idea: viewpoints as data (element types per
-  viewpoint) so any model can be shown through any viewpoint as a diagram, catalog, matrix or heat map.
+  Our ArchiMate 4 template matches the 3.2 to 4 changes (Appendix E.4). Idea: views as data (element types per
+  view) so any model can be shown through any view as a diagram, catalog, matrix or heat map.
 
 ## Deployment (to discuss when we reach the deployment phase)
 
@@ -204,7 +216,7 @@ Tick an item (`[x]`) when it is done; remove it at the next tidy-up.
 ## Principles, still to settle (D267, D270; was part of the 13.0.1 design session)
 
 Phase 13.0.1 was built on 7 Nov 2026 from the owner's 22 points (D274 to D279): the project's scope, goals and outcomes,
-sponsor, notes and files, editing a running project, placeholders, viewpoints, sign-off, the landing page and finishing.
+sponsor, notes and files, editing a running project, placeholders, views, sign-off, the landing page and finishing.
 Projects are created and changed in the background (D273). What is left from that design session:
 
 - **root-principle-model (D271, seeded in phase 13)**: the 20 principles by name and category; enter their statement,
@@ -224,8 +236,8 @@ Projects are created and changed in the background (D273). What is left from tha
 - [ ] **Test phase 13.0.5** (0.14.5): common analysis: the checks in [phase-13.0.5.md](phase-13.0.5.md).
 - [ ] **Test phase 13.0.6** (0.14.6): the repository as a table: the checks in [phase-13.0.6.md](phase-13.0.6.md).
 - [ ] Common analysis later: compare two of its results side by side, and save its settings as a named profile (as comparison profiles).
-- [ ] **Check the tool for conformance (owner, 7 Nov 2026; D287, build phase 33.1)**, after the XML exchange format (phase 33): ArchiMate 4 (language, relationships and derivation rules, viewpoints, notation), the Model Exchange File Format (our files validate against the schemas; other tools' files import and export again without loss) and TOGAF 10 (content framework, ADM deliverables). Also (owner, same day): the **rules for what can go in what** (allowed relationships between each pair of element types, what may be nested in or composed of what), checked against the specification's tables and enforced on entry, import and exchange; and **every entity type has its layer** (list any without one and set it). A conformance report: met, partly met, not met, with evidence; gaps to the backlog.
-- [ ] **Story DIA-023: standard ArchiMate notation everywhere (owner, 7 Nov 2026; D288).** The views and viewpoints do not use the standard iconography yet. Every element type (shape, type icon, layer colours) and relationship type (line, ends, dashing, junctions) drawn with the standard notation in viewpoints, the draw.io stencil, the ER diagram, graphs and maps, legends, pickers and exports; one shared set of shapes; afterwards every existing viewpoint, report, view and map is moved onto it. Built with draw.io, phase 28 (owner, 7 Nov 2026).
+- [ ] **Check the tool for conformance (owner, 7 Nov 2026; D287, build phase 33.1)**, after the XML exchange format (phase 33): ArchiMate 4 (language, relationships and derivation rules, views, notation), the Model Exchange File Format (our files validate against the schemas; other tools' files import and export again without loss) and TOGAF 10 (content framework, ADM deliverables). Also (owner, same day): the **rules for what can go in what** (allowed relationships between each pair of element types, what may be nested in or composed of what), checked against the specification's tables and enforced on entry, import and exchange; and **every entity type has its domain** (list any without one and set it). A conformance report: met, partly met, not met, with evidence; gaps to the backlog.
+- [ ] **Story DIA-023: standard ArchiMate notation everywhere (owner, 7 Nov 2026; D288).** The views do not use the standard iconography yet. Every element type (shape, type icon, domain colours) and relationship type (line, ends, dashing, junctions) drawn with the standard notation in views, the draw.io stencil, the ER diagram, graphs and maps, legends, pickers and exports; one shared set of shapes; afterwards every existing view, report and map is moved onto it. Built with draw.io, phase 28 (owner, 7 Nov 2026).
 - [ ] **Example content (phase to think through, owner 7 Nov 2026)**: every installation has example content to learn and test with, and production work. Two ways to weigh: **marked examples** in one realm (an EXAMPLE badge, an Examples area; a System admin switches examples on or off, admins give people access or take it away, each person shows or hides them; reset or remove by a wizard), or **two realms** (Example and Production) in one installation. Design session first.
 - [ ] **Later (owner: "much later")**: sign-in through **LDAP** (Keycloak LDAP federation, users and groups synced, groups to roles; no Active Directory) and **Entra ID** (how users work with Entra: sign-in, groups to roles, guests). Stories in the requirements.
 - [x] **Principles: built 8 Nov 2026 (D327, checks in [phase-13.8.md](phase-13.8.md))**. Was: discuss with the owner (7 Nov 2026: "what we have are useless") before changing them: what a project's principles are for, where they come from, how they are written and used. Owner's points so far: open a principle and see its details; in admin, principles that are **mandatory for every project** or **optional**; projects add principles of their own.
@@ -236,7 +248,7 @@ Projects are created and changed in the background (D273). What is left from tha
   - **add a top-level area** (Business, Security, Data...);
   - **link a higher-level principle to the lower-level ones** that refine it;
   - an **Administration screen to configure principles** (areas, the principles, which are forced).
-- [ ] **New-viewpoint wizard** and **new-report wizard** (owner, 7 Nov 2026; D284): later.
+- [ ] **New-view wizard** and **new-report wizard** (owner, 7 Nov 2026; D284): later.
 - [ ] **Design the architecture screens** with the owner (D284): data entry, catalogs, matrices, diagrams, gap analysis, reports around the model and project pages.
 - [ ] **Email for alerts (owner, 7 Nov 2026)**: sign-off requests and decisions, and other alerts, also by email (and
   to other external systems). Needs its own phase: the mail server, the addresses (Keycloak), what is sent, opting
@@ -582,3 +594,5 @@ Noted 4 Nov 2026 (D99). To discuss and settle when we build the final deployment
 
 - MCP as a remote connector for claude.ai and Claude Desktop custom connectors: public https and
   Keycloak OAuth on server installations (AI-011, phase 26).
+
+- [x] **Drawn views, accepted as they are (owner, 10 Nov 2026)**: straight lines crossing boxes on busy diagrams saved from the graph, and a capability drawn twice on the value stream map when it enables two stages: "we can live with these".

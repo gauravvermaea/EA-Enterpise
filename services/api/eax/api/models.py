@@ -149,7 +149,7 @@ class DraftIn(Schema):
 
 class DraftEditIn(Schema):
     action = fields.String(required=True, metadata={"description": "set, remove or replace"})
-    section = fields.String(load_default=None, metadata={"description": "layers, pick_lists, attributes, entity_types, "
+    section = fields.String(load_default=None, metadata={"description": "domains, pick_lists, attributes, entity_types, "
                                                                         "relationship_types, allowed or rules"})
     item = fields.Dict(load_default=None)
     code = fields.String(load_default=None, metadata={"description": "remove: the item's code (allowed and rules: its position)"})

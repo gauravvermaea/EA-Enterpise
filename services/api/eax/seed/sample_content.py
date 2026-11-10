@@ -73,7 +73,7 @@ def run() -> list[str]:
             if not conn.execute(text("SELECT 1 FROM proj.org_ref_entries WHERE kind = 'link' AND folder LIKE '% architectures'")).first():
                 for folder, title, url, desc in (
                         ("Foundation architectures", "Architecture description standard (ISO/IEC/IEEE 42010)", "https://www.iso.org/standard/74393.html",
-                         "How an architecture description is structured: stakeholders, concerns, viewpoints and views."),
+                         "How an architecture description is structured: stakeholders, concerns, views and the models they show."),
                         ("Common systems architectures", "Cybersecurity framework", "https://www.nist.gov/cyberframework",
                          "A common reference for security architecture across the organisation."),
                         ("Industry architectures", "Insurance data standards", "https://www.acord.org/standards-architecture",

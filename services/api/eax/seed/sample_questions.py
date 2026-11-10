@@ -2,9 +2,9 @@
 project (a project that has key questions already is left alone). Every name is invented.
 
 Each sample project gets the questions its kind of work answers, in every state, so the Key questions tab can be tried
-at once: open; answered (a summary pointing to the viewpoints, a page of the project, a document when there is one),
+at once: open; answered (a summary pointing to the views, a page of the project, a document when there is one),
 waiting for the stakeholder; accepted by user_stakeholder in the application; accepted as recorded by a contributor
-for a stakeholder outside the application; rejected and opened again. Some answers use a placeholder viewpoint (a
+for a stakeholder outside the application; rejected and opened again. Some answers use a placeholder view (a
 text, or an empty file made in the project's files when Documents is up).
 """
 
@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from sqlalchemy import text
 
-# a question: (question, asked by, expected answer or approach, viewpoints, what happens, answer, placeholder)
+# a question: (question, asked by, expected answer or approach, views, what happens, answer, placeholder)
 #   what happens: open | answered | accepted (user_stakeholder, in the application) | recorded (accepted, recorded for
 #   the one who asks) | rejected (rejected with a reason, open again) | reopened (accepted, then opened again)
 #   placeholder: None or {name, kind: text | file, file_type, description}
@@ -21,8 +21,8 @@ Q = tuple
 GENERIC: list[Q] = [
     ("Which stakeholders does this work affect, and what does each need from it?", "Project sponsor",
      "A stakeholder map with each one's concerns, and the views that answer them.", ["VP-14"], "accepted",
-     "The stakeholder map lists every group with its power, interest and concerns; each concern is mapped to the viewpoint "
-     "that answers it. See the Stakeholders tab and the Stakeholder viewpoint.", None),
+     "The stakeholder map lists every group with its power, interest and concerns; each concern is mapped to the view "
+     "that answers it. See the Stakeholders tab and the Stakeholder view.", None),
 ]
 BY_TEMPLATE: dict[str, list[Q]] = {
     "transformation": [
@@ -32,7 +32,7 @@ BY_TEMPLATE: dict[str, list[Q]] = {
          "<p><b>Eleven interfaces and four claims processes use it.</b></p><ul><li>Seven interfaces move to the claims hub in "
          "the transition state; the other four retire with it.</li><li>First notice of loss and assessment are the processes "
          "to re-point first; payments and recoveries follow.</li></ul><p>See the application cooperation and usage views.</p>", None),
-        ("What does the target look like, layer by layer?", "Head of Claims",
+        ("What does the target look like, domain by domain?", "Head of Claims",
          "One layered view of the target: business, application and technology.", ["VP-05"], "recorded",
          "The layered view of the 2028 target: straight-through claims on the claims hub, with the document service and "
          "payments shared with policy administration.", None),
@@ -129,7 +129,7 @@ BY_TEMPLATE: dict[str, list[Q]] = {
     "health-check": [
         ("How healthy is Karoo Operations' architecture against the reference model?", "Chief Information Officer",
          "A layered view read against the reference model, and the principles it breaks.", ["VP-05", "VP-17"], "recorded",
-         "Sound in the business layer; three principles broken in the application layer (duplicate customer data, no "
+         "Sound in the business domain; three principles broken in the application domain (duplicate customer data, no "
          "single sign-on, point-to-point interfaces).", None),
     ],
     "solution-architecture": [
@@ -197,13 +197,13 @@ def _one_project(conn, kq, pj, pg: str, qs: list[Q], la, ar, pa, st) -> int:
                        {"p": p["id"]}).scalar()
     for i, (question, asked_by, approach, vps, what, answer, ph) in enumerate(qs):
         who = la if i % 2 == 0 else ar
-        out = kq.add_question(conn, pg, who, {"question": question, "asked_by": asked_by, "approach": approach, "viewpoints": vps})
+        out = kq.add_question(conn, pg, who, {"question": question, "asked_by": asked_by, "approach": approach, "views": vps})
         qid = out["id"]
         if ph:
             kq.add_placeholder(conn, pg, who, {**ph, "questions": [qid]})
         if what == "open":
             continue
-        # what the answer points to besides its viewpoints (they link by themselves): a deliverable of the project
+        # what the answer points to besides its views (they link by themselves): a deliverable of the project
         # when there is one, the minutes for a decision taken at the steering committee, the repository otherwise
         links = []
         if what == "recorded":

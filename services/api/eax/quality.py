@@ -38,6 +38,7 @@ from typing import Any
 
 from sqlalchemy import text
 
+from . import junctions, multiplicity
 from . import permissions as perms
 from . import repository as repo
 from .metamodel_edit import EditError
@@ -235,7 +236,7 @@ def load(conn, m: dict) -> dict:
     """Everything quality needs from one model: types, attributes, entities, values, relationships, seals, people."""
     mid = m["_id"]
     types = {r["id"]: r for r in _rows(conn, """SELECT id, guid::text AS guid, code, name FROM core.entity_types
-                                                  WHERE model_id = :m AND NOT is_deleted""", m=mid)}
+                                                  WHERE model_id = :m AND NOT is_deleted AND NOT is_connector""", m=mid)}   # junctions are not measured (D397)
     attrs = defaultdict(list)
     for r in _rows(conn, """SELECT ia.entity_type_id, a.code, a.name, ia.is_required, ia.quality_weight AS item_weight,
                                    a.quality_weight AS attribute_weight FROM core.item_attributes ia
@@ -246,7 +247,8 @@ def load(conn, m: dict) -> dict:
     ents = {r["id"]: r for r in _rows(conn, """
         SELECT e.id, e.guid::text AS guid, e.display_id, e.name, e.description, e.entity_type_id, e.created_by,
                e.modified_at, e.modified_by, e.status_code
-          FROM core.entities e WHERE e.model_id = :m AND NOT e.is_deleted""", m=mid)}
+          FROM core.entities e JOIN core.entity_types t ON t.id = e.entity_type_id
+         WHERE e.model_id = :m AND NOT e.is_deleted AND NOT t.is_connector""", m=mid)}
     values = defaultdict(dict)
     last_value = {}
     for r in _rows(conn, """
@@ -268,6 +270,13 @@ def load(conn, m: dict) -> dict:
          WHERE r.model_id = :m AND NOT r.is_deleted""", m=mid):
         rels[r["s"]].append({"type": r["type"], "dir": "out", "other": r["t"]})
         rels[r["t"]].append({"type": r["type"], "dir": "in", "other": r["s"]})
+    # multiplicities on allowed relationships (D395): only those with an end set
+    mult = _rows(conn, """SELECT rt.code AS type, ar.source_type_id, ar.target_type_id, ar.source_multiplicity AS source_end,
+                                 ar.target_multiplicity AS target_end, s.name AS source_name, t.name AS target_name
+                            FROM core.allowed_relationships ar JOIN core.relationship_types rt ON rt.id = ar.relationship_type_id
+                            JOIN core.entity_types s ON s.id = ar.source_type_id JOIN core.entity_types t ON t.id = ar.target_type_id
+                           WHERE ar.model_id = :m AND NOT ar.is_deleted
+                             AND (ar.source_multiplicity <> '' OR ar.target_multiplicity <> '')""", m=mid)
     seals = {r["entity_id"]: r for r in _rows(conn, "SELECT * FROM core.quality_seals WHERE model_id = :m", m=mid)}
     exempt, exempt_pending = defaultdict(dict), defaultdict(dict)        # D246: not applicable on one entity
     exempt_rejected = defaultdict(dict)
@@ -284,7 +293,7 @@ def load(conn, m: dict) -> dict:
     admins = sorted({r["u"] for r in _rows(conn, """SELECT lower(username) AS u FROM core.model_users
                                                        WHERE model_id = :m AND role = 'model-admin'""", m=mid)})
     return {"types": types, "attrs": attrs, "entities": ents, "values": values, "last_value": last_value, "rels": rels,
-            "seals": seals, "people": people, "admins": admins, "exempt": exempt, "exempt_pending": exempt_pending,
+            "multiplicity": mult, "junctions": junctions.problems(conn, mid), "seals": seals, "people": people, "admins": admins, "exempt": exempt, "exempt_pending": exempt_pending,
             "exempt_rejected": exempt_rejected}
 
 
@@ -590,6 +599,12 @@ def measure(conn, model: Any, *, only: set[int] | None = None, metamodel_checks:
         for c in checks.get(e["id"], []):
             failing.append({"rule": c["rule"], "name": c["field"], "severity": c["severity"], "message": c["message"],
                             "source": "metamodel", "field": c.get("code") or ("name" if c["field"] == "Name" else None)})
+        for why in (data.get("junctions") or {}).get(e["id"], []):           # D397: a junction's rules
+            failing.append({"rule": "junction", "name": "Junction", "severity": "warning", "message": why,
+                            "source": "metamodel", "field": None})
+        for why in multiplicity.check(data, e, data.get("multiplicity") or []):    # D395: a warning, never blocks a commit
+            failing.append({"rule": "multiplicity", "name": "Relationship multiplicity", "severity": "warning", "message": why,
+                            "source": "metamodel", "field": None})
         for r in by_type_rules.get(t["code"].lower(), []):
             names = names_model if (r["spec"] or {}).get("scope") == "model" else \
                 Counter({k[1]: v for k, v in names_type.items() if k[0] == e["entity_type_id"]})
@@ -842,7 +857,7 @@ def dashboard(conn, model: Any, fresh: bool = False) -> dict:
     pending = _rows(conn, """SELECT guid::text AS id, kind, summary, requested_by, requested_at, note FROM core.quality_changes
                               WHERE model_id = :m AND status = 'pending' ORDER BY requested_at""", m=m["_id"])
     items = {}
-    for t in _rows(conn, "SELECT id, code, name FROM core.entity_types WHERE model_id = :m AND NOT is_deleted ORDER BY sort_order",
+    for t in _rows(conn, "SELECT id, code, name FROM core.entity_types WHERE model_id = :m AND NOT is_deleted AND NOT is_connector ORDER BY sort_order",
                    m=m["_id"]):
         attrs = _rows(conn, """SELECT a.code, a.name, ia.is_required, ia.quality_weight AS item_weight,
                                       a.quality_weight AS attribute_weight FROM core.item_attributes ia
@@ -894,7 +909,8 @@ def installation(conn, user=None) -> dict:
                                       m.lock_level, m.lock_reason, m.locked_by, m.library_state,
                                       CASE WHEN ic.library IS NOT NULL THEN 'lib:' || ic.library WHEN ic.data IS NOT NULL THEN 'upload' END AS icon,
                                       CAST(extract(epoch FROM ic.set_at) AS bigint) AS icon_version, {MEASURED_SQL} AS measured, (s.model_id IS NOT NULL) AS chosen,
-                                      (SELECT count(*) FROM core.entities e WHERE e.model_id = m.id AND NOT e.is_deleted) AS entities
+                                      (SELECT count(*) FROM core.entities e JOIN core.entity_types t ON t.id = e.entity_type_id
+                                        WHERE e.model_id = m.id AND NOT e.is_deleted AND NOT t.is_connector) AS entities
                                  FROM core.models m LEFT JOIN core.quality_scope s ON s.model_id = m.id
                                  LEFT JOIN core.model_icons ic ON ic.model_id = m.id
                                 WHERE NOT m.is_deleted {'' if every else 'AND core.can_read_model(m.id)'}

@@ -8,6 +8,10 @@ core.role_mappings (permissions.py, D92).
 When Keycloak is down, the break-glass account (D80) signs in through the API instead
 (api/break_glass.py) and gets a short-lived token signed by the API itself, with the Super Admin
 role. Every call it makes is audited.
+
+Machine access (phase 25, D366): a token or API key (eaxt_..., eaxk_...) or a trusted client certificate signs a call in
+as its owner, limited to the credential's areas (eax/machine_access.py). Every route that uses current_user() or
+require_auth() takes them, the OData feed and reports included; the MCP server checks them the same way.
 """
 
 from __future__ import annotations
@@ -39,6 +43,7 @@ class User:
     roles: list[str] = field(default_factory=list)            # EA Explorer global roles (mapped from Keycloak)
     keycloak_roles: list[str] = field(default_factory=list)   # as Keycloak gave them
     break_glass: bool = False
+    machine: object | None = None                              # the machine credential that signed the call in (phase 25)
 
     def has_role(self, role: str) -> bool:
         return role in self.roles
@@ -99,17 +104,45 @@ def user_from_claims(claims: dict, mapping: dict[str, set[str]] | None = None) -
         return User(username=BREAK_GLASS_USER, name="Break-glass account", roles=[permissions.SUPER_ADMIN],
                     break_glass=True)
     kc_roles = sorted(claims.get("realm_access", {}).get("roles", []))
+    # directory groups (Active Directory through Keycloak's LDAP federation, or Entra ID group claims; phase 36, D503):
+    # the "groups" claim, each group mapped like a role under the key "group:<name>"
+    groups = permissions.group_keys(claims.get("groups"))
     return User(
         username=(claims.get("preferred_username") or claims.get("sub", "unknown")).lower(),
         email=claims.get("email"),
         name=claims.get("name"),
-        roles=permissions.app_roles(kc_roles, mapping),
+        roles=permissions.app_roles([*kc_roles, *groups], mapping),
         keycloak_roles=kc_roles,
     )
 
 
+def machine_user(kind: str, value: str) -> User:
+    """A call signed in with a machine credential (phase 25): its owner, with the roles they have now, limited to its areas."""
+    from . import machine_access as ma
+    from .db import get_engine
+    try:
+        with get_engine().connect() as conn:
+            machine, roles = ma.authenticate(conn, kind, value)
+    except ma.Refused as exc:
+        abort(exc.status, message=exc.message)
+    why = machine.refusal(request.method, request.path)
+    g.machine = machine                      # last used and the change log after the call (app.py)
+    if why:
+        g.machine_status = 403
+        abort(403, message=why)
+    return User(username=machine.owner, name=f"{machine.name} ({ma.KINDS[machine.kind].lower()})", roles=list(roles),
+                machine=machine)
+
+
 def current_user() -> User:
     header = request.headers.get("Authorization", "")
+    bearer = header.split(" ", 1)[1].strip() if header.lower().startswith("bearer ") else None
+    from . import machine_access as ma
+    shown = ma.presented(request.headers, bearer)
+    if shown:
+        user = machine_user(*shown)
+        g.username = user.username
+        return user
     if not header.lower().startswith("bearer "):
         abort(401, message="Sign in required: send a Keycloak access token as a Bearer token.")
     try:

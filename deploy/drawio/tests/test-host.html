@@ -1,0 +1,27 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>EA Explorer draw.io plugin: test host</title></head>
+<body style="margin:0">
+<!-- Test only (never in the image): the page tests.cjs drives, standing in for EA Explorer's drawn-view screen. -->
+<iframe id="f" style="width:1300px;height:850px;border:0"></iframe>
+<script>
+  window.log = [];
+  window.answers = { relationship: "first" };          // how the "host" answers eax-relationship: "first" | "cancel"
+  var f = document.getElementById("f");
+  f.src = "index.html?embed=1&proto=json&configure=1&eax=1&spin=1&libraries=1&noExitBtn=1&eaxv=" + Date.now();
+  window.send = function (m) { f.contentWindow.postMessage(JSON.stringify(m), "*"); };
+  var n = 0;
+  window.addEventListener("message", function (e) {
+    var m; try { m = JSON.parse(e.data); } catch (x) { return; }
+    window.log.push(m);
+    if (m.event === "configure") send({ action: "configure", config: { defaultLibraries: "", enabledLibraries: [], compressXml: false } });
+    else if (m.event === "init") send({ action: "load", xml: window.loadXml || "", autosave: 0 });
+    else if (m.event === "eax-ready") window.ready = true;
+    else if (m.event === "eax-relationship") {
+      if (window.answers.relationship === "cancel") send({ eax: "rel-cancel", cell: m.cell });
+      else send({ eax: "rel", cell: m.cell, id: "r-new-" + (++n),
+        type: m.options.indexOf(window.answers.prefer) >= 0 ? window.answers.prefer : m.options[0] });
+    }
+    else if (m.event === "eax-junction-new") send({ eax: "junction-bound", cell: m.cell, id: "j-" + (++n) });
+  });
+</script>
+</body></html>

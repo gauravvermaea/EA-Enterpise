@@ -52,6 +52,14 @@ def _empty(value: Any) -> bool:
     return value is None or (isinstance(value, str) and not value.strip())
 
 
+def _missing(a: dict) -> bool:
+    """A required attribute with no value; a Link (D418) needs at least one link with an address."""
+    if a.get("data_type") == "url":
+        from . import links
+        return not links.parse(a.get("value"))
+    return _empty(a.get("value"))
+
+
 def _number(value: Any) -> Decimal | None:
     if value is None or isinstance(value, bool):
         return None
@@ -171,7 +179,7 @@ def evaluate(entity: dict, attributes: Iterable[dict], rules: Iterable[dict],
                     "message": message or default_message(rule, label)})
 
     for a in attributes:  # the metamodel's "required" flag on the attribute
-        if a.get("is_required") and _empty(a.get("value")):
+        if a.get("is_required") and _missing(a):
             add(a["code"], a["name"], {"rule_type_code": "required"}, "error", None)
         if a.get("pick_list_values") and not _empty(a.get("value")) \
                 and str(a["value"]) not in a["pick_list_values"]:
@@ -246,7 +254,7 @@ def results(entity: dict, attributes: Iterable[dict], rules: Iterable[dict],
 
     for a in attributes:
         if a.get("is_required"):
-            ok = not _empty(a.get("value"))
+            ok = not _missing(a)
             add(a["code"], a["name"], {"rule_type_code": "required"}, "error", "passed" if ok else "failed",
                 None if ok else f"{a['name']} is required", a.get("value"))
         if a.get("pick_list_values"):

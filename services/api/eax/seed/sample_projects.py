@@ -6,7 +6,7 @@ Between them they show every way a model joins a project, so each can be tried a
   * a separate copy of a model, as it is now or as it was at one of its tags (no link back)
   * a child of a project model (a copy that keeps the link and can merge back)
   * a new model, empty, from a root metamodel
-The template's decisions (purpose, depth, domains, phases, viewpoints, steps left out) are applied as the wizard does.
+The template's decisions (purpose, depth, domains, phases, views, steps left out) are applied as the wizard does.
 Each project is made once (skipped when one of that name exists); model copies run here, one after another.
 """
 
@@ -137,7 +137,7 @@ def payload(conn, tpl: dict, name: str, description: str, quorum, models: list[d
                   "end": "2027-12-31", "horizon": "2030", "notes": ""},
         "sponsor": {"name": "Jane Mokoena", "role": "Chief Operating Officer", "contact": "", "asks": [],
                     "notes_html": "<p>Sample sponsor: wants a monthly one-page update.</p>"},
-        "models": models, "viewpoints": s.get("viewpoints") or [], "items": items,
+        "models": models, "views": s.get("views") or [], "items": items,
         "removed_steps": [{"library_id": int(k), "reason": v or "Not needed in this kind of project"} for k, v in (s.get("removed_steps") or {}).items()],
         "goals": goals if (home and s.get("goals", True)) else [],
         "members": [{"username": u, "role": r} for u, r in permissions.PROJECT_TEST_ROLES],

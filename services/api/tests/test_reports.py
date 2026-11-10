@@ -10,8 +10,7 @@ from eax.report_defs import REPORTS
 from eax.setup import superset_reports as sr
 
 _SQL_DIR = Path(__file__).resolve().parent.parent / "migrations" / "sql"
-SQL = "".join((_SQL_DIR / f).read_text(encoding="utf-8") for f in ("0009_reports.sql", "0012_viewpoints.sql", "0014_tags.sql",
-                                                                                     "0020_quality.sql"))
+SQL = "".join(p.read_text(encoding="utf-8") for p in sorted(_SQL_DIR.glob("*.sql")))   # every migration (phase 24 adds KR-01)
 SUPERSET = Path(__file__).resolve().parents[3] / "deploy" / "superset"
 
 
@@ -108,13 +107,13 @@ def test_heatmaps_offer_thresholds_and_reports_offer_filters():
 
 
 def test_phase_8_2_reports():
-    """Viewpoints VP-01 to VP-26, the TOGAF catalogues and matrices, dependency reports and audience dashboards (D161)."""
-    from eax.report_defs import AUDIENCES, VIEWPOINTS
+    """Views VP-01 to VP-26, the TOGAF catalogues and matrices, dependency reports and audience dashboards (D161)."""
+    from eax.report_defs import AUDIENCES, VIEWS
     codes = {r["code"] for r in REPORTS}
     assert {f"VP-{i:02d}" for i in range(1, 26)} <= codes
     assert {"TC-01", "TC-08", "TM-07", "TM-09", "DR-01", "DR-04"} <= codes
     assert {f"AU-{a}" for a, _n, _g in AUDIENCES} <= codes
-    assert len(VIEWPOINTS) == 49 and all("Grouping" in v["element_types"] for v in VIEWPOINTS[:26])   # 27 to 49: TOGAF (D345)
+    assert len(VIEWS) == 49 and all("Grouping" in v["element_types"] for v in VIEWS[:26])   # 27 to 49: TOGAF (D345)
     for r in REPORTS:
         assert r["audiences"], r["code"]          # every report is for someone (D153)
         charts = sr.charts_for(r)

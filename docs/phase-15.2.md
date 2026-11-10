@@ -7,12 +7,12 @@ open-source wiki (D334): EA Explorer builds the library itself, as a separate se
 People make **simple pages, or tables, full of links**: to documents, to models and projects, to web pages. Writing
 long text and uploading files is not the point; **finding things (search) is**.
 - **Two kinds of library**: the **enterprise library** (Enterprise library on the menu, `#/enterprise-library`) and
-  each **project's library** (the project's **Library** tab). The model library (`#/library`) is a different thing.
+  each **project's library** (the project's **Library** tab, sub-tab **Project pages**; D400: the same tab holds the project's Reference area and a way into the enterprise reference library). The model library (`#/library`) is a different thing.
 - A library is a **folder tree** of any shape holding:
   - **pages**: headings, text, bulleted lists, **tables** and lists of **links** (no images, no layout, no page
     templates). Links are written `[words](address)` anywhere, or chosen with **🔗 Insert a link**;
   - **links**: to a web address, or into EA Explorer: a model, a project, a project's document (downloaded), a
-    Business Model Canvas, a viewpoint, a reference library entry or another library page;
+    Business Model Canvas, a view, a reference library entry or another library page;
   - **files**: an upload is allowed (at most `EAX_LIBRARY_MAX_FILE_MB`, 25 MB by default) but is not the main use.
 - **Search is the centre of it**: one box over titles, descriptions, tags, the words of pages, link names, the text
   inside uploaded files (PDF, Word, PowerPoint, Excel, text) and folder names; whole words and the start of words,
@@ -21,7 +21,7 @@ long text and uploading files is not the point; **finding things (search) is**.
 - **A project's library can be shown in the enterprise library** (read only there, under Project libraries).
 
 Links into EA Explorer are kept as `ea:` addresses by ID (`ea:model:<model>`, `ea:project:<project>`,
-`ea:entity:<model>:<entity>`, `ea:viewpoint:<model>:<code>`, `ea:document:<project>:<document>`,
+`ea:entity:<model>:<entity>`, `ea:view:<model>:<code>`, `ea:document:<project>:<document>`,
 `ea:canvas:<project>:<canvas>`, `ea:reference:<entry>`, `ea:page:<library>:<entry>`), so a rename shows at once.
 Anything else (`javascript:` and the like) is refused.
 

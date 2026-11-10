@@ -1,8 +1,8 @@
 # Build phase 1: metamodel store and the ArchiMate 4 seed (read only)
 
 Goal: see the initial metamodel in the browser before any data can be entered.
-Requirements: MM-003 (layers), MM-004 (attribute data types), MM-011 (ArchiMate 4 starter
-metamodel), REP-017 (typed storage of attribute values), UI-002 (browse by layer and type).
+Requirements: MM-003 (domains), MM-004 (attribute data types), MM-011 (ArchiMate 4 starter
+metamodel), REP-017 (typed storage of attribute values), UI-002 (browse by domain and type).
 
 ## Status: accepted on 4 November 2026
 
@@ -23,7 +23,7 @@ scripts are no longer edited.
   always gives (a used name is refused); join them in plain SQL. The tables are dropped when the
   connection closes; `eax.drop_entity(name)` drops them sooner.
 - **The ArchiMate 4 starter metamodel**, loaded on first start from the EA Workbench 1.1 seed:
-  7 layers, 42 element types, 11 relationship types, 3,072 allowed relationships (derived from the
+  7 domains, 42 element types, 11 relationship types, 3,072 allowed relationships (derived from the
   ArchiMate generic metamodel; to be checked against the specification's tables), 22 attributes,
   9 pick lists and 13 validation rules. It is a read-only **template** model.
 - **A sample insurance model** (laptop only, `EAX_SEED_SAMPLE=true`): a project model with its own
@@ -32,21 +32,21 @@ scripts are no longer edited.
   `/models/{guid}/metamodel`, `/models/{guid}/entity-types/{guid}`, `/models/{guid}/entity-list`,
   `/models/{guid}/entities/{guid}`, `/models/{guid}/relationships`,
   `/models/{guid}/entities?type=...&name=...` (eax.get_entity), `/models/{guid}/metamodel/diagram`
-  (data for the ER diagram) and `/models/{guid}/metamodel/mermaid?layer=...&type=...` (Mermaid text).
+  (data for the ER diagram) and `/models/{guid}/metamodel/mermaid?domain=...&type=...` (Mermaid text).
 - **Model pages** (start page, *Metamodel* tile, or *Models* in the top bar): every model as a link.
   A model opens on **Entities and relationships** (entities grouped by type, filter, each entity with
   its attribute values and linked relationships, and a list of all relationships) and has a
-  **Metamodel** tab (layers, types, attributes, rules, allowed relationships).
+  **Metamodel** tab (domains, types, attributes, rules, allowed relationships).
 - **ER diagram** tab: the metamodel drawn as an entity-relationship diagram, generated from the
   database each time it opens, so it follows every change to the metamodel. Boxes are entity types
   with their attributes (required ones marked *), lines are the allowed relationships per source and
-  target type, labelled and coloured by relationship type. Show one or more layers (optionally with
+  target type, labelled and coloured by relationship type. Show one or more domains (optionally with
   the types they connect to), or focus on one type and every type it may connect to; switch
   relationship types on and off (Association and Specialization are off at first); hover a box to
   highlight its lines; drag, scroll to zoom, *Fit*. *Download SVG* saves the picture; *Copy as
   Mermaid* copies the same diagram as Mermaid text for GitHub, Confluence or draw.io. Layout by ELK
   (elkjs) in a web worker: right-angled lines for normal diagrams, a ring for a focused type or a
-  dense layer, straight lines when very large.
+  dense domain, straight lines when very large.
 - **SQL window** (start page, *SQL*, or *SQL* in the top bar; system administrators only): a
   diagram of the tables and the columns that join them (click for full size), one box to write SQL, *Run* (or Ctrl+Enter; a selection runs on its own), and the results as tables. Sign
   in with a PostgreSQL login (laptop: `eax_app` or `postgres`, password `P^55w0rd1234&`). Each run is
@@ -66,11 +66,11 @@ scripts are no longer edited.
 
 1. `.\eax up` (the API applies migration 0002 and loads the seed on its first start; the API log
    shows "loaded the ArchiMate 4 template and sample model").
-2. Start page → **Metamodel**. Choose *ArchiMate 4 (Template, read-only)*: seven coloured layers and
+2. Start page → **Metamodel**. Choose *ArchiMate 4 (Template, read-only)*: seven coloured domains and
    42 types. Open **Application Component**: 13 attributes, rules, and allowed relationships.
 3. Choose *Sample insurance model*, open **Application Component**, press **Show Application
    Component entities**: three applications with their attributes and relationships.
-4. **ER diagram** tab: the Business layer with its attributes and relationships. Click
+4. **ER diagram** tab: the Business domain with its attributes and relationships. Click
    *Motivation*, then *All*; choose *Application Component* under *Focus on* (or click its box):
    the type in the middle with the 37 types it may connect to. Hover a box, then *Download SVG*
    and *Copy as Mermaid* (paste into https://mermaid.live).
@@ -110,7 +110,7 @@ scripts are no longer edited.
 
 - `python -m pytest services/api/tests/test_seed.py`: the seed is consistent (every sample
   relationship is allowed, every sample attribute applies to its type, names are unique).
-- `python -m pytest services/api/tests/test_diagram.py`: the ER diagram rules (layers, connected
+- `python -m pytest services/api/tests/test_diagram.py`: the ER diagram rules (domains, connected
   types, focus, relationship types) and the Mermaid text.
 - `tests/sql/phase1_checks.sql`: run inside the db container after the first start:
   ```powershell

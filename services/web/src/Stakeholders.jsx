@@ -1,6 +1,6 @@
 // The project's stakeholder matrix (owner, 8 Nov 2026, D294): TOGAF's stakeholder management. Each stakeholder is typed in;
 // power and interest (High/Medium/Low) place it on the grid and give its class (changeable); its position, concerns and the
-// viewpoints and document classes that answer them, how it is engaged, contact details, notes and dated discussion notes.
+// views and document classes that answer them, how it is engaged, contact details, notes and dated discussion notes.
 import { Fragment, useMemo, useState } from "react";
 import { apiDownload, apiFetch } from "./auth";
 import { refreshAll, useApi } from "./ModelViews";
@@ -86,14 +86,14 @@ export function StakeholderMatrix({ p }) {
   return (
     <div>
       <p className="quiet">The project's stakeholders, as TOGAF's stakeholder management has them: who they are, their power and interest (which
-        decides how they are engaged), their position on the change, their concerns and the viewpoints and documents that answer them.
+        decides how they are engaged), their position on the change, their concerns and the views and documents that answer them.
         The sponsor is on the About tab.</p>
       {msg && <p className="status ok">{msg}</p>}
       <div className="row-gap small">
         {Object.entries(CLASSES).map(([k, v]) => <span key={k} className={`sh-count sh-${k}`}>{v}: <b>{data.counts[k] || 0}</b></span>)}
         {overdue > 0 && <span className="status bad">{overdue} overdue for contact</span>}
         {gaps > 0 && <span className="status warn">{gaps} with a commitment or understanding gap</span>}
-        {uncovered > 0 && <span className="quiet">{uncovered} with no viewpoint or document answering their concerns</span>}
+        {uncovered > 0 && <span className="quiet">{uncovered} with no view or document answering their concerns</span>}
       </div>
       <PowerGrid list={list} onOpen={setOpen} />
       <div className="row-gap filters">
@@ -129,7 +129,7 @@ export function StakeholderMatrix({ p }) {
                   <td className={s.gaps.includes("understanding") ? "sh-gap" : ""}>{lv(s.understanding_now) || "–"} → {lv(s.understanding_needed) || "–"}</td>
                   <td className={s.gaps.includes("commitment") ? "sh-gap" : ""}>{lv(s.commitment_now) || "–"} → {lv(s.commitment_needed) || "–"}</td>
                   <td>{lv(s.support_needed)}</td>
-                  <td className="small">{s.concerns}{s.uncovered && s.concerns && <div className="quiet">no viewpoint or document yet</div>}</td>
+                  <td className="small">{s.concerns}{s.uncovered && s.concerns && <div className="quiet">no view or document yet</div>}</td>
                   <td className="small">{s.approach}{s.frequency ? `, ${s.frequency}` : ""}{s.channel ? ` (${s.channel})` : ""}</td>
                   <td className="small">{s.owner}</td>
                   <td className="small nowrap">{s.last_contact || "–"} / <span className={s.overdue ? "bad-text" : ""}>{s.next_contact || "–"}</span></td>
@@ -147,7 +147,7 @@ export function StakeholderMatrix({ p }) {
 
 const BLANK = { name: "", organisation: "", role_title: "", category: "", email: "", phone: "", concerns: "", power: "", interest: "", class: "",
   disrupt: "", understanding_now: "", understanding_needed: "", commitment_now: "", commitment_needed: "", support_needed: "", approach: "",
-  frequency: "", channel: "", owner: "", next_contact: "", notes_html: "", viewpoints: [], items: [] };
+  frequency: "", channel: "", owner: "", next_contact: "", notes_html: "", views: [], items: [] };
 
 function StakeholderDialog({ p, s, can, onClose }) {
   const isNew = !s.id;
@@ -158,7 +158,7 @@ function StakeholderDialog({ p, s, can, onClose }) {
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
   const auto = autoClass(f.power, f.interest);
-  const vps = p.viewpoints || [];
+  const vps = p.views || [];
   const items = (p.items || []).filter((i) => i.chosen);
   async function save() {
     setBusy(true); setErr("");
@@ -210,12 +210,12 @@ function StakeholderDialog({ p, s, can, onClose }) {
         {tab === "concerns" && <>
           <Field label="Key concerns"><textarea rows={3} value={f.concerns} onChange={(e) => set("concerns", e.target.value)} /></Field>
           <h4>What answers them</h4>
-          <p className="small quiet">The viewpoints and documents to produce and go through with them.</p>
+          <p className="small quiet">The views and documents to produce and go through with them.</p>
           <div className="sh-picks">
-            <div><b className="small">Viewpoints</b>
-              {vps.length ? vps.map((v) => <label key={v.code} className="small"><input type="checkbox" checked={f.viewpoints.includes(v.code)}
-                onChange={(e) => set("viewpoints", e.target.checked ? [...f.viewpoints, v.code] : f.viewpoints.filter((x) => x !== v.code))} /> {v.code} {v.name}</label>)
-                : <p className="small quiet">The project has no viewpoints yet.</p>}</div>
+            <div><b className="small">Views</b>
+              {vps.length ? vps.map((v) => <label key={v.code} className="small"><input type="checkbox" checked={f.views.includes(v.code)}
+                onChange={(e) => set("views", e.target.checked ? [...f.views, v.code] : f.views.filter((x) => x !== v.code))} /> {v.code} {v.name}</label>)
+                : <p className="small quiet">The project has no views yet.</p>}</div>
             <div><b className="small">Document classes</b>
               {items.map((i) => <label key={i.id} className="small"><input type="checkbox" checked={f.items.includes(i.id)}
                 onChange={(e) => set("items", e.target.checked ? [...f.items, i.id] : f.items.filter((x) => x !== i.id))} /> {i.phase} · {i.name}</label>)}</div>

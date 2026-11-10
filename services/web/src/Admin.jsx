@@ -6,6 +6,10 @@
 //                settings (shown, secrets masked) and the copies of the config file, restart
 //   health       the heartbeat and the containers
 //   sql          the SQL window (IT Admins)
+//   machine-access tokens, API keys, client certificates and service accounts (phase 25; everyone their own)
+//   operations   usage, housekeeping, the archive, database health, metrics (phase 35; IT Admins)
+//   scaling      how many API and job servers run: fixed or by rules (phase 36.3, D526; IT Admins)
+//   updates      updating to a new release from git: channels, versions, retry, roll back, history (phase 36, D417)
 //   licences     the products and libraries and their licences
 // The old addresses #/users, #/heartbeat and #/sql open the same tabs; #/admin/projects moved to #/project-admin/library.
 import { lazy, Suspense, useEffect, useState } from "react";
@@ -23,6 +27,10 @@ const ContainerConsole = lazy(() => import("./ContainerConsole"));
 const AdminBackups = lazy(() => import("./Backups"));
 const RestoresPage = lazy(() => import("./Restores"));
 const SystemWizards = lazy(() => import("./SystemWizards"));
+const MachineAccess = lazy(() => import("./MachineAccess"));
+const Operations = lazy(() => import("./Operations"));
+const Scaling = lazy(() => import("./Scaling"));
+const Updates = lazy(() => import("./Updates"));
 const QualityAdmin = lazy(() => import("./Quality").then((x) => ({ default: x.QualityAdmin })));
 
 const TABS = [
@@ -32,10 +40,14 @@ const TABS = [
   ["users", "Users", () => can("users.read"), ["user-admin", "super-admin"]],
   ["health", "Health", () => true, null],
   ["containers", "Containers", () => can("system.operate"), ["it-admin", "super-admin"]],
+  ["scaling", "Scaling", () => can("system.operate"), ["it-admin", "super-admin"]],
   ["backups", "Backups", () => can("system.operate"), ["it-admin", "super-admin"]],
   ["restores", "Restores", () => can("system.operate"), ["it-admin", "super-admin"]],
   ["quality", "Quality", () => true, null],
   ["sql", "SQL", () => can("system.operate"), ["it-admin", "super-admin"]],
+  ["machine-access", "Machine access", () => true, null],
+  ["operations", "Operations", () => can("system.operate"), ["it-admin", "super-admin"]],
+  ["updates", "Updates", () => can("system.operate"), ["it-admin", "super-admin"]],
   ["licences", "Licences", () => true, null],
 ];
 
@@ -71,6 +83,10 @@ export default function Admin({ route }) {
                     : t[0] === "restores" ? <RestoresPage route={route} />
                     : t[0] === "quality" ? <QualityAdmin />
                   : t[0] === "sql" ? <Sql />
+                  : t[0] === "machine-access" ? <MachineAccess />
+                  : t[0] === "operations" ? <Operations />
+                  : t[0] === "scaling" ? <Scaling />
+                  : t[0] === "updates" ? <Updates />
                   : t[0] === "licences" ? <Licences />
                     : <Settings group={t[0]} />}
         </Suspense>

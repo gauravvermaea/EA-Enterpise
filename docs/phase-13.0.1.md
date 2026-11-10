@@ -26,7 +26,7 @@ The wizard has 13 steps:
 6. **Sponsor**
 7. **Notes and files**
 8. Template libraries
-9. Viewpoints
+9. Views
 10. Principles
 11. Phase by phase
 12. People and sign-off
@@ -71,7 +71,7 @@ project without goals is fine: a library, documenting the current state, reports
 - Files are uploaded as soon as the project is made, into `00_Project/Project files`.
 
 **Derive from another project** (Basics › Start). Frozen projects can be chosen too.
-- Filled in from the parent: its scope, goals, steps, deliverables and artifacts, viewpoints and libraries.
+- Filled in from the parent: its scope, goals, steps, deliverables and artifacts, views and libraries.
 - Its principles are inherited.
 - Its models are listed as "referred to"; change each one freely.
 
@@ -85,15 +85,15 @@ project without goals is fine: a library, documenting the current state, reports
   - new folders and templates added to the repository. Documents stay.
 - Steps are ticked done, and unticked, by anyone who contributes.
 
-### Templates, placeholders and viewpoints (D278)
+### Templates, placeholders and views (D278)
 
 - For each deliverable and artifact, the wizard shows the templates from every picked library. Tick the ones to copy,
   or tick **placeholder**: something to deliver whose document is made later.
 - The project's own items are placeholders.
 - On the project, a placeholder with no document shows **to be built**, with **Upload the first version**.
-- **Viewpoints** come from the library, and the project can make its own: code `PV-<n>`, with name, concerns,
+- **Views** come from the library, and the project can make its own: code `PV-<n>`, with name, concerns,
   stakeholders and element types.
-- Each viewpoint is **ready** when every element type it shows is in one of the project's models' metamodels. It then
+- Each view is **ready** when every element type it shows is in one of the project's models' metamodels. It then
   opens in that model; the project's model is tried first.
 - Otherwise it is **to build**, and lists the missing types, with a link to that model's metamodel.
 
@@ -122,7 +122,7 @@ project without goals is fine: a library, documenting the current state, reports
 - Next to it are the chosen phase's:
   - **steps**;
   - **deliverables and artifacts**: check out, check in, upload, mark D or A, raise for sign-off;
-  - **viewpoints**.
+  - **views**.
 - Below the circle are "Across the cycle" and the project's **models**, which link to each model's landing page.
 - The tabs are Home, **About** (scope, goals and outcomes, sponsor, notes, files, people, models), Repository, Steps,
   **Sign-off** and Principles.
@@ -152,7 +152,7 @@ A frozen or merged project:
 | POST | `/projects/<p>/documents/<d>/signoff` | Raise for sign-off |
 | POST | `/projects/<p>/signoffs/<r>/decide` | Approve or reject |
 | POST | `/projects/<p>/signoffs/<r>/record` | Record an outside decision with evidence |
-| POST | `/projects/<p>/viewpoints` | Make a project viewpoint |
+| POST | `/projects/<p>/views` | Make a project view |
 | POST | `/projects/<p>/finish` | Freeze or merge (background task) |
 
 ## How to check it (after `.\eax clean-restart`)
@@ -175,7 +175,7 @@ A frozen or merged project:
    - As the raiser, record the other signer's decision with an email file. The document is Approved (v1 signed off).
    - Check out, check in v2: it is back to Draft.
 6. **Edit.** Take out the referred model, change a goal, add an outcome, add a step, put an item out of use, and save.
-7. **Viewpoints.** Make a project viewpoint with a type that doesn't exist: it shows *to build* with the missing type.
+7. **Views.** Make a project view with a type that doesn't exist: it shows *to build* with the missing type.
 8. **Derive.** Start a new project from the first one: its fields are filled in.
 9. **Finish.** Merge the first project into the second: its documents appear there, and the first is read only (ticking
    a step is refused).

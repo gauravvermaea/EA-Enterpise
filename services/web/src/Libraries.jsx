@@ -9,27 +9,16 @@ import { apiDownload, apiFetch, apiUpload, libraryInfo } from "./auth";
 import { refreshAll, useApi } from "./ModelViews";
 import { Field, Modal } from "./ModelOps";
 import { fmtDateTime } from "./fmt";
+import { liveModels, liveProjects } from "./ModelMarks";
+import { eaHref } from "./Links";
+
+export { eaHref };
 
 const L = "/api/library/v1";
 const size = (n) => (n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n > 1024 ? `${Math.round(n / 1024)} kB` : `${n || 0} B`);
 const ICON = { page: "📝", link: "🔗", file: "📄" };
 
 // ---------------------------------------------------------------- links inside EA Explorer (ea:...)
-export function eaHref(href) {
-  const m = /^ea:([a-z]+):(.+)$/.exec(href || "");
-  if (!m) return null;
-  const [a, b] = m[2].split(":");
-  switch (m[1]) {
-    case "model": return `#/metamodel/${a}`;
-    case "project": return `#/projects/${a}`;
-    case "entity": return `#/metamodel/${a}/entity/${b}`;
-    case "viewpoint": return `#/metamodel/${a}/viewpoints/${encodeURIComponent(b)}/diagram`;
-    case "canvas": return `#/projects/${a}/canvas?c=${b}`;
-    case "reference": return `#/reference-library/${a}`;
-    case "page": return `#/enterprise-library/${a}/${b}`;
-    default: return null;
-  }
-}
 
 function Link({ label, href }) {
   if (/^ea:document:/.test(href)) {
@@ -437,7 +426,7 @@ function BlocksEditor({ blocks, onChange, lib }) {
   );
   return (
     <div className="lib-blocks">
-      <p className="small quiet">Write links as [words](address): an address on the web, or one from <b>🔗 Insert a link</b> (a model, project, document, canvas, viewpoint, reference entry or page).</p>
+      <p className="small quiet">Write links as [words](address): an address on the web, or one from <b>🔗 Insert a link</b> (a model, project, document, canvas, view, reference entry or page).</p>
       <Adder at={0} />
       {blocks.map((b, i) => (
         <div key={i} className={`lib-block lib-${b.type}`}>
@@ -527,11 +516,14 @@ function LinkPicker({ lib, onClose, onPick }) {
   const [model, setModel] = useState("");
   const [web, setWeb] = useState({ label: "", href: "https://" });
   const [pq, setPq] = useState("");
-  const { data: models } = useApi(["model", "viewpoint"].includes(kind) ? "/api/v1/models" : null);
-  const { data: projects } = useApi(["project", "document", "canvas"].includes(kind) ? "/api/v1/projects" : null);
+  const { data: models_ } = useApi(["model", "view"].includes(kind) ? "/api/v1/models?archived=false" : null);
+  const { data: projects_ } = useApi(["project", "document", "canvas"].includes(kind) ? "/api/v1/projects" : null);
+  // the picker never offers a frozen or archived model or project (D360)
+  const models = models_ && liveModels(models_);
+  const projects = projects_ && { ...projects_, projects: liveProjects(projects_.projects) };
   const { data: proj } = useApi(kind === "document" && project ? `/api/v1/projects/${project}` : null);
   const { data: canv } = useApi(kind === "canvas" && project ? `/api/v1/projects/${project}/canvases` : null);
-  const { data: vps } = useApi(kind === "viewpoint" && model ? `/api/v1/models/${model}/viewpoints` : null);
+  const { data: vps } = useApi(kind === "view" && model ? `/api/v1/models/${model}/views` : null);
   const { data: refs } = useApi(kind === "reference" ? "/api/v1/reference-library?deep=true" : null);
   const { data: pages } = useApi(kind === "page" && pq.trim().length > 1 ? `${L}/search?q=${encodeURIComponent(pq.trim())}&library=${lib.scope === "org" ? "org" : lib.id}` : null);
   const list = (xs, label, href) => (xs || []).map((x) => <button key={href(x)} className="linkish lib-pick" onClick={() => onPick(label(x), href(x))}>{label(x)}</button>);
@@ -540,7 +532,7 @@ function LinkPicker({ lib, onClose, onPick }) {
   return (
     <Modal title="Insert a link" onClose={onClose} wide actions={<button onClick={onClose}>Cancel</button>}>
       <div className="row-gap" role="tablist">
-        {[["model", "Model"], ["project", "Project"], ["document", "Document"], ["canvas", "Canvas"], ["viewpoint", "Viewpoint"], ["reference", "Reference library"], ["page", "Library page"], ["web", "Web address"]]
+        {[["model", "Model"], ["project", "Project"], ["document", "Document"], ["canvas", "Canvas"], ["view", "View"], ["reference", "Reference library"], ["page", "Library page"], ["web", "Web address"]]
           .map(([k, l]) => <button key={k} className={kind === k ? "on" : ""} onClick={() => setKind(k)}>{l}</button>)}
       </div>
       <div className="lib-pick-list">
@@ -550,9 +542,9 @@ function LinkPicker({ lib, onClose, onPick }) {
           {(plist || []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>}
         {kind === "document" && proj && list(proj.documents, (d) => d.title || d.file_name, (d) => `ea:document:${project}:${d.id}`)}
         {kind === "canvas" && canv && list(canv.canvases, (c) => c.name, (c) => `ea:canvas:${project}:${c.id}`)}
-        {kind === "viewpoint" && <select value={model} onChange={(e) => setModel(e.target.value)}><option value="">Choose the model…</option>
+        {kind === "view" && <select value={model} onChange={(e) => setModel(e.target.value)}><option value="">Choose the model…</option>
           {(mlist || []).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select>}
-        {kind === "viewpoint" && vps && list(vps.viewpoints || vps, (v) => `${v.code} ${v.name}`, (v) => `ea:viewpoint:${model}:${v.code}`)}
+        {kind === "view" && vps && list(vps.views || vps, (v) => `${v.code} ${v.name}`, (v) => `ea:view:${model}:${v.code}`)}
         {kind === "reference" && list(refs?.entries, (r) => r.title, (r) => `ea:reference:${r.id}`)}
         {kind === "page" && <><input type="search" value={pq} onChange={(e) => setPq(e.target.value)} placeholder="Words from the page's title" autoFocus />
           {list((pages?.results || []).filter((r) => r.kind === "page"), (r) => r.title, (r) => `ea:page:${r.library}:${r.id}`)}</>}

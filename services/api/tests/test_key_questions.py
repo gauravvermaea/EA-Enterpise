@@ -1,4 +1,4 @@
-"""Key questions and placeholder viewpoints (owner, 9 Nov 2026): what they promise, without a database."""
+"""Key questions and placeholder views (owner, 9 Nov 2026): what they promise, without a database."""
 import io
 import zipfile
 from pathlib import Path
@@ -37,17 +37,17 @@ def test_file_names_are_safe():
 
 def test_tables_are_backed_up_and_in_the_release():
     tables = [t for t, _w, _m in project_backup.TABLES]
-    assert tables.index("placeholder_viewpoints") > tables.index("documents")
-    assert tables.index("question_viewpoints") > tables.index("key_questions")
+    assert tables.index("placeholder_views") > tables.index("documents")
+    assert tables.index("question_views") > tables.index("key_questions")
     sql = (ROOT / "migrations" / "sql" / "0032_repository_tags.sql").read_text()
-    for t in ("key_questions", "placeholder_viewpoints", "question_viewpoints"):
+    for t in ("key_questions", "placeholder_views", "question_views"):
         assert f"CREATE TABLE proj.{t}" in sql
     assert "proj.key_questions" in (ROOT / "migrations" / "versions" / "0032_repository_tags.py").read_text()
 
 
 def test_the_wizard_and_tab_use_them():
     wiz = (WEB / "Projects.jsx").read_text()
-    assert '"Key questions", "Viewpoints"' in wiz and "<QuestionMapping" in wiz and "makePlaceholderFiles" in wiz
+    assert '"Key questions", "Views"' in wiz and "<QuestionMapping" in wiz and "makePlaceholderFiles" in wiz
     kq = (WEB / "KeyQuestions.jsx").read_text()
     for t in blank_files.TYPES:
         assert f"{t}:" in kq.split("FILE_TYPES = {")[1].split("};")[0]

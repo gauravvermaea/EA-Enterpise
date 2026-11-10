@@ -56,10 +56,13 @@ def create_app(testing: bool = False) -> Flask:
     from .api.commits import blp as commits_blp
     from .api.commons import blp as commons_blp
     from .api.content import blp as content_blp
+    from .api.drawn_views import blp as drawn_views_blp
     from .api.grids import blp as grids_blp
     from .api.heartbeat import blp as heartbeat_blp
     from .api.icons import blp as icons_blp
     from .api.jobs import blp as jobs_blp
+    from .api.kpi_reports import blp as kpi_reports_blp
+    from .api.kpi_reports import odata_blp
     from .api.me import blp as me_blp
     from .api.metamodel import blp as metamodel_blp
     from .api.metamodel_edit import blp as metamodel_edit_blp
@@ -74,13 +77,50 @@ def create_app(testing: bool = False) -> Flask:
     from .api.tasks import blp as tasks_blp
     from .api.trees import blp as trees_blp
     from .api.versions import blp as versions_blp
-    from .api.viewpoints import blp as viewpoints_blp
+    from .api.views import blp as views_blp
 
     for blp in (heartbeat_blp, me_blp, access_blp, break_glass_blp, jobs_blp, audit_blp, metamodel_blp,
-                metamodel_edit_blp, models_blp, content_blp, grids_blp, viewpoints_blp, commits_blp,
+                metamodel_edit_blp, models_blp, content_blp, grids_blp, views_blp, commits_blp,
                 versions_blp, change_log_blp, admin_blp, sql_blp, tasks_blp, sheets_blp, notifications_blp, backups_blp,
-                quality_blp, icons_blp, trees_blp, startup_blp, projects_blp, model_wizards_blp, commons_blp):
+                quality_blp, icons_blp, trees_blp, startup_blp, projects_blp, model_wizards_blp, commons_blp, drawn_views_blp, kpi_reports_blp):
         api.register_blueprint(blp)
+    # machine access and operations (phases 25 and 35, F3 of batch 1)
+    from .api.machine_access import blp as machine_access_blp
+    from .api.operations import blp as operations_blp
+    api.register_blueprint(machine_access_blp)
+    api.register_blueprint(operations_blp)
+    # merging a child into its parent, dedupe, sample documents (phases 19, 20, 21, 15.3; F1 of batch 1)
+    from .api.merge_back import blp as merge_back_blp
+    api.register_blueprint(merge_back_blp)
+    # surveys and EA capability maturity (phases 38.1 and 40, F4 of batch 1)
+    from .api.surveys import blp as surveys_blp
+    api.register_blueprint(surveys_blp)
+    # the AI activity log and the MCP connector (phases 26/27, D482, D483)
+    from .api.mcp_activity import blp as mcp_activity_blp
+    api.register_blueprint(mcp_activity_blp)
+    # scenario planning (phase 27.1, D490 to D495)
+    from .api.scenarios import blp as scenarios_blp
+    api.register_blueprint(scenarios_blp)
+    # published import formats, deliveries and a model from a metamodel workbook (phase 34, D419, D462 to D468)
+    from .api.deliveries import blp as deliveries_blp
+    api.register_blueprint(deliveries_blp)
+    # updating to a new release (phase 36, D417)
+    from .api.updates import blp as updates_blp
+    api.register_blueprint(updates_blp)
+    from .api.platform_tests import blp as platform_tests_blp   # test runs (36.1) and scaling rules (36.3)
+    api.register_blueprint(platform_tests_blp)
+    from .api import selftest_session    # only in the test runner's own API (EAX_TEST_MODE=1): a watched self-test (D529)
+    if selftest_session.enabled():
+        api.register_blueprint(selftest_session.blp)
+    api.spec.components.security_scheme("apiKey", {"type": "apiKey", "in": "header", "name": "X-API-Key"})
+    try:   # the OData feed's Basic sign-in takes a token or API key as the password (phase 24, D433)
+        from . import machine_access as _ma
+        from . import odata_auth as _oa
+        if _ma.odata_check not in _oa.CHECKS:
+            _oa.CHECKS.append(_ma.odata_check)
+    except ImportError:
+        pass
+    app.register_blueprint(odata_blp)          # OData's own JSON, outside the OpenAPI document (phase 24, D433)
 
     @app.before_request
     def _request_id() -> None:
@@ -130,6 +170,42 @@ def create_app(testing: bool = False) -> Flask:
             return {"message": f"EA Explorer is read only while {m.get('what') or 'a restore runs'} (started by {m.get('by') or '?'} "
                                f"at {m.get('since') or '?'}): nothing can be changed until it is done.", "maintenance": m}, 503
         return None
+
+    @app.after_request
+    def _machine_and_usage(response):
+        """Phase 25: a machine credential's last use and the call in the change log; phase 35: the call counted."""
+        machine = getattr(g, "machine", None)
+        user = getattr(g, "user", None)
+        try:
+            from . import operations
+            if user is not None:
+                operations.count_call(user.username, request.path, machine is not None)
+            if machine is not None:
+                from . import machine_access
+                from .db import get_engine
+                with get_engine().begin() as conn:
+                    machine_access.note_use(conn, machine, request.method, request.path, response.status_code,
+                                            request.headers.get("X-Real-IP") or request.remote_addr or "",
+                                            getattr(g, "request_id", None))
+        except Exception:  # noqa: BLE001 - recording never fails the call
+            log.exception("recording the call failed")
+        return response
+
+    @app.get("/api/metrics")
+    def metrics():
+        """Prometheus metrics (phase 35, D371): read with a token or API key that may read Administration."""
+        from flask import Response
+
+        from . import operations
+        from .auth import require_auth
+        from .db import get_engine
+
+        @require_auth("system.operate")
+        def read():
+            operations.flush()
+            with get_engine().connect() as conn:
+                return Response(operations.metrics(conn), mimetype="text/plain; version=0.0.4")
+        return read()
 
     @app.after_request
     def _add_request_id(response):

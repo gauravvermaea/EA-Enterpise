@@ -36,7 +36,7 @@ logged as a **Compliance assessment** in the governance log with the whole table
 record); for each principle or standard not met, a **Dispensation** can be requested at once, pointing at it.
 
 **Plan the migration from gaps (WIZ-017)**, Model admin › Data and quality, on a project model holding a gap analysis.
-Choose the analysis and a first grouping of its open gaps (per layer, per entity type, per resolution, or one per
+Choose the analysis and a first grouping of its open gaps (per domain, per entity type, per resolution, or one per
 gap; gaps already in a work package are left out); rename the packages, give each a wave, dates and a resolution, move
 gaps between them; then **Work Package entities** are made in the model and committed at once (Model Admins; the
 metamodel needs a Work Package type, as ArchiMate 4 has), each associated with the elements its gaps are about; each

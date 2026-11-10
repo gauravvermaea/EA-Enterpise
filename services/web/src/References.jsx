@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { apiDownload, apiFetch, apiUpload } from "./auth";
 import { refreshAll, useApi } from "./ModelViews";
 import { Field, Modal } from "./ModelOps";
+import { liveProjects } from "./ModelMarks";
 
 export const REFERENCE = "05_Reference_Library";
 const rel = (path) => (path === REFERENCE ? "" : path.replace(`${REFERENCE}/`, ""));
@@ -36,7 +37,8 @@ export function LinkDialog({ p, d = null, item = null, folder = null, onClose })
   const [target, setTarget] = useState(d?.link_document ? `d:${d.link_document}` : d?.link_item ? `i:${d.link_item}` : "");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
-  const { data: plist } = useApi("/api/v1/projects");
+  const { data: plist_ } = useApi("/api/v1/projects");
+  const plist = plist_ && { ...plist_, projects: liveProjects(plist_.projects) };   // never a frozen project (D360)
   const { data: other } = useApi(lp ? `/api/v1/projects/${lp}` : null);
   const projects = (plist?.projects || []).filter((x) => x.id !== p.id);
   async function save() {
@@ -122,10 +124,6 @@ export function ReferenceTab({ p }) {
         earlier work, useful web pages). It is TOGAF's Reference Library, folder {REFERENCE} in Documents; make folders as you like.
         {data.is_library && " This is a library project: its reference material is offered to new projects."}</p>
       {msg && <p className="small status">{msg}</p>}
-      <div className="tabs sub" role="tablist">
-        <button className="tab on" role="tab" aria-selected="true">This project's reference</button>
-        <a className="tab" href="#/reference-library" title="The organisation's reference library, for everyone">📚 Enterprise reference library ↗</a>
-      </div>
       <div className="ref-layout">
         <nav className="ref-tree" aria-label="Reference folders">
           {data.folders.map((f) => (

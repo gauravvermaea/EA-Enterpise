@@ -38,6 +38,10 @@ restarts the system from the administration console. It talks to the Docker engi
   GET  /servers                 the API and job servers (copies of the api container) and how many are wanted (D249)
   POST /servers                 {count, by}: run that many (1 to 16): copies of the first are added, or the highest-numbered
                                 stopped (their jobs finish first) and removed; the number is written to the config file
+  GET  /scaling                 the scaling rules, the load seen and the decisions (phase 36.3, D526; scaling.py)
+  POST /scaling                 {settings, by}: save the rules (config file, a dated copy first)
+  GET  /tests                   the test runner image and the run going on;  POST /tests {run_id, suites, by, quick}:
+                                start a test run (phase 36.1, D367; testruns.py)
   GET  /services                the optional services, on or off in the config file (D191)
   POST /services                {service, on, by}: switch one on or off: the config file is copied first (a dated copy
                                 in work/config-history), the switch written, then its containers started or stopped
@@ -49,6 +53,8 @@ restarts the system from the administration console. It talks to the Docker engi
   POST /config-file             {text, by, why}: save it (checked; the file now copied first); changed switches apply
   POST /config-restore          {name, by}: make a copy the config file again (the current one is copied first); the
                                 service switches in it apply at once, every other setting at the next eax up
+  GET  /updates, /updates/versions?channel=   POST /updates/settings, /updates/start, /updates/retry,
+       /updates/rollback, /updates/schedule/cancel   updating to a new release (phase 36, D417; updates.py)
 The config file is the work folder's eaexplorer.env, mounted at /eax-work. Every write also refreshes
 work/services.env: the switches only (no secrets), which the api container reads.
 Every request but /health needs the header X-Ops-Token = EAX_OPS_TOKEN. The installation's containers are found by the
@@ -72,6 +78,7 @@ import signal
 import socket
 import struct
 import subprocess
+import sys
 import termios
 import threading
 import time
@@ -88,10 +95,11 @@ SERVICES = {"reports": ("EAX_SERVICE_REPORTS", ["reports-init", "reports"]),
             "mcp": ("EAX_SERVICE_MCP", ["api"]),
             "change_log": ("EAX_SERVICE_CHANGE_LOG", ["api"]),
             "backups": ("EAX_SERVICE_BACKUPS", ["backup"]),
-            "library": ("EAX_SERVICE_LIBRARY", ["library"])}
+            "library": ("EAX_SERVICE_LIBRARY", ["library"]),
+            "views": ("EAX_SERVICE_VIEWS", ["views"])}
 OFF = {"off", "false", "0", "no", "disabled"}
 SECTION = "# ---- Services (D191)"
-ORDER = ["db", "dms-broker", "keycloak", "api", "library", "reports", "dms", "drawio", "web", "backup", "proxy"]
+ORDER = ["db", "dms-broker", "keycloak", "api", "library", "views", "reports", "dms", "drawio", "web", "backup", "proxy"]
 state = {"restarting": False, "started": None, "finished": None, "log": []}
 # what is being applied, one entry per service (owner, 5 Nov 2026: each switched on its own, the others stay usable),
 # and "config" for a restore or a saved config file (these may touch several services, so they wait for the others)
@@ -532,7 +540,8 @@ def check_text(text: str) -> dict:
         if k in now and k not in new:
             errors.append(f"{k} is missing: EA Explorer cannot start without it")
     for k in ("EAX_DB_PASSWORD", "EAX_DB_MIGRATOR_PASSWORD", "EAX_DB_SUPERUSER_PASSWORD", "EAX_DB_REPORT_PASSWORD",
-              "EAX_KEYCLOAK_DB_PASSWORD", "EAX_SUPERSET_DB_PASSWORD", "EAX_MAYAN_DB_PASSWORD", "EAX_LIBRARY_DB_PASSWORD"):
+              "EAX_KEYCLOAK_DB_PASSWORD", "EAX_SUPERSET_DB_PASSWORD", "EAX_MAYAN_DB_PASSWORD", "EAX_LIBRARY_DB_PASSWORD",
+              "EAX_VIEWS_DB_PASSWORD"):
         if k in now and k in new and now[k] != new[k]:
             warnings.append(f"{k} changed: the database keeps the old password until it is changed there too "
                             "(rotating passwords comes with phase 36); until then the service cannot sign in")
@@ -1078,22 +1087,43 @@ BACKUPS = os.environ.get("EAX_BACKUP_MOUNT", "/backups")
 INFRA = os.path.join(BACKUPS, "infrastructure")
 REPO = os.environ.get("EAX_REPO_MOUNT", "/eax-repo")
 MAINTENANCE = os.path.join(WORK, "maintenance.json")
+# What an infrastructure backup holds (D410). Every database on the server is dumped (the library's and the views' from
+# their own servers when they have them); every named volume of docker-compose.yml with state is a file set, and the
+# others are said not needed and why (tests/test_backup_coverage.py keeps both lists whole).
+FILE_SETS = {   # file set: (named volume, what it is)
+    "documents": ("eax-docs", "Documents' files (Mayan)"),
+    "tls": ("eax-tls", "the site certificate and key"),
+    "reports": ("eax-superset-home", "the reports' home (Superset's secret key and uploads; its dashboards are in its database)"),
+    "imports": ("eax-imports", "the API's import folder (files uploaded to be imported)"),
+    "exports": ("eax-exports", "the API's export folder (files made to be downloaded)"),
+}
+NOT_NEEDED = {  # named volume: why it is not in a backup
+    "eax-pgdata": "the database server's own files: every database in it is in the backup as a dump (databases/)",
+    "eax-rendered": "made again from the config file by the setup service at every start",
+    "eax-kc-import": "the Keycloak realm, made again from the config file by the setup service at every start "
+                     "(the people and roles are in Keycloak's database)",
+}
 RESTORE_WHAT = {   # what a restore puts back: config file, databases (None: every one), file sets
-    "full": {"config": True, "dbs": None, "files": ["documents", "tls"],
+    "full": {"config": True, "dbs": None, "files": ["documents", "tls", "reports", "imports", "exports"],
              "label": "Everything: the config file, every database and the files"},
     "app": {"config": True, "dbs": [], "files": [],
             "label": "Application: the config file (the release and image versions are shown; run eax up after)"},
-    "app+data": {"config": True, "dbs": ["mayan"], "files": ["documents"],   # and the repository database
-                 "label": "Application and data: the config file, the repository and document databases, the document files "
-                          "(people and roles in Keycloak and the reports' own settings stay as they are)"},
+    "app+data": {"config": True, "dbs": ["mayan"], "files": ["documents", "imports", "exports"],   # and the repository,
+                 # library and views databases (every one that is not Keycloak's or Superset's)
+                 "label": "Application and data: the config file, the repository, library, views and document databases, "
+                          "the document files and the import and export folders (people and roles in Keycloak and the "
+                          "reports' own settings stay as they are)"},
     "db": {"config": False, "dbs": None, "files": [], "label": "Databases only: every database"},
-    "files": {"config": False, "dbs": ["mayan"], "only": True, "files": ["documents", "tls"],   # Documents' files and its database together
-              "label": "Files only: Documents (its files with its own database) and the certificate"},
+    "files": {"config": False, "dbs": ["mayan"], "only": True,   # Documents' files and its database together
+              "files": ["documents", "tls", "reports", "imports", "exports"],
+              "label": "Files only: Documents (its files with its own database), the certificate, the reports' home and "
+                       "the import and export folders"},
 }
 KEEP_UP = {"db", "backup", "ops", "proxy"}   # what keeps running while a restore runs (D230); the rest stops
 # the containers that use each part (kept for reference: since D230 every container but KEEP_UP stops)
 USERS_OF = {"eaexplorer": ["api", "reports"], "keycloak": ["keycloak"], "superset": ["reports"], "mayan": ["dms"],
-            "documents": ["dms"], "tls": []}   # the proxy keeps running (the lock page and the log are reached through it); it
+            "documents": ["dms"], "tls": [], "reports": ["reports"], "imports": ["api"], "exports": ["api"],
+            "eaxlibrary": ["library"], "eaxviews": ["views"]}   # the proxy keeps running (the lock page and the log are reached through it); it
 #                                               is restarted at the end to take the restored certificate
 backup_state: dict = {"busy": False, "what": "", "name": "", "log": [], "error": "", "started": None, "finished": None,
                       "result": None}
@@ -1425,8 +1455,29 @@ def _parts(folder: str) -> dict:
         if os.path.isdir(os.path.join(folder, "databases")) else []
     files = sorted(f.split(".")[0] for f in os.listdir(os.path.join(folder, "files"))) \
         if os.path.isdir(os.path.join(folder, "files")) else []
+    elsewhere = {}
+    try:
+        with open(os.path.join(folder, "databases", "HOSTS"), encoding="utf-8") as f:
+            for line in f:
+                bits = line.split()
+                if len(bits) == 3:
+                    elsewhere[bits[0]] = f"{bits[1]}:{bits[2]}"
+    except OSError:
+        pass
     return {"databases": dbs, "files": files, "config": os.path.isfile(os.path.join(folder, "config", "eaexplorer.env")),
-            "code": os.path.isfile(os.path.join(folder, "code", "release.json"))}
+            "code": os.path.isfile(os.path.join(folder, "code", "release.json")), "elsewhere": elsewhere}
+
+
+def contents(parts: dict) -> dict:
+    """What a backup holds and what it does not (and why), for its manifest (D410)."""
+    have = set(parts.get("files") or [])
+    return {"databases": {d: (f"from {parts['elsewhere'][d]}" if d in (parts.get("elsewhere") or {}) else "from the main server")
+                          for d in parts.get("databases") or []},
+            "files": {k: what for k, (_vol, what) in FILE_SETS.items() if k in have},
+            "empty": {k: f"{what}: empty when the backup was taken" for k, (_vol, what) in FILE_SETS.items() if k not in have},
+            "config": "the config file and services.env (config/)" if parts.get("config") else "",
+            "code": "the release, the image names and digests, the compose files (code/)" if parts.get("code") else "",
+            "not_included": dict(NOT_NEEDED)}
 
 
 def _do_backup(tag: str, by: str, kind: str, version: str, pinned: bool = False, keep: int = 0) -> dict:
@@ -1455,7 +1506,8 @@ def _do_backup(tag: str, by: str, kind: str, version: str, pinned: bool = False,
             _blog(line)
         if r.returncode:
             raise RuntimeError((r.stderr or r.stdout).strip().splitlines()[-1] if (r.stderr or r.stdout).strip() else "backup.sh failed")
-        manifest.update(status="ok", parts=_parts(folder), seconds=round(time.time() - started))
+        parts = _parts(folder)
+        manifest.update(status="ok", parts=parts, contents=contents(parts), seconds=round(time.time() - started))
     except Exception as exc:  # noqa: BLE001 - recorded on the backup and shown
         manifest.update(status="failed", error=str(exc)[:500], seconds=round(time.time() - started))
     if manifest["status"] != "ok" and os.path.exists(STOP_FLAG):    # stopped by hand (D231): the partial folder goes
@@ -1614,6 +1666,9 @@ def _restore_steps(name: str, what: str, by: str, version: str, force: bool, rec
         dbs = []
     files = [f for f in plan["files"] if f in parts["files"]]
     warnings = []
+    lacking = [FILE_SETS[f][1] for f in plan["files"] if f not in parts["files"] and f in FILE_SETS and f != "documents"]
+    if lacking:   # an older backup (before D410) or a folder that was empty: what is here now stays
+        warnings.append("This backup does not have " + "; ".join(lacking) + ": they were left as they are.")
     if what == "db":
         warnings.append("Only part of the installation was restored: documents and the records that point at them may no longer "
                         "match (newer documents without records, or records whose files are older). Check the documents of a few "
@@ -1759,6 +1814,13 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"status": "ok"})
         if not self._ok():
             return None
+        if self.path == "/tests":                    # test runs (phase 36.1, D367; testruns.py)
+            return self._send(200, testruns.status())
+        if self.path == "/scaling":                  # scaling rules (phase 36.3, D526; scaling.py)
+            try:
+                return self._send(200, scaling.describe())
+            except Exception as exc:  # noqa: BLE001
+                return self._send(500, {"message": str(exc)})
         if self.path.split("?")[0] == "/stats":
             try:
                 return self._send(200, stats(fresh="fresh" in self.path))
@@ -1823,11 +1885,50 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, restore_detail(m.group(1), int(m.group(2) or 5000)))
             except (OSError, FileNotFoundError, ValueError):
                 return self._send(404, {"message": "No such restore."})
+        if self.path.split("?")[0].startswith("/updates"):
+            return self._updates_get()
         if self.path == "/status":
             try:
                 return self._send(200, {"project": project(), "containers": containers(), "restart": state})
             except Exception as exc:  # noqa: BLE001
                 return self._send(500, {"message": str(exc)})
+        return self._send(404, {"message": "No such request."})
+
+    def _updates_get(self):
+        """Updates (phase 36, D417): status and the versions a channel offers."""
+        from urllib.parse import parse_qs, urlparse
+        u = urlparse(self.path)
+        try:
+            if u.path == "/updates":
+                return self._send(200, updates.status(int((parse_qs(u.query).get("tail") or ["200"])[0])))
+            if u.path == "/updates/versions":
+                return self._send(200, updates.versions((parse_qs(u.query).get("channel") or ["prod"])[0]))
+        except PermissionError as exc:
+            return self._send(403, {"message": str(exc)})
+        except ValueError as exc:
+            return self._send(400, {"message": str(exc)})
+        except Exception as exc:  # noqa: BLE001
+            return self._send(409, {"message": str(exc)})
+        return self._send(404, {"message": "No such request."})
+
+    def _updates_post(self):
+        b = self._body()
+        by = str(b.get("by") or "")
+        try:
+            if self.path == "/updates/settings":
+                return self._send(200, updates.save_settings(b, by))
+            if self.path == "/updates/start":
+                return self._send(202, updates.start(b))
+            if self.path in ("/updates/retry", "/updates/rollback"):
+                return self._send(202, updates.decide(self.path.rsplit("/", 1)[1], by))
+            if self.path == "/updates/schedule/cancel":
+                return self._send(200, updates.cancel_schedule(by))
+        except PermissionError as exc:
+            return self._send(403, {"message": str(exc)})
+        except ValueError as exc:
+            return self._send(400, {"message": str(exc)})
+        except Exception as exc:  # noqa: BLE001 - refused: a running update, no repository link, nothing newer
+            return self._send(409, {"message": str(exc)})
         return self._send(404, {"message": "No such request."})
 
     def _body(self) -> dict:
@@ -1840,6 +1941,16 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):  # noqa: N802
         if not self._ok():
             return None
+        if self.path in ("/tests", "/scaling"):     # test runs (36.1) and scaling rules (36.3)
+            b = self._body()
+            try:
+                if self.path == "/tests":
+                    return self._send(202, testruns.start(b))
+                return self._send(200, scaling.save(b.get("settings") or {}, str(b.get("by") or "console")))
+            except ValueError as exc:
+                return self._send(400, {"message": str(exc)})
+            except RuntimeError as exc:
+                return self._send(409, {"message": str(exc)})
         if self.path == "/terminal/ticket":
             b = self._body()
             try:
@@ -1851,6 +1962,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(403, {"message": str(exc)})
             except ValueError as exc:
                 return self._send(400, {"message": str(exc)})
+        if self.path.startswith("/updates/"):
+            return self._updates_post()
         if self.path == "/backups/stop":
             try:
                 return self._send(200, stop_backup(str(self._body().get("by") or "")))
@@ -2068,6 +2181,10 @@ def cli(argv: list[str]) -> int:
       delete-restore <id>                    forget a finished restore and its log
       filesystems                            size, used and free of Docker's disk and the work and backups folders"""
     cmd, args = (argv[0] if argv else "help"), argv[1:]
+    if cmd == "test":                     # eax test (phase 36.1, D367)
+        return testruns.cli(args)
+    if cmd in ("update", "rollback"):      # eax update / eax rollback (phase 36, D417)
+        return updates.cli(argv if cmd == "rollback" else args)
     version = args[args.index("--version") + 1] if "--version" in args else os.environ.get("EAX_VERSION", "")
     if cmd == "filesystems":              # .\eax status shows these after the containers (owner, 8 Nov 2026)
         g = lambda b: f"{b / 1e9:,.1f} GB"  # noqa: E731
@@ -2204,6 +2321,17 @@ def cli(argv: list[str]) -> int:
     return 2
 
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # updates.py beside this file (also when tests load it)
+import updates  # noqa: E402 - updating to a new release (phase 36, D417)
+
+updates.hooks.update(read_config=_read_config, write_config=_write, copy_config=copy_config, docker=docker)
+import scaling  # noqa: E402 - scaling the API and job servers by rules (phase 36.3, D526)
+import testruns  # noqa: E402 - test runs (phase 36.1, D367)
+
+scaling.bind(globals())
+testruns.bind(globals())
+
+
 if __name__ == "__main__":
     import sys
     if len(sys.argv) > 1:
@@ -2218,6 +2346,8 @@ if __name__ == "__main__":
         recover_after_restart()
     except OSError as exc:
         print(f"ops: could not check the restores ({exc})", flush=True)
+    threading.Thread(target=updates.scheduler, daemon=True).start()   # scheduled updates (D417)
+    scaling.start()                       # the scaling rules, looked at every minute (D526)
     terminals = ThreadingHTTPServer(("0.0.0.0", TERMINAL_PORT), TerminalHandler)
     terminals.daemon_threads = True
     threading.Thread(target=terminals.serve_forever, daemon=True).start()

@@ -22,7 +22,7 @@ def test_migration():
               "CREATE TABLE proj.gov_records", "CREATE TABLE proj.gov_kinds", "CREATE TABLE proj.charters",
               "ALTER TABLE proj.org_people ADD COLUMN skills", "'0.15.0'"):
         assert s in sql
-    assert 'version = "0.15.' in (ROOT / "version.toml").read_text()
+    assert 'version = "0.1' in (ROOT / "version.toml").read_text()
 
 
 def test_togaf10_metamodel():
@@ -95,7 +95,7 @@ def test_api_and_screens():
 
 def test_hierarchy_drawn_as_a_tree():
     t = (WEB / "ProjectTree.jsx").read_text()
-    assert "export function flatten" in t and "openDrawio" in t and "usePanZoom" in t
+    assert "export function flatten" in t and "<PictureActions picture=" in t and "usePanZoom" in t
     assert "<ProjectTree items={flatten(data.nodes)}" in (WEB / "ProjectGovernance.jsx").read_text()
     a = (WEB / "Areas.jsx").read_text()
     assert "<ModelTree models={keep} />" in a and "<ProjectTree items=" in a

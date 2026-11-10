@@ -256,7 +256,7 @@ def _types(conn, models: list[dict], p: dict | None = None) -> list[dict]:
     if not models:
         return []
     rows = _rows(pj.core(conn), """
-        SELECT t.id AS _id, t.guid::text AS id, t.model_id AS _m, t.code, t.name, t.content_area, t.repository_area, l.name AS layer, l.colour,
+        SELECT t.id AS _id, t.guid::text AS id, t.model_id AS _m, t.code, t.name, t.content_area, t.repository_area, l.name AS domain, l.colour,
                (SELECT count(*) FROM core.entities e WHERE e.entity_type_id = t.id AND NOT e.is_deleted) AS entities
           FROM core.entity_types t JOIN core.layers l ON l.id = t.layer_id
          WHERE t.model_id = ANY (CAST(:m AS bigint[])) AND NOT t.is_deleted
@@ -412,7 +412,7 @@ def area(conn, project: Any, user, code: str) -> dict:
     for m in models:
         mt = [t for t in types if t["_m"] == m["_id"]]
         tree_models.append({"id": m["id"], "name": m["name"], "kind": m["kind"], "own_entities": loose_e.get(m["_id"], []), "types": [
-            {"id": t["id"], "name": t["name"], "code": t["code"], "layer": t["layer"], "colour": t["colour"], "chosen": t["chosen"],
+            {"id": t["id"], "name": t["name"], "code": t["code"], "domain": t["domain"], "colour": t["colour"], "chosen": t["chosen"],
              "areas": t["area"],
              "count": int(t["entities"]), "entities": ents.get(t["_id"], []), "more": max(0, int(t["entities"]) - MAX_ENTITIES)}
             for t in mt]})
@@ -536,7 +536,7 @@ def tag_list(conn, project: Any, user, kind: str, q: str = "", phase: str = "", 
         mguid = {m["_id"]: m["id"] for m in models}
         by = {str(r["g"]): r for r in _rows(conn, "SELECT type_guid::text AS g, set_by, set_at FROM proj.cf_type_areas WHERE project_id = :p", p=p["id"])}
         for t in _types(conn, models, p):
-            rows.append({"id": t["id"], "name": t["name"], "code": t["code"], "model": mname.get(t["_m"], ""), "model_id": mguid.get(t["_m"]), "layer": t["layer"], "entities": int(t["entities"]),
+            rows.append({"id": t["id"], "name": t["name"], "code": t["code"], "model": mname.get(t["_m"], ""), "model_id": mguid.get(t["_m"]), "domain": t["domain"], "entities": int(t["entities"]),
                          "areas": t["area"], "default": t["default_area"], "chosen": t["chosen"] == "project", "source": t["source"],
                          "repository": t["repository"],
                          "set_by": (by.get(t["id"]) or {}).get("set_by"), "set_at": (by.get(t["id"]) or {}).get("set_at")})

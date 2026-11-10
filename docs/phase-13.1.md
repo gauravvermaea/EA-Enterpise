@@ -40,7 +40,7 @@ Migration `0031_project_bases` (after 0029 content framework and 0030 the refere
 - The shipped samples keep **Meridian**, a fictitious company (owner, 8 Nov 2026).
 
 - **Project admin › Project templates**: *Open* a template to read what it decides (purpose, depth, domains, phases,
-  models by role, goals, viewpoints, steps left out, stakeholders, reference links, finish); *＋ New project* (on the row
+  models by role, goals, views, steps left out, stakeholders, reference links, finish); *＋ New project* (on the row
   or in the template) starts the wizard from it.
 
 - **Documents (D308)**: a document's name apart from its file (Business Model Canvas, file questions_for_bmc.xlsx); a
@@ -98,7 +98,7 @@ To test:
     from T1, the new one is archived.
 
 More to test (D313, D314):
-17. Home: the cycle and About; click a phase, Open phase →. Phases tab: Documents, Not added / won't need, Steps, Viewpoints.
+17. Home: the cycle and About; click a phase, Open phase →. Phases tab: Documents, Not added / won't need, Steps, Views.
 18. Mark a class "won't need": it moves to Not added / won't need; ↺ Bring it back. With a document checked out it is refused.
 19. A document: 🕘 History shows its versions; ⋯ closes when clicking elsewhere.
 20. Check in the same file again: refused ("nothing changed").

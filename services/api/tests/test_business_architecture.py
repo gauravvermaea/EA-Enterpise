@@ -1,7 +1,7 @@
-"""The TOGAF business architecture artifacts (D345): extension types, viewpoints, sample data and the tabs."""
+"""The TOGAF business architecture artifacts (D345): extension types, views, sample data and the tabs."""
 from pathlib import Path
 
-from eax.report_defs import VIEWPOINTS
+from eax.report_defs import VIEWS
 from eax.seed import archimate4 as A
 from eax.seed import demo_estate as D
 from eax.seed import togaf10
@@ -25,29 +25,29 @@ def test_demo_estate_has_every_extension_type():
     assert all("Importance" in a and "Investment" in a for a in caps)
 
 
-def test_togaf_viewpoints_cover_the_artifacts():
-    names = {v["togaf_artifact"] for v in VIEWPOINTS if v["togaf_artifact"]}
+def test_togaf_views_cover_the_artifacts():
+    names = {v["togaf_artifact"] for v in VIEWS if v["togaf_artifact"]}
     for a in ("Business Capability Map", "Value Stream Map", "Organization Map", "Business Interaction matrix", "Information Map",
               "Value Stream Stages catalog", "Product Lifecycle diagram", "Business Scenario", "Contract/Measure catalog"):
         assert a in names, a
-    assert not any("bjective" in v["togaf_artifact"] for v in VIEWPOINTS)        # Outcome, never the other word
+    assert not any("bjective" in v["togaf_artifact"] for v in VIEWS)        # Outcome, never the other word
 
 
 def test_tabs_on_the_model_and_project_pages():
-    assert '["business", "Business viewpoints", null]' in (WEB / "Metamodel.jsx").read_text()          # D352
+    assert '["business", "Business views", null]' in (WEB / "Metamodel.jsx").read_text()          # D352
     assert '["business", "Business artifacts"]' in (WEB / "Projects.jsx").read_text()
     ba = (WEB / "BusinessArchitecture.jsx").read_text()
-    assert "types_defined" in ba and "viewpoint_reports" in ba
+    assert "types_defined" in ba and "view_reports" in ba
     model_tab = ba.split("export function ModelBusinessArtifacts")[1].split("\n}\n")[0]
     assert "canvas" not in model_tab.lower()                              # the model's tab: only what comes from the model
     project_tab = ba.split("export function ProjectBusinessArtifacts")[1]
     assert "/canvases" in project_tab and 'phase === "B"' in project_tab
 
 
-def test_every_business_viewpoint_has_its_reports():
-    from eax.report_defs import REPORTS, VIEWPOINT_REPORTS, VIEWPOINTS
+def test_every_business_view_has_its_reports():
+    from eax.report_defs import REPORTS, VIEW_REPORTS, VIEWS
     codes = {r["code"] for r in REPORTS}
-    togaf = {v["code"] for v in VIEWPOINTS if v.get("togaf_artifact")}
-    assert set(VIEWPOINT_REPORTS) == togaf                                   # every one, and only those (D352)
-    assert all(c in codes for cs in VIEWPOINT_REPORTS.values() for c in cs)
+    togaf = {v["code"] for v in VIEWS if v.get("togaf_artifact")}
+    assert set(VIEW_REPORTS) == togaf                                   # every one, and only those (D352)
+    assert all(c in codes for cs in VIEW_REPORTS.values() for c in cs)
     assert all(v in codes for v in togaf)                                    # each is also a dashboard of its own

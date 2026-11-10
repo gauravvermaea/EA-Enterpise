@@ -2,7 +2,7 @@
 //   #/metamodel/<model>/viewpoints                      every viewpoint (VP-01 to VP-26 and the organisation's own),
 //                                                        grouped by category, with how many of the model's entities each shows
 //   #/metamodel/<model>/viewpoints/<code>[/<view>]       the model through one viewpoint, as
-//        diagram   the elements in bands by layer with the viewpoint's relationships (EntityGraph)
+//        diagram   the elements in bands by domain with the viewpoint's relationships (EntityGraph)
 //        catalog   one row per element with its key values; CSV
 //        heat      tiles grouped by type, coloured by any attribute (a heat map); legend
 //        matrix    one type down the side, another across the top, the relationships in the cells
@@ -122,7 +122,7 @@ function ViewpointList({ model, m }) {
 }
 
 const SUBS = [
-  ["diagram", "Diagram", "The elements in bands by layer, with the relationships the viewpoint shows"],
+  ["diagram", "Diagram", "The elements in bands by domain, with the relationships the viewpoint shows"],
   ["catalog", "Catalog", "One row per element with its key values"],
   ["heat", "Heat map", "The elements as tiles grouped by type, coloured by an attribute you choose"],
   ["matrix", "Matrix", "One type against another, with the relationships between their elements"],
@@ -173,7 +173,7 @@ function ViewpointPage({ model, m, code, sub }) {
       {!data.entities.length ? <p className="quiet">This model has no entities of the viewpoint's types yet.</p>
         : s === "diagram" ? (
           <Suspense fallback={<p>Loading the picture...</p>}>
-            <EntityGraph model={model} kind="layers" presetTypeCodes={vp.element_types} onlyRels={vp.relationship_types} />
+            <EntityGraph model={model} kind="domains" presetTypeCodes={vp.element_types} onlyRels={vp.relationship_types} />
           </Suspense>)
         : s === "catalog" ? <Catalog data={data} model={model} />
         : s === "heat" ? <HeatMap data={data} model={model} />
@@ -195,17 +195,17 @@ function Catalog({ data, model }) {
     <div>
       <div className="toolbar">
         <input type="search" placeholder="Filter" value={filter} onChange={(e) => setFilter(e.target.value)} />
-        <button onClick={() => downloadCsv([["Layer", "Type", "ID", "Name", "Description", "Part of", ...data.attributes],
-          ...rows.map((e) => [e.layer, e.entity_type, e.display_id, e.name, e.description, e.parent || "",
+        <button onClick={() => downloadCsv([["Domain", "Type", "ID", "Name", "Description", "Part of", ...data.attributes],
+          ...rows.map((e) => [e.domain, e.entity_type, e.display_id, e.name, e.description, e.parent || "",
             ...data.attributes.map((a) => e.values[a] || "")])], `${data.model.name} ${data.viewpoint.code} catalog`)}
           title="Every element with every attribute, as CSV (opens in Excel)">CSV</button>
       </div>
       <table className="grid-table">
-        <thead><tr><th>Layer</th><th>Type</th><th>ID</th><th>Name</th><th>Part of</th>{cols.map((c) => <th key={c}>{c}</th>)}</tr></thead>
+        <thead><tr><th>Domain</th><th>Type</th><th>ID</th><th>Name</th><th>Part of</th>{cols.map((c) => <th key={c}>{c}</th>)}</tr></thead>
         <tbody>
           {rows.map((e) => (
             <tr key={e.id}>
-              <td><span className="heat-swatch" style={{ background: `#${e.colour}` }} /> {e.layer}</td>
+              <td><span className="heat-swatch" style={{ background: `#${e.colour}` }} /> {e.domain}</td>
               <td>{e.entity_type}</td><td className="quiet">{e.display_id}</td>
               <td><a href={`#/metamodel/${model}/entity/${e.id}`}>{e.name}</a></td>
               <td className="quiet">{e.parent || ""}</td>
@@ -248,7 +248,7 @@ function heatDrawio(data, attr, scale) {
   const TW = 170, TH = 40, GAP = 8, PER_ROW = 6;
   let y = 0;
   const fill = (e) => scale.colour(e.values[attr]) || "f6f7f9";
-  const ea = (e) => ({ ea_type: e.entity_type, ea_id: e.id, ea_layer: e.layer });
+  const ea = (e) => ({ ea_type: e.entity_type, ea_id: e.id, ea_domain: e.domain });
   for (const t of data.types) {
     nodes.push({ id: `h_${t.code}`, label: `${t.name} (${t.count})`, x: 0, y, w: 400, h: 24, shape: "text", fontSize: 14, bold: true });
     y += 30;
@@ -476,8 +476,8 @@ function ViewpointDialog({ model, start, onClose }) {
         {!mm ? <p className="quiet">Loading the types...</p> : <>
           <div className="ed-field"><span>Element types ({v.element_types.length})</span>
             <div className="vp-checks">
-              {mm.layers.map((l) => (
-                <div key={l.id} className="vp-layer"><strong>{l.name}</strong>
+              {mm.domains.map((l) => (
+                <div key={l.id} className="vp-domain"><strong>{l.name}</strong>
                   {l.entity_types.map((t) => (
                     <label key={t.id}><input type="checkbox" checked={v.element_types.includes(t.code)} onChange={() => toggle("element_types", t.code)} /> {t.name}</label>
                   ))}
