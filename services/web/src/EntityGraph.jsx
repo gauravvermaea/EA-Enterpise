@@ -7,7 +7,7 @@
 //   impact   from one entity, follow the lines one way only (out: what it leads to, uses or
 //            contains; in: what leads to, uses or contains it), up to 6 steps, in columns by distance
 // Click a box to open its entity page (or, by choice, to put it in the middle). Drag a box to move
-// it, drag the background to pan, scroll to zoom. Save as a drawn view, or download it (.drawio, SVG, PNG, CSV of the lines) (D407, D408).
+// it, drag the background to pan, scroll to zoom. Save as a drawn view, open it in draw.io (D585), or download it (SVG, PNG, CSV of the lines) (D407, D408).
 // For one entity (its page) there are also:
 //   split    both ways at once: what leads to it on the left, what it leads to on the right
 //   tree     its family tree: every parent up to the top, its parts down a chosen number of levels

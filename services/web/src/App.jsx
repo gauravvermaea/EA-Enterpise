@@ -11,6 +11,7 @@ import MyProfile from "./Skills";
 import ModelAdmin from "./ModelAdmin";
 import Metamodel from "./Metamodel";
 import { DrawnViewFullScreen } from "./DrawnView";
+import { ScratchDrawioFullScreen } from "./ScratchDrawio";
 import Mcp from "./Mcp";
 import Library from "./Library";
 import CompareScreen from "./Versions";
@@ -92,6 +93,9 @@ export default function App() {
   // a drawn view opens in a tab of its own, full screen: none of EA Explorer's header or menus (D411)
   const drawn = /^#\/metamodel\/([^/]+)\/drawn-views\/([^/?]+)/.exec(route);
   if (drawn) return <DrawnViewFullScreen key={route} model={drawn[1]} view={decodeURIComponent(drawn[2])} route={route} />;
+  // a picture opened in draw.io (D585): a scratch view in a tab of its own, full screen too
+  const scratch = /^#\/drawio\/open\/([A-Za-z0-9]+)/.exec(route);
+  if (scratch) return <ScratchDrawioFullScreen key={route} scratchKey={scratch[1]} />;
 
   return (
     <div className="shell">

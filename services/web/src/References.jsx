@@ -3,7 +3,8 @@
 // Reference Library (05_Reference_Library), opened up: folders of any shape, documents and links, added by anyone on the project.
 import { EnterprisePicker } from "./ReferenceLibrary";
 import { useEffect, useMemo, useState } from "react";
-import { apiDownload, apiFetch, apiUpload } from "./auth";
+import { apiFetch, apiUpload } from "./auth";
+import { openFile } from "./drawioScratch";
 import { refreshAll, useApi } from "./ModelViews";
 import { Field, Modal } from "./ModelOps";
 import { liveProjects } from "./ModelMarks";
@@ -147,7 +148,7 @@ export function ReferenceTab({ p }) {
               <tbody>
                 {here.map((d) => (
                   <tr key={d.id}>
-                    <td>{d.is_link ? <LinkName d={d} /> : <button className="linkish" onClick={() => apiDownload(`/api/v1/projects/${p.id}/documents/${d.id}`, d.file_name).catch((e) => setMsg(e.message))}>
+                    <td>{d.is_link ? <LinkName d={d} /> : <button className="linkish" onClick={() => openFile(`/api/v1/projects/${p.id}/documents/${d.id}`, d.file_name).catch((e) => setMsg(e.message))}>
                       📄 {d.file_name}</button>}{!d.is_link && !d.stored && <span className="small quiet"> (being copied)</span>}</td>
                     <td className="small">{d.created_by}</td>
                     <td className="small nowrap">{can && <>

@@ -6,6 +6,7 @@
 // (#/library is the model library: a different thing.)
 import { Fragment, useEffect, useState } from "react";
 import { apiDownload, apiFetch, apiUpload, libraryInfo } from "./auth";
+import { openFile } from "./drawioScratch";
 import { refreshAll, useApi } from "./ModelViews";
 import { Field, Modal } from "./ModelOps";
 import { fmtDateTime } from "./fmt";
@@ -24,7 +25,7 @@ function Link({ label, href }) {
   if (/^ea:document:/.test(href)) {
     const [p, d] = href.slice(12).split(":");
     return <button className="linkish lib-a" title="Download the document"
-      onClick={() => apiDownload(`/api/v1/projects/${p}/documents/${d}`, label).catch((e) => window.alert(e.message))}>📄 {label}</button>;
+      onClick={() => openFile(`/api/v1/projects/${p}/documents/${d}`, label).catch((e) => window.alert(e.message))}>📄 {label}</button>;
   }
   const inside = eaHref(href);
   if (inside) return <a className="lib-a" href={inside}>{label}</a>;

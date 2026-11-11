@@ -554,11 +554,11 @@ export default function MetamodelDiagram({ model, focus }) {
   }
 
   // the diagram's own draw.io file: saved as a drawn view of the model (its boxes are types, not entities, so they stay
-  // plain shapes there) or downloaded (D407, D408)
+  // plain shapes there) or opened in our draw.io (D407, D408, D585)
   function picture() {
     if (!graph) return null;
     const t = fileName("drawio").replace(/\.drawio$/, "");
-    return { title: t, xml: drawioXml(t, boxes, links, data.entity_types, showAttrs, bands) };
+    return { title: t, plain: true, xml: drawioXml(t, boxes, links, data.entity_types, showAttrs, bands) };
   }
 
   async function copyMermaid() {
@@ -718,7 +718,7 @@ export default function MetamodelDiagram({ model, focus }) {
         description, parent, status and history). Lines are the relationships the metamodel allows, from source to
         target, combined per pair of types. Drag a box to move it, click it to focus on it; drag the background to
         move around; scroll to zoom. SVG and PNG save what you see; Save as a drawn view keeps it, with this layout, as a
-        drawn view of the model; .drawio downloads its file.
+        drawn view of the model; Open in draw.io shows it in our draw.io, to export it (.drawio, PNG, SVG, PDF) or save it there.
       </p>
     </div>
   );

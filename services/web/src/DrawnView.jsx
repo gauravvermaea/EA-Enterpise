@@ -17,6 +17,7 @@ import { fmtDateTime } from "./fmt";
 import { LinkList } from "./Links";
 import { RelationshipAttributes as LineAttributes } from "./RelAttributes";
 import { downloadDrawio, downloadPicturePng, downloadPictureSvg, drawioXml, saveBlob } from "./exporting";
+import { openInDrawio } from "./drawioScratch";
 
 const go = (path) => { window.location.hash = path; };
 // the views themselves are the views service's (D405): list, open, save, versions, rename, delete; what needs the model's
@@ -110,7 +111,7 @@ export function DrawnViewsSection({ model, m, generated = [], filter = "" }) {
   );
 }
 
-function NewDrawnView({ model, views, copy, onClose, xml, source, sourceNote }) {
+export function NewDrawnView({ model, views, copy, onClose, xml, source, sourceNote, sameTab = false, onSaved }) {
   const [name, setName] = useState(copy ? `${copy.name} (copy)` : sourceNote || "");
   const [description, setDescription] = useState(copy?.description || "");
   const [from, setFrom] = useState(copy?.id || "");
@@ -120,13 +121,14 @@ function NewDrawnView({ model, views, copy, onClose, xml, source, sourceNote }) 
   const [busy, setBusy] = useState(false);
   async function create() {
     setBusy(true); setMsg("");
-    const tab = window.open("about:blank", "_blank");
+    const tab = sameTab ? null : window.open("about:blank", "_blank");     // sameTab: from a scratch view (D585)
     try {
       const body = { name: name.trim(), description };
       if (xml) Object.assign(body, { xml, source: source || "generated", source_note: sourceNote || "" });
       else if (from) Object.assign(body, { copy_from: from, ...(version ? { copy_version: Number(version) } : {}) });
       const out = await apiFetch(store(model), { method: "POST", body: JSON.stringify(body) });
       refreshAll();
+      onSaved?.(out);
       onClose();
       if (tab) tab.location.href = new URL(viewUrl(model, out.id), window.location.href).href;
       else go(viewUrl(model, out.id).slice(1));
@@ -335,7 +337,7 @@ export function DrawnViewPage({ model, m, view, full = false }) {
     const s = st.current;
     if (!s.ready || !s.loaded || s.setupSent || !setup || !info) return;
     s.setupSent = true;
-    post({ ...setup, readOnly: setup.readOnly || old });
+    post({ ...setup, readOnly: setup.readOnly || old, title: info.name });
     setPhase("ready");
   }, [setup, info, old, post]);
   useEffect(() => { trySetup(); }, [trySetup]);
@@ -1470,10 +1472,11 @@ export function ViewEvidenceList({ p }) {
 // ---------------------------------------------------------------- a generated picture: save as a drawn view, or download
 // Every generated picture (D407, D408) offers "Save as a drawn view" (a drawn view of the model keeping the picture's
 // layout, tidied, its boxes in the ArchiMate notation of their types and bound to the entities, its lines to the
-// relationships) and downloads (.drawio, PNG, SVG). Nothing else is stored, and nothing opens draw.io outside a drawn view.
+// relationships), "Open in draw.io" (our own draw.io in a tab of its own, as a scratch view kept nowhere: look, export,
+// or save it as a drawn view there; D585) and downloads (PNG, SVG). Nothing else is stored.
 // picture(): {title, nodes, edges} in exporting.js's drawioXml shape, read when pressed. images: PNG and SVG from the
 // nodes (screens drawn in HTML); screens with their own SVG keep their own buttons for those. model: none for a picture
-// that is not of one model (the model tree): downloads only. A picture with its own file (the metamodel diagram) gives
+// that is not of one model (the model tree): downloads only (.drawio, PNG, SVG). A picture with its own file (the metamodel diagram) gives
 // {title, xml} instead of nodes.
 export function PictureActions({ model, picture, images = true, disabled = false }) {
   const { data: m } = useApi(model ? `/api/v1/models/${model}` : null);
@@ -1497,10 +1500,20 @@ export function PictureActions({ model, picture, images = true, disabled = false
     if (p?.xml) saveBlob(new Blob([p.xml], { type: "application/xml" }), `${p.title}.drawio`);
     else if (p) downloadDrawio(p.title, p.nodes, p.edges || [], await look());
   }
+  async function open() {
+    setErr("");
+    try {
+      const p = picture();
+      if (!p || (!p.xml && !p.nodes.length)) throw new Error("Nothing on the picture to open.");
+      openInDrawio({ model, title: p.title, plain: !!p.plain, xml: p.xml || drawioXml(p.title, p.nodes, p.edges || [], await look()) });
+    } catch (e) { setErr(e.message); }
+  }
   return (
     <>
       {may && <button disabled={disabled} onClick={save} title="Keep this picture, with its layout, as a drawn view of the model: change it there and save versions">Save as a drawn view</button>}
-      <button disabled={disabled} onClick={file} title="Download the picture as a draw.io file (yours to keep: it does not follow the model)">.drawio</button>
+      {model ? <button disabled={disabled} onClick={open}
+        title="Open the picture in draw.io, in a tab of its own: look, export (.drawio, PNG, SVG, PDF) or save it as a drawn view there. It is kept nowhere until saved">Open in draw.io</button>
+        : <button disabled={disabled} onClick={file} title="Download the picture as a draw.io file (yours to keep: it does not follow the model)">.drawio</button>}
       {images && <button disabled={disabled} onClick={() => { const p = picture(); if (p) downloadPicturePng(p.title, p.nodes, p.edges || []); }}>PNG</button>}
       {images && <button disabled={disabled} onClick={() => { const p = picture(); if (p) downloadPictureSvg(p.title, p.nodes, p.edges || []); }}>SVG</button>}
       {err && <span className="status bad small">{err}</span>}
@@ -1546,7 +1559,7 @@ export function EntityIcon({ model, m, e }) {
 }
 
 // ---------------------------------------------------------------- files
-function dataUriToBlob(uri) {
+export function dataUriToBlob(uri) {
   const [head, body] = String(uri).split(",");
   const mime = (/data:([^;,]+)/.exec(head) || [])[1] || "application/octet-stream";
   const bin = head.includes(";base64") ? atob(body) : decodeURIComponent(body);
@@ -1556,7 +1569,7 @@ function dataUriToBlob(uri) {
 }
 
 // a one-page PDF holding the picture (as JPEG), written by hand: no PDF library is needed for that
-async function pngToPdf(pngUri) {
+export async function pngToPdf(pngUri) {
   const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = pngUri; });
   const c = document.createElement("canvas");
   c.width = img.width; c.height = img.height;

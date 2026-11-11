@@ -42,9 +42,17 @@ def test_the_screens_are_wired_in():
         assert "<PictureActions model={model}" in _src(f), f                 # Save as a drawn view on every picture (D407)
     for f in ("ModelTree.jsx", "ProjectTree.jsx"):
         assert "<PictureActions picture=" in _src(f), f                     # not one model's: downloads only
-    import re
-    for f in WEB.glob("*.js*"):
-        assert not re.search(r"openDrawio|Open in draw\.io", f.read_text(encoding="utf-8")), f.name   # D408
+    # D585 (amends D408): "Open in draw.io" opens our own draw.io as a scratch view, only through drawioScratch.js, and
+    # that view is read only: nothing on it can change the model; Save as a drawn view keeps it
+    for f in ("DrawnView.jsx", "Canvas.jsx"):
+        assert "openInDrawio(" in _src(f), f
+    sc = _src("ScratchDrawio.jsx")
+    assert "readOnly: true" in sc and "keepLook: true" in sc and "<NewDrawnView" in sc and "sameTab" in sc
+    assert "Leave without saving? This picture isn't kept." in sc and "noSaveBtn=1" in sc
+    assert "ScratchDrawioFullScreen" in _src("App.jsx") and "#\\/drawio\\/open\\/" in _src("App.jsx")
+    sk = _src("drawioScratch.js")
+    assert "localStorage" in sk and "sessionStorage" in sk and "window.opener" in sk
+    assert "?xml=" not in sk and "encodeURIComponent(xml" not in sk          # never the picture in the address
     assert "/api/views/v1/models/${model}/own-views" in _src("Views.jsx") and "views/render" in _src("Views.jsx")
     assert 'eax: "palettes"' in _src("DrawnView.jsx")                       # D409
     assert "<EntityIcon" in _src("ModelViews.jsx")

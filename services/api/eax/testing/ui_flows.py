@@ -22,8 +22,11 @@ filled from the run's ids, and {$name}, filled from a "remember" step of the sam
   {"download": "text"}                       click it; a file must come (headless) or no error show (in a browser)
   {"as": "role"}                             the next pages open as another test role (sending, then reviewing)
   {"remember": "name", "url": "regex"}       wait until the page's address matches; keep its first group as {$name}
+  {"popup": "text", "expect": "text"}       click it and carry on in the tab it opens (headless only; D585), until the
+                                             next "open", which closes that tab and goes back
   {"drawio_ready": ms} / {"drawio_drop": "TypeCode"} / {"drawio": "js body", "poll": true}
-                                             inside the draw.io frame of a drawn view (headless only): wait until the
+                                             inside the draw.io frame of a drawn view or a picture opened in draw.io
+                                             (headless only): wait until the
                                              plugin has set up, drop a placeholder of a type (as the stencil does), or run
                                              a check returning true or why not (ui, g, m, a, cells, txt as in
                                              deploy/drawio/tests/tests.cjs)
@@ -44,7 +47,7 @@ from pathlib import Path
 Record = Callable[..., None]
 
 STEP_KINDS = ["open", "click", "click_re", "choose", "fill", "select", "press", "expect", "expect_not", "expect_sel",
-              "upload", "download", "as", "remember", "drawio_ready", "drawio_drop", "drawio"]
+              "upload", "download", "as", "remember", "drawio_ready", "drawio_drop", "drawio", "popup"]
 DIALOG = "[role=dialog]"
 
 # the drawn-view journey's checks inside draw.io (D583): a shape bound to an entity, found by the name it shows
@@ -201,6 +204,23 @@ JOURNEYS: list[dict] = [
          {"drawio": "const e = " + _line("serves {sid} {role}") + "; const t = e ? txt(e) : '';"
                     " return t === 'serves {sid} {role} (Association) [Protocol:https]' || ('after reopening the line shows ' + JSON.stringify(t));",
           "poll": True},
+     ]},
+    {"name": "open in draw.io: a picture read only, exported, saved as a drawn view", "smoke": False, "roles": ["model-admin"],
+     "refused": {"role": "report-viewer", "open": "#/metamodel/{m}/diagram", "disabled_or_absent": "Save as a drawn view"},
+     "headless_only": True,
+     "why_headless": "the picture opens in a new tab with the draw.io canvas, a separate site: a watched run cannot follow it",
+     "steps": [
+         {"open": "#/metamodel/{m}/diagram", "expect": "Open in draw.io"},
+         {"popup": "Open in draw.io", "expect": "not saved", "wait": 1500},          # D585: our draw.io, a tab of its own
+         {"drawio_ready": 60000},
+         {"drawio": "return (!g.isCellsMovable() && !g.isConnectable()) || 'the picture is not read only';"},
+         {"drawio": "return !!ui.actions.get('eaxExportDrawio') || 'File > Export as has no .drawio file';"},
+         {"download": "Download .drawio"},
+         {"click": "Save as a drawn view", "exact": True},
+         {"fill": "Name", "value": "self_test_{sid} opened {role}", "within": DIALOG},
+         {"click": "Save and open", "within": DIALOG, "wait": 3000},
+         {"remember": "opened", "url": r"drawn-views/([^/?]+)"},                      # the tab became the drawn view
+         {"drawio_ready": 60000},
      ]},
     {"name": "import: upload a delivery, accept, undo", "smoke": False, "roles": ["model-admin"],
      "refused": {"role": "report-viewer", "open": "#/metamodel/{m}/import/deliveries", "disabled_or_absent": "+ Add a source"},
@@ -539,6 +559,9 @@ def step(page, s: dict, open_route: Callable[..., None], state: dict | None = No
     if re.search(r"\{\$[a-z_]+\}", str(s)):
         return "a {$name} no earlier step remembered"
     timeout = int(s.get("timeout", 20000))
+    if state.get("tab") is not None and "open" in s:   # back from a tab a "popup" step opened
+        _close_tab(state)
+    page = state.get("tab") or page
     root = _root(page, s)
     if root is None:
         return f"nothing shows {s.get('within') or s.get('row')}"
@@ -553,6 +576,19 @@ def step(page, s: dict, open_route: Callable[..., None], state: dict | None = No
             _shows(page, s["expect"], max(timeout, 60000))
         else:
             page.wait_for_selector("text=EA Explorer", timeout=60000)
+    elif "popup" in s:                                # before "expect": it carries one too
+        el = _clickable(root, s["popup"])
+        if el is None:
+            return f"no button or link \"{s['popup']}\""
+        if el.is_disabled():
+            return f"\"{s['popup']}\" is disabled"
+        with page.context.expect_page(timeout=timeout) as pg:
+            el.click()
+        tab = pg.value
+        tab.wait_for_load_state()
+        state["tab"] = tab
+        if s.get("expect"):
+            _shows(tab, s["expect"], max(timeout, 60000))
     elif "click" in s or "click_re" in s:
         what = s.get("click") or s.get("click_re")
         el = _clickable(root, s.get("click", ""), s.get("exact", False), s.get("click_re", ""))
@@ -669,23 +705,35 @@ def refusal(page, r: dict, open_route: Callable[..., None]) -> tuple[str, str]:
     return "failed", f"\"{r['disabled_or_absent']}\" is offered to {r.get('role', 'this role')}, who may not do it"
 
 
+def _close_tab(state: dict) -> None:
+    tab = state.pop("tab", None)
+    try:
+        if tab is not None and not tab.is_closed():
+            tab.close()
+    except Exception:  # noqa: BLE001 - already gone
+        pass
+
+
 def run_one(page, j: dict, open_route: Callable[..., None]) -> tuple[str, str]:
     """Runs one journey on a page; returns (outcome, detail)."""
     if j.get("refusal"):
         return refusal(page, j["refusal"], open_route)
     done, skipped = 0, []
     state: dict = {"vars": {}}
-    for s in j["steps"]:
-        try:
-            why = step(page, s, open_route, state)
-        except Exception as exc:  # noqa: BLE001 - a step that times out is a failed step
-            why = str(exc).splitlines()[0][:200]
-        if why:
-            if s.get("optional"):
-                skipped.append(why)
-                continue
-            return "failed", f"step {done + len(skipped) + 1} ({_say(s)}): {why}"
-        done += 1
+    try:
+        for s in j["steps"]:
+            try:
+                why = step(page, s, open_route, state)
+            except Exception as exc:  # noqa: BLE001 - a step that times out is a failed step
+                why = str(exc).splitlines()[0][:200]
+            if why:
+                if s.get("optional"):
+                    skipped.append(why)
+                    continue
+                return "failed", f"step {done + len(skipped) + 1} ({_say(s)}): {why}"
+            done += 1
+    finally:
+        _close_tab(state)                              # a tab a "popup" step opened
     return "passed", f"{done} steps as {j['role']}" + (f"; {len(skipped)} optional skipped" if skipped else "")
 
 

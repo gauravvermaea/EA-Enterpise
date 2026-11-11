@@ -112,7 +112,7 @@
     var origLabel = graph.convertValueToString;
     graph.convertValueToString = function (cell) {
       var base = origLabel.apply(this, arguments);
-      if (!cell || cell.value == null || typeof cell.value !== "object") return base;
+      if (!cell || cell.value == null || typeof cell.value !== "object" || meta.plainLabels) return base;   // D585: as made
       var html = this.isHtmlLabel(cell);
       if (model.isEdge(cell)) {
         if (attr(cell, "ea_decor") === "1") return base;
@@ -414,6 +414,49 @@
       } catch (x) { /* another draw.io: its own panel stays */ }
     }
     noFormatPanel();
+
+    // ------------------------------------------------------------ File > Export as > .drawio file (owner, 11 Nov 2026, D585)
+    // embed mode offers PNG, SVG, PDF and "XML..." (a dialog, compressed by default) but no plain .drawio file: ours
+    // downloads the current diagram, uncompressed, named after the view or picture. Read-only views offer it too
+    function fileTitle() {
+      var t = meta.title;
+      try { if (!t && ui.getCurrentFile && ui.getCurrentFile()) t = ui.getCurrentFile().getTitle(); } catch (x) { /* none */ }
+      t = String(t || "diagram").replace(/\.(drawio|xml)$/i, "").replace(/[\\/:*?"<>|]+/g, "-").trim();
+      return (t || "diagram") + ".drawio";
+    }
+    function drawioFileXml() {
+      var prev = Graph.compressXml, xml = "";
+      Graph.compressXml = false;
+      try { xml = ui.getFileData(true); } catch (x) { xml = ""; } finally { Graph.compressXml = prev; }
+      if (!/<mxfile/.test(xml) || !/<mxGraphModel/.test(xml)) {      // another draw.io: build it ourselves
+        xml = '<mxfile host="EA Explorer"><diagram name="' + mxUtils.htmlEntities(fileTitle().replace(/\.drawio$/, "")) +
+          '" id="eax">' + mxUtils.getXml(ui.editor.getGraphXml()) + "</diagram></mxfile>";
+      }
+      return xml;
+    }
+    function exportDrawioFile() {
+      var xml = drawioFileXml(), name = fileTitle();
+      try {
+        var url = URL.createObjectURL(new Blob([xml], { type: "application/vnd.jgraph.mxfile" }));
+        var a = document.createElement("a");
+        a.href = url; a.download = name; a.style.display = "none";
+        document.body.appendChild(a); a.click();
+        setTimeout(function () { URL.revokeObjectURL(url); if (a.parentNode) a.parentNode.removeChild(a); }, 1000);
+      } catch (x) { /* the host is told below */ }
+      post({ event: "eax-exported-drawio", name: name, size: xml.length });
+    }
+    try {
+      ui.actions.put("eaxExportDrawio", new Action(".drawio file...", exportDrawioFile));
+      var exportMenu = ui.menus.get("exportAs");
+      if (exportMenu && !exportMenu.eaxDrawio) {
+        exportMenu.eaxDrawio = true;
+        var origExport = exportMenu.funct;
+        exportMenu.funct = function (menu, parent) {
+          ui.menus.addMenuItems(menu, ["eaxExportDrawio", "-"], parent);
+          return origExport.apply(this, arguments);
+        };
+      }
+    } catch (x) { /* another draw.io: its own menu stays */ }
     // the stencil is draw.io's left sidebar; EA Explorer pins and unpins it (its strip is EA Explorer's) and keeps its width
     var stencilWidth = 0, stencilOpen = true;
     function stencilPanel(open, width) {
@@ -904,6 +947,8 @@
       if (m.eax === "setup") {
         meta.types = m.types || {}; meta.allowed = m.allowed || []; meta.readOnly = !!m.readOnly;
         meta.rels = m.relationshipTypes || {};
+        if (m.title) meta.title = String(m.title);            // the .drawio file's name (D585)
+        meta.plainLabels = !!m.plainLabels;                     // a picture of types, or of no model, opened to look at (D585)
         meta.mayChange = m.mayChange;
         if (m.relStyles) Object.keys(m.relStyles).forEach(function (k) { meta.rels[k] = meta.rels[k] || { name: k, style: m.relStyles[k] }; });
         icons = m.entityIcons || {};
@@ -918,7 +963,8 @@
           clearPalettesExtras();
         }, ms); });
         // restyle what a loaded file holds, so it shows today's notation, colours and icons
-        silently(function () { vertices().forEach(function (v) { if (attr(v, "ea_type") && !isJunction(v)) restyle(v); }); });
+        // (not a picture opened to look at, D585: it keeps the colours it was made with, a heat map's among them)
+        if (!m.keepLook) silently(function () { vertices().forEach(function (v) { if (attr(v, "ea_type") && !isJunction(v)) restyle(v); }); });
         graph.refresh();
         post({ event: "eax-setup-done", types: Object.keys(meta.types).length, readOnly: meta.readOnly, groups: paletteGroups() });
       } else if (m.eax === "undo" || m.eax === "redo") {          // Ctrl+Z / Ctrl+Y pressed in EA Explorer's page
@@ -1117,7 +1163,7 @@
     }
     graph.getSelectionModel().addListener(mxEvent.CHANGE, function () { selected(graph.getSelectionCell()); });
 
-    ui.eax = { hide: hide, showHidden: showHidden, hidden: hidden, findEntity: findEntity, findRelationship: findRelationship,
+    ui.eax = { exportDrawio: exportDrawioFile, drawioFileXml: drawioFileXml, hide: hide, showHidden: showHidden, hidden: hidden, findEntity: findEntity, findRelationship: findRelationship,
       setForm: setForm, checkEdge: checkEdge };
     window.eaxEditorUi = ui;                 // for EA Explorer's own tests
     post({ event: "eax-ready", version: "2" });

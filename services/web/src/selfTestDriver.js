@@ -3,11 +3,11 @@
 // ui_flows.py): each page renders (no script error, no API answer of 500 or more, not "no route"), shows a heading and
 // opens help on F1; each journey's steps (see ui_flows.py's docstring) are done the way a person would, with "as" to go
 // on as another test role, "remember" to keep part of the address for later steps ({$name}), "within" a pop-up and "row"
-// in a table row. The draw.io steps are for the headless runner only (that canvas is another site). test_selftest_coverage.py
+// in a table row. The draw.io steps and "popup" (a new tab) are for the headless runner only (that canvas is another site). test_selftest_coverage.py
 // checks both sides know the same step kinds.
 
 export const STEP_KINDS = ["open", "click", "click_re", "choose", "fill", "select", "press", "expect", "expect_not", "expect_sel",
-  "upload", "download", "as", "remember", "drawio_ready", "drawio_drop", "drawio"];
+  "upload", "download", "as", "remember", "drawio_ready", "drawio_drop", "drawio", "popup"];
 const ROWS = "tr, li, fieldset, .chip";
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 const LEAVE = /^#\/(break-glass|heartbeat|sql)\b|logout|sign-?out/i;
@@ -201,6 +201,8 @@ export async function step(f, s0, role, state = {}) {
     state.vars[s.remember] = f.win().location.href.match(re)[1];
   } else if ("drawio_ready" in s || "drawio_drop" in s || "drawio" in s) {
     return "a draw.io step runs headless only (the canvas is another site)";
+  } else if ("popup" in s) {
+    return "following a new tab runs headless only (a watched run stays in its own frame)";
   }
   await pause(s.wait || 400);
   return "";

@@ -5,7 +5,8 @@ every message of the plugin (`../eax-plugin.js`; the protocol is in `docs/phase-
 protocol"): the stencil, placing and binding, lines (refused, asked, chosen from the stencil), Add a relationship, the
 layout-only lock, box or shape, junctions, nesting, decoration palettes and lines (D414), a placeholder's type changed,
 deleting a line (asked: hide, restore, removed; D413), hide and show, resync, the heat map, icons, placeholders, dropping
-from the search panel, PNG and SVG export, the saved file and read only. Run it again when draw.io is upgraded.
+from the search panel, PNG and SVG export, File › Export as › .drawio file (D585; screenshot `export-as-menu.png`),
+keepLook and plainLabels for pictures opened in draw.io, the saved file and read only. Run it again when draw.io is upgraded.
 
 These files are kept out of the image (`../.dockerignore`). To run them:
 

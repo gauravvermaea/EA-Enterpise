@@ -14,6 +14,7 @@ import AdmWheel from "./AdmWheel";
 import IterationControl from "./IterationControl";
 import { frozenNote, projectPhaseEnabled, readOnlyIn } from "./iterations";
 import { apiDownload, apiFetch, apiUpload, partOn, roles } from "./auth";
+import { openFile } from "./drawioScratch";
 import { fmtDate, fmtDateTime } from "./fmt";
 import { refreshAll, useApi } from "./ModelViews";
 import RichText from "./RichText";
@@ -2088,7 +2089,7 @@ function PhasesTab({ p, start = "documents" }) {
           {loose.length > 0 && <>
             <h4>Other documents in this phase's folders</h4>
             {loose.map((d) => <div key={d.id} className="repo-doc small">{d.is_link ? <LinkName d={d} /> : d.no_file ? <span>📝 {d.title} <span className="chip small">no file yet</span></span>
-              : <button className="linkish" onClick={() => apiDownload(`/api/v1/projects/${p.id}/documents/${d.id}`, d.file_name).catch(() => {})}>📄 {d.title || d.file_name}</button>} <span className="quiet">{d.folder}</span></div>)}
+              : <button className="linkish" onClick={() => openFile(`/api/v1/projects/${p.id}/documents/${d.id}`, d.file_name).catch(() => {})}>📄 {d.title || d.file_name}</button>} <span className="quiet">{d.folder}</span></div>)}
           </>}
         </section>}
         {part === "notadded" && <NotAddedClasses p={p} list={notAdded} />}
@@ -2211,6 +2212,10 @@ function About({ p }) {
           {p.children.length > 0 && <> Derived from it: {p.children.map((c) => <a key={c.id} href={`#/projects/${c.id}`}>{c.name} </a>)}</>}</p>
         <h3>Scope</h3>
         <table className="grid-table small"><tbody>
+          <tr><th>Architecture to support</th><td>{p.purpose
+            ? <><b>{({ strategy: "Strategy", portfolio: "Portfolio", project: "Project", solution: "Solution" })[p.purpose] || p.purpose}</b>
+              {PURPOSE_HELP[p.purpose] && <span className="quiet">: {PURPOSE_HELP[p.purpose]}</span>}</>
+            : <span className="quiet">-</span>}</td></tr>
           <tr><th>Breadth</th><td>{s.breadth || <span className="quiet">-</span>}</td></tr>
           <tr><th>Depth</th><td>{DEPTHS.find(([k]) => k === s.depth)?.[1] || <span className="quiet">-</span>}</td></tr>
           <tr><th>Time</th><td>{s.start || "?"} to {s.end || "?"}{s.horizon ? ` · target horizon ${s.horizon}` : ""}</td></tr>
@@ -2283,7 +2288,7 @@ function ProjectFiles({ p }) {
   return (
     <>
       <div className="row-gap"><h3 style={{ margin: 0 }}>Files of the project</h3>{p.may_contribute && <button className="linkish" onClick={upload}>⬆ Add files</button>}</div>
-      {p.project_files.map((f) => <div key={f.id} className="small"><button className="linkish" onClick={() => apiDownload(`/api/v1/projects/${p.id}/documents/${f.id}`, f.file_name)}>📄 {f.file_name}</button> <span className="quiet">v{f.versions} · {f.modified_by} · {fmtDateTime(f.modified_at)}</span></div>)}
+      {p.project_files.map((f) => <div key={f.id} className="small"><button className="linkish" onClick={() => openFile(`/api/v1/projects/${p.id}/documents/${f.id}`, f.file_name)}>📄 {f.file_name}</button> <span className="quiet">v{f.versions} · {f.modified_by} · {fmtDateTime(f.modified_at)}</span></div>)}
       {!p.project_files.length && <p className="quiet small">None: contracts, statements of work and the like go here.</p>}
       {msg && <p className="small status bad">{msg}</p>}
     </>
@@ -2541,7 +2546,7 @@ function ClassDocs({ p, i, docs, can, busy, act, post, addFile, setDlg, setTag, 
                 <td>{hasVersions && <button className="linkish repo-twisty" aria-expanded={isOpen} aria-label="Its versions" title="Its versions" onClick={() => toggleDoc(d.id)}>{isOpen ? "▾" : "▸"}</button>}</td>
                 <td><div className="repo-docname">{d.is_link ? <LinkName d={d} /> : d.no_file
                   ? <span title="No file yet: add its file when you have it">📝 <b>{d.title}</b> <span className="chip small">no file yet</span></span>
-                  : <button className="linkish" onClick={() => act(() => apiDownload(`/api/v1/projects/${p.id}/documents/${d.id}`, d.file_name))}
+                  : <button className="linkish" onClick={() => act(() => openFile(`/api/v1/projects/${p.id}/documents/${d.id}`, d.file_name))}
                     title="Download the latest version">📄 {d.title || d.file_name}</button>}</div>
                   {d.title && !d.no_file && !d.is_link && <div className="small quiet">file: {d.file_name}</div>}
                   <div className="doc-tags">{(d.tags || []).map((t) => <button key={t} className="tag-chip" title="Show only documents with this tag" onClick={() => setTag(t)}>{t}</button>)}

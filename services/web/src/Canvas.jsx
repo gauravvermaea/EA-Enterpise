@@ -5,7 +5,8 @@
 // compare block by block, and the comparison becomes a working copy to adjust and clean up into a new target. A canvas
 // copies to another project, keeps the documents used to build it, and exports to PDF, PowerPoint and draw.io.
 import { useState } from "react";
-import { apiDownload, apiFetch, apiUpload } from "./auth";
+import { apiBlobUrl, apiDownload, apiFetch, apiUpload } from "./auth";
+import { openInDrawio } from "./drawioScratch";
 import { refreshAll, useApi } from "./ModelViews";
 import { liveProjects } from "./ModelMarks";
 
@@ -155,6 +156,11 @@ export function CanvasTab({ p }) {
   const exp = (fmt, other) => {
     const q = `${url}/canvases/${current}/export?format=${fmt}${other ? `&compare=${other}` : ""}`;
     const title = other && cmp ? `${cmp.a.name} to ${cmp.b.name}` : c?.name || "canvas";
+    if (fmt === "drawio") {                // our own draw.io in a tab of its own, kept nowhere (D585)
+      apiBlobUrl(q).then(async (u) => { const xml = await (await fetch(u)).text(); URL.revokeObjectURL(u); openInDrawio({ model: null, title, xml }); })
+        .catch((e) => setMsg(e.message));
+      return;
+    }
     apiDownload(q, `${title}.${fmt}`).catch((e) => setMsg(e.message));
   };
   const working = c?.kind === "working";
@@ -192,7 +198,7 @@ export function CanvasTab({ p }) {
               {canvases.filter((x) => x.id !== c.id).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
             </select>
             <select value="" onChange={(e) => e.target.value && exp(e.target.value)} aria-label="Export">
-              <option value="">Export…</option><option value="pdf">PDF</option><option value="pptx">PowerPoint</option><option value="drawio">draw.io file</option>
+              <option value="">Export…</option><option value="pdf">PDF</option><option value="pptx">PowerPoint</option><option value="drawio">Open in draw.io</option>
             </select>
             {may && <select value="" onChange={(e) => { const v = e.target.value; if (!v) return;
               if (v === "rename") { setDialog("rename"); setForm({ name: c.name, description: c.description }); }
@@ -263,7 +269,7 @@ export function CanvasTab({ p }) {
               .then((r) => r && made(r.id))}>Make a working copy of these changes</button>}
             <button onClick={() => { const a = cmp.a.id; setSel(cmp.b.id); setCmpWith(a); }}>Swap</button>
             <select value="" onChange={(e) => e.target.value && exp(e.target.value, cmpWith)} aria-label="Export the comparison">
-              <option value="">Export…</option><option value="pdf">PDF</option><option value="pptx">PowerPoint</option><option value="drawio">draw.io file</option>
+              <option value="">Export…</option><option value="pdf">PDF</option><option value="pptx">PowerPoint</option><option value="drawio">Open in draw.io</option>
             </select>
             <button className="linkish" onClick={() => setCmpWith("")}>Close the comparison</button>
           </div>

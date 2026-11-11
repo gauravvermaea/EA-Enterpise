@@ -8,7 +8,8 @@
 //   KeyQuestionsPanel  the project's Key questions tab: status (open, answered, accepted by the stakeholder), the answer as a
 //                      summary linking to the artifacts that hold it, history; kept up by anyone who contributes
 import { useState } from "react";
-import { apiDownload, apiFetch, apiUpload } from "./auth";
+import { apiFetch, apiUpload } from "./auth";
+import { openFile } from "./drawioScratch";
 import { refreshAll, useApi } from "./ModelViews";
 import RichText from "./RichText";
 
@@ -304,12 +305,12 @@ function AnswerLinks({ p, q, phs, url, setMsg }) {
   return (
     <div className="kq-links small">
       {(q.links || []).map((l, i) => (l.document
-        ? <button key={i} className="linkish" title={l.folder} onClick={() => apiDownload(`${url}/documents/${l.document}`, l.file_name).catch((e) => setMsg(e.message))}>📄 {l.title || l.file_name}</button>
+        ? <button key={i} className="linkish" title={l.folder} onClick={() => openFile(`${url}/documents/${l.document}`, l.file_name).catch((e) => setMsg(e.message))}>📄 {l.title || l.file_name}</button>
         : <a key={i} href={l.url} target={l.url.startsWith("#") ? undefined : "_blank"} rel="noreferrer">🔗 {l.label || l.url}</a>))}
       {q.views.map((c) => {
         const ph = phs.find((x) => x.code === c);
         if (ph) return ph.document
-          ? <button key={c} className="linkish" onClick={() => apiDownload(`${url}/documents/${ph.document}`, ph.file_name).catch((e) => setMsg(e.message))}>📄 {c} {ph.name}</button>
+          ? <button key={c} className="linkish" onClick={() => openFile(`${url}/documents/${ph.document}`, ph.file_name).catch((e) => setMsg(e.message))}>📄 {c} {ph.name}</button>
           : <span key={c} className="quiet">◇ {c} {ph.name} (placeholder)</span>;
         const v = vp[c];
         return v?.model ? <a key={c} href={`#/metamodel/${v.model}/views/${encodeURIComponent(c)}`}>◧ {c} {v.name}</a> : <span key={c}>◧ {c}</span>;
@@ -395,7 +396,7 @@ export function KeyQuestionsPanel({ p }) {
             <div className="small kq-accepted">✓ Accepted by <b>{q.accepted_by}</b>, {when(q.accepted_at)}
               {q.accept_recorded_by && <span className="quiet"> (recorded by {q.accept_recorded_by})</span>}
               {q.accept_note && <> · {q.accept_note}</>}
-              {q.evidence && <> · <button className="linkish" onClick={() => apiDownload(`${url}/documents/${q.evidence}`, q.evidence_name).catch((e) => setMsg(e.message))}>📎 {q.evidence_name}</button></>}
+              {q.evidence && <> · <button className="linkish" onClick={() => openFile(`${url}/documents/${q.evidence}`, q.evidence_name).catch((e) => setMsg(e.message))}>📎 {q.evidence_name}</button></>}
             </div>)}
           {is(q, "answer") && <AnswerForm p={p} q={q} busy={busy} onSave={(b) => post(q, "answer", b)} onCancel={() => setOpen(null)} />}
           {is(q, "record") && <RecordForm q={q} names={names} busy={busy} onSave={(f, file) => record(q, f, file)} onCancel={() => setOpen(null)} />}
@@ -444,7 +445,7 @@ export function KeyQuestionsPanel({ p }) {
               <tr key={x.code}>
                 <td><b>{x.code}</b></td><td>{x.name}</td><td className="quiet">{x.description}</td>
                 <td>{x.kind === "file" ? (x.document
-                  ? <button className="linkish" onClick={() => apiDownload(`${url}/documents/${x.document}`, x.file_name).catch((e) => setMsg(e.message))}>📄 {x.file_name}</button>
+                  ? <button className="linkish" onClick={() => openFile(`${url}/documents/${x.document}`, x.file_name).catch((e) => setMsg(e.message))}>📄 {x.file_name}</button>
                   : <span className="quiet">.{x.file_type}: file not made yet</span>) : "text"}</td>
                 <td>{x.answers.map((id) => `Q${qs.findIndex((q) => q.id === id) + 1}`).join(", ") || <span className="quiet">nothing</span>}</td>
                 {may && <td><button className="linkish" disabled={busy} onClick={() => act(() => apiFetch(`${url}/placeholder-views/${x.code}`, { method: "DELETE" }))}>Remove</button></td>}

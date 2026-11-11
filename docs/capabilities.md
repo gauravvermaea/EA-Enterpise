@@ -85,7 +85,7 @@ Built — every picture is **drawn from the repository when you open it**, so it
   **roadmaps** (plateaus, work packages and deliverables on a timeline).
 - **View diagrams** for all 49 views, and the **metamodel diagram**.
 - **Business Model Canvases**, with differences between two shown in colour (D344).
-- Click any box to open the entity. Every picture **opens in draw.io**, and saves as SVG, PNG or CSV.
+- Click any box to open the entity. Every picture **opens in our draw.io** (D585), and saves as SVG, PNG or CSV.
 
 Built (0.16.0): **drawn views** (phases 28, 29, D354): views drawn in draw.io, inside EA Explorer, with the ArchiMate 4
 notation from the model's own entities (a search panel to drag them in; placeholders realised later), **two-way sync**
@@ -102,8 +102,11 @@ tools to draw one. Creating an entity on the drawing shows the names already in 
 Properties, Relationships, Allowed relationships, Uncommitted changes), each pinned or folded away, in three preset
 layouts (Drawing, Editing, Canvas only) remembered for the person; a pop-up on every stencil drop (bind, create, or leave
 as a placeholder); related entities and allowed relationships added next to the selected object in one click; draw.io's
-Format panel removed so the drawing has the room. Every view is a draw.io file kept in a views service with its own database (D405 to D409); pictures
-are otherwise downloads (.drawio, PNG, SVG) that the person keeps.
+Format panel removed so the drawing has the room. Every view is a draw.io file kept in a views service with its own database (D405 to D409).
+Everything opens in our own draw.io (0.19.0, D585): every picture of a model, a Business Model Canvas and a .drawio document
+offer **Open in draw.io**, a read-only scratch view in a tab of its own, kept nowhere: export it (.drawio, PNG, SVG, PDF) or
+**Save as a drawn view** there. draw.io's **File › Export as** has **.drawio file** (uncompressed, named after the view) on
+drawn views and scratch views alike.
 
 ## Reports and BI
 Built:

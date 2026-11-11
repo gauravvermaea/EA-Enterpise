@@ -466,9 +466,43 @@ const SETUP = {
   console.log('   style e-app:', await inFrame("return m.getStyle(F('e-app')) + ' / deleted=' + a(F('e-app'),'ea_deleted');"));
   await p.screenshot({ path: SHOTS + '/tests-final.png' });
 
+  console.log('16b. File > Export as > .drawio file (D585)');
+  await send(Object.assign({}, SETUP, { title: 'Claims landscape: today' })); await wait(800);
+  const exportItems = await inFrame(`
+    const menu = new mxPopupMenu(function (mn, cell, evt) { ui.menus.get('exportAs').funct(mn, null); });
+    menu.div.className += ' geMenubarMenu'; menu.smartSeparators = true; menu.showDisabled = true;
+    menu.popup(420, 90, null, null); window.__eaxMenu = menu;
+    return Array.from(menu.div.querySelectorAll('td.mxPopupMenuItem')).map(t => t.textContent.trim()).filter(Boolean);`);
+  check(/\.drawio file/.test(exportItems[0] || '') && exportItems.some(t => /^PNG/.test(t)) && exportItems.some(t => /^SVG/.test(t)) && exportItems.some(t => /^PDF/.test(t)),
+    'Export as offers .drawio file first, and keeps PNG, SVG and PDF', exportItems);
+  await p.screenshot({ path: SHOTS + '/export-as-menu.png' });
+  await inFrame("window.__eaxMenu.hideMenu(); window.__eaxMenu.destroy();");
+  const dl = p.waitForEvent('download', { timeout: 5000 }).catch(() => null);
+  await inFrame("ui.actions.get('eaxExportDrawio').funct();");
+  const got = await dl;
+  check(!!got && got.suggestedFilename() === 'Claims landscape- today.drawio', 'the file is named after the view (unsafe characters replaced)', got && got.suggestedFilename());
+  let body = '';
+  if (got) { const fp = await got.path(); body = fp ? require('fs').readFileSync(fp, 'utf8') : ''; }
+  check(/^<mxfile/.test(body) && /<mxGraphModel/.test(body) && /ea_id="e-app"/.test(body), 'an uncompressed .drawio of the current diagram, bindings and all', body.slice(0, 120));
+  await send({ eax: 'heat', colours: { 'e-app': 'D7301F' } }); await wait(200);
+  check(!/D7301F/i.test(await inFrame("return ui.eax.drawioFileXml();")), 'a heat map is on screen only: never in the exported file');
+  await send({ eax: 'heat-off' });
+  check((await last('eax-exported-drawio'))?.name === 'Claims landscape- today.drawio', 'EA Explorer is told what was exported');
+  // a picture opened to look at (D585): its colours and, when asked, its own labels are kept
+  const PIC = '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><object id="k1" label="Kept" ea_id="e-kept" ea_type="Capability">' +
+    '<mxCell style="rounded=1;whiteSpace=wrap;html=1;fillColor=#123456;" vertex="1" parent="1"><mxGeometry x="40" y="40" width="120" height="60" as="geometry"/></mxCell></object></root></mxGraphModel>';
+  await send({ action: 'load', xml: PIC, autosave: 0, title: 'A picture' }); await wait(800);
+  await send(Object.assign({}, SETUP, { keepLook: true, plainLabels: true, readOnly: true })); await wait(800);
+  check(/fillColor=#123456/.test(await inFrame("return m.getStyle(m.getCell('k1'));")), 'keepLook: the colours it was made with stay');
+  check(await inFrame("return g.convertValueToString(m.getCell('k1')) === 'Kept';"), 'plainLabels: the label as made, no ": Type"');
+  await send(SETUP); await wait(800);
+  check(!/fillColor=#123456/.test(await inFrame("return m.getStyle(m.getCell('k1'));")) && /: <i>Capability/.test(await inFrame("return g.convertValueToString(m.getCell('k1'));")),
+    'a drawn view still restyles and shows "name : Type"');
+
   console.log('17. read only');
   await send(Object.assign({}, SETUP, { readOnly: true })); await wait(800);
   check(await inFrame("return Object.keys(ui.sidebar.palettes).length === 0 && !g.isCellsMovable() && !g.isConnectable();"), 'read only: no stencil, no moving, no lines');
+  check(await inFrame("const ac = ui.actions.get('eaxExportDrawio'); return !!ac && ac.isEnabled();"), 'read only: .drawio file is still offered');
 
   console.log(errs.length ? 'errors:\n' + errs.join('\n') : 'no page errors');
   console.log(`\n${pass} passed, ${fail} failed`);

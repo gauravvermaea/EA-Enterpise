@@ -150,6 +150,16 @@
     ],
     "example": "Search 'housekeeping dry run' to find how old records are archived."
   },
+  "page:#/drawio/open": {
+    "title": "A picture in draw.io",
+    "what": "A generated picture, a canvas, the metamodel diagram or a .drawio document, opened in our own draw.io to look at and export. It is kept nowhere and changes nothing in the model.",
+    "how": [
+      "Zoom and look; draw.io's File › Export as offers .drawio file, PNG, SVG and PDF.",
+      "Download .drawio, PNG, SVG or PDF from the bar at the top.",
+      "To keep it or change it: Save as a drawn view (if you may draw on the model). The tab becomes that drawn view.",
+      "Close asks first: Leave without saving? This picture isn't kept. A reload of the tab keeps it (very large pictures excepted: the tab says so)."
+    ]
+  },
   "page:#/my-profile": {
     "title": "My profile",
     "what": "Your name, roles, skills and preferences, including how page tabs are shown.",
@@ -1377,7 +1387,8 @@
   "popup:Export the drawn view": {
     "what": "Download the drawn view as a picture or a draw.io file.",
     "how": [
-      "PNG, SVG or .drawio; Download."
+      "PNG, SVG, PDF or .drawio; Download.",
+      "In draw.io itself, File › Export as › .drawio file does the same, uncompressed and named after the view."
     ]
   },
   "popup:Extend *'s metamodel": {
@@ -1749,7 +1760,8 @@
   "popup:Save as a drawn view": {
     "what": "Keep this picture as a drawn view you can change by hand.",
     "how": [
-      "Name it; Save. It belongs to the model."
+      "Name it; Save. It belongs to the model.",
+      "From a picture opened in draw.io, the tab then becomes the new drawn view."
     ]
   },
   "popup:Save view": {
@@ -2580,7 +2592,9 @@
   "button:+ Select existing models": "Add existing models to the project.",
   "button:+ a link": "Add another link.",
   "button:+ work package": "Add a work package.",
-  "button:.drawio file": "Download as a draw.io file.",
+  "button:.drawio file": "Download as a draw.io file (uncompressed, named after the view).",
+  "button:.drawio file...": "In draw.io's File › Export as: download the diagram as a .drawio file, uncompressed, named after the view or picture. Works on read-only views too.",
+  "button:.drawio": "Download the picture as a draw.io file (a picture of no one model: yours to keep).",
   "button:A new root metamodel": "Start a new metamodel from nothing.",
   "button:Accept": "Accept it.",
   "button:Across the cycle": "Show the whole cycle.",
@@ -2672,6 +2686,7 @@
   "button:Download Excel": "Download as Excel.",
   "button:Download PDF": "Download as PDF.",
   "button:Download again": "Download it again.",
+  "button:Download .drawio": "Download the picture as a draw.io file: yours to keep; it does not follow the model.",
   "button:Download the report (Word)": "Download the report as a Word document.",
   "button:Dry run now": "See what housekeeping would do, without doing it.",
   "button:Edit": "Edit it.",
@@ -2754,6 +2769,7 @@
   "button:Open it again": "Open it again.",
   "button:Open the tag": "Open the model as at this tag.",
   "button:PDF": "PDF.",
+  "button:Open in draw.io": "Open the picture in our draw.io, in a tab of its own: look, export (.drawio, PNG, SVG, PDF) or Save as a drawn view there. It is kept nowhere until saved. A .drawio document opens there too.",
   "button:PNG": "PNG picture.",
   "button:PNG as shown (with the heat map)": "PNG picture, with the heat map colours.",
   "button:Put back over itself": "Restore it over itself.",
