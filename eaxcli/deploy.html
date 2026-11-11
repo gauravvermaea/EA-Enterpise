@@ -42,12 +42,34 @@
   .status.warn { border: 1px solid var(--warn); color: var(--warn); }
   .hidden { display: none; }
   .error { color: var(--bad); margin: 8px 0; white-space: pre-wrap; }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 14px; }
+  .tabs button { border: 0; border-bottom: 3px solid transparent; border-radius: 0; background: none; padding: 8px 14px; }
+  .tabs button[aria-selected=true] { border-bottom-color: var(--accent); font-weight: 600; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }
+  .card { text-align: left; display: flex; flex-direction: column; gap: 3px; }
+  .card small { color: var(--quiet); }
+  .card.wipe { border-left: 4px solid var(--bad); } .card.offline { border-left: 4px solid var(--warn); }
+  .param { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+  .param > span { min-width: 140px; }
+  .param input[type=text], .param select { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); font: inherit; min-width: 220px; }
+  code.line { background: #0d1117; color: #e6edf3; padding: 2px 8px; border-radius: 4px; }
+  pre.term { background: #0d1117; color: #e6edf3; border-radius: 6px; padding: 10px; height: 420px; overflow: auto; margin: 0;
+             font: 12.5px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
+  .termline { display: flex; gap: 6px; margin-top: 6px; } .termline input { flex: 1; font: 13px ui-monospace, Consolas, monospace; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); }
+  table.hist { width: 100%; border-collapse: collapse; font-size: 14px; } table.hist td, table.hist th { border-bottom: 1px solid var(--line); padding: 5px 6px; text-align: left; }
   @media (max-width: 600px) { header { flex-direction: column; gap: 2px; } }
 </style>
 </head>
 <body>
 <header><h1>Deploy EA Explorer</h1><span class="quiet">eax deploy: the same steps as in the console. Nothing is changed until you choose Deploy.</span></header>
 <main>
+  <nav class="tabs" role="tablist" aria-label="eax deploy">
+    <button role="tab" aria-selected="true" data-tab="deploy">Deploy</button>
+    <button role="tab" aria-selected="false" data-tab="commands">Commands</button>
+    <button role="tab" aria-selected="false" data-tab="console">Console</button>
+    <button role="tab" aria-selected="false" data-tab="history">History</button>
+  </nav>
+  <div id="tab-deploy">
   <section id="ask" class="panel" aria-labelledby="ask-h">
     <h2 id="ask-h" style="margin-top:0">Where and how</h2>
     <form id="form" autocomplete="off"></form>
@@ -71,6 +93,25 @@
     <h3>What it does</h3>
     <pre id="log" class="log"></pre>
     <div class="buttons"><button type="button" id="again" class="hidden">Back to the answers</button><button type="button" id="close2">Close the wizard</button></div>
+  </section>
+  </div>
+  <section id="tab-commands" class="panel hidden" aria-labelledby="cmd-h">
+    <h2 id="cmd-h" style="margin-top:0">Commands</h2>
+    <p class="quiet" id="cmd-where"></p>
+    <div id="cmd-list"></div>
+    <div id="cmd-form" class="hidden"></div>
+    <div id="cmd-run" class="hidden"><h3 id="run-h"></h3><p id="run-state" class="status"></p><pre id="run-out" class="log"></pre>
+      <div class="buttons"><button type="button" id="run-back">Back to the commands</button></div></div>
+  </section>
+  <section id="tab-console" class="panel hidden" aria-labelledby="con-h">
+    <h2 id="con-h" style="margin-top:0">Console</h2>
+    <p class="quiet">Type eax commands as in a terminal (<code>status</code>, <code>backup nightly</code>, <code>help restore</code>; eax is optional). <code>console</code> opens the numbered menu; answer its questions in the box below. Only eax commands run.</p>
+    <div class="buttons"><button type="button" class="primary" id="con-open">Open the Console</button><button type="button" id="con-end" disabled>End it</button></div>
+    <pre id="con-out" class="term" aria-live="polite"></pre>
+    <form id="con-form" class="termline"><input id="con-in" aria-label="Type a command or an answer" autocomplete="off" disabled placeholder="eax> "><button type="submit">Enter</button><button type="button" id="con-ctrlc" title="Interrupt (Ctrl+C)">Ctrl+C</button></form>
+  </section>
+  <section id="tab-history" class="panel hidden" aria-labelledby="his-h">
+    <h2 id="his-h" style="margin-top:0">History</h2><div id="his"></div>
   </section>
 </main>
 <script>
@@ -178,6 +219,143 @@ for (const id of ["close", "close2"]) document.getElementById(id).addEventListen
   document.body.replaceChildren(el("main", {}, el("p", { class: "panel", text: "The wizard is closed. You can close this tab." })));
 });
 call("/api/state").then((s) => { Object.assign(answers, Object.fromEntries(Object.entries(s.answers).filter(([, v]) => v !== ""))); refresh(); });
+// ---- the Commands, Console and History tabs (D554): the same catalogue and checks as EA Explorer's Command centre
+const strip = (t) => t.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").replace(/\r(?!\n)/g, "");
+for (const b of document.querySelectorAll(".tabs button")) b.addEventListener("click", () => showTab(b.dataset.tab));
+function showTab(name) {
+  for (const b of document.querySelectorAll(".tabs button")) b.setAttribute("aria-selected", String(b.dataset.tab === name));
+  for (const t of ["deploy", "commands", "console", "history"]) document.getElementById("tab-" + t).classList.toggle("hidden", t !== name);
+  if (name === "commands") loadCommands();
+  if (name === "history") loadHistory();
+}
+let CAT = null;
+async function loadCommands() {
+  CAT = await call("/api/commands");
+  document.getElementById("cmd-where").textContent = `Commands run ${CAT.remote ? "on " + CAT.where + " over SSH" : "on this machine, in " + CAT.where}. Choose one: a short form asks for its options and shows the exact command.`;
+  const list = document.getElementById("cmd-list");
+  list.replaceChildren();
+  for (const g of CAT.groups) {
+    list.append(el("h3", { text: g.title }));
+    const cards = el("div", { class: "cards" });
+    for (const c of g.commands) {
+      if (c.kind === "interactive" || c.name === "deploy") continue;
+      const b = el("button", { type: "button", class: "card " + c.kind }, el("code", { text: "eax " + c.names.join(" | ") }), el("small", { text: c.summary }));
+      b.addEventListener("click", () => openForm(c));
+      cards.append(b);
+    }
+    list.append(cards);
+  }
+  list.classList.remove("hidden");
+  document.getElementById("cmd-form").classList.add("hidden");
+  document.getElementById("cmd-run").classList.add("hidden");
+}
+function argvOf(c, v) {
+  const a = [c.name];
+  for (const p of c.params) {
+    const x = v[p.key];
+    if (x === undefined || x === "" || x === false) continue;
+    if (p.type === "flag") a.push(p.key); else if (p.type === "flags") a.push(x);
+    else if (p.type === "flag-value") a.push(v[p.key + ":flag"] || p.flags[0], x);
+    else if (p.type === "words") a.push(...String(x).split(/\s+/).filter(Boolean)); else a.push(x);
+  }
+  return a;
+}
+function openForm(c) {
+  const v = {};
+  const f = document.getElementById("cmd-form");
+  document.getElementById("cmd-list").classList.add("hidden");
+  f.classList.remove("hidden");
+  const line = el("code", { class: "line" });
+  const upd = () => { line.textContent = "eax " + argvOf(c, v).join(" "); };
+  const back = el("button", { type: "button", text: "← All commands" }); back.addEventListener("click", loadCommands);
+  f.replaceChildren(back, el("h3", {}, el("code", { text: "eax " + c.names.join(" | ") })), el("p", {}, el("strong", { text: c.summary })),
+    el("pre", { class: "log", text: c.detail.join("\n") }));
+  for (const p of c.params) {
+    const row = el("label", { class: "param" });
+    let input;
+    if (p.type === "flag") { input = el("input", { type: "checkbox" }); input.addEventListener("change", () => { v[p.key] = input.checked; upd(); }); row.append(input, el("code", { text: p.key })); }
+    else {
+      const choices = p.type === "flags" ? p.choices : (p.type === "choice" || (p.type === "flag-value" && p.choices)) ? p.choices : null;
+      row.append(el("span", { text: p.type === "flag-value" ? p.flags.join(" / ") : p.type === "flags" ? p.choices.join(" or ") : (p.placeholder || "value") + (p.required ? " (needed)" : "") }));
+      if (choices) { input = el("select"); input.append(el("option", { value: "", text: "(not given)" })); for (const x of choices) input.append(el("option", { value: x, text: x })); }
+      else input = el("input", { type: "text", placeholder: p.placeholder || "" });
+      input.addEventListener("input", () => { v[p.key] = input.value; upd(); });
+      input.addEventListener("change", () => { v[p.key] = input.value; upd(); });
+      row.append(input);
+    }
+    f.append(row);
+  }
+  upd();
+  f.append(el("p", {}, "It runs: ", line));
+  if (c.kind === "offline") f.append(el("div", { class: "status warn", text: "This stops or restarts EA Explorer there." }));
+  let typed, understood;
+  if (c.kind === "wipe") {
+    typed = el("input", { type: "text", "aria-label": "The installation's name" }); understood = el("input", { type: "checkbox" });
+    f.append(el("div", { class: "status bad" },
+      el("p", {}, el("strong", { text: "This deletes everything: every database, the document files, the config file, every log and every backup in work/backups. A fresh infrastructure backup is taken first and copied to safety-backups/ beside the work folder." })),
+      el("label", { class: "param" }, el("span", { text: `Type ${CAT.installation} to confirm` }), typed),
+      el("label", { class: "param" }, understood, " I understand that this deletes everything")));
+  }
+  const err = el("div", { class: "error", role: "alert" });
+  const go = el("button", { type: "button", class: "primary", text: c.kind === "wipe" ? "Back up, then delete everything" : "Run " + c.name });
+  go.addEventListener("click", async () => {
+    err.textContent = "";
+    try {
+      const r = await call("/api/commands/run", { argv: argvOf(c, v), confirm: c.kind === "wipe" ? { typed: typed.value, understood: understood.checked } : undefined });
+      showRun(r);
+    } catch (e) { err.textContent = e.message; }
+  });
+  f.append(err, el("div", { class: "buttons" }, go));
+}
+async function showRun(r) {
+  document.getElementById("cmd-form").classList.add("hidden");
+  document.getElementById("cmd-run").classList.remove("hidden");
+  document.getElementById("run-h").textContent = r.command;
+  const out = document.getElementById("run-out"), st = document.getElementById("run-state");
+  out.textContent = ""; let pos = 0;
+  const tick = async () => {
+    let d; try { d = await call(`/api/commands/runs/${r.id}?from=${pos}`); } catch { setTimeout(tick, 1500); return; }
+    if (d.text) { out.textContent += strip(d.text); pos = d.next; out.scrollTop = out.scrollHeight; }
+    const s = d.status || {};
+    st.className = "status " + (s.state === "running" || !s.state ? "" : s.exit_code === 0 ? "ok" : "bad");
+    st.textContent = s.state === "running" || !s.state ? "Running…" : s.exit_code === 0 ? "Finished." : `Failed (exit code ${s.exit_code}).`;
+    if (s.state === "running" || !s.state) setTimeout(tick, 1000);
+  };
+  tick();
+}
+document.getElementById("run-back").addEventListener("click", loadCommands);
+async function loadHistory() {
+  const d = await call("/api/commands/runs");
+  const h = document.getElementById("his");
+  if (!d.runs.length) { h.replaceChildren(el("p", { class: "quiet", text: "Nothing run from this page yet." })); return; }
+  const t = el("table", { class: "hist" }, el("tr", {}, ...["When", "Who", "Command", "Result"].map((x) => el("th", { text: x }))));
+  for (const r of d.runs) t.append(el("tr", {}, el("td", { text: r.started || "" }), el("td", { text: r.by || "" }), el("td", {}, el("code", { text: r.command || "" })),
+    el("td", { text: r.state === "running" ? "running" : r.exit_code === 0 ? "done" : r.exit_code == null ? (r.state || "") : `exit code ${r.exit_code}` })));
+  h.replaceChildren(t);
+}
+let CON = null, conPos = 0;
+const conOut = document.getElementById("con-out"), conIn = document.getElementById("con-in");
+document.getElementById("con-open").addEventListener("click", async () => {
+  const r = await call("/api/console/start", {});
+  CON = r.session; conPos = 0; conOut.textContent = "";
+  conIn.disabled = false; conIn.focus();
+  document.getElementById("con-end").disabled = false;
+  const tick = async () => {
+    if (!CON) return;
+    let d; try { d = await call(`/api/console/${CON}?from=${conPos}`); } catch { return; }
+    if (d.text) { conOut.textContent += strip(d.text); conPos = d.next; conOut.scrollTop = conOut.scrollHeight; }
+    if (d.ended) { conOut.textContent += "\n[the Console has ended]\n"; conIn.disabled = true; CON = null; return; }
+    setTimeout(tick, 400);
+  };
+  tick();
+});
+document.getElementById("con-form").addEventListener("submit", async (e) => {
+  e.preventDefault(); if (!CON) return;
+  const text = conIn.value; conIn.value = "";
+  await call(`/api/console/${CON}/write`, { text: text + "\n" }).catch(() => {});
+});
+document.getElementById("con-ctrlc").addEventListener("click", () => { if (CON) call(`/api/console/${CON}/write`, { text: "\u0003" }).catch(() => {}); });
+document.getElementById("con-end").addEventListener("click", async () => { if (CON) await call(`/api/console/${CON}/end`, {}).catch(() => {}); });
 </script>
 </body>
 </html>

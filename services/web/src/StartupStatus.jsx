@@ -64,7 +64,10 @@ export default function StartupStatus() {
         aria-expanded={open}>
         {waiting.length === 0
           ? <><span className="dot green" /> All up</>
-          : waiting.map((p) => <span key={p.key} className="startup-chip"><span className={`dot ${TONE[p.status]}`} />{p.name} <b>{partText(p)}</b></span>)}
+          : waiting.length === 1
+            ? <span className="startup-chip"><span className={`dot ${TONE[waiting[0].status]}`} />{waiting[0].name} <b>{partText(waiting[0])}</b></span>
+            // more than one: one short chip so it stays on the top row (owner, 11 Nov 2026); the list is in the pop-up and the tooltip
+            : <span className="startup-chip"><span className={`dot ${TONE[data.overall] || "amber"}`} /><b>{waiting.length} starting</b></span>}
       </button>
       {open && (
         <div className="startup-pop" role="dialog" aria-label="Start-up status">

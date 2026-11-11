@@ -58,6 +58,12 @@ If you already have a copy, skip the installer and run `.\eax deploy` (Windows) 
 - **Web:** a small page served by eax itself on this computer (`127.0.0.1`, a free port, a random key in the
   address), before EA Explorer is up.
 - **Console:** the same questions and steps, in the terminal.
+- **Commands, Console and History tabs (web page, D554):** after the wizard, the page also runs any eax command with a
+  guided form, takes eax commands as typed in a Console (and `console` for its numbered menu), and lists every run.
+  They run on this machine through eaxcli, or, once the wizard has set up a server over SSH, on that server in its
+  installation folder over the same SSH connection. Only eax commands run; the delete-everything commands need the
+  installation's name, "I understand" and a backup first, as in EA Explorer's Command centre. Every run is in
+  `work/commands` and `work/logs`.
 
 Both forms behave the same way:
 - **Questions:** only the ones that apply are asked, each with a sensible default.
@@ -204,3 +210,43 @@ object ID), and choose the global role it gives. Everyone in the group gets the 
 - Group names are matched without regard to case.
 - A path such as `/EA/Architects` also matches `Architects`.
 - Roles on a model are still given on each model's People tab.
+
+## 6. Deploying from the running application: System admin › Deploy (D555 to D557)
+
+An installation that is already running (your laptop, say) can deploy EA Explorer **to another place** from its
+screens. Open System admin › **Deploy**; it is for Super Admins and IT Admins.
+
+**Where it can deploy:**
+- **a server reached over SSH**, with Docker installed if it is missing;
+- **AWS, Azure or DigitalOcean**, creating the machine or using one that exists.
+
+The laptop kind and "this machine is the server" are not offered, because this installation is already running.
+To move an installation or to use your own certificate, run `eax deploy` on the target instead.
+
+**How to use it:**
+1. **Answer the questions:** the same ones as `eax deploy`, with this installation's repository link and version as
+   the defaults.
+2. **Paste the SSH private key, or choose its file.** For a machine that is created, its public key is put on it.
+3. **Give the cloud credentials** when a machine is to be created: an AWS access key, a DigitalOcean token (and a
+   Spaces key for off-site backups), or, for Azure, a **service principal** (client ID, secret and tenant), because
+   there is no `az login` there.
+4. **Show the plan**, which runs nothing, then **Deploy**.
+5. **Follow the steps and the log.** A step that fails waits for **Retry**, **Back to the answers** or **Quit**. You
+   can leave the page and come back: the run goes on in the operations helper.
+
+**Where it runs:**
+- A **plan** runs in the operations helper itself.
+- A **deployment** runs in a short-lived **deployer** container with ssh, git, and the aws, az and doctl tools. It is
+  built from `deploy/deployer` the first time, which takes 5 to 10 minutes, and has only its run folder
+  (`work/deploys/<id>`) and this release's `eaxcli` and templates mounted.
+
+**Credentials** reach the operations helper only:
+- They are written into the run folder readable by root only, and **deleted when the run ends**.
+- Tick **Keep**, and they are moved to `work/deploy-keep/<target>` instead (root only), to be chosen again for that
+  target; **Forget credentials** removes them.
+- They are never shown again, on any page or in any log.
+
+**History:** every plan and deployment is kept: the target, kind, version, who, when, how it ended and the address
+found. The page shows the **targets** deployed to and **every deployment**.
+
+Managing many installations together (a fleet or farm: one dashboard, pushing updates to them) is **release 2**.

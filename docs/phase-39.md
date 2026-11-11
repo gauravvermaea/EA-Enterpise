@@ -70,3 +70,17 @@ The learner guides, workbooks (PDF), decks and zips were not used.
 industry_<code>.py` from each pack's worked example. Add a new industry's row to `services/api/eax/seed/industries.py`;
 the seed (`eax.seed`) loads every industry model that is missing on the next start, on a new install or an upgrade
 (no migration). A new version is a new model beside the old one (the version is in its key).
+
+## As built: packs and more industries (owner, 10 Nov 2026; D546 to D549)
+- **Packs shipped and downloadable** (D546): the owner's packs in `library/industry-packs/<Industry>/` (58 files,
+  24 MB today), put into Documents at start-up and shown as tiles on the library's Pack tab and a reference model's
+  page. How it works, and `eax packs load | reload | status | collect`: [industry-packs.md](industry-packs.md).
+- **More industries** (D548): Banking (267 entities, 171 relationships), Government (248, 146), Logistics (240, 162),
+  Minerals and Mining (235, 145) and Telecommunications (251, 164), by the same generator from the owner's metamodels.
+- **Meridian Assurance (insurance worked example)** (D549): 766 entities, 575 relationships, from
+  `Insurance/Meridian_TOGAF_Metamodel.xlsx`; the Insurance reference model unchanged.
+- **Still to copy from the owner's laptop** (the remote copy timed out on files over about 2 MB): the books and
+  workbooks (PDF, 5 to 9 MB each), the Comparison Tool workbooks (3.6 to 5.6 MB), the Healthcare and Pharmaceuticals
+  View Templates (2.5 to 2.8 MB), the Government, Logistics, Minerals and Mining and Retail ArchiMate 4 views (2 to 3 MB),
+  and the Banking and Insurance "complete set" zips (16 to 17 MB). `.\eax packs collect` copies all of them in one go;
+  then commit and `.\eax packs reload`.

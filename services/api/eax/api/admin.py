@@ -281,10 +281,10 @@ def record_terminal_ends() -> int:
     try:
         sessions = _ops_raw("GET", "/terminal/sessions").get("sessions", [])
     except Exception:  # noqa: BLE001 - the helper is down or switched off: try again next minute
-        return 0
+        return record_command_ends()
     done = [x for x in sessions if x.get("ended")]
     if not done:
-        return 0
+        return record_command_ends()
     with get_engine().begin() as conn:
         for x in done:
             audit.record(conn, actor=x.get("user") or "?", action="container.terminal.close", object_type="container",
@@ -292,6 +292,25 @@ def record_terminal_ends() -> int:
                          "minutes": round(((x.get("ended") or 0) - (x.get("started") or 0)) / 60, 1),
                          "exit_code": x.get("exit_code")})
     _ops_raw("POST", "/terminal/sessions/ack", {"ids": [x["id"] for x in done]})
+    return len(done) + record_command_ends()
+
+
+def record_command_ends() -> int:
+    """With the terminal ends: Command centre runs and Console sessions that have ended go into the audit trail with
+    their exit code (D554), each once."""
+    try:
+        runs = _ops_raw("GET", "/commands/runs").get("runs", [])
+    except Exception:  # noqa: BLE001
+        return 0
+    done = [r for r in runs if r.get("ended") and not r.get("logged")]
+    if not done:
+        return 0
+    with get_engine().begin() as conn:
+        for r in done:
+            audit.record(conn, actor=r.get("by") or "?", action="command.end", object_type="eax command",
+                         object_id=r.get("id") or "", details={"command": r.get("command"), "exit_code": r.get("exit_code"),
+                                                               "state": r.get("state"), "source": r.get("source")})
+    _ops_raw("POST", "/commands/ack", {"ids": [r["id"] for r in done]})
     return len(done)
 
 

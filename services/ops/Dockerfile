@@ -10,6 +10,8 @@ COPY console.py /app/console.py
 COPY updates.py /app/updates.py
 COPY scaling.py /app/scaling.py
 COPY testruns.py /app/testruns.py
+COPY commandcentre.py /app/commandcentre.py
+COPY deploys.py /app/deploys.py
 USER root
 EXPOSE 8090 8091
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD python3 -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8090/health').status==200 else 1)"

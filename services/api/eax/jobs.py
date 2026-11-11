@@ -337,6 +337,25 @@ def project_repositories(timestamp: int) -> None:
             log.warning("project %s repository: %s", pid, exc)
 
 
+@app.periodic(cron="*/10 * * * *")
+@app.task(name="eax.industry_packs", queue="default", queueing_lock="industry_packs")
+def industry_packs(timestamp: int) -> None:
+    """Every 10 minutes: shipped industry pack files not in Documents yet (the start-up step ran before Documents was up)
+    are loaded once it answers (D546)."""
+    from . import industry_packs as ip
+    from . import mayan
+    try:
+        with get_engine().connect() as conn:
+            if not ip.missing_shipped(conn):
+                return
+        if not mayan.enabled() or not mayan.ping():
+            return
+        with get_engine().begin() as conn:
+            log.info("industry packs: %s", ip.load_shipped(conn, "system:job")["message"])
+    except Exception as exc:  # noqa: BLE001 - tried again in 10 minutes
+        log.warning("industry packs: %s", exc)
+
+
 # ---------------------------------------------------------------- surveys (phase 38.1, D448)
 
 @app.periodic(cron="7 * * * *")

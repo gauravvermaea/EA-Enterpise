@@ -1,0 +1,14 @@
+# Scale-out (phase 36.3, D521): an extra host that runs only API and job servers. On that host (a copy of the
+# installation folder and its config file, the same EAX_VERSION):
+#   EAX_COMPOSE_EXTRA=api-host   EAX_DB_HOST=<the main host's private address>   EAX_PRIVATE_BIND=<this host's>
+#   ./eax.sh up api              (eax servers <n> sets how many on this host)
+# The main host's proxy sends API calls to every host: EAX_API_UPSTREAM=<a DNS name listing all API hosts>:8000
+# (nginx spreads calls across the addresses it finds) or the address of a load balancer in front of them.
+services:
+  api:
+    depends_on: !reset {}
+    environment:
+      EAX_DB_HOST: ${EAX_DB_HOST:?set EAX_DB_HOST to the main host's private address}
+      EAX_OPS_URL: http://ops:8090
+    ports:
+      - "${EAX_PRIVATE_BIND:?set EAX_PRIVATE_BIND to this host's private address}:8000:8000"

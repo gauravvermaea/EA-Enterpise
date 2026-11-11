@@ -15,6 +15,16 @@ const BG_KEY = "eax-break-glass";
 let breakGlass = null;     // { token, until } when signed in with the break-glass account
 let me = null;             // /api/v1/me: roles, permissions, models
 export let keycloakReachable = true;
+// The self-test (phase 36.1, D529): screens opened with ?eaxselftest=<ticket>&eaxrole=<role> (the self-test's journeys,
+// headless or watched in an admin's browser) sign in with the running self-test's own token for that role instead of
+// Keycloak, kept in this page only, so the admin's own sign-in is never used.
+const ST = (() => {
+  const q = new URLSearchParams(window.location.search);
+  const ticket = q.get("eaxselftest"), role = q.get("eaxrole");
+  return ticket && role ? { ticket, role, token: null, username: "" } : null;
+})();
+export function isSelfTest() { return !!(ST && ST.token); }
+function fixedToken() { return breakGlass?.token || ST?.token || null; }
 
 function loadBreakGlass() {
   try {
@@ -27,6 +37,17 @@ function loadBreakGlass() {
 }
 
 export async function initAuth() {
+  if (ST) {
+    try {
+      const r = await fetch(`/api/v1/selftest/session?ticket=${encodeURIComponent(ST.ticket)}&role=${encodeURIComponent(ST.role)}`);
+      const b = await r.json().catch(() => ({}));
+      if (r.ok && b.token) { ST.token = b.token; ST.username = b.username; }
+    } catch (err) { console.warn("The self-test session could not be read", err); }
+    if (ST.token) {
+      try { me = await apiFetch("/api/v1/me"); } catch (err) { console.warn("Could not read /api/v1/me", err); }
+      return true;
+    }
+  }
   breakGlass = loadBreakGlass();
   if (!breakGlass) {
     try {
@@ -48,7 +69,7 @@ export async function initAuth() {
 }
 
 export function signedIn() {
-  return !!breakGlass || keycloak.authenticated === true;
+  return !!fixedToken() || keycloak.authenticated === true;
 }
 
 export function isBreakGlass() {
@@ -82,6 +103,7 @@ export function signOut() {
 // The signed-in person as the API sees them
 export function currentUser() {
   if (breakGlass) return { name: "Break-glass account", preferred_username: "break-glass" };
+  if (ST?.token) return { name: `Self-test (${ST.role})`, preferred_username: ST.username };
   return keycloak.tokenParsed || {};
 }
 
@@ -144,8 +166,8 @@ export function myInfo() {
 
 async function authHeaders(extra = {}) {
   const headers = { ...extra };
-  if (breakGlass) {
-    headers.Authorization = `Bearer ${breakGlass.token}`;
+  if (fixedToken()) {
+    headers.Authorization = `Bearer ${fixedToken()}`;
   } else if (keycloak.authenticated) {
     await keycloak.updateToken(30).catch(() => keycloak.login());
     headers.Authorization = `Bearer ${keycloak.token}`;
@@ -198,8 +220,8 @@ export async function apiDownload(path, fallbackName = "download", body = undefi
 // fetch() with the access token, refreshed when it is about to expire.
 export async function apiFetch(path, options = {}) {
   const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
-  if (breakGlass) {
-    headers.Authorization = `Bearer ${breakGlass.token}`;
+  if (fixedToken()) {
+    headers.Authorization = `Bearer ${fixedToken()}`;
   } else if (keycloak.authenticated) {
     await keycloak.updateToken(30).catch(() => keycloak.login());
     headers.Authorization = `Bearer ${keycloak.token}`;

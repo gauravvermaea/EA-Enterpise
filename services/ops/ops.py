@@ -20,6 +20,9 @@ restarts the system from the administration console. It talks to the Docker engi
                                 passes to port 8091 here (a network only the proxy and this helper share)
   GET  /terminal/sessions       terminal sessions open and ended (who, container, start, end, why it ended)
   POST /terminal/sessions/ack   {ids}: ended sessions recorded in the audit trail, forgotten here
+  GET  /commands, /commands/runs, /commands/runs/<id>   POST /commands/run, /commands/console, /commands/runs/<id>/stop
+                                GET/POST /commands/schedules (D559)    GET /banner, /banner/all   POST /banner, /banner/clear (D558)
+                                eax commands from a web page: the Command centre and the Console (D554; commandcentre.py)
   GET  /terminal/<ticket>       on port 8091 only, no token (the ticket is the key): the WebSocket of the terminal
   GET  /backups                 the infrastructure backups, the one running (progress), maintenance
   POST /backups/backup          {tag, by, kind, version, pinned, keep}: an infrastructure backup now, in the background
@@ -40,8 +43,8 @@ restarts the system from the administration console. It talks to the Docker engi
                                 stopped (their jobs finish first) and removed; the number is written to the config file
   GET  /scaling                 the scaling rules, the load seen and the decisions (phase 36.3, D526; scaling.py)
   POST /scaling                 {settings, by}: save the rules (config file, a dated copy first)
-  GET  /tests                   the test runner image and the run going on;  POST /tests {run_id, suites, by, quick}:
-                                start a test run (phase 36.1, D367; testruns.py)
+  GET  /tests                   the test runner image and the self-test going on;  POST /tests {run_id, level, suites,
+                                role, area, watch, by}: start it at once;  POST /tests/stop (phase 36.1, D367; testruns.py)
   GET  /services                the optional services, on or off in the config file (D191)
   POST /services                {service, on, by}: switch one on or off: the config file is copied first (a dated copy
                                 in work/config-history), the switch written, then its containers started or stopped
@@ -996,7 +999,10 @@ def run_terminal(sock, rfile, t: dict) -> None:
     master, slave = pty.openpty()
     _winsize(slave, t["rows"], t["cols"])
     try:
-        proc = subprocess.Popen(["docker", "exec", "-it", "-e", "TERM=xterm-256color", t["cid"], "sh", "-c", SHELL],
+        # the Console of the Command centre (D554) brings its own command line (eaxcli/webconsole.py in a container
+        # of its own); a container terminal is a shell in that container (D214)
+        cmd = t.get("argv") or ["docker", "exec", "-it", "-e", "TERM=xterm-256color", t["cid"], "sh", "-c", SHELL]
+        proc = subprocess.Popen(cmd,
                                 stdin=slave, stdout=slave, stderr=slave, close_fds=True, start_new_session=True)
     except OSError as exc:
         os.close(master)
@@ -1096,6 +1102,8 @@ FILE_SETS = {   # file set: (named volume, what it is)
     "reports": ("eax-superset-home", "the reports' home (Superset's secret key and uploads; its dashboards are in its database)"),
     "imports": ("eax-imports", "the API's import folder (files uploaded to be imported)"),
     "exports": ("eax-exports", "the API's export folder (files made to be downloaded)"),
+    "persist": ("./persist", "the settings that survive resets: schedules and the banner (persist/, D558; its "
+                             "safety-backups/ are left out, being backups themselves)"),
 }
 NOT_NEEDED = {  # named volume: why it is not in a backup
     "eax-pgdata": "the database server's own files: every database in it is in the backup as a dump (databases/)",
@@ -1104,7 +1112,7 @@ NOT_NEEDED = {  # named volume: why it is not in a backup
                      "(the people and roles are in Keycloak's database)",
 }
 RESTORE_WHAT = {   # what a restore puts back: config file, databases (None: every one), file sets
-    "full": {"config": True, "dbs": None, "files": ["documents", "tls", "reports", "imports", "exports"],
+    "full": {"config": True, "dbs": None, "files": ["documents", "tls", "reports", "imports", "exports", "persist"],
              "label": "Everything: the config file, every database and the files"},
     "app": {"config": True, "dbs": [], "files": [],
             "label": "Application: the config file (the release and image versions are shown; run eax up after)"},
@@ -1115,9 +1123,9 @@ RESTORE_WHAT = {   # what a restore puts back: config file, databases (None: eve
                           "reports' own settings stay as they are)"},
     "db": {"config": False, "dbs": None, "files": [], "label": "Databases only: every database"},
     "files": {"config": False, "dbs": ["mayan"], "only": True,   # Documents' files and its database together
-              "files": ["documents", "tls", "reports", "imports", "exports"],
-              "label": "Files only: Documents (its files with its own database), the certificate, the reports' home and "
-                       "the import and export folders"},
+              "files": ["documents", "tls", "reports", "imports", "exports", "persist"],
+              "label": "Files only: Documents (its files with its own database), the certificate, the reports' home, "
+                       "the import and export folders and persist/ (schedules, the banner)"},
 }
 KEEP_UP = {"db", "backup", "ops", "proxy"}   # what keeps running while a restore runs (D230); the rest stops
 # the containers that use each part (kept for reference: since D230 every container but KEEP_UP stops)
@@ -1816,6 +1824,13 @@ class Handler(BaseHTTPRequestHandler):
             return None
         if self.path == "/tests":                    # test runs (phase 36.1, D367; testruns.py)
             return self._send(200, testruns.status())
+        if self.path == "/deploys" or self.path.startswith("/deploys/"):   # deploying elsewhere (D555; deploys.py)
+            try:
+                if self.path == "/deploys":
+                    return self._send(200, deploys.overview())
+                return self._send(200, deploys.run(self.path.split("/")[2]))
+            except ValueError as exc:
+                return self._send(404, {"message": str(exc)})
         if self.path == "/scaling":                  # scaling rules (phase 36.3, D526; scaling.py)
             try:
                 return self._send(200, scaling.describe())
@@ -1871,6 +1886,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"copies": copies()})
         if self.path == "/terminal/sessions":
             return self._send(200, {"sessions": terminal_sessions()})
+        if self.path.split("?")[0].startswith("/commands"):      # the Command centre (D554; commandcentre.py)
+            return self._commands_get()
+        if self.path.split("?")[0].startswith("/banner"):        # the banner under the top bar (D558)
+            return self._banner("GET")
         if self.path == "/backups":
             return self._send(200, {"infrastructure": list_infra(), "state": backup_state,
                                     "maintenance": maintenance(), "restore_choices": {k: v["label"] for k, v in RESTORE_WHAT.items()}})
@@ -1938,19 +1957,112 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             return {}
 
+    def _commands_get(self):
+        from urllib.parse import parse_qs, urlparse
+        u = urlparse(self.path)
+        try:
+            if u.path == "/commands":
+                return self._send(200, commandcentre.catalogue())
+            if u.path == "/commands/runs":
+                return self._send(200, {"runs": commandcentre.history()})
+            if u.path == "/commands/schedules":
+                return self._send(200, commandcentre.schedules_list())
+            if u.path == "/commands/reset-survival":
+                return self._send(200, commandcentre.reset_survival_runs())
+            m = re.match(r"^/commands/runs/([A-Za-z0-9_-]+)$", u.path)
+            if m:
+                start = int((parse_qs(u.query).get("from") or ["0"])[0] or 0)
+                return self._send(200, commandcentre.detail(m.group(1), start))
+        except FileNotFoundError as exc:
+            return self._send(404, {"message": str(exc)})
+        except Exception as exc:  # noqa: BLE001
+            return self._send(500, {"message": str(exc)})
+        return self._send(404, {"message": "No such page."})
+
+    def _commands_post(self):
+        b = self._body()
+        refused = getattr(commandcentre.C, "Refused", ValueError)
+        try:
+            if self.path == "/commands/run":
+                return self._send(202, commandcentre.start(b))
+            if self.path == "/commands/console":
+                return self._send(200, commandcentre.console_ticket(b))
+            if self.path == "/commands/ack":
+                return self._send(200, {"acked": commandcentre.ack([str(x) for x in b.get("ids") or []])})
+            if self.path == "/commands/schedules":
+                return self._send(201, commandcentre.schedule_add(b))
+            m = re.match(r"^/commands/schedules/([A-Za-z0-9_-]+)/(on|off|remove|run)$", self.path)
+            if m:
+                return self._send(200, commandcentre.schedule_change(m.group(1), m.group(2), b))
+            m = re.match(r"^/commands/runs/([A-Za-z0-9_-]+)/stop$", self.path)
+            if m:
+                return self._send(200, commandcentre.stop(m.group(1), str(b.get("by") or "")))
+        except refused as exc:
+            return self._send(400, {"message": str(exc)})
+        except FileNotFoundError as exc:
+            return self._send(404, {"message": str(exc)})
+        except ValueError as exc:          # a schedule that cannot be made (eaxcli/schedules.py ScheduleError)
+            return self._send(400, {"message": str(exc)})
+        except RuntimeError as exc:
+            return self._send(409, {"message": str(exc)})
+        return self._send(404, {"message": "No such page."})
+
+    def _banner(self, method: str):
+        """The banner under the top bar (D558; commandcentre.banner_*, persist/banner.json)."""
+        try:
+            if method == "GET":
+                if self.path.startswith("/banner/all"):
+                    return self._send(200, commandcentre.banner_all())
+                return self._send(200, commandcentre.banner_now("admin=1" in self.path))
+            b = self._body()
+            if self.path == "/banner/clear":
+                return self._send(200, commandcentre.banner_clear(b))
+            if self.path == "/banner":
+                return self._send(200, commandcentre.banner_set(b))
+        except ValueError as exc:
+            return self._send(400, {"message": str(exc)})
+        except RuntimeError as exc:
+            return self._send(409, {"message": str(exc)})
+        return self._send(404, {"message": "No such page."})
+
     def do_POST(self):  # noqa: N802
         if not self._ok():
             return None
-        if self.path in ("/tests", "/scaling"):     # test runs (36.1) and scaling rules (36.3)
+        if self.path in ("/tests", "/tests/stop", "/scaling"):     # the self-test (36.1) and scaling rules (36.3)
             b = self._body()
             try:
                 if self.path == "/tests":
                     return self._send(202, testruns.start(b))
+                if self.path == "/tests/stop":
+                    return self._send(200, testruns.stop(b))
                 return self._send(200, scaling.save(b.get("settings") or {}, str(b.get("by") or "console")))
             except ValueError as exc:
                 return self._send(400, {"message": str(exc)})
             except RuntimeError as exc:
                 return self._send(409, {"message": str(exc)})
+        if self.path == "/deploys" or self.path.startswith("/deploys/"):   # deploying elsewhere (D555; deploys.py)
+            b = self._body()
+            try:
+                if self.path == "/deploys/questions":
+                    return self._send(200, deploys.questions(b.get("answers") or {}))
+                if self.path == "/deploys":
+                    return self._send(202, deploys.start(b))
+                m = re.match(r"^/deploys/([^/]+)/decide$", self.path)
+                if m:
+                    return self._send(200, deploys.decide(m.group(1), str(b.get("choice") or "")))
+                m = re.match(r"^/deploys/kept/([^/]+)/forget$", self.path)
+                if m:
+                    from urllib.parse import unquote
+                    return self._send(200, deploys.forget(unquote(m.group(1))))
+                return self._send(404, {"message": "No such request."})
+            except ValueError as exc:
+                return self._send(400, {"message": str(exc)})
+            except RuntimeError as exc:
+                return self._send(409, {"message": str(exc)})
+        if self.path.startswith("/commands"):                  # the Command centre (D554; commandcentre.py)
+            return self._commands_post()
+        if self.path.startswith("/banner"):                    # the banner under the top bar (D558)
+            return self._banner("POST")
         if self.path == "/terminal/ticket":
             b = self._body()
             try:
@@ -2327,9 +2439,15 @@ import updates  # noqa: E402 - updating to a new release (phase 36, D417)
 updates.hooks.update(read_config=_read_config, write_config=_write, copy_config=copy_config, docker=docker)
 import scaling  # noqa: E402 - scaling the API and job servers by rules (phase 36.3, D526)
 import testruns  # noqa: E402 - test runs (phase 36.1, D367)
+import commandcentre  # noqa: E402 - eax commands from a web page: the Command centre and the Console (D554)
+
+commandcentre.hooks.update(docker=docker, me=updates._me, read_config=_read_config, tickets=_tickets, tlock=_tlock,
+                           idle_minutes=idle_minutes)
+import deploys  # noqa: E402 - deploying EA Explorer elsewhere from the page (phase 36, D555)
 
 scaling.bind(globals())
 testruns.bind(globals())
+deploys.bind(globals())
 
 
 if __name__ == "__main__":
@@ -2346,7 +2464,16 @@ if __name__ == "__main__":
         recover_after_restart()
     except OSError as exc:
         print(f"ops: could not check the restores ({exc})", flush=True)
+    try:                                  # laptop sample data: past runs in the Command centre's History (D554)
+        commandcentre.seed_samples(_values(_read_config()).get("EAX_DEPLOYMENT", ""))
+    except OSError as exc:
+        print(f"ops: could not write the sample command runs ({exc})", flush=True)
+    try:                                  # laptop sample data: schedules and a past banner in persist/ (D558, D559)
+        commandcentre.seed_persist(_values(_read_config()).get("EAX_DEPLOYMENT", ""))
+    except OSError as exc:
+        print(f"ops: could not write the sample schedules ({exc})", flush=True)
     threading.Thread(target=updates.scheduler, daemon=True).start()   # scheduled updates (D417)
+    threading.Thread(target=commandcentre.scheduler, daemon=True).start()   # scheduled eax commands (D559)
     scaling.start()                       # the scaling rules, looked at every minute (D526)
     terminals = ThreadingHTTPServer(("0.0.0.0", TERMINAL_PORT), TerminalHandler)
     terminals.daemon_threads = True

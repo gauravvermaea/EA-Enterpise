@@ -660,10 +660,12 @@ console() {
 }
 
 # ------------------------------------------------------------------ commands
+# eax test --reset-survival: settings outlive a real reset (D561), one Python program for every form
+if [ "$CMD" = "test" ]; then case " $* " in *" --reset-survival "*) exec "$BASH" ./eaxpy.sh "$@" ;; esac; fi
 case "$CMD" in
   help|-h|--help|/\?) show_help "${2:-}" "${3:-}"; exit $? ;;
   document)       shift; document "$@"; exit 0 ;;
-  deploy|secrets)
+  deploy|secrets|packs|schedule)   # packs: the industry packs (phase 39, D546); schedule: scheduled commands (D559)
     # phase 36 (D498, D504): one Python program for every form (D500): eaxpy.sh fetches uv and Python into work/tools
     exec "$BASH" ./eaxpy.sh "$@" ;;
   restart)
@@ -771,9 +773,18 @@ case "$CMD" in
   update) shift; backup_helpers; compose exec ops python3 /app/ops.py update "$@" ;;      # updates (phase 36, D417)
   rollback) shift; backup_helpers; compose exec ops python3 /app/ops.py rollback "$@" ;;
   restore-model) shift; compose exec api python -m eax.backups_cli restore "$@" ;;
-  test) shift; compose --profile test build testrunner                   # test automation (phase 36.1, D367)
-        VER=$(sed -n 's/^version = "\(.*\)"/\1/p' services/api/version.toml)
-        backup_helpers; compose exec ops python3 /app/ops.py test "$@" --version "$VER" ;;
+  test) shift                                                              # the self-test (phase 36.1, D367, D530)
+        READ=""
+        for a in "$@"; do case "$a" in --status|--last|--report|--fixtures|--clean) READ="${a#--}" ;; esac; done
+        if [ -n "$READ" ]; then
+          REST=""; for a in "$@"; do [ "$a" = "--$READ" ] || REST="$REST $a"; done
+          # shellcheck disable=SC2086
+          compose exec api python -m eax.testing.cli "$READ" $REST
+        else
+          compose --profile test build testrunner
+          VER=$(sed -n 's/^version = "\(.*\)"/\1/p' services/api/version.toml)
+          backup_helpers; compose exec ops python3 /app/ops.py test "$@" --version "$VER"
+        fi ;;
   standby)                                                                 # the database standby (phase 36.3, D527)
     case "${2:-status}" in
       status) compose exec db psql -U postgres -c "SELECT client_addr, state, sync_state, replay_lag FROM pg_stat_replication"

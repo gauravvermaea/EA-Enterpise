@@ -187,8 +187,15 @@ def compose_args(args: list[str]) -> list[str]:
     if not ENV_FILE.exists():
         raise Failure(f"No {ENV_REL} yet: run {EAX} init first.")
     # plain progress and no colour codes, so the log reads cleanly
+    # scale-out extra files (phase 36.3, D521): EAX_COMPOSE_EXTRA=standby,shared-storage... (deploy/compose/scale)
+    extra: list[str] = []
+    for x in [v for v in setting("EAX_COMPOSE_EXTRA", "").replace(",", " ").split() if v]:
+        f = f"deploy/compose/scale/docker-compose.{x}.yml"
+        if not (ROOT / f).exists():
+            raise Failure(f"EAX_COMPOSE_EXTRA names {x}, but there is no {f}.")
+        extra += ["-f", f]
     return ["docker", "compose", "--ansi", "never", "--progress", "plain", "--env-file", ENV_REL,
-            "-f", "docker-compose.yml", "-f", f"deploy/compose/docker-compose.{kind()}.yml", *args]
+            "-f", "docker-compose.yml", "-f", f"deploy/compose/docker-compose.{kind()}.yml", *extra, *args]
 
 
 def compose(args: list[str], no_throw: bool = False, quiet: bool = False) -> int:

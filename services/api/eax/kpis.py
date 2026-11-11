@@ -377,7 +377,8 @@ def on_tag(conn, m: dict, tag: dict, by: str) -> None:
 
 LIVE_SQL = """SELECT m.id, m.name FROM core.models m
                WHERE NOT m.is_deleted AND m.source_model_id IS NOT NULL AND m.kind_code IN ('project', 'reference')
-                 AND m.lifecycle = 'active' AND m.frozen_at IS NULL"""
+                 AND m.lifecycle = 'active' AND m.frozen_at IS NULL
+                 AND m.name !~ '^self_test_'"""   # the self-test's fixtures are never measured (D529)
 
 
 def monthly_due(conn, today: date) -> list[dict]:

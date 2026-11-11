@@ -5,7 +5,7 @@
 //   🔒 Locked          (a Model Admin has locked it: metamodel, content or maintenance)
 // Used by the model list, the hierarchy tree, the model page, the model switcher and the library.
 import { useEffect, useState } from "react";
-import { canOn, myInfo } from "./auth";
+import { can, canOn, myInfo } from "./auth";
 import { ModelIcon } from "./ModelIcon";
 
 export const KINDS = {
@@ -124,15 +124,22 @@ export function ModelStateBadge({ m }) {
 // (in this browser); switchers and pickers never offer them.
 export const isRetiredModel = (m) => !!m && ((!!m.lifecycle && m.lifecycle !== "active") || m.lock_level === "content" || !!m.frozen_at);
 export const isRetiredProject = (p) => !!p && (!!p.frozen || ["frozen", "merged", "closed"].includes(p.status));
-export const liveModels = (list) => (list || []).filter((m) => !isRetiredModel(m));
-export const liveProjects = (list) => (list || []).filter((p) => !isRetiredProject(p));
+// the self-test's fixtures (self_test_<id>_<n>, phase 36.1, D529) are out of the way too, for everyone; Super Admins and
+// IT Admins may show them ("Show self-test runs"), remembered in this browser
+export const isSelfTestItem = (x) => !!x && /^self_test_/.test(x.name || "");
+const ST_KEY = () => `eax.showSelfTest.${(myInfo() || {}).username || "anyone"}`;
+export function showSelfTest() { try { return can("system.operate") && localStorage.getItem(ST_KEY()) === "1"; } catch { return false; } }
+export const withoutSelfTest = (list) => (showSelfTest() ? (list || []) : (list || []).filter((x) => !isSelfTestItem(x)));
+export const liveModels = (list) => withoutSelfTest(list).filter((m) => !isRetiredModel(m));
+export const liveProjects = (list) => withoutSelfTest(list).filter((p) => !isRetiredProject(p));
 
 const SHOW_KEY = () => `eax.showRetired.${(myInfo() || {}).username || "anyone"}`;
 const readShow = () => { try { return localStorage.getItem(SHOW_KEY()) === "1"; } catch { return false; } };
 export function useShowRetired() {
   const [show, setShowState] = useState(readShow);
+  const [, setTick] = useState(0);              // the self-test toggle (D529) re-renders the lists too
   useEffect(() => {
-    const on = () => setShowState(readShow());
+    const on = () => { setShowState(readShow()); setTick((t) => t + 1); };
     window.addEventListener("eax-show-retired", on);
     return () => window.removeEventListener("eax-show-retired", on);
   }, []);
@@ -145,11 +152,23 @@ export function useShowRetired() {
 }
 
 // the checkbox; count: how many are hidden (shown only when there are any, or when it is ticked)
-export function ShowRetired({ count, show, setShow }) {
-  if (!count && !show) return null;
+export function ShowRetired({ count, show, setShow, selfTest = 0 }) {
+  const [st, setSt] = useState(showSelfTest);
+  const flip = (v) => {
+    try { localStorage.setItem(ST_KEY(), v ? "1" : "0"); } catch { /* a per-viewer convenience only */ }
+    setSt(v);
+    window.dispatchEvent(new Event("eax-show-retired"));
+  };
   return (
-    <label className="small" title="Frozen and archived models and projects are kept out of the way; tick to see them, greyed">
-      <input type="checkbox" checked={show} onChange={(e) => setShow(e.target.checked)} /> Show frozen and archived ({count || 0})
-    </label>
+    <>
+      {(count > 0 || show) && (
+        <label className="small" title="Frozen and archived models and projects are kept out of the way; tick to see them, greyed">
+          <input type="checkbox" checked={show} onChange={(e) => setShow(e.target.checked)} /> Show frozen and archived ({count || 0})
+        </label>)}
+      {(selfTest > 0 || st) && can("system.operate") && (
+        <label className="small" title="The self-test's own models and projects (self_test_...), made by System admin > Self-test; tick to see them">
+          <input type="checkbox" checked={st} onChange={(e) => flip(e.target.checked)} /> Show self-test runs ({selfTest || 0})
+        </label>)}
+    </>
   );
 }

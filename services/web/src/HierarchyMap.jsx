@@ -15,7 +15,7 @@ const LEAF_W = 168, LEAF_H = 30, HEAD = 28, PAD = 8, GAP = 6, ROOT_GAP = 16, ROW
 const FONT = "12px system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif";
 const BOLD = "600 12px system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif";
 // light to strong; enough for pick lists of up to 8 values, numbers are spread over it
-const SCALE = ["e8f5e9", "c8e6c9", "fff3c4", "ffe0a3", "ffc48a", "ff9e80", "f28b82", "d96b6b"];
+const SCALE = ["ef8a87", "f4a582", "f8bf80", "fbd49c", "b9d7f5", "93c3ef", "a9dca9", "7cc47c"];   // low to high: red, orange, blue, green (owner, 10 Nov 2026; as Views.jsx HEAT)
 const NUMERIC = new Set(["integer", "decimal", "currency", "percent"]);
 
 function shorten(text, width, font) {

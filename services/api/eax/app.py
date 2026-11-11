@@ -107,11 +107,28 @@ def create_app(testing: bool = False) -> Flask:
     # updating to a new release (phase 36, D417)
     from .api.updates import blp as updates_blp
     api.register_blueprint(updates_blp)
-    from .api.platform_tests import blp as platform_tests_blp   # test runs (36.1) and scaling rules (36.3)
+    # deploying EA Explorer to another place from System admin > Deploy (phase 36, D555)
+    from .api.deploys import blp as deploys_blp
+    api.register_blueprint(deploys_blp)
+    # eax commands from a web page: the Command centre and the Console (D554)
+    from .api.command_centre import blp as command_centre_blp
+    api.register_blueprint(command_centre_blp)
+    from .api.banner import blp as banner_blp
+    api.register_blueprint(banner_blp)
+    # the documents of this version, for everyone (D550)
+    from .api.documentation import blp as documentation_blp
+    api.register_blueprint(documentation_blp)
+    # the industry packs' files in Documents: the library's Pack tab (phase 39, D546 to D549)
+    from .api.industry_packs import blp as industry_packs_blp
+    api.register_blueprint(industry_packs_blp)
+    from .api.platform_tests import (
+        blp as platform_tests_blp,  # test runs (36.1) and scaling rules (36.3)
+    )
     api.register_blueprint(platform_tests_blp)
-    from .api import selftest_session    # only in the test runner's own API (EAX_TEST_MODE=1): a watched self-test (D529)
-    if selftest_session.enabled():
-        api.register_blueprint(selftest_session.blp)
+    from .api.selftest_session import (
+        blp as selftest_session_blp,  # the self-test's browser sign-in (D529)
+    )
+    api.register_blueprint(selftest_session_blp)
     api.spec.components.security_scheme("apiKey", {"type": "apiKey", "in": "header", "name": "X-API-Key"})
     try:   # the OData feed's Basic sign-in takes a token or API key as the password (phase 24, D433)
         from . import machine_access as _ma

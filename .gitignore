@@ -25,3 +25,6 @@ services/web/dist/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Settings that survive resets (D558): schedules, the banner, safety backups. Never commit.
+persist/

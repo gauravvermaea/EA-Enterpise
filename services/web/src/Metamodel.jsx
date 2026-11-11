@@ -23,7 +23,7 @@ import PinButton from "./PinButton";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { apiFetch, can, keycloak, signedIn, canOn, myRolesOn, roleName } from "./auth";
 import { CopyButton, LockBadge } from "./Library";
-import { isRetiredModel, KindMark, liveModels, MarksLegend, ModelStateBadge, ShowRetired, StatusMarks, readOnlyWhy, useShowRetired } from "./ModelMarks";
+import { isRetiredModel, isSelfTestItem, KindMark, liveModels, MarksLegend, ModelStateBadge, ShowRetired, StatusMarks, readOnlyWhy, useShowRetired, withoutSelfTest } from "./ModelMarks";
 import { RecalculateButton } from "./QualityBits";
 import { MetamodelTree } from "./Trees";
 import {
@@ -48,6 +48,7 @@ import { DataEntryTab } from "./DataEntry";
 import { ChangeDocumentsTab, PushDownTab } from "./Notifications";
 import { ModelBackupsTab } from "./Backups";
 import QualityTab, { Duplicates } from "./Quality";
+import { IndustryPackTiles } from "./IndustryPack";
 import ReportDesigner, { ODataTab } from "./ReportDesigner";
 import { MergeRequestsTab } from "./MergeBack";
 import { GridTab, MetamodelGrids } from "./GridPages";
@@ -91,7 +92,8 @@ export function ModelList({ view, admin = false }) {
   // frozen and archived models are out of the way unless asked for (D360); the hierarchy keeps them (greyed), so a
   // family tree never loses a branch
   const hidden = (everyModel || []).filter(isRetiredModel).length;
-  const models = everyModel && (showRetired || view === "hierarchy" ? everyModel : liveModels(everyModel));
+  const models = everyModel && (showRetired || view === "hierarchy" ? withoutSelfTest(everyModel) : liveModels(everyModel));
+  const selfTests = (everyModel || []).filter(isSelfTestItem).length;   // the self-test's fixtures (D529)
   const tree = view === "hierarchy";
   const drafts = view === "drafts";
   return (
@@ -121,7 +123,7 @@ export function ModelList({ view, admin = false }) {
         <select value={kind} onChange={(e) => setKind(e.target.value)}>
           {KINDS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
-        <ShowRetired count={hidden} show={showRetired} setShow={setShowRetired} />
+        <ShowRetired count={hidden} show={showRetired} setShow={setShowRetired} selfTest={selfTests} />
         {!tree && <div className="seg small" role="tablist" aria-label="Show as">
           <button className={!tiles ? "on" : ""} onClick={() => setTiles(false)} title="A table: one row per model">☰ List</button>
           <button className={tiles ? "on" : ""} onClick={() => setTiles(true)} title="A tile per model, with its icon">▦ Tiles</button>
@@ -568,6 +570,7 @@ function ModelPage({ model, view, itemId, sub }) {
         {m.parent_model_id && <> · merges into <a href={`#/metamodel/${m.parent_model_id}`}><strong>{m.parent_model_name}</strong></a></>}
         {m.source_model_id && m.source_model_id !== m.parent_model_id && <> · created from <a href={`#/metamodel/${m.source_model_id}`}>{m.source_model_name}</a>{m.source_tag_name ? ` at the tag ${m.source_tag_name}` : ""}</>}
         {(m.kind === "reference" || m.kind === "template") && <> · in the <a href={`#/library/${m.id}`}>library</a></>}
+        {m.kind === "reference" && <> · <a href={`#/library/${m.id}?tab=pack`} title="The books, workbooks, metamodel Excel and PowerPoints of this industry">its industry pack</a></>}
       </p>
       {showProps && (
         <div className="model-props-box">
@@ -579,6 +582,7 @@ function ModelPage({ model, view, itemId, sub }) {
             created {fmtDate(m.created_at)} by {m.created_by} ·
             changed {fmtDate(m.modified_at)} by {m.modified_by}
           </p>
+          {m.kind === "reference" && <IndustryPackTiles model={model} compact />}
         </div>
       )}
       <LockBanner m={m} />

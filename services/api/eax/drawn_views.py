@@ -617,7 +617,7 @@ def get_icon(conn, model: Any, entity: Any) -> tuple[str, bytes] | None:
 # ---------------------------------------------------------------- heat maps (part 2)
 
 PALETTE = ["2E7D32", "9CCC65", "FDD835", "FB8C00", "C62828", "6A1B9A", "1565C0", "00838F", "5D4037", "546E7A"]
-SCALE = ["2E7D32", "9CCC65", "FDD835", "FB8C00", "C62828"]       # low to high
+SCALE = ["E57373", "F4A261", "90C2F0", "A8DBA8", "66BB6A"]       # low to high: red, orange, blue, green (owner, 10 Nov 2026)
 
 
 def bands(lo: float, hi: float, n: int = 5) -> list[tuple[float, float]]:
@@ -653,7 +653,9 @@ def heat_map(conn, model: Any, attribute: str, ranges: list | None = None, entit
         choices = [r["value"] for r in _rows(conn, """SELECT value FROM core.pick_list_values WHERE pick_list_id = :p
                                                        AND NOT is_deleted ORDER BY sort_order""", p=a["pick_list_id"])] \
             if a["pick_list_id"] else sorted({v["value_text"] for v in vals if v["value_text"]})
-        pal = {c: PALETTE[i % len(PALETTE)] for i, c in enumerate(choices)}
+        # a pick list in its order, low to high, spread over the same red-orange-blue-green scale (owner, 10 Nov 2026)
+        n = len(choices)
+        pal = {c: SCALE[0 if n == 1 else round(i * (len(SCALE) - 1) / (n - 1))] for i, c in enumerate(choices)}
         legend = [{"label": c, "colour": pal[c]} for c in choices]
         for v in vals:
             if v["value_text"] in pal:

@@ -32,7 +32,8 @@ def test_start_up_files_know_the_views_service():
     v = compose["services"]["views"]
     assert v["build"]["context"] == "./services/views" and "healthcheck" in v and "8110" in str(v["healthcheck"])
     proxy = (REPO / "deploy/proxy/templates/default.conf.template").read_text()
-    assert proxy.count("location /api/views/") == 2 and "http://views:8110" in proxy
+    assert proxy.count("location /api/views/") == 2 and "http://${EAX_VIEWS_UPSTREAM}" in proxy \
+        and "EAX_VIEWS_UPSTREAM: ${EAX_VIEWS_UPSTREAM:-views:8110}" in (REPO / "docker-compose.yml").read_text()   # D521
     for f in ("eax.ps1", "eax.sh", "eaxcli/stack.py", "services/ops/ops.py", "services/api/eax/services.py"):
         assert "EAX_SERVICE_VIEWS" in (REPO / f).read_text(), f
     for kind in ("laptop", "server"):

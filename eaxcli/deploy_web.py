@@ -13,7 +13,9 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from . import commands as C
 from . import deploy as D
+from . import deploy_commands as DC
 from .core import Failure, log_only, say
 
 PAGE = Path(__file__).with_name("deploy.html")
@@ -30,6 +32,11 @@ class State:
         self.decision = threading.Event()
         self.choice = ""
         self.lock = threading.Lock()
+        self.runs = DC.Runs()             # the Commands and Console tabs (D554)
+
+    def target(self) -> DC.Target:
+        with self.lock:
+            return DC.Target.from_answers(self.answers, self.status == "done" and not self.plan)
 
     def out(self, text: str) -> None:
         with self.lock:
@@ -102,6 +109,47 @@ def make_handler(state: State, key: str, stop: threading.Event):
                     return self._send(200, {"status": state.status, "steps": state.steps, "lines": state.lines[-400:],
                                             "failed": state.failed, "plan": state.plan,
                                             "answers": {k: ("" if k in D.SECRET_KEYS else v) for k, v in state.answers.items()}})
+            return self._commands_get()
+
+        def _commands_get(self):
+            path, _, query = self.path.partition("?")
+            start = int((query.split("from=", 1)[1].split("&")[0] if "from=" in query else "0") or 0)
+            try:
+                if path == "/api/commands":
+                    t = state.target()
+                    return self._send(200, {**C.catalogue(), "where": t.where(), "remote": t.remote,
+                                            "installation": C.installation_name(DC.ROOT) if not t.remote
+                                            else t.folder.rstrip("/").rsplit("/", 1)[-1], "you": {"super_admin": True}})
+                if path == "/api/commands/runs":
+                    return self._send(200, {"runs": state.runs.history()})
+                if path.startswith("/api/commands/runs/"):
+                    return self._send(200, state.runs.detail(path.rsplit("/", 1)[1], start))
+                if path.startswith("/api/console/"):
+                    return self._send(200, state.runs.console_read(path.rsplit("/", 1)[1], start))
+            except FileNotFoundError as exc:
+                return self._send(404, {"message": str(exc)})
+            except ValueError as exc:
+                return self._send(400, {"message": str(exc)})
+            return self._send(404, {"message": "No such page."})
+
+        def _commands_post(self, body: dict):
+            try:
+                if self.path == "/api/commands/run":
+                    conf = body.get("confirm") or {}
+                    return self._send(202, state.runs.start(state.target(), [str(a) for a in body.get("argv") or []],
+                                                            str(conf.get("typed") or ""), bool(conf.get("understood"))))
+                if self.path == "/api/console/start":
+                    return self._send(200, state.runs.console_start(state.target()))
+                if self.path.startswith("/api/console/") and self.path.endswith("/write"):
+                    state.runs.console_write(self.path.split("/")[3], str(body.get("text") or "")[:4000])
+                    return self._send(200, {"ok": True})
+                if self.path.startswith("/api/console/") and self.path.endswith("/end"):
+                    state.runs.console_end(self.path.split("/")[3])
+                    return self._send(200, {"ok": True})
+            except C.Refused as exc:
+                return self._send(400, {"message": str(exc)})
+            except FileNotFoundError as exc:
+                return self._send(404, {"message": str(exc)})
             return self._send(404, {"message": "No such page."})
 
         def do_POST(self):
@@ -112,6 +160,8 @@ def make_handler(state: State, key: str, stop: threading.Event):
                 body = json.loads(self.rfile.read(n) or b"{}")
             except ValueError:
                 return self._send(400, {"message": "Not JSON."})
+            if self.path.startswith("/api/commands/") or self.path.startswith("/api/console/"):
+                return self._commands_post(body)
             answers = {k: str(v) for k, v in (body.get("answers") or {}).items()}
             if self.path == "/api/questions":
                 merged = {**{q.key: q.default_for(answers) for q in D.visible(answers) if q.key not in answers}, **answers}

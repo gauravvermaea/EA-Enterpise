@@ -134,6 +134,15 @@ services:
       - ${EAX_LIBRARY_DIR:-./library}:/data/library:ro
       # EA Explorer's own template library (D264), shipped in the release whatever EAX_LIBRARY_DIR says
       - ./library/templates/ea-explorer:/data/ea-explorer-templates:ro
+      # the industry packs shipped in the repository (owner, 10 Nov 2026, D546): uploaded into Documents at start-up;
+      # EAX_PACKS_DIR: another folder of packs to load with `eax packs load` (empty by default)
+      - ./library/industry-packs:/data/industry-packs:ro
+      - ${EAX_PACKS_DIR:-./work/packs}:/data/packs-extra:ro
+      # EA Explorer's own documents of the running version, for the Documentation page (D550)
+      - ./docs:/data/docs/docs:ro
+      - ./README.md:/data/docs/README.md:ro
+      - ./eaxcli/help.txt:/data/docs/eaxcli/help.txt:ro
+      - ./releases:/data/docs/releases:ro
     networks: [frontend, backend]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health').status==200 else 1)"]
@@ -161,6 +170,7 @@ services:
       - eax-superset-home:/superset-home           # Superset's home: its secret key and uploads
       - ${EAX_IMPORT_DIR:-eax-imports}:/imports    # the API's import folder
       - ${EAX_EXPORT_DIR:-eax-exports}:/exports    # the API's export folder
+      - ${EAX_PERSIST_DIR:-./persist}:/persist     # the settings that survive resets (D558)
     networks: [backend]
 
   # The library (phase 15.2, D346): the organisation's and the projects' libraries, a service of its own with its own
@@ -178,6 +188,13 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    volumes:
+      # the running version's documents, kept as the "EA Explorer documentation" folder at every start (D550)
+      - ./docs:/data/docs/docs:ro
+      - ./README.md:/data/docs/README.md:ro
+      - ./eaxcli/help.txt:/data/docs/eaxcli/help.txt:ro
+      - ./releases:/data/docs/releases:ro
+      - ./services/api/version.toml:/data/docs/version.toml:ro
     networks: [frontend, backend]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8100/api/library/v1/health').status==200 else 1)"]
@@ -240,9 +257,13 @@ services:
     <<: [*restart, *logging]
     environment:
       EAX_OPS_TOKEN: ${EAX_OPS_TOKEN:-eax-ops-laptop}   # a server sets its own (the setup refuses this one there)
+      EAX_PERSIST_DIR: /eax-persist      # persist/ as mounted below: the settings that survive resets (D558)
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./work:/eax-work
+      # the settings that survive resets (D558): schedules, the banner, the safety backups; outside work/, so no
+      # cleanup, clean-run or clean-restart deletes them (EAX_PERSIST_DIR: another folder)
+      - ${EAX_PERSIST_DIR:-./persist}:/eax-persist
       - ./work/backups:/backups   # infrastructure backups: listed, pinned, cleaned, restored (D216, D226)
       - ./docker-compose.yml:/eax-repo/docker-compose.yml:ro   # kept in each backup with the release and image versions
       - ./deploy:/eax-repo/deploy:ro

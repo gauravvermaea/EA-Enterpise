@@ -1,0 +1,31 @@
+# Scale-out (phase 36.3, D521, D528): shared storage for files, so several hosts (or a standby host) see the same
+# files. Switched on with EAX_COMPOSE_EXTRA=shared-storage and an NFS export (a NAS, or a cloud file share with an NFS
+# endpoint) named in the config file:
+#   EAX_NFS_SERVER=10.0.0.20        EAX_NFS_PATH=/exports/eaexplorer      (sub-folders docs, imports, exports, superset)
+# Documents' files, the import and export folders and Superset's home then live on the share. The backups folder
+# (work/backups) is a host folder: mount the share there too (D226). The databases never go on a share.
+volumes:
+  eax-docs:
+    driver: local
+    driver_opts:
+      type: nfs
+      o: "addr=${EAX_NFS_SERVER:?set EAX_NFS_SERVER for shared storage},nfsvers=4.1,rw"
+      device: ":${EAX_NFS_PATH:-/exports/eaexplorer}/docs"
+  eax-imports:
+    driver: local
+    driver_opts:
+      type: nfs
+      o: "addr=${EAX_NFS_SERVER:?set EAX_NFS_SERVER for shared storage},nfsvers=4.1,rw"
+      device: ":${EAX_NFS_PATH:-/exports/eaexplorer}/imports"
+  eax-exports:
+    driver: local
+    driver_opts:
+      type: nfs
+      o: "addr=${EAX_NFS_SERVER:?set EAX_NFS_SERVER for shared storage},nfsvers=4.1,rw"
+      device: ":${EAX_NFS_PATH:-/exports/eaexplorer}/exports"
+  eax-superset-home:
+    driver: local
+    driver_opts:
+      type: nfs
+      o: "addr=${EAX_NFS_SERVER:?set EAX_NFS_SERVER for shared storage},nfsvers=4.1,rw"
+      device: ":${EAX_NFS_PATH:-/exports/eaexplorer}/superset"

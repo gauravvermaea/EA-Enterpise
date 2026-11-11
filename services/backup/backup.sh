@@ -9,6 +9,7 @@
 #     files/documents.tar.gz  Mayan's document files;  files/tls.tar.gz  the site certificate and key
 #     files/reports.tar.gz    Superset's home (its secret key and uploads; its dashboards are in its database)
 #     files/imports.tar.gz, files/exports.tar.gz   the API's import and export folders (files uploaded and made)
+#     files/persist.tar.gz    persist/: the settings that survive resets (schedules, the banner; D558)
 #     SHA256SUMS              a checksum of every file in the folder (the helper's code/ and config/ included)
 # The helper writes code/, config/ and manifest.json around it. Nothing is deleted here (retention: the helper).
 set -eu
@@ -49,11 +50,13 @@ if [ -d "${EAX_BACKUP_DOCS:-/mayan}" ] && [ "$(ls -A "${EAX_BACKUP_DOCS:-/mayan}
 fi
 # the other file sets: name and folder (each only when this container has it and it is not empty)
 for SET in "tls ${EAX_BACKUP_TLS:-/tls}" "reports ${EAX_BACKUP_REPORTS:-/superset-home}" \
-           "imports ${EAX_BACKUP_IMPORTS:-/imports}" "exports ${EAX_BACKUP_EXPORTS:-/exports}"; do
+           "imports ${EAX_BACKUP_IMPORTS:-/imports}" "exports ${EAX_BACKUP_EXPORTS:-/exports}" \
+           "persist ${EAX_BACKUP_PERSIST:-/persist}"; do
   NAME=${SET%% *} DIR=${SET#* }
   if [ -d "$DIR" ] && [ "$(ls -A "$DIR" 2>/dev/null)" ]; then
     echo "backup: files $NAME"
-    tar -C "$DIR" --exclude=./.eax-restoring --exclude=./.eax-before -czf "$TARGET/files/$NAME.tar.gz" .
+    # persist/'s safety-backups/ are backups themselves: left out (D558)
+    tar -C "$DIR" --exclude=./.eax-restoring --exclude=./.eax-before --exclude=./safety-backups -czf "$TARGET/files/$NAME.tar.gz" .
   fi
 done
 

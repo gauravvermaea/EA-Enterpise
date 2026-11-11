@@ -10,4 +10,6 @@ FROM nginxinc/nginx-unprivileged:1.27-alpine
 ENV NGINX_ENVSUBST_FILTER="^EAX_"
 COPY nginx/default.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /src/dist /usr/share/nginx/html
+# the npm packages the screens were built from (not served): image scans (Trivy, phase 36.1) read them here
+COPY --from=build /src/package.json /src/package-lock.json /usr/share/eax-web-build/
 EXPOSE 8080

@@ -33,7 +33,7 @@ def _ops():
 def _volume(mount: str) -> str:
     """The named volume of a compose mount ("${EAX_DOCS_DIR:-eax-docs}:/mayan" -> eax-docs)."""
     src = mount.split(":/")[0]
-    m = re.match(r"^\$\{[A-Z_]+:-([a-z0-9-]+)\}$", src)
+    m = re.match(r"^\$\{[A-Z_]+:-([a-z0-9./-]+)\}$", src)
     return m.group(1) if m else src
 
 
@@ -43,7 +43,7 @@ def _volume(mount: str) -> str:
 def test_every_named_volume_is_backed_up_or_said_not_needed():
     ops = _ops()
     volumes = set(COMPOSE["volumes"])
-    backed = {vol for vol, _what in ops.FILE_SETS.values()}
+    backed = {vol for vol, _what in ops.FILE_SETS.values() if not vol.startswith("./")}   # ./persist: a folder (D558)
     assert volumes == backed | set(ops.NOT_NEEDED), (volumes - backed - set(ops.NOT_NEEDED), (backed | set(ops.NOT_NEEDED)) - volumes)
     assert not backed & set(ops.NOT_NEEDED)
     assert all(len(why) > 20 for why in ops.NOT_NEEDED.values())          # each with its reason
@@ -52,13 +52,14 @@ def test_every_named_volume_is_backed_up_or_said_not_needed():
 def test_the_backup_container_mounts_every_file_set_where_the_scripts_look():
     ops = _ops()
     mounts = {_volume(m): m.split(":")[-1].split()[0] for m in COMPOSE["services"]["backup"]["volumes"]}
-    folders = {"documents": "/mayan", "tls": "/tls", "reports": "/superset-home", "imports": "/imports", "exports": "/exports"}
+    folders = {"documents": "/mayan", "tls": "/tls", "reports": "/superset-home", "imports": "/imports", "exports": "/exports",
+               "persist": "/persist"}
     assert set(folders) == set(ops.FILE_SETS)
     for name, (vol, _what) in ops.FILE_SETS.items():
         assert mounts.get(vol) == folders[name], (name, vol)
         assert folders[name] in BACKUP_SH and folders[name] in RESTORE_SH, name
         assert re.search(rf"\b{name}\)\s+echo", RESTORE_SH), f"restore.sh: dest_of {name}"
-    assert 'ALL_SETS="documents tls reports imports exports"' in RESTORE_SH
+    assert 'ALL_SETS="documents tls reports imports exports persist"' in RESTORE_SH
     for name in ops.FILE_SETS:                              # the restore plans name only sets the scripts know
         assert all(f in ops.FILE_SETS for plan in ops.RESTORE_WHAT.values() for f in plan["files"]), name
     assert set(ops.RESTORE_WHAT["full"]["files"]) == set(ops.FILE_SETS)
@@ -123,7 +124,7 @@ def test_the_manifest_says_what_is_in_it_and_what_is_not(tmp_path):
     parts = ops._parts(str(folder))
     c = ops.contents(parts)
     assert c["databases"]["eaxlibrary"] == "from lib.internal:5432" and c["databases"]["eaxviews"] == "from the main server"
-    assert set(c["files"]) == {"documents", "tls", "reports"} and set(c["empty"]) == {"imports", "exports"}
+    assert set(c["files"]) == {"documents", "tls", "reports"} and set(c["empty"]) == {"imports", "exports", "persist"}
     assert c["not_included"] == ops.NOT_NEEDED
 
 

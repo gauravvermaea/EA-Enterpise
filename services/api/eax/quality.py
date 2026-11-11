@@ -60,8 +60,10 @@ RULE_KINDS = {   # what each kind of rule checks, in words for the screens (the 
 }
 # which models are measured (D242): never an archived model; otherwise the admins' choice, else project models that are
 # not frozen
-MEASURED_SQL = """(m.lifecycle = 'active' AND coalesce((SELECT q.measured FROM core.quality_scope q WHERE q.model_id = m.id),
-                                                    m.kind_code = 'project' AND NOT m.is_locked AND m.lock_level <> 'content'))"""
+MEASURED_SQL = """(m.lifecycle = 'active' AND m.name !~ '^self_test_'
+                 AND coalesce((SELECT q.measured FROM core.quality_scope q WHERE q.model_id = m.id),
+                              m.kind_code = 'project' AND NOT m.is_locked AND m.lock_level <> 'content'))"""
+# the self-test's fixtures (self_test_<id>_<n>) are never measured (phase 36.1, D529)
 OPS = ("filled", "empty", "equals", "not_equals", "in", "not_in", "matches", "at_least", "at_most", "before_today",
        "after_today")
 

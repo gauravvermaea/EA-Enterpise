@@ -140,6 +140,16 @@
   ],
   "example": "Surveys, to answer the repository-use survey."
  },
+ "page:#/documentation": {
+  "title": "Documentation",
+  "what": "Every document that ships with the version of EA Explorer you are using: getting started, using it, running it, the command line, reference and how it was designed. The same documents are in the Enterprise library, folder EA Explorer documentation.",
+  "how": [
+   "Choose a document from its group to read it here; links between documents open them in place.",
+   "Type in Search all documents to find every document holding all your words.",
+   "In a document, Download gives its own file and Print or save as PDF prints it."
+  ],
+  "example": "Search 'housekeeping dry run' to find how old records are archived."
+ },
  "page:#/my-profile": {
   "title": "My profile",
   "what": "Your name, roles, skills and preferences, including how page tabs are shown.",
@@ -2337,6 +2347,7 @@
  "field:Save as profile": "Save these settings to use again.",
  "field:Save the mapping as (optional)": "Name the column mapping to reuse it.",
  "field:Search": "Words to look for.",
+ "field:Search all documents": "Words to look for in every document of this version; documents holding all of them are listed, best first.",
  "field:Search * entities": "Search entities by name or ID.",
  "field:Search by tag, name or who": "Search backups.",
  "field:Search entity or message": "Search the history.",
@@ -3007,5 +3018,178 @@
  "button:Screenshot": "See the screenshot taken when the check failed.",
  "button:Undo changes": "Put back the values as they were saved.",
  "button:Video": "Watch the video of the failed browser journey.",
- "button:Preview and send…": "See what changed since the starting point, add a note and send it to the parent's people for review."
+ "button:Preview and send…": "See what changed since the starting point, add a note and send it to the parent's people for review.",
+ "tab:Self-test": {
+  "title": "Self-test",
+  "what": "Tests this installation in fixtures of its own: a smoke test or detailed tests (API, browser, database, security), with their history, reports and the test fixtures they made. Super Admins and IT Admins.",
+  "how": [
+   "Run: choose a smoke test or detailed tests, optionally one role or one API area, and start it; it says how long it takes and asks to confirm.",
+   "Follow it live: its step and counts; Stop ends it at its next step.",
+   "History: open a run's results; each failure says why, with what was asked and what came back, or a screenshot or video; download its report as HTML or Excel.",
+   "Test fixtures: purge what runs made (self_test_<id>_<n>), for good."
+  ],
+  "example": "A smoke test before and after an update; detailed API tests as architect after changing roles."
+ },
+ "tab:Run": {
+  "title": "Run a self-test",
+  "what": "Choose what to test and start it now (runs are never scheduled). The same runs start with eax test.",
+  "how": [
+   "Smoke test: a few minutes: every role signs in, every main area answers, the key journeys work once.",
+   "Detailed tests: tick the suites (or All); Role and Area narrow them.",
+   "Watch it in this browser: the browser journeys run in this page, in this browser, while you watch (keep the page open).",
+   "Start: it shows how long it takes and asks to confirm."
+  ],
+  "example": "Detailed, API only, role architect, area models."
+ },
+ "tab:Test fixtures": {
+  "title": "Test fixtures",
+  "what": "Everything self-test runs made (models, projects, test accounts and credentials named self_test_<id>_<n>), by run, with when it was made and its size. They stay until you purge them.",
+  "how": [
+   "Filter by run, tick fixtures, or use All of this run / All runs.",
+   "Delete selected, then type DELETE: they are removed for good as a background task with its progress; only fixtures the self-test recorded are ever touched.",
+   "The runs' reports stay, marked fixtures removed."
+  ],
+  "example": "Purge every run older than this week's."
+ },
+ "popup:Start the self-test now?": {
+  "what": "Confirms the self-test you chose and says roughly how long it takes.",
+  "how": [
+   "Start now runs it at once in its own fixtures; nothing else changes.",
+   "Cancel goes back to the choices."
+  ]
+ },
+ "popup:Self-test *": {
+  "what": "One self-test run: what it tested, its results (failures first) and its fixtures.",
+  "how": [
+   "Show and Suite filter the results.",
+   "Open What was asked and what came back under a failed API check; Screenshot and Video for a failed journey.",
+   "Download report (HTML) or Excel for the whole run."
+  ]
+ },
+ "popup:Stop self-test *?": {
+  "what": "Stops the running self-test at its next step.",
+  "how": [
+   "It keeps what it has found so far and revokes its test accounts' tokens; its fixtures stay until you purge them."
+  ]
+ },
+ "popup:Delete * self-test fixture(s) for good?": {
+  "what": "Purges the chosen self-test fixtures: a hard delete that cannot be undone.",
+  "how": [
+   "Type DELETE, then Delete for good.",
+   "Models go with everything in them (history included), projects with their documents, and the test accounts with their credentials; only what the self-test recorded is touched.",
+   "It runs as a background task; its progress shows on the page and in the task drawer."
+  ]
+ },
+ "field:Run": "Show the fixtures of one self-test run, or of every run.",
+ "button:Delete for good": "Purge the chosen self-test fixtures now: they cannot be brought back.",
+ "button:Delete selected (": "Purge the ticked self-test fixtures (asks you to type DELETE first).",
+ "button:Download report (HTML)": "The run's report as one HTML page with every check, its timings and the failures' screenshots.",
+ "button:Keep running": "Leave the self-test running.",
+ "button:Results so far": "The results the running self-test has recorded so far.",
+ "button:Stop it": "Stop the self-test at its next step; what it found so far is kept.",
+ "tab:Deploy": {
+  "what": "Deploying EA Explorer from this installation to another place: a server reached over SSH (Docker installed if missing), or a machine in AWS, Azure or DigitalOcean, created from your credentials or one you have. This installation is not changed.",
+  "how": [
+   "Answer where and how (the same questions as eax deploy), paste or choose the SSH private key, and give the cloud credentials when a machine is to be created.",
+   "Show the plan first: it lists every step and command and runs nothing. Then Deploy.",
+   "Follow the steps and the log; a step that fails asks Retry, Back to the answers, or Quit. The run goes on if you leave the page.",
+   "Targets lists every place deployed to; Every deployment lists plans and deployments. Managing many installations together comes in release 2."
+  ],
+  "example": "Deploy v0.19.0 to a new DigitalOcean Droplet for ea.fynbos-mutual.example, after checking the plan."
+ },
+ "field:SSH private key": "The OpenSSH private key (no passphrase) the target is reached with. Used for this deployment only unless you tick Keep; never shown again.",
+ "field:-----BEGIN OPENSSH PRIVATE KEY-----": "Paste the whole SSH private key here, from -----BEGIN to -----END.",
+ "field:Or choose the key file": "Choose the SSH private key file instead of pasting it (e.g. id_ed25519). It is read in the browser and sent for this deployment only.",
+ "field:Use credentials kept for a target": "Use the SSH key and cloud credentials kept from an earlier deployment to that target, instead of giving them again.",
+ "button:Show the plan (runs nothing)": "List every step and every command the deployment would run, without running anything.",
+ "button:Deploy": "Start the deployment as the answers say (asks to confirm). It runs in the operations helper; you can leave the page.",
+ "button:Retry this step": "Run the failed step again (after fixing what it said, e.g. the DNS name or the firewall).",
+ "button:Back to the answers": "Back to the questions, with your answers kept, to change them and plan or deploy again.",
+ "button:Quit": "Stop the deployment here. What was made so far stays; the log says how far it got.",
+ "tab:Command centre": {
+  "what": "Every eax command from the browser, for IT Admins and Super Admins: a guided form per command, the Console for typing them, and the history of everything run.",
+  "how": [
+   "Commands: pick a command, fill in its options, check the command line it shows, then Run.",
+   "Console: type eax commands as on the machine itself; console opens the numbered menu.",
+   "History: every run and console session, with its output or transcript."
+  ],
+  "example": "Choose backup, type nightly as the tag and Run: the same as typing eax backup nightly on the server."
+ },
+ "tab:Commands": {
+  "what": "Every eax command, grouped as in eax help, each with a short guided form.",
+  "how": [
+   "Pick a command card. Red cards delete everything (Super Admins only); amber ones stop or restart EA Explorer; grey ones run on the machine itself and show the command to copy.",
+   "Fill in the options, check the command line, then Run. The output streams live."
+  ],
+  "example": "service, then reports and off: switches Reports off, as eax service reports off does."
+ },
+ "tab:Console": {
+  "what": "A terminal in the browser that takes eax commands as typed, and eax console's numbered menu. Never a shell.",
+  "how": [
+   "Open the Console, then type a command such as status or backup nightly (eax is optional).",
+   "Type console for the numbered menu; answer its questions as they come.",
+   "exit, End the Console or leaving the page ends it. Everything typed is kept in History."
+  ],
+  "example": "Type help restore to read about restore, then restore latest --what db."
+ },
+ "field:* (several: separate with spaces)": "Several words, separated by spaces: for example api proxy.",
+ "field:Find a command": "Type part of a command's name or summary to narrow the list, for example backup.",
+ "field:Type the installation's name,": "Type the installation's name exactly as shown to confirm a command that deletes everything.",
+ "field:Which option": "Which of the two options to use, for example --to or --from.",
+ "field:backup, restore, logs": "Type part of a command's name or summary to narrow the list.",
+ "button:← All commands": "Back to the list of commands.",
+ "button:← History": "Back to the history of runs and console sessions.",
+ "button:■ End the Console": "End the Console session; its transcript stays in History.",
+ "button:■ Stop": "Stop this command now (only commands that can stop halfway, such as logs, status or test).",
+ "tab:Pack": {
+  "what": "A library model's pack. For an industry reference model: the files of its industry pack, as tiles to download - the book (learner guide), the workbook, the metamodel Excel to study (the populated worked example the model was built from) and its empty template, the ArchiMate 4 views, the Excel templates, the PowerPoints and the read-me.",
+  "how": [
+   "Click Download on a file in a tile; it comes from Documents.",
+   "A tile marked 'not loaded' has no file in Documents yet: a Library Admin clicks 'Load packs from the folder on the server' or runs eax packs load.",
+   "Industries with only a metamodel workbook (Government, Logistics, Minerals and Mining, Telecommunications) show just the metamodel Excel and the ArchiMate 4 views."
+  ],
+  "example": "Retail reference model > Pack > The book > Download: Retail - a starter pack for enterprise architects.pdf"
+ },
+ "tab:Banner": {
+  "what": "One short message under the top bar for everyone signed in, or for admins only. When no banner is set, nothing is shown. It is kept in persist/banner.json, so it survives resets.",
+  "how": [
+   "Write the message, choose the level (information, notice or urgent) and, if you like, a link and the times it shows.",
+   "Save the banner: it shows at once, and starts and ends by itself.",
+   "Clear the banner to show nothing."
+  ],
+  "example": "Notice: EA Explorer is being upgraded on Saturday from 08:00 to 10:00, with a link to the release notes."
+ },
+ "tab:Schedules": {
+  "what": "eax commands that run by themselves, a cron in the platform, in the installation's time zone. Kept in persist/schedules.json, so they survive resets: a demo can reset itself every night and keep its schedule.",
+  "how": [
+   "New schedule: choose the command and its options, then when it runs (every night, every week, every hour, once, or a cron expression).",
+   "A command that deletes everything needs a Super Admin and the installation's name typed once, when the schedule is made.",
+   "Turn a schedule off and on, run it now, or remove it; every run is in the History."
+  ],
+  "example": "Demo reset every night: eax clean-restart laptop at 02:00, with a banner telling everyone."
+ },
+ "field:At": "The time it runs, HH:MM, in the installation's time zone.",
+ "field:At minute": "The minute past every hour it runs (0 to 59).",
+ "field:Command": "The eax command to run, from the same list as the Commands tab.",
+ "field:Cron": "Five parts: minute hour day-of-month month day-of-week, e.g. 0 2 * * * for every night at 02:00.",
+ "field:Date and time": "When it runs, once.",
+ "field:Day": "The day of the week it runs.",
+ "field:Keep the newest": "How many of this schedule's safety backups to keep in persist/safety-backups; older ones are removed.",
+ "field:Level": "Information (blue), notice (amber) or urgent (red); the word and an icon show it too.",
+ "field:Link (optional)": "A web address or a page of EA Explorer (#/…); clickable only when it is safe.",
+ "field:Link text": "The words the link shows, e.g. More or What's new.",
+ "field:Message": "The banner's text, up to 400 characters.",
+ "field:Repeat": "Every night, every week, every hour, once, or a cron expression.",
+ "field:Shown from (optional)": "The banner shows from this time; empty: from now.",
+ "field:Until (optional)": "The banner stops showing at this time; empty: until it is cleared.",
+ "field:Who sees it": "Everyone signed in, or IT Admins and Super Admins only.",
+ "field:e.g. EA Explorer is being upgraded on Saturday from 08:00 to 10:00.": "The banner's text, up to 400 characters.",
+ "field:e.g. Nightly backup": "A name for the schedule; empty: the command itself.",
+ "field:https://… or #/documentation": "A web address or a page of EA Explorer (#/…).",
+ "field:minute hour day month weekday, e.g. 0 2 * * *": "Five parts: minute hour day-of-month month day-of-week.",
+ "button:+ New schedule": "Make a schedule: a command, when it runs, and for a command that deletes everything the confirm.",
+ "button:Clear the banner": "Show no banner at all.",
+ "button:Reset and test": "Runs a real clean-restart, then checks the settings in persist/ survived it. Deletes all data.",
+ "button:Save the banner": "Show this banner now (within its times).",
+ "button:← All schedules": "Back to the list of schedules."
 }

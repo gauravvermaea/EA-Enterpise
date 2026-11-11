@@ -117,7 +117,11 @@ def render_realm(values: dict[str, str]) -> Path:
     escaped["EAX_FIRST_ADMIN_PASSWORD_TEMPORARY"] = "true" if temporary else "false"
     text = template.substitute(escaped)
     realm = json.loads(text)  # fail early if the result is not valid JSON
-    if values.get("EAX_DEPLOYMENT", "laptop") == "laptop":
+    # the test users: always on a laptop; on a server only when asked (EAX_TEST_USERS=on, a staging server, with its
+    # own EAX_TEST_USER_PASSWORD), so the automated tests can sign in as every role (phase 36.1, D525)
+    server_tests = values.get("EAX_TEST_USERS", "off").strip().lower() in ("on", "true", "yes", "1") \
+        and bool(values.get("EAX_TEST_USER_PASSWORD"))
+    if values.get("EAX_DEPLOYMENT", "laptop") == "laptop" or server_tests:
         password = values.get("EAX_TEST_USER_PASSWORD") or values.get("EAX_FIRST_ADMIN_PASSWORD", "")
         for username, role, _models in TEST_USERS:
             first, *rest = username.split("_")[1:]

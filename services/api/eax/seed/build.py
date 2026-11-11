@@ -904,14 +904,14 @@ def seed_sql(with_template: bool = True, with_sample: bool = True, with_insuranc
             insurance_content_sql(),
         ]
     # the industry reference models (phase 39, D470): True for all, or a set of industry codes
-    for code, name, version, description, mod in IND.MODELS:
+    for code, name, version, description, mod, *_named in IND.MODELS:
         if with_industries is True or (with_industries and code in with_industries):
             key = IND.key(code)
             parts += [
-                f"SELECT set_config('eax.history_label', '{name} reference model', true);\n",
+                f"SELECT set_config('eax.history_label', '{IND.model_name(code).replace(chr(39), chr(39) * 2)}', true);\n",
                 insert("model", ["id", "origin_id", "name", "description", "kind_code", "source_model_id",
                                  "metamodel_name", "is_locked", "owner", "industry", "version_label"], [[
-                    gid("model", key), TEMPLATE_ID, f"{name} reference model", description,
+                    gid("model", key), TEMPLATE_ID, IND.model_name(code), description,
                     "reference", TEMPLATE_ID, "ArchiMate 4", True, "EA Explorer", name, version]]),
                 metamodel_sql(key, TEMPLATE_KEY),
                 reference_content_sql(mod, key),

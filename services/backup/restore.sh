@@ -40,8 +40,8 @@ exists() { [ "$(q "SELECT 1 FROM pg_database WHERE datname = '$1'")" = "1" ]; }
 kick() { q "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$1' AND pid <> pg_backend_pid()" >/dev/null; }
 dest_of() { case "$1" in documents) echo "${EAX_BACKUP_DOCS:-/mayan}";; tls) echo "${EAX_BACKUP_TLS:-/tls}";;
   reports) echo "${EAX_BACKUP_REPORTS:-/superset-home}";; imports) echo "${EAX_BACKUP_IMPORTS:-/imports}";;
-  exports) echo "${EAX_BACKUP_EXPORTS:-/exports}";; *) echo "";; esac; }
-ALL_SETS="documents tls reports imports exports"
+  exports) echo "${EAX_BACKUP_EXPORTS:-/exports}";; persist) echo "${EAX_BACKUP_PERSIST:-/persist}";; *) echo "";; esac; }
+ALL_SETS="documents tls reports imports exports persist"
 MAIN="$PGHOST $PGPORT"
 # the server a database lives on now ("host port"): the library's and the views' may have their own (D410)
 server_of() {

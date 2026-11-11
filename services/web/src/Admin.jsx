@@ -9,7 +9,10 @@
 //   machine-access tokens, API keys, client certificates and service accounts (phase 25; everyone their own)
 //   operations   usage, housekeeping, the archive, database health, metrics (phase 35; IT Admins)
 //   scaling      how many API and job servers run: fixed or by rules (phase 36.3, D526; IT Admins)
+//   self-test    the self-test: run (smoke or detailed, live, stop), history and reports, test fixtures (36.1, D529)
 //   updates      updating to a new release from git: channels, versions, retry, roll back, history (phase 36, D417)
+//   commands     the Command centre: every eax command with a guided form, the Console, the history (D554), schedules (D559)
+//   banner       the banner under the top bar (D558): nothing shows unless an admin sets one
 //   licences     the products and libraries and their licences
 // The old addresses #/users, #/heartbeat and #/sql open the same tabs; #/admin/projects moved to #/project-admin/library.
 import { lazy, Suspense, useEffect, useState } from "react";
@@ -30,7 +33,11 @@ const SystemWizards = lazy(() => import("./SystemWizards"));
 const MachineAccess = lazy(() => import("./MachineAccess"));
 const Operations = lazy(() => import("./Operations"));
 const Scaling = lazy(() => import("./Scaling"));
+const SelfTest = lazy(() => import("./TestRuns"));
 const Updates = lazy(() => import("./Updates"));
+const CommandCentre = lazy(() => import("./CommandCentre"));
+const BannerAdmin = lazy(() => import("./AdminBanner").then((m) => ({ default: m.BannerAdmin })));
+const Deploy = lazy(() => import("./Deploy"));
 const QualityAdmin = lazy(() => import("./Quality").then((x) => ({ default: x.QualityAdmin })));
 
 const TABS = [
@@ -41,6 +48,7 @@ const TABS = [
   ["health", "Health", () => true, null],
   ["containers", "Containers", () => can("system.operate"), ["it-admin", "super-admin"]],
   ["scaling", "Scaling", () => can("system.operate"), ["it-admin", "super-admin"]],
+  ["self-test", "Self-test", () => can("system.operate"), ["it-admin", "super-admin"]],
   ["backups", "Backups", () => can("system.operate"), ["it-admin", "super-admin"]],
   ["restores", "Restores", () => can("system.operate"), ["it-admin", "super-admin"]],
   ["quality", "Quality", () => true, null],
@@ -48,6 +56,9 @@ const TABS = [
   ["machine-access", "Machine access", () => true, null],
   ["operations", "Operations", () => can("system.operate"), ["it-admin", "super-admin"]],
   ["updates", "Updates", () => can("system.operate"), ["it-admin", "super-admin"]],
+  ["commands", "Command centre", () => can("system.operate"), ["it-admin", "super-admin"]],
+  ["banner", "Banner", () => can("system.operate"), ["it-admin", "super-admin"]],
+  ["deploy", "Deploy", () => can("system.operate"), ["it-admin", "super-admin"]],
   ["licences", "Licences", () => true, null],
 ];
 
@@ -86,7 +97,11 @@ export default function Admin({ route }) {
                   : t[0] === "machine-access" ? <MachineAccess />
                   : t[0] === "operations" ? <Operations />
                   : t[0] === "scaling" ? <Scaling />
+                  : t[0] === "self-test" ? <SelfTest />
                   : t[0] === "updates" ? <Updates />
+                  : t[0] === "commands" ? <CommandCentre route={route} />
+                  : t[0] === "banner" ? <BannerAdmin />
+                  : t[0] === "deploy" ? <Deploy />
                   : t[0] === "licences" ? <Licences />
                     : <Settings group={t[0]} />}
         </Suspense>

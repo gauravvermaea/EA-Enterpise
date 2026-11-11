@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiFetch, can, needsRole } from "./auth";
 import { CreateFromButton, DownloadButtons, libraryAction, UploadButton } from "./ModelOps";
+import { IndustryPackTiles } from "./IndustryPack";
 import { KINDS, KindMark, MarksLegend, StatusMarks } from "./ModelMarks";
 
 function Swatch({ colour }) {
@@ -108,9 +109,10 @@ function Fact({ label, value, href }) {
 }
 
 function Detail({ m, all }) {
-  const [tab, setTab] = useState("contents");
+  const wantPack = () => (/[?&]tab=pack/.test(window.location.hash) ? "pack" : "contents");   // the model page's link (D546)
+  const [tab, setTab] = useState(wantPack);
   const [more, setMore] = useState(false);
-  useEffect(() => { setTab("contents"); setMore(false); }, [m.id]);
+  useEffect(() => { setTab(wantPack()); setMore(false); }, [m.id]);
   const types = more ? m.counts_by_type : m.counts_by_type.slice(0, 10);
   const max = Math.max(1, ...m.counts_by_type.map((c) => c.count));
   const derived = all.filter((x) => x.source_model_id === m.id);
@@ -194,7 +196,8 @@ function Detail({ m, all }) {
         </div>
       )}
 
-      {tab === "pack" && (
+      {tab === "pack" && m.kind === "reference" && <IndustryPackTiles model={m.id} />}
+      {tab === "pack" && m.kind !== "reference" && (
         <div className="pack">
           <p className="quiet pack-note">Every library model carries a pack: guidance, workbooks, reports and diagrams, plus any other files its builders add. The pack is
             added when a model is created as a library model, and travels with it in its package (phase 4); the industry packs are
@@ -263,7 +266,7 @@ export default function Library({ route = "" }) {
   useEffect(() => {
     apiFetch(`/api/v1/models/library${withdrawn ? "?withdrawn=true" : ""}`).then(setData).catch((e) => setError(e.message));
   }, [withdrawn, gen]);
-  const wanted = route.split("/")[2];
+  const wanted = (route.split("/")[2] || "").split("?")[0];   // #/library/<id>?tab=pack (D546)
   const current = useMemo(() => {
     if (!data?.length) return null;
     return data.find((m) => m.id === wanted)

@@ -271,6 +271,18 @@ each is named **api-1**, **api-2**... on Administration > Containers: its proper
 its own. The number is kept in the config file (`EAX_API_SERVERS`), so `eax restart`, `eax up`, `eax run` and
 `eax clean-restart` keep it; an infrastructure restore that puts the config file back keeps the current number too.
 
+## Scaling out (phase 36.3, D520, D521, D526 to D528)
+
+**System admin, Scaling** sets the number of API servers, fixed or by rules (people active and CPU, one server at a
+time with a cool-down); the operations helper applies it every minute and logs why. More hosts, a database standby
+(`eax standby status|promote`), shared storage on NFS and the library on its own server are compose overlays named in
+`EAX_COMPOSE_EXTRA`. See [phase-36.3.md](phase-36.3.md).
+
+## The self-test (phase 36.1, D522 to D525, D529)
+
+`eax test` or **System admin, Self-test** tests this installation in fixtures of its own (`self_test_<id>_n`), with a
+report at the end; fixtures stay until purged by hand (`eax test --clean <run|all>`). See [testing.md](testing.md).
+
 ## The operations helper
 
 The `ops` container (phase 10) lets a Super Admin restart the system from Administration > System settings. It
@@ -315,6 +327,63 @@ task files after 90 days, notifications after a year); nothing is deleted until 
 history versions are kept unless a Super Admin sets an age in years; then versions older than that are removed after a
 confirmed dry run, never the current ones or any a tag, baseline, merge starting point, drawn view evidence or governance
 record needs (D445).
+
+## Settings that survive resets (D558)
+
+`cleanup`, `clean-run` and `clean-restart` delete the work folder and every database. A few settings must outlive
+that, for example a demo that resets itself every night and must keep its schedule. They live in **`persist/`**, a
+folder beside `work/` (set `EAX_PERSIST_DIR` in the config file for another folder) that no command ever deletes:
+
+| File or folder | What it holds |
+|---|---|
+| `persist/schedules.json` | Scheduled eax commands (System admin > Command centre > Schedules, `eax schedule`) |
+| `persist/banner.json` | The banner under the top bar (System admin > Banner) |
+| `persist/safety-backups/` | The backup taken before a command that deletes everything (scheduled ones keep their newest N) |
+| `persist/test-results/` | The reset-survival test's results (`eax test --reset-survival`) |
+
+The JSON files are the source of truth: the operations helper reads them whenever it needs them and writes them
+atomically (a temporary file, then a rename) when an admin changes something on the web or with `eax schedule`. You can
+read and edit them by hand. If a file does not parse, its last good copy (`<name>.bak`) is used and the System admin
+pages show a warning; save the settings again or fix the file. `persist/` is in every infrastructure backup (its
+`safety-backups/` left out), never in git (`.gitignore`).
+
+`persist/schedules.json`:
+
+```json
+{
+  "version": 1,
+  "_comment": "Scheduled eax commands (D559). Survives resets. ...",
+  "schedules": [
+    {"id": "0d3m01", "name": "Demo reset every night", "argv": ["clean-restart", "laptop"], "cron": "0 2 * * *",
+     "enabled": true, "created_by": "user_super_admin", "created_at": "2026-11-10T22:55:00+02:00",
+     "wipe": true, "backup_first": false, "keep": 3, "banner": true,
+     "confirmed": {"by": "user_super_admin", "at": "2026-11-10T22:55:00+02:00", "installation": "demo-laptop"},
+     "last": {"run": "20261111T000000Z-sched0d3m01-1a2b", "at": "2026-11-11T02:00:10+02:00", "state": "started"}}
+  ]
+}
+```
+
+`persist/banner.json`:
+
+```json
+{
+  "version": 1,
+  "_comment": "The banner under EA Explorer's top bar (D558). Survives resets. ...",
+  "banner": {"text": "This demo resets every day at 02:00: everything entered is deleted then.", "link": "",
+             "link_text": "", "level": "info", "audience": "everyone", "dismissible": true,
+             "starts": null, "ends": null, "by": "user_super_admin", "at": "2026-11-10T22:55:00+02:00",
+             "source": "schedule:0d3m01"},
+  "history": []
+}
+```
+
+Remove `"banner"` (or set it to `null`) and nothing is shown.
+
+## The banner and schedules (D558, D559)
+
+System admin > **Banner** sets one message under the top bar (nothing shows when none is set); System admin > Command
+centre > **Schedules** runs eax commands by themselves, e.g. a nightly backup or a demo that resets every night. Both
+are kept in `persist/` and survive resets; see command-line-and-console.md.
 
 ## Moving to a server
 

@@ -3,6 +3,7 @@
 // style, so old links and bookmarks keep working. Each group remembers its last tab; counts roll up onto the group.
 import { useEffect, useRef, useState } from "react";
 import ActionsMenu from "./ActionsMenu";
+import { isSelfTest } from "./auth";
 import {
   clearCurrentNav, NAV_STYLES, navStyleChosen, readFolded, readLastTabs, readNavStyle, saveFolded, saveLastTab, saveNavStyle, setCurrentNav,
 } from "./navActions";
@@ -153,7 +154,7 @@ function Sketch({ kind }) {
 
 export function NavWelcome() {
   const force = /[?&]welcome=1\b/.test(window.location.search);
-  const [open, setOpen] = useState(() => force || (!navStyleChosen() && !navigator.webdriver));
+  const [open, setOpen] = useState(() => force || (!navStyleChosen() && !navigator.webdriver && !isSelfTest()));
   const first = useRef(null);
   useEffect(() => { if (open) first.current?.focus(); }, [open]);
   if (!open) return null;

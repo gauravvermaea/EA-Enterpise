@@ -1,4 +1,4 @@
-# What EA Explorer does today (version 0.15.1)
+# What EA Explorer does today (version 0.19.0)
 
 One page for anyone weighing EA Explorer up: what is **built and in the box today**, area by area, and what is still
 **planned**, with its build phase. "Planned" adds to what is already there; it does not mean an area is missing.
@@ -16,6 +16,22 @@ Every phase in detail: [build-phases.md](build-phases.md). Decisions: [decisions
 | Documents and libraries | Document management (Mayan EDMS) inside projects, the reference library, the enterprise and project libraries with search |
 | Integration | A REST API (OpenAPI), signed webhooks, Excel and CSV in and out with mappings, model packages, the MCP server |
 | Operations | One command (`eax`) and a console, start-up in two tiers, health, tagged backups and restores, every service switchable |
+
+## The main screens
+The top bar's main menu: **System admin**, **Model admin**, **Project admin**, **Architecture work**, **Architecture
+repository**, **Reference library** and **Everything else**; and the older menu below it: **Start**, **Models**,
+**Projects**, **Repository**, **Library**, **Enterprise library**, **Reference library**, **Compare**, **Gap analysis**,
+**Common analysis**, **Change log**, **MCP**, **Administration** and **API**. Beside your name: **Documentation**, ? Help,
+the navigation style, quick jump and Sign out.
+
+## Documentation
+- **Documentation** (beside your name, for everyone signed in): every document that ships with the version you run,
+  grouped (getting started, using EA Explorer, administration and operations, command line, reference, release notes,
+  design and decisions), each shown as a readable page with links between them, a search across all of them, and
+  Download and Print or save as PDF (D550)
+- The same documents in the **Enterprise library**, folder **EA Explorer documentation**, refreshed from the running
+  version at every start, so they are always the documents of that version: new ones added, changed ones replaced,
+  ones no longer shipped removed (D550)
 
 ## Finding your way
 Built ([navigation.md](navigation.md), D478–D481):
@@ -52,10 +68,10 @@ Built:
 - **Versions**: every metamodel change is a published version with its note and differences; compare any two;
   **push a new version down** to the models built on it, forced or offered (phase 8.1).
 - **Reviews**: a metamodel draft (by a person or a language model) waits for review, comments and approval (D115, D130).
-- **Industry reference models**: Healthcare, Manufacturing, Pharmaceuticals and Retail reference models (phase 39, D470: capabilities, value streams, services, processes, products, business objects and a starter application landscape, from the owner's industry starter packs) beside an insurance reference model to capability level 4, and the model library to share
+- **Industry reference models**: Banking, Government, Healthcare, Logistics, Manufacturing, Minerals and Mining, Pharmaceuticals, Retail and Telecommunications reference models (phase 39, D470, D548: capabilities, value streams, services, processes, products, business objects and a starter application landscape, from the owner's industry packs) and Meridian Assurance, the insurance worked example (D549), beside the insurance reference model to capability level 4, and the model library to share. **Industry packs** (D546): each industry's book, workbook, metamodel Excel to study, templates, PowerPoints and ArchiMate 4 views, shipped in the repository, put into Documents at start-up and downloaded from tiles on the library's Pack tab (`eax packs`)
   your own as reference models.
 
-Planned: ArchiMate exchange format in and out, and a conformance check (phases 33, 33.1); more industry models (39).
+Planned: ArchiMate exchange format in and out, and a conformance check (phases 33, 33.1); more industry models when the owner adds packs (39).
 
 ## Diagrams and visual analysis
 Built — every picture is **drawn from the repository when you open it**, so it always shows the data as it is now:
@@ -226,6 +242,15 @@ Not planned: connectors to particular products (they write the published formats
 Built ([operations.md](operations.md), [command-line-and-console.md](command-line-and-console.md)):
 - **One command**, `eax`, for Windows, Linux and macOS: start, stop, status, logs, health, backup, restore, services,
   passwords; and **`eax console`**, a menu for getting EA Explorer back up.
+- **Banner** (System admin, D558): one message under the top bar for everyone or admins only, information, notice or
+  urgent, with optional times; nothing shows unless an admin sets one.
+- **Schedules** (System admin > Command centre, `eax schedule`, D559): eax commands that run by themselves in the
+  installation's time zone, e.g. a nightly backup or a demo that resets every night; kept in persist/, so they survive
+  resets (D558), proved by `eax test --reset-survival` (D561).
+- **Command centre** (System admin, IT and Super Admins, D554): every eax command from the browser with a guided form,
+  a **Console** that takes eax commands as typed and `eax console`'s menu (never a shell), and the history of every run
+  with its output. Delete-everything commands for Super Admins only, behind the installation's name, "I understand"
+  and a backup first. The same tabs on `eax deploy`'s page.
 - **Start-up in two tiers**: people can sign in within a minute or two while the rest comes up.
 - **Health** of every part in the header and on Heartbeat; the administration console with settings applied at once.
 - **Backups**: tagged infrastructure backups (every database, files, certificate, configuration, versions), nightly
@@ -237,6 +262,10 @@ Built ([operations.md](operations.md), [command-line-and-console.md](command-lin
 - **Housekeeping** (phase 35.1): retention rules (keep, archive or delete after N days) with defaults that only archive,
   a nightly job that acts only after a confirmed dry run, and a searchable archive; old history versions removed only
   after an age a Super Admin sets, never those a tag, baseline or evidence needs.
+- **Scaling out** (phase 36.3, [phase-36.3.md](phase-36.3.md)): API servers set on the web page, fixed or by rules;
+  more hosts, a database standby, shared storage and the library on its own server, all with Docker Compose.
+- **Self-test** (phase 36.1, [testing.md](testing.md)): smoke and detailed tests (API, UI, database, security) of the
+  running installation in fixtures of its own, from the web page or `eax test`, with a report and a clean-up by hand.
 - **Deployment** (phase 36, [deployment.md](deployment.md)): `eax deploy`, a guided wizard in the console or a local
   web page, for five kinds: this laptop; a Linux server (on it, or from here over SSH, Docker installed if missing);
   AWS, Azure and DigitalOcean (the machine, a data disk, the firewall, a fixed address, off-site backup storage and DNS
@@ -245,6 +274,10 @@ Built ([operations.md](operations.md), [command-line-and-console.md](command-lin
   choose from the repository link, no copy of the repository or git needed. **Moving an installation** from one of
   its backups; **passwords kept in a key vault** too (`eax secrets`: a file, AWS Secrets Manager, Azure Key Vault);
   **Active Directory groups mapped to roles** (through Keycloak's LDAP federation or Entra ID group claims).
+- **Deploy from the application** (System admin › Deploy, Super Admins and IT Admins; D555): a running installation
+  deploys EA Explorer to another place (a server over SSH, or AWS, Azure or DigitalOcean): plan first, progress, Retry,
+  Back or Quit, the log; run by the operations helper so it survives reloads; SSH keys and cloud credentials for the
+  run only unless kept, never shown again; the history of every target. Fleets of installations: release 2.
 - **Updates** (phase 36, [phase-36-updates.md](phase-36-updates.md)): System admin › Updates and `eax update` move to a
   newer release from the public git repository (Prod, RC and Latest channels; forward only), with a pinned full backup
   of the code, databases, files and configuration first, one release at a time, built on the host; a failed step stops

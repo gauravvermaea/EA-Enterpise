@@ -65,6 +65,7 @@ def defer_commit(tx, c) -> bool:
     return True
 KINDS = {"tag.create": "Tag a model", "sheet.build": "Build sheets", "load.preview": "Preview a load", "load.add": "Add a load",
          "delivery.accept": "Accept a delivery",
+         "selftest.purge": "Purge self-test fixtures",
          "backup.infrastructure": "Infrastructure backup", "backup.application": "Application backup", "backup.model": "Back up a model",
          "backup.restore": "Restore a model backup", "backup.restore_all": "Restore every model of an application backup"}
 
@@ -232,6 +233,23 @@ def _delivery_accept(conn, t: dict, user) -> tuple[str, dict]:
     return out["message"], {"load": p["load"], **{k: v for k, v in out.items() if k != "failed"}, "failed": out["failed"][:50]}
 
 
+def _selftest_purge(conn, t: dict, user) -> tuple[str, dict]:
+    """Phase 36.1 (D529): hard-deletes the self-test fixtures chosen, run by run (only what each run recorded)."""
+    from .testing import fixtures as fx
+    p = t["params"] if isinstance(t["params"], dict) else json.loads(t["params"])
+    runs, picked = [int(r) for r in p.get("runs") or []], [int(i) for i in p.get("fixtures") or []]
+    total = {"models": 0, "projects": 0, "service_accounts": 0, "credentials": 0, "history_versions": 0, "notes": []}
+    for i, run in enumerate(runs):
+        def say(pct, note, i=i):
+            progress(int((i + pct / 100) * 100 / max(1, len(runs))), note)
+        out = fx.purge(conn, run, user.username, fixture_ids=picked or None, progress=say)
+        for k, v in out.items():
+            total[k] = total[k] + v
+    msg = (f"Purged {total['models']} model(s), {total['projects']} project(s), {total['service_accounts']} account(s) and "
+           f"{total['credentials']} credential(s) of {len(runs)} self-test run(s); {total['history_versions']} history versions removed.")
+    return msg, total
+
+
 def _params(t: dict) -> dict:
     return t["params"] if isinstance(t["params"], dict) else json.loads(t["params"] or "{}")
 
@@ -282,7 +300,7 @@ def _backup_restore(conn, t: dict, user) -> tuple[str, dict]:
 
 
 WORK = {"tag.create": _tag_create, "sheet.build": _sheet_build, "load.preview": _load_preview, "load.add": _load_add,
-        "delivery.accept": _delivery_accept,
+        "delivery.accept": _delivery_accept, "selftest.purge": _selftest_purge,
         "backup.infrastructure": _backup_infrastructure, "backup.application": _backup_application,
         "backup.model": _backup_model, "backup.restore": _backup_restore, "backup.restore_all": _backup_restore_all}
 

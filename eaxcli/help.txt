@@ -166,6 +166,36 @@ $ {eax} import
 $ {eax} import "Configuration database"
 $ {eax} import --all
 
+### schedule [list|add <name> [when] [--off] [--no-backup] [--keep N] [--banner] [--confirm <name>] -- <command>|demo-reset [--at HH:MM] --confirm <name>|on|off|remove|run <id>]
+> Scheduled eax commands: a cron in the platform, e.g. a demo that resets itself every night.
+The same schedules as System admin > Command centre > Schedules, kept in persist/schedules.json, which no reset
+deletes (D558, D559); the operations helper starts what is due, in the installation's time zone (EAX_TIMEZONE). When:
+--at HH:MM (every night, the default), --weekly <0-6> (0 Sunday) with --at, --hourly <minute>, --once
+YYYY-MM-DDTHH:MM or --cron "<minute hour day month weekday>". A command that deletes everything (clean-restart,
+clean-run, cleanup) needs --confirm with the installation's name, once; it takes a safety backup first unless
+--no-backup (the newest --keep N, default 3, kept in persist/safety-backups/). --banner tells everyone when the demo
+resets. A run missed while the machine was off runs once if found within the hour; one due while another command runs
+waits up to 30 minutes. Every run is in the Command centre's History.
+$ {eax} schedule list
+$ {eax} schedule add "Nightly backup" --at 01:30 -- backup nightly
+$ {eax} schedule add "Weekly smoke test" --weekly 1 --at 06:00 -- test --smoke
+$ {eax} schedule demo-reset --at 02:00 --confirm demo-laptop
+$ {eax} schedule off a1b2c3
+
+### packs [load [folder]|reload|status|collect [source...]]
+> The industry packs: the books, workbooks, metamodel Excel and PowerPoints on the library's Pack tab.
+The packs are kept in the repository (library/industry-packs, one folder per industry) and put into Documents at every
+start, new or changed files only (by checksum); files marked not for AI use are never loaded. load (or reload) does it
+now; load <folder> loads another folder on this computer (copied into the api container first). status shows each
+industry's pack. collect copies the industry packs from folders on this computer into library/industry-packs, ready to
+commit: the "complete set" zips opened, the same file kept once, files over 50 MB split into parts below 45 MB (no Git
+LFS). Without sources collect reads Enterprise_Architecture\Industry Specific Guidance and Sample_Repo (the metamodels
+and views) in your home folder. Needs the api container running (not collect). See docs/industry-packs.md.
+$ {eax} packs status
+$ {eax} packs reload
+$ {eax} packs collect
+$ {eax} packs load "D:\More packs"
+
 ### update [--status] [--retry] [--channel prod|rc|latest] [--to <version>] [--at <time>] [--url <link>] [--yes]
 > Moves to a newer release from the git repository: a full backup first, then one release at a time.
 Without options it is guided: it shows the installed version and the channels, lists the versions above the installed
@@ -209,20 +239,40 @@ the API (and PostgreSQL) only.
 $ {eax} debug
 $ {eax} debug api
 
-### test [api|ui|db|security|all] [--quick]
-> Runs the automated tests on a separate test database: API, browser, database and security checks.
-Builds the test runner (the first time takes a few minutes), then the operations helper runs it (phase 36.1, D367). It
-makes its own test database (eaxtest) and its own copy of the API on it, so your data is never touched. Suites:
-  api        every endpoint, with no token and as every test role: allowed and refused, never a server error.
-  ui         the main journeys in a real browser (Chromium); a screenshot and video of each one that fails.
-  db         database checks: the version, keys, sound references, the reporting login only reads.
-  security   headers and cookies, the Python dependencies, an OWASP ZAP baseline scan and Trivy image scans.
-  --quick    leave out the second tier of the sample data (faster; fewer projects to test).
-Results: System admin > Health > Tests, MCP (test_results), and work/tests/<run>. On a server, set
-EAX_TEST_USERS=on and EAX_TEST_USER_PASSWORD (a staging server) to test every role.
+### test [--smoke|--detailed] [--suite api|ui|db|security|all]... [--role R] [--area A] [--status|--last|--report|--fixtures|--clean <run|all> [--yes]] [--reset-survival --confirm <name>]
+> The self-test, at once: a smoke test or detailed tests of this installation, in fixtures of its own.
+Runs now (never scheduled), in the same runner and results store as System admin > Self-test, so a run started in
+either place shows in both (phase 36.1, D367, D529, D530). It makes its own fixtures, named self_test_<id>_1, _2, _3
+(models and a project) and svc-self-test-<id>-<role> (an account and one-day token per role), tests inside them and
+never changes anything else; its tokens are revoked when it ends. Super Admins and IT Admins.
+  --smoke        (the default) a few minutes: every role signs in, every main area answers, the key journeys once.
+  --detailed     the suites chosen (all if none): api (every endpoint, every role, allowed and refused), ui (the main
+                 journeys in a headless browser), db (read-only database checks), security (headers, cookies, the
+                 Python dependencies, an OWASP ZAP baseline scan and Trivy image scans).
+  --suite S      one suite (give it again for more); choosing a suite means --detailed.
+  --role R       one role only (super-admin, it-admin, model-creator, library-admin, model-admin, model-sub-admin,
+                 committer, architect, history-viewer, report-viewer, no-role).
+  --area A       one API area only (models, metamodel, projects, documents, reports, library, change_log,
+                 administration, mcp).
+  --status       the self-test going on: its step and counts so far.
+  --last         the last run's result and every failure (what was asked and what came back).
+  --report [run] where the run's report is (work/tests/<run folder>/report.html; --xlsx for Excel).
+  --fixtures [run]  every self-test fixture still there, by run, with its size.
+  --clean <run|all> [--yes]  purge those fixtures FOR GOOD (asks you to type DELETE); the reports stay.
+  --reset-survival --confirm <installation name>
+                 settings survive a reset (D561): writes a marker schedule and banner into persist/, runs a REAL
+                 clean-restart (it DELETES every database and the work folder), waits for EA Explorer to come back,
+                 checks the markers and every persist/ file survived, removes the markers. Never part of --smoke or
+                 --detailed. The result is kept in persist/test-results/ (the Self-test page lists it).
+The exit code is 1 when the run failed, so CI can use it. The test runner is built the first time (a few minutes).
 $ {eax} test
-$ {eax} test api db
-$ {eax} test security
+$ {eax} test --detailed
+$ {eax} test --suite api --role architect
+$ {eax} test --detailed --area models
+$ {eax} test --last
+$ {eax} test --fixtures
+$ {eax} test --clean 12
+$ {eax} test --reset-survival --confirm demo-laptop
 
 ## Backups and restores
 

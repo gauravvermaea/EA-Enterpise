@@ -820,6 +820,7 @@ from . import (  # noqa: E402,F401
     mcp_more,
     mcp_ops,
     mcp_scenarios,
+    mcp_tests,
 )
 
 

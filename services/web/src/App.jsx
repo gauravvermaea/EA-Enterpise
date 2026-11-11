@@ -31,7 +31,9 @@ import { NavStylePicker, NavWelcome } from "./PageNav";
 import QuickJump from "./QuickJump";
 import EntityMenu from "./EntityMenu";
 import { UpdateNotice } from "./Updates";
+import { AdminBanner } from "./AdminBanner";
 import HelpPanel, { HelpButton } from "./help/HelpPanel";
+import DocumentationPage from "./Documentation";
 
 function useHashRoute() {
   const [route, setRoute] = useState(window.location.hash || "#/");
@@ -115,6 +117,7 @@ export default function App() {
               </span>
               <NavStylePicker compact />
               <HelpButton />
+              <a href="#/documentation" className="docs-link" title="Documentation: every document of this version of EA Explorer">📖 Documentation</a>
               <button className="linkish qj-open" title="Quick jump: go to a tab, action, model or project (Ctrl+K)" onClick={() => window.dispatchEvent(new Event("eax-quick-jump"))}>⌘K</button>
               <button onClick={signOut}>Sign out</button>
             </>
@@ -154,6 +157,7 @@ export default function App() {
       {maintenance && <div className="break-glass-banner">EA Explorer is read only: {maintenance.what || "a restore is running"} (started by {maintenance.by}).
         Nothing can be changed until it is done; you will be asked to sign in again.</div>}
       {signedIn && !isBreakGlass() && <UpdateNotice />}
+      {signedIn && <AdminBanner />}
       {signedIn && <TaskDrawer />}
       <main>
         {partOff(route) ? <PartOff part={partOff(route)} />
@@ -163,6 +167,7 @@ export default function App() {
           : route.startsWith("#/reference-library") ? <ReferenceLibraryPage route={route} />
           : route.startsWith("#/enterprise-library") ? <EnterpriseLibraryPage route={route} />
           : route.startsWith("#/my-profile") ? <MyProfile />
+          : route.startsWith("#/documentation") ? <DocumentationPage route={route} />
           : route.startsWith("#/more") ? <EverythingElse />
           : route.startsWith("#/model-admin") ? <ModelAdmin route={route} />
           : route.startsWith("#/merge-requests") ? <MergeRequestsPage route={route} />

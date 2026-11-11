@@ -38,6 +38,14 @@ Decisions D500 to D506, building on D372, D416, D457 and D498. The updates part 
 - **Safe running** (D506): masked logs, Retry/Back/Quit, credentials kept only on request, and an existing server
   config never replaced.
 
+## Deploy from the application (D555 to D557)
+- **System admin › Deploy:** `services/web/src/Deploy.jsx`, the API `/api/v1/deploys` (system.operate), and the
+  history in core.deployments (migration 0043).
+- **The operations helper:** `services/ops/deploys.py` and `eaxcli/deploy_runner.py`.
+- **The deployer image:** `deploy/deployer/Dockerfile`.
+- **Not offered there:** the laptop, and "this machine is the server". Fleets are R2.
+- **Tests:** `test_deploy_page.py`. The self-test's smoke run checks the Deploy questions and refuses others.
+
 ## Tests
 - `services/api/tests/test_deploy.py`:
   - the questions and the server config;

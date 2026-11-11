@@ -137,8 +137,11 @@ def test_industry_reference_models_are_consistent():
 
     from eax.seed import industries as IND
     allowed = {(s, r, t) for s, r, t, _ in build.expand_allowed()}
-    assert [c for c, *_ in IND.MODELS] == ["healthcare", "manufacturing", "pharmaceuticals", "retail"]
-    for code, name, _version, desc, mod in IND.MODELS:
+    assert [c for c, *_ in IND.MODELS] == ["healthcare", "manufacturing", "pharmaceuticals", "retail", "banking", "government",
+                                           "logistics", "minerals_mining", "telecommunications", "meridian"]
+    for code, name, _version, desc, mod, *_named in IND.MODELS:
+        # the insurance worked example is Meridian Assurance Group (the owner's invented insurer, D549): Meridian may stay
+        banned = r"objective" if code == "meridian" else r"meridian|objective"
         types = {key: type_code for key, type_code, *_ in mod.ENTITIES}
         assert len(types) == len(mod.ENTITIES), (code, "keys are unique")
         assert sum(1 for t in types.values() if t == "Capability") >= 50, code
@@ -147,12 +150,12 @@ def test_industry_reference_models_are_consistent():
             assert ename and (parent is None or parent in types), (code, key)
             mapped = {a for a, *_ in A.MAP[t]}
             assert set(attrs) <= mapped, (code, key, set(attrs) - mapped)
-            assert not re.search(r"meridian|objective", f"{ename} {edesc}", re.I), (code, key)
+            assert not re.search(banned, f"{ename} {edesc}", re.I), (code, key)
         triples = [(s, r, t) for s, r, t, _n in mod.RELATIONSHIPS]
         assert len(triples) == len(set(triples)), (code, "one relationship per source, type and target")
         for src, rel, tgt, _n in mod.RELATIONSHIPS:
             assert (types[src], rel, types[tgt]) in allowed, (code, src, rel, tgt)
-        assert not re.search(r"meridian|objective", f"{name} {desc}", re.I)
+        assert not re.search(banned, f"{name} {desc}", re.I)
 
 
 def test_industry_reference_models_load():
@@ -167,4 +170,5 @@ def test_industry_reference_models_load():
                          with_togaf10=False, with_industries=True)
     assert sql.count("INSERT INTO core.models") == len(IND.MODELS)
     guids = {build.gid("model", IND.key(c)) for c, *_ in IND.MODELS}
-    assert len(guids) == 4 and build.INSURANCE_ID not in guids
+    assert len(guids) == len(IND.MODELS) == 10 and build.INSURANCE_ID not in guids
+    assert "'Meridian Assurance (insurance worked example)'" in sql and "'Banking reference model'" in sql

@@ -204,12 +204,130 @@ The same on System admin › Updates (IT Admins and Super Admins).
 
 ## Starting again
 
+These commands can also be run from System admin › Command centre (Super Admins, behind a strong confirm and a
+backup first; see [Command centre](#command-centre-eax-commands-from-a-web-page-d554)).
+
 | Command | What it does |
 |---|---|
 | `eax cleanup [--all] [--yes] [--certificate]` | Stops the containers and empties the work folder: the config file, the logs and the data folders, backups included. `--all` also deletes the Docker volumes, so the databases and documents start empty. The local certificate is kept unless `--certificate` is given. It asks you to type yes unless `--yes` is given. |
 | `eax clean-run [laptop\|server]` | From scratch in one step: `cleanup --all --yes`, `init`, `up`. It does not ask. |
 | `eax clean-debug [laptop\|server]` | The same, ending with `debug`. |
 | `eax clean-restart [laptop\|server]` | For testing a new version: `down`, then `clean-run`. Rebuilds the images and starts with empty databases. |
+
+## Command centre: eax commands from a web page (D554)
+
+**System admin › Command centre**, for **IT Admins and Super Admins**, runs the eax commands from the browser. It has
+three tabs:
+
+- **Commands**: every command, grouped as in `eax help` (it is read from `eaxcli/help.txt`, so it never drifts). Choose
+  one: a short form explains what it does and what it keeps or deletes, asks for each option, shows the exact command
+  line (for example `eax restore latest --what db`) and runs it after you confirm. The output streams live; `logs`,
+  `debug`, `status`, `test` and other read-only commands can be stopped halfway.
+  - **Stops or restarts EA Explorer** (amber: `stop`, `restart`, `up`, `update`, `rollback`, `restore`, `restore-app`,
+    `maintenance`, `standby`): the page says so; it keeps asking every few seconds and carries on when EA Explorer is
+    back. After `stop`, start it again on the machine with `eax up`.
+  - **Deletes everything** (red: `cleanup`, `clean-run`, `clean-restart`, `clean-debug`): **Super Admins only**. A red
+    warning lists what goes (every database, the document files, the config file, the logs and every backup in
+    work/backups); you type the installation's name (`EAX_INSTALLATION_NAME`, else `EAX_HOSTNAME`, else the folder's
+    name) and tick "I understand". A fresh infrastructure backup is taken first and copied to `persist/safety-backups/` beside
+    the work folder, which no cleanup deletes.
+  - **Runs on the machine itself** (grey: `init`, `check`, `trust`, `deploy`, `secrets`, `document`): shown with why and
+    the exact command to type there, with a Copy button.
+- **Console**: a terminal in the browser. Type eax commands as on the machine (`eax status`, `backup nightly`,
+  `help restore`; the `eax` is optional) with their real output and questions; `console` opens `eax console`'s
+  numbered menu. **Only eax commands run, never a shell**: anything else, or a line with `; | & $ \` < >`, is refused
+  with a short message. The delete-everything commands ask for the installation's name and "I understand" here too.
+- **History**: every run and console session (who, when, the command, the exit code), with its output or the session's
+  transcript and every line typed (refused ones too).
+
+How it runs: the operations helper starts a short-lived container of its own image for each command (the installation
+folder and the Docker socket mounted, like the updater), outside Compose, so a command that stops or empties the stack
+still finishes. In it, `eaxcli/cmdrun.py` checks the command again and runs it through `eaxpy` (the same code as typing
+it); its record is in `work/commands/<run>/` (status.json, output.log). The Console runs `eaxcli/webconsole.py` the same
+way, in the terminal of the container terminals (D214). Every run and session is in the audit trail (`command.run`,
+`command.console.open`, `command.end` with the exit code).
+
+The same Commands, Console and History tabs are on **`eax deploy`'s web page** (see [deployment.md](deployment.md)): there
+EA Explorer may not be up, so the commands run straight on the machine through eaxcli, or on the server the wizard set
+up over its SSH connection. Both use one module, `eaxcli/commands.py`: the catalogue, the checks and the strong confirm.
+
+## Schedules: a cron in the platform (D559)
+
+System admin > Command centre > **Schedules** and `eax schedule` run eax commands by themselves, in the installation's
+time zone (`EAX_TIMEZONE`): every night at a time, every week on a day, every hour, once, or a cron expression
+(`minute hour day month weekday`). The operations helper looks every 30 seconds and starts what is due in the Command
+centre's runner container, so a schedule that runs `clean-restart` still finishes while the stack goes down and comes
+back. A run missed while the machine was off runs once if found within the hour (later: skipped and recorded); a run
+due while another command runs waits up to 30 minutes, then is skipped with a note. Every run is in the History.
+
+A command that deletes everything (`clean-restart`, `clean-run`, `cleanup`) can be scheduled by Super Admins only, with
+the strong confirm given once, when the schedule is made. By default it takes a safety backup first into
+`persist/safety-backups/`, keeping that schedule's newest 3. **Demo reset every night** (a button, or
+`eax schedule demo-reset --confirm <installation name>`) schedules `eax clean-restart laptop` at 02:00 with no backup
+first and a banner telling everyone. The schedules are kept in `persist/schedules.json` (see "Settings that survive
+resets").
+
+```
+eax schedule list
+eax schedule add "Nightly backup" --at 01:30 -- backup nightly
+eax schedule add "Weekly smoke test" --weekly 1 --at 06:00 -- test --smoke
+eax schedule demo-reset --at 02:00 --confirm demo-laptop
+eax schedule off a1b2c3
+eax schedule run a1b2c3
+```
+
+`eax schedule` is not offered on the Commands tab or in the Console (it runs on the machine): use the Schedules tab.
+
+## Settings that survive resets (D558)
+
+`cleanup`, `clean-run` and `clean-restart` delete the work folder and every database. A few settings must outlive
+that, for example a demo that resets itself every night and must keep its schedule. They live in **`persist/`**, a
+folder beside `work/` (set `EAX_PERSIST_DIR` in the config file for another folder) that no command ever deletes:
+
+| File or folder | What it holds |
+|---|---|
+| `persist/schedules.json` | Scheduled eax commands (System admin > Command centre > Schedules, `eax schedule`) |
+| `persist/banner.json` | The banner under the top bar (System admin > Banner) |
+| `persist/safety-backups/` | The backup taken before a command that deletes everything (scheduled ones keep their newest N) |
+| `persist/test-results/` | The reset-survival test's results (`eax test --reset-survival`) |
+
+The JSON files are the source of truth: the operations helper reads them whenever it needs them and writes them
+atomically (a temporary file, then a rename) when an admin changes something on the web or with `eax schedule`. You can
+read and edit them by hand. If a file does not parse, its last good copy (`<name>.bak`) is used and the System admin
+pages show a warning; save the settings again or fix the file. `persist/` is in every infrastructure backup (its
+`safety-backups/` left out), never in git (`.gitignore`).
+
+`persist/schedules.json`:
+
+```json
+{
+  "version": 1,
+  "_comment": "Scheduled eax commands (D559). Survives resets. ...",
+  "schedules": [
+    {"id": "0d3m01", "name": "Demo reset every night", "argv": ["clean-restart", "laptop"], "cron": "0 2 * * *",
+     "enabled": true, "created_by": "user_super_admin", "created_at": "2026-11-10T22:55:00+02:00",
+     "wipe": true, "backup_first": false, "keep": 3, "banner": true,
+     "confirmed": {"by": "user_super_admin", "at": "2026-11-10T22:55:00+02:00", "installation": "demo-laptop"},
+     "last": {"run": "20261111T000000Z-sched0d3m01-1a2b", "at": "2026-11-11T02:00:10+02:00", "state": "started"}}
+  ]
+}
+```
+
+`persist/banner.json`:
+
+```json
+{
+  "version": 1,
+  "_comment": "The banner under EA Explorer's top bar (D558). Survives resets. ...",
+  "banner": {"text": "This demo resets every day at 02:00: everything entered is deleted then.", "link": "",
+             "link_text": "", "level": "info", "audience": "everyone", "dismissible": true,
+             "starts": null, "ends": null, "by": "user_super_admin", "at": "2026-11-10T22:55:00+02:00",
+             "source": "schedule:0d3m01"},
+  "history": []
+}
+```
+
+Remove `"banner"` (or set it to `null`) and nothing is shown.
 
 ## The console
 

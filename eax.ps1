@@ -832,7 +832,7 @@ if ($Command -eq "console") {
     try { Invoke-Console $RestArgs; exit 0 }
     catch { Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red; exit 1 }
 }
-if ($Command -in @("deploy", "secrets")) {
+if (($Command -in @("deploy", "secrets", "packs", "schedule")) -or ($Command -eq "test" -and $RestArgs -contains "--reset-survival")) {   # packs (D546); schedule (D559); test --reset-survival (D561)
     # phase 36 (D498, D504): one Python program for every form (D500); eaxpy.ps1 fetches uv and Python into work\tools
     & (Join-Path $PSScriptRoot "eaxpy.ps1") $Command @RestArgs
     exit $LASTEXITCODE
@@ -924,10 +924,18 @@ try {
         "update" { Start-BackupHelpers; Invoke-Interactive @("ops", "python3", "/app/ops.py", "update") $RestArgs }      # phase 36, D417
         "rollback" { Start-BackupHelpers; Invoke-Interactive @("ops", "python3", "/app/ops.py", "rollback") $RestArgs }
         "restore-model" { Invoke-Interactive @("api", "python", "-m", "eax.backups_cli", "restore") $RestArgs }
-        "test" {     # test automation (phase 36.1, D367): builds the test runner, then the operations helper runs it
-            Invoke-Compose @("--profile", "test", "build", "testrunner") | Out-Null
-            Start-BackupHelpers
-            Invoke-Interactive @("ops", "python3", "/app/ops.py", "test") ($RestArgs + @("--version", (Get-Version)))
+        "test" {     # the self-test (phase 36.1, D367, D529, D530): reading results in the api container; a run, at once,
+                     # through the operations helper (it builds the test runner first)
+            $read = @{ "--status" = "status"; "--last" = "last"; "--report" = "report"; "--fixtures" = "fixtures"; "--clean" = "clean" }
+            $which = @($RestArgs | Where-Object { $read.ContainsKey($_) })
+            if ($which.Count -gt 0) {
+                $rest = @($RestArgs | Where-Object { $_ -ne $which[0] })
+                Invoke-Interactive @("api", "python", "-m", "eax.testing.cli", $read[$which[0]]) $rest
+            } else {
+                Invoke-Compose @("--profile", "test", "build", "testrunner") | Out-Null
+                Start-BackupHelpers
+                Invoke-Interactive @("ops", "python3", "/app/ops.py", "test") ($RestArgs + @("--version", (Get-Version)))
+            }
         }
         "standby" {  # the database standby (phase 36.3, D527; EAX_COMPOSE_EXTRA=standby)
             $what = if ($RestArgs.Count -gt 0) { $RestArgs[0] } else { "status" }

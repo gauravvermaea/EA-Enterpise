@@ -1,0 +1,18 @@
+# Scale-out (phase 36.3, D521): the library on a server of its own (D346), with its own PostgreSQL. On that host:
+#   EAX_COMPOSE_EXTRA=library-host   EAX_PRIVATE_BIND=<this host's private address>
+#   EAX_API_INTERNAL_URL=http://<the main host's private address>:8000   (who someone is: asked of the main API)
+#   ./eax.sh up db library
+# On the main host: EAX_COMPOSE_EXTRA=library-elsewhere, EAX_LIBRARY_URL=http://<library host>:8100 and
+# EAX_LIBRARY_UPSTREAM=<library host>:8100; its backups: EAX_LIBRARY_DB_HOST=<library host> (the backup container
+# reaches it, D410). The views service moves the same way (EAX_VIEWS_*).
+services:
+  library:
+    environment:
+      EAX_API_INTERNAL_URL: ${EAX_API_INTERNAL_URL:?set EAX_API_INTERNAL_URL to the main API}
+      EAX_LIBRARY_DB_HOST: db
+    ports:
+      - "${EAX_PRIVATE_BIND:?set EAX_PRIVATE_BIND to this host's private address}:8100:8100"
+  db:
+    ports:
+      - "${EAX_PRIVATE_BIND:?set EAX_PRIVATE_BIND to this host's private address}:5432:5432"
+    networks: [backend, frontend]

@@ -143,6 +143,8 @@ def plan(settings, with_sample: bool) -> list[tuple[str, object]]:
         steps.append(("Sample update history: succeeded, rolled back, not started, scheduled", sample_updates))
     if laptop:
         steps.append(("Sample test runs: passed, failed with a screenshot, could not start", sample_tests))
+    # every deployment (owner, 10 Nov 2026, D546): the industry packs shipped in library/industry-packs, into Documents
+    steps.append(("Industry packs into Documents (the library's Pack tab)", industry_packs))
     steps.append(("First data quality measurement", first_measurements))
     return steps
 
@@ -296,6 +298,29 @@ def sample_updates() -> None:
     from . import sample_updates as su
     for line in su.run():
         _say(line)
+
+
+def industry_packs() -> None:
+    """D546: the packs shipped in the repository (library/industry-packs, mounted at /data/industry-packs) are uploaded
+    into Documents when missing or changed (by checksum); unchanged files are skipped, so every start is quick after the
+    first. When Documents is off or not up yet, nothing is lost: the next start (or `eax packs load`) loads them."""
+    from .. import industry_packs as ip
+    from .. import mayan
+    from ..db import get_engine
+    if not ip.PACKS_DIR.is_dir():
+        _say(f"industry packs: no folder {ip.PACKS_DIR}; nothing to load")
+        return
+    try:
+        if not mayan.enabled() or not mayan.ping():
+            _say("industry packs: Documents is not up; they load at the next start or with `eax packs load`")
+            return
+        with get_engine().begin() as conn:
+            out = ip.load_shipped(conn)
+        _say(f"industry packs: {out['message']}")
+        for name in out["refused"]:
+            _say(f"industry packs: not loaded (marked not for AI use): {name}")
+    except mayan.MayanError as exc:
+        _say(f"industry packs: Documents refused ({exc}); they load at the next start or with `eax packs load`")
 
 
 def first_measurements() -> None:

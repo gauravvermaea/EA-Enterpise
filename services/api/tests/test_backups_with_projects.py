@@ -95,5 +95,5 @@ def test_command_line_and_screens():
     api = (ROOT / "eax" / "api" / "backups.py").read_text()
     assert '"/admin/backups/projects"' in api and "pb.list_all(pc)" in api
     ops = OPS.read_text()
-    assert '"full": {"config": True, "dbs": None, "files": ["documents", "tls", "reports", "imports", "exports"]' in ops
+    assert '"full": {"config": True, "dbs": None, "files": ["documents", "tls", "reports", "imports", "exports", "persist"]' in ops
     assert '"app+data": {"config": True, "dbs": ["mayan"], "files": ["documents", "imports", "exports"]' in ops

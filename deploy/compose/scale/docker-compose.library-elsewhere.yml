@@ -1,0 +1,6 @@
+# Scale-out (phase 36.3, D521): on the main host when the library runs on a server of its own (library-host): the
+# library container is not started here (the library stays switched on: EAX_SERVICE_LIBRARY). Set EAX_LIBRARY_URL and
+# EAX_LIBRARY_UPSTREAM to the library host.
+services:
+  library:
+    profiles: ["elsewhere"]

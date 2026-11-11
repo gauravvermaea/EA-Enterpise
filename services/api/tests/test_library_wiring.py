@@ -58,7 +58,8 @@ def test_start_up_files_know_the_library():
     lib = compose["services"]["library"]
     assert lib["build"]["context"] == "./services/library" and "healthcheck" in lib
     proxy = (REPO / "deploy/proxy/templates/default.conf.template").read_text()
-    assert proxy.count("location /api/library/") == 2 and "http://library:8100" in proxy
+    assert proxy.count("location /api/library/") == 2 and "http://${EAX_LIBRARY_UPSTREAM}" in proxy \
+        and "EAX_LIBRARY_UPSTREAM: ${EAX_LIBRARY_UPSTREAM:-library:8100}" in (REPO / "docker-compose.yml").read_text()   # D521
     for f in ("eax.ps1", "eax.sh", "eaxcli/stack.py", "services/ops/ops.py", "services/api/eax/services.py"):
         assert "EAX_SERVICE_LIBRARY" in (REPO / f).read_text(), f
     for kind in ("laptop", "server"):

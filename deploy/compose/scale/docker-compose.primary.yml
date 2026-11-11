@@ -1,0 +1,9 @@
+# Scale-out (phase 36.3, D521): on the main host, when API servers, a standby or the library run on other hosts:
+# the database answers on this host's private address (never a public one). EAX_COMPOSE_EXTRA=primary and
+#   EAX_PRIVATE_BIND=10.0.0.10     (this host's private address)
+# The other hosts reach it with EAX_DB_HOST (API hosts) or EAX_STANDBY_PRIMARY_HOST (a standby host).
+services:
+  db:
+    ports:
+      - "${EAX_PRIVATE_BIND:?set EAX_PRIVATE_BIND to this host's private address}:5432:5432"
+    networks: [backend, frontend]

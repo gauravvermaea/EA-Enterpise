@@ -1,0 +1,41 @@
+# Scale-out (phase 36.3, D521, D527): a replicated database with a standby. Switched on with
+#   EAX_COMPOSE_EXTRA=standby            (several: EAX_COMPOSE_EXTRA=standby,shared-storage)
+# and EAX_REPLICATION_PASSWORD set in the config file. The primary (db) writes what the standby needs (streaming
+# replication); db-standby copies the primary once (pg_basebackup) and then follows it continuously, read only.
+# Every database on the server is mirrored: the repository, projects, change log, library, views, Keycloak, Superset
+# and Documents. Mirrors are not backups: the nightly backups stay.
+# The standby may run on another host: start it there with this file and EAX_STANDBY_PRIMARY_HOST set to the primary's
+# private address (the primary then publishes its port with the "primary" extra file).
+# If the primary is lost:  eax standby promote   (the standby becomes the primary; then point EAX_DB_HOST at it).
+services:
+  db:
+    command: ["postgres", "-c", "wal_level=replica", "-c", "max_wal_senders=10", "-c", "max_replication_slots=10",
+              "-c", "wal_keep_size=1GB", "-c", "hot_standby=on", "-c", "hba_file=/eax-pg/pg_hba.conf"]
+    volumes:
+      - ./deploy/postgres/standby:/eax-pg:ro
+
+  db-standby:
+    image: ${EAX_IMAGE_POSTGRES:-postgres:17-alpine}
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+    entrypoint: ["/bin/sh", "/eax-pg/standby-entrypoint.sh"]
+    environment:
+      PRIMARY_HOST: ${EAX_STANDBY_PRIMARY_HOST:-db}
+      PRIMARY_PORT: ${EAX_STANDBY_PRIMARY_PORT:-5432}
+      POSTGRES_PASSWORD: ${EAX_DB_SUPERUSER_PASSWORD:?set EAX_DB_SUPERUSER_PASSWORD}
+      EAX_REPLICATION_PASSWORD: ${EAX_REPLICATION_PASSWORD:?set EAX_REPLICATION_PASSWORD for the standby}
+      PGDATA: /var/lib/postgresql/data
+    volumes:
+      - ${EAX_STANDBY_DATA_DIR:-eax-pgdata-standby}:/var/lib/postgresql/data
+      - ./deploy/postgres/standby:/eax-pg:ro
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  eax-pgdata-standby:

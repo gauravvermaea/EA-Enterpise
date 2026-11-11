@@ -11,17 +11,23 @@ A free, open-source enterprise architecture platform you run yourself:
   Model Canvases, the Architecture Repository, documents (Mayan EDMS) and libraries;
 - **governance**: private changes until committed, child models merged back, reviews, approvals and sign-off, a full
   change log;
-- **bring your own AI**: an MCP server with 82 tools that reads, analyses and builds as the signed-in person;
+- **bring your own AI**: an MCP server with about 120 tools and 11 guided prompts that reads, analyses and builds as the
+  signed-in person, previewing every change first;
 - **integration and operations**: a REST API, signed webhooks, Excel and CSV loads, one `eax` command, health,
   tagged backups and restores; single sign-on through Keycloak.
 
 Everything runs in Docker containers from one config file. **What it does today, area by area, and what is still
 planned: [docs/capabilities.md](docs/capabilities.md).**
 
+**Documentation inside EA Explorer:** everyone signed in opens **Documentation** beside their name: every document of
+the version they run (this README, everything in `docs/`, the command line's help and the release notes), grouped,
+searchable, downloadable and printable. The same documents are in the **Enterprise library**, folder **EA Explorer
+documentation**, refreshed at every start (D550 to D552). On the command line, `eax document` shows every command.
+
 **All the documentation, listed with what each covers: [docs/index.md](docs/index.md).** Backup and restore
 commands: [below](#backup-and-restore-from-the-command-line) and in [docs/operations.md](docs/operations.md#backup-and-restore-from-the-command-line-d227).
 
-**Status: version 0.16.0 (the back end of drawn views, phases 28 and 29, being built). Phases 0 to 13, 15.2, 15.3 (part) and 16.3 are accepted and closed** (9 Nov 2026, D356). The short list is
+**Status: version 0.19.0 (deployment, updates, scaling, the self-test, on-screen help and documentation being built). Everything up to 0.18.0 is accepted and closed** (10 Nov 2026). The short list is
 below; every phase in detail: [docs/build-phases.md](docs/build-phases.md). Database design:
 [docs/database.md](docs/database.md). How it is built (for developers and AI agents):
 [docs/architecture.md](docs/architecture.md), [AGENTS.md](AGENTS.md); the high-level technical architecture (under 10 pages):

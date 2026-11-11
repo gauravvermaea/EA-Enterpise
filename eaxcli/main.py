@@ -360,10 +360,15 @@ def dispatch(command: str, rest: list[str], wait_all: bool) -> None:
         stack.interactive([*ops, command], rest)
     elif command == "restore-model":
         stack.interactive([*api, "restore"], rest)
-    elif command == "test":             # test automation (phase 36.1, D367): build the runner, the ops helper runs it
-        compose(["--profile", "test", "build", "testrunner"])
-        stack.backup_helpers()
-        stack.interactive([*ops, "test"], [*rest, "--version", version()])
+    elif command == "test":             # the self-test (phase 36.1, D367, D530): results read in the api container, a
+        read = [a for a in rest if a in ("--status", "--last", "--report", "--fixtures", "--clean")]   # run through ops
+        if read:
+            stack.interactive(["api", "python", "-m", "eax.testing.cli", read[0].removeprefix("--")],
+                              [a for a in rest if a != read[0]])
+        else:
+            compose(["--profile", "test", "build", "testrunner"])
+            stack.backup_helpers()
+            stack.interactive([*ops, "test"], [*rest, "--version", version()])
     elif command == "standby":          # the database standby (phase 36.3, D527; EAX_COMPOSE_EXTRA=standby)
         what = rest[0] if rest else "status"
         if what == "status":
@@ -430,6 +435,15 @@ def main(argv: list[str]) -> int:
         if command == "document":
             document(rest)
             return 0
+        if command == "schedule":               # scheduled eax commands (D559): persist/schedules.json, every form
+            from . import schedule_cli
+            return schedule_cli.main(rest)
+        if command == "test" and "--reset-survival" in rest:   # settings outlive a real reset (D561): runs here
+            from . import reset_survival
+            return reset_survival.main(ROOT, rest)
+        if command == "packs":                  # the industry packs (phase 39, D546): one Python program for every form
+            from . import packs
+            return packs.main(rest)
         if command in ("deploy", "secrets"):    # phase 36 (D498, D504): one Python program for every form (D500)
             if command == "deploy":
                 from . import deploy

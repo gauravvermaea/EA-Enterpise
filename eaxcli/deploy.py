@@ -44,7 +44,7 @@ KINDS = {
 CLOUDS = ("aws", "azure", "digitalocean")
 INSTALL_FILE = WORK / "install.json"            # written by the installer: where this copy came from (D502)
 CREDENTIALS_FILE = WORK / "deploy-credentials.env"
-SECRET_KEYS = ("aws_secret_access_key", "do_token", "spaces_secret", "first_admin_password")
+SECRET_KEYS = ("aws_secret_access_key", "do_token", "spaces_secret", "az_client_secret", "first_admin_password")
 
 
 # ---------------------------------------------------------------- the questions
@@ -125,6 +125,12 @@ QUESTIONS: list[Question] = [
     # --- Azure
     Question("az_subscription", "Azure subscription (name or ID; empty: the current one of az account show)", "",
              when=lambda a: _create(a) and a["kind"] == "azure", required=False),
+    Question("az_client_id", "Service principal's application (client) ID (empty: the az login already on this computer)", "",
+             when=lambda a: _create(a) and a["kind"] == "azure", required=False,
+             help="Needed when deploying from the System admin > Deploy page (no az login there)."),
+    Question("az_client_secret", "Service principal's secret", "", secret=True,
+             when=lambda a: _create(a) and a["kind"] == "azure" and a.get("az_client_id")),
+    Question("az_tenant", "Tenant ID", "", when=lambda a: _create(a) and a["kind"] == "azure" and a.get("az_client_id")),
     Question("az_location", "Azure region", "southafricanorth", when=lambda a: _create(a) and a["kind"] == "azure"),
     Question("az_group", "Resource group (created if missing)", lambda a: f"{_suffix(a)}-rg",
              when=lambda a: _create(a) and a["kind"] == "azure"),
@@ -189,7 +195,8 @@ QUESTIONS: list[Question] = [
              when=lambda a: _server_like(a) and a.get("vault", "none") != "none"),
     Question("keep_credentials", "Keep the cloud credentials for next time (in work/deploy-credentials.env)?", "no",
              {"no": "No: used for this run only", "yes": "Yes: kept on this computer, readable by me only"},
-             when=lambda a: _create(a) and bool(a.get("aws_access_key_id") or a.get("do_token") or a.get("spaces_key"))),
+             when=lambda a: _create(a) and bool(a.get("aws_access_key_id") or a.get("do_token") or a.get("spaces_key")
+                                                 or a.get("az_client_id"))),
 ]
 BY_KEY = {q.key: q for q in QUESTIONS}
 
@@ -324,6 +331,7 @@ class Ctx:
     mask: set = field(default_factory=set)               # values never written to the log
     env: dict = field(default_factory=dict)              # extra environment for the cloud CLIs (credentials)
     out: Callable[[str], None] = print
+    reveal: bool = True                                  # the first password shown once on screen (never from the page)
 
     def hide(self, text: str) -> str:
         for m in sorted(self.mask, key=len, reverse=True):
@@ -654,7 +662,7 @@ def server_steps(a: dict) -> list[Step]:
             ctx.note(f"    The server's public address is {ip}: the three DNS names must point at it.")
         ctx.note(f"    First sign-in: eaadmin, with the password in {folder}/work/eaexplorer.env (EAX_FIRST_ADMIN_PASSWORD); "
                  "Keycloak asks for a new one at the first sign-in.")
-        if pw and not ctx.plan:
+        if pw and not ctx.plan and ctx.reveal:
             ctx.out(f"    (this time only, on screen and not in the log: the first password is {pw})")
 
     steps.append(Step("Reach the server", reach))
@@ -796,6 +804,11 @@ def azure_steps(a: dict) -> list[Step]:
 
     def creds(ctx: Ctx):
         _need_cli(ctx, "az", "Install the Azure CLI (https://aka.ms/azure-cli), run az login, and run this again.")
+        if ctx.answers.get("az_client_id"):
+            ctx.mask.add(ctx.answers.get("az_client_secret", ""))
+            ctx.run(["az", "login", "--service-principal", "--username", ctx.answers["az_client_id"],
+                     "--password", ctx.answers.get("az_client_secret", ""), "--tenant", ctx.answers.get("az_tenant", ""),
+                     "--output", "none"], "sign in as the service principal")
         az(ctx, ["account", "show"], "signed in (az login first if this fails)")
 
     def machine(ctx: Ctx):
@@ -939,11 +952,18 @@ def all_steps(a: dict) -> list[Step]:
 
 
 # ---------------------------------------------------------------- running a whole deployment
+RESULT_KEYS = ("public_ip", "ssh_target", "instance", "droplet", "folder")
+
+
 def run(answers: dict, plan: bool, on_fail: Callable[[Step, str], str], out: Callable[[str], None] = print,
-        progress: Callable[[int, int, str, str], None] | None = None) -> str:
-    """Every step in order. on_fail(step, why) answers retry, back or quit. Returns done, back or quit."""
+        progress: Callable[[int, int, str, str], None] | None = None, result: dict | None = None,
+        reveal: bool = True) -> str:
+    """Every step in order. on_fail(step, why) answers retry, back or quit. Returns done, back or quit.
+    result (when given) gets what the steps found out that may be shown (an address, a machine's ID), never secrets."""
     a = complete(answers)
-    ctx = Ctx(a, plan=plan, out=out)
+    ctx = Ctx(a, plan=plan, out=out, reveal=reveal)
+    if result is not None:
+        result["_ctx"] = ctx
     ctx.mask.update(str(a.get(k, "")) for k in SECRET_KEYS)
     steps = all_steps(a)
     out(f"{'The plan' if plan else 'Deploying'}: {KINDS[a['kind']]} ({len(steps)} steps)")
@@ -969,7 +989,10 @@ def run(answers: dict, plan: bool, on_fail: Callable[[Step, str], str], out: Cal
         if progress:
             progress(i, len(steps), step.title, "done")
         i += 1
-    if a.get("keep_credentials") == "yes" and not plan:
+    if result is not None:
+        result.pop("_ctx", None)
+        result.update({k: v for k, v in ctx.values.items() if k in RESULT_KEYS and v})
+    if a.get("keep_credentials") == "yes" and not plan and reveal:
         keep_credentials(a)
     out("")
     out("The plan above runs nothing; without --plan it is carried out." if plan else "Done.")
@@ -978,7 +1001,8 @@ def run(answers: dict, plan: bool, on_fail: Callable[[Step, str], str], out: Cal
 
 def keep_credentials(a: dict) -> None:
     """Only when asked (D506): the cloud credentials, for the next run, readable by this user only."""
-    keys = ("aws_access_key_id", "aws_secret_access_key", "do_token", "spaces_key", "spaces_secret")
+    keys = ("aws_access_key_id", "aws_secret_access_key", "do_token", "spaces_key", "spaces_secret", "az_client_id",
+            "az_client_secret", "az_tenant")
     CREDENTIALS_FILE.parent.mkdir(parents=True, exist_ok=True)
     CREDENTIALS_FILE.write_text("".join(f"{k}={a[k]}\n" for k in keys if a.get(k)), encoding="utf-8", newline="\n")
     _owner_only(CREDENTIALS_FILE)

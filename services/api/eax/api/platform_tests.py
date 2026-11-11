@@ -1,0 +1,311 @@
+"""The self-test (phase 36.1, D367, D522 to D529) and the scaling rules (phase 36.3, D526): System admin > Self-test and
+System admin > Scaling. Super Admins and IT Admins (system.operate) only; nobody else sees self-test results.
+
+  GET  /api/v1/admin/tests                              runs (newest first), the runner, the choices and how long each takes
+  POST /api/v1/admin/tests                              {level, suites, role, area, watch}: start a run now
+  GET  /api/v1/admin/tests/<run>                        a run, its results (?outcome=, ?suite=), files and fixtures; while it
+                                                        waits for a watching browser also its ticket and journeys
+  POST /api/v1/admin/tests/<run>/stop                   stop it
+  POST /api/v1/admin/tests/<run>/browser                {results: [...], done}: journeys watched in this browser
+  GET  /api/v1/admin/tests/<run>/report?format=html|xlsx  its report
+  GET  /api/v1/admin/tests/<run>/screenshot/<id>        a failed journey's screenshot (PNG)
+  GET  /api/v1/admin/tests/<run>/files/<path>           a file of the run (run.log, a video, zap.json, trivy-*.json)
+  GET  /api/v1/admin/tests/fixtures                     every self-test fixture of every run (?run=)
+  POST /api/v1/admin/tests/fixtures/purge               {runs: [ids] | "all", fixtures: [ids], confirm: "DELETE"}: purge
+  GET  /api/v1/admin/scaling   PUT /api/v1/admin/scaling   the scaling rules;  GET /api/v1/admin/scaling/load (ops only)"""
+
+from __future__ import annotations
+
+import base64
+import binascii
+import io
+import json
+import os
+from pathlib import Path
+
+from flask import Response, g, request, send_file
+from flask.views import MethodView
+from flask_smorest import Blueprint, abort
+from sqlalchemy import text
+
+from .. import audit
+from ..auth import require_auth
+from ..db import get_engine
+from ..testing import report, store
+from .admin import _ops, _ops_raw
+from .models import Free, FreeIn
+
+blp = Blueprint("platform_tests", __name__, url_prefix="/api/v1/admin",
+                description="The self-test (phase 36.1) and the scaling rules (phase 36.3)")
+SECURITY = [{"bearerAuth": []}]
+WORK_TESTS = Path(os.environ.get("EAX_WORK_DIR", "/eax-work")) / "tests"
+
+
+def _ops_message(exc: Exception) -> str:
+    msg = getattr(exc, "reason", None) or str(exc)
+    try:
+        msg = json.load(exc).get("message", msg)          # an HTTP error from the helper: its own words
+    except Exception:  # noqa: BLE001
+        pass
+    return str(msg)
+
+
+@blp.route("/tests")
+class Tests(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def get(self):
+        """Self-test runs, newest first; the test runner (built, a run going on); the choices (levels, suites, roles,
+        areas) and how long each kind of run takes"""
+        from ..machine_access import AREAS
+        with get_engine().connect() as conn:
+            runs = store.runs(conn, int(request.args.get("limit", 30)))
+        try:
+            runner = _ops_raw("GET", "/tests", timeout=10)
+        except Exception as exc:  # noqa: BLE001 - the history still shows when the helper is down
+            runner = {"image_present": None, "message": f"The operations helper is not reachable ({exc})."}
+        return {"runs": runs, "runner": runner, "suites": list(store.SUITES),
+                "roles": store.TEST_ROLES, "areas": [{"code": c, "label": lbl} for c, lbl, _ in AREAS],
+                "estimates": {"smoke": store.estimate_minutes("smoke", []),
+                              **{s: store.estimate_minutes("detailed", [s]) for s in ("api", "ui", "db", "security")},
+                              "detailed_all": store.estimate_minutes("detailed", ["api", "ui", "db", "security"])}}
+
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(202, Free)
+    @require_auth("system.operate")
+    def post(self, data):
+        """Starts a self-test now (never scheduled) {level: smoke|detailed, suites: [api, ui, db, security] (detailed),
+        role, area, watch}: it makes its own fixtures (self_test_<id>_<n>) and tests in them; follow it here"""
+        data = data or {}
+        try:
+            level, role, area = store.clean_options(data.get("level"), data.get("role"), data.get("area"))
+            suites = store.clean_suites(data.get("suites"))
+        except ValueError as exc:
+            abort(400, message=str(exc))
+        watch = bool(data.get("watch")) and level == "detailed" and "ui" in suites
+        with get_engine().begin() as conn:
+            busy = conn.execute(text("SELECT id FROM core.test_runs WHERE state IN ('queued', 'running') "
+                                     "AND queued_at > now() - interval '3 hours' ORDER BY id DESC LIMIT 1")).scalar()
+            if busy:
+                abort(409, message=f"Self-test {busy} is going on: stop it or wait for it to finish.")
+            run_id = store.create_run(conn, g.user.username, "web", suites, level=level, role=role, area=area, watch=watch)
+            audit.record(conn, actor=g.user.username, action="selftest.started", object_type="test_run", object_id=str(run_id),
+                         details={"level": level, "suites": suites, "role": role, "area": area, "watch": watch})
+        try:
+            _ops_raw("POST", "/tests", {"run_id": run_id, "level": level, "suites": suites, "role": role, "area": area,
+                                        "watch": watch, "by": g.user.username}, timeout=30)
+        except Exception as exc:  # noqa: BLE001 - the run is closed with the reason
+            msg = _ops_message(exc)
+            with get_engine().begin() as conn:
+                store.set_state(conn, run_id, state="error", message=f"Could not start: {msg}")
+            abort(503, message=f"The self-test could not start: {msg}")
+        lo, hi = store.estimate_minutes(level, suites, watch)
+        return {"run_id": run_id, "message": f"Started: about {lo} to {hi} minutes."}
+
+
+@blp.route("/tests/<int:run_id>")
+class TestRun(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def get(self, run_id):
+        """A run: its results (failures first; ?outcome=passed|failed|skipped|warning, ?suite=), its files, its fixtures;
+        while it waits for a watching browser also its ticket and the journeys to drive"""
+        with get_engine().connect() as conn:
+            d = store.run_detail(conn, run_id, request.args.get("outcome", ""), request.args.get("suite", ""))
+            if not d:
+                abort(404, message=f"No self-test run {run_id}.")
+            d["fixtures"] = store.fixtures(conn, run_id, include_purged=True)
+            row = store.run_row(conn, run_id) or {}
+        b = row.get("browser") or {}
+        if row.get("watch") and row.get("state") in store.OPEN and b.get("ticket") and not b.get("done"):
+            d["browser"] = {"ticket": b["ticket"], "journeys": b.get("journeys") or [], "roles": sorted((b.get("tokens") or {}).keys())}
+        folder = WORK_TESTS / d["run"]["folder"] if d["run"]["folder"] else None
+        d["files"] = sorted(str(p.relative_to(folder)) for p in folder.rglob("*") if p.is_file()) if folder and folder.is_dir() else []
+        return d
+
+
+@blp.route("/tests/<int:run_id>/stop")
+class TestStop(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def post(self, run_id):
+        """Stops a running self-test: it ends at its next step, keeps what it found, and its tokens are revoked"""
+        with get_engine().begin() as conn:
+            if not store.ask_stop(conn, run_id, g.user.username):
+                abort(409, message=f"Self-test {run_id} is not running.")
+            audit.record(conn, actor=g.user.username, action="selftest.stopped", object_type="test_run", object_id=str(run_id))
+        try:
+            _ops_raw("POST", "/tests/stop", {"run_id": run_id, "by": g.user.username}, timeout=30)
+        except Exception:  # noqa: BLE001 - the runner also sees the request at its next step
+            pass
+        return {"message": "Stopping: it ends at its next step."}
+
+
+@blp.route("/tests/<int:run_id>/browser")
+class TestBrowser(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def post(self, data, run_id):
+        """Journeys watched in this browser {results: [{name, outcome, detail, ms, browser, screenshot: PNG base64}], done}"""
+        data = data or {}
+        with get_engine().begin() as conn:
+            row = store.run_row(conn, run_id)
+            if not row or not row["watch"] or row["state"] not in store.OPEN:
+                abort(409, message=f"Self-test {run_id} is not waiting for a browser.")
+            for r in (data.get("results") or [])[:50]:
+                shot = None
+                if r.get("screenshot"):
+                    try:
+                        shot = base64.b64decode(str(r["screenshot"]).split(",")[-1], validate=True)[:3_000_000]
+                    except (binascii.Error, ValueError):
+                        shot = None
+                outcome = r.get("outcome") if r.get("outcome") in store.OUTCOMES else "failed"
+                store.add_result(conn, run_id, "ui", f"journey: {str(r.get('name') or '')[:300]}", outcome,
+                                 str(r.get("detail") or ""), int(r.get("ms") or 0), shot, "", "", "", str(r.get("browser") or "")[:200])
+            if data.get("done"):
+                store.set_browser(conn, run_id, {"done": True})
+        return {"ok": True}
+
+
+@blp.route("/tests/<int:run_id>/report")
+class TestReport(MethodView):
+    @blp.doc(security=SECURITY)
+    @require_auth("system.operate")
+    def get(self, run_id):
+        """The run's report: ?format=html (default; one page, screenshots inside) or xlsx (Excel)"""
+        fmt = request.args.get("format", "html")
+        with get_engine().connect() as conn:
+            try:
+                if fmt == "xlsx":
+                    return send_file(io.BytesIO(report.to_xlsx(conn, run_id)), as_attachment=True,
+                                     download_name=f"self-test-{run_id}.xlsx",
+                                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                body = report.to_html(conn, run_id)
+            except KeyError:
+                abort(404, message=f"No self-test run {run_id}.")
+        return Response(body, mimetype="text/html", headers={"Content-Disposition": f'attachment; filename="self-test-{run_id}.html"'})
+
+
+@blp.route("/tests/<int:run_id>/screenshot/<int:result_id>")
+class TestScreenshot(MethodView):
+    @blp.doc(security=SECURITY)
+    @require_auth("system.operate")
+    def get(self, run_id, result_id):
+        """A failed browser journey's screenshot (PNG)"""
+        with get_engine().connect() as conn:
+            ok = conn.execute(text("SELECT 1 FROM core.test_results WHERE id = :r AND run_id = :run"),
+                              {"r": result_id, "run": run_id}).first()
+            png = store.screenshot(conn, result_id) if ok else None
+        if not png:
+            abort(404, message="No screenshot.")
+        return send_file(io.BytesIO(png), mimetype="image/png", download_name=f"self-test-{run_id}-{result_id}.png")
+
+
+@blp.route("/tests/<int:run_id>/files/<path:name>")
+class TestFile(MethodView):
+    @blp.doc(security=SECURITY)
+    @require_auth("system.operate")
+    def get(self, run_id, name):
+        """A file of the run from work/tests/<folder>: run.log, a failed journey's video, the ZAP and Trivy reports"""
+        with get_engine().connect() as conn:
+            folder = conn.execute(text("SELECT folder FROM core.test_runs WHERE id = :id"), {"id": run_id}).scalar()
+        if not folder:
+            abort(404, message=f"No files for self-test run {run_id}.")
+        base = (WORK_TESTS / folder).resolve()
+        path = (base / name).resolve()
+        if base not in path.parents or not path.is_file():
+            abort(404, message="No such file in this run.")
+        return send_file(path, as_attachment=True)
+
+
+@blp.route("/tests/fixtures")
+class Fixtures(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def get(self):
+        """Every self-test fixture still there (models, projects, service accounts, credentials), with its run, kind,
+        name, when it was made and its size (?run=<id> for one run; ?purged=1 for those already purged too)"""
+        run = request.args.get("run")
+        with get_engine().connect() as conn:
+            return {"fixtures": store.fixtures(conn, int(run) if run else None, request.args.get("purged") == "1")}
+
+
+@blp.route("/tests/fixtures/purge")
+class FixturesPurge(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(202, Free)
+    @require_auth("system.operate")
+    def post(self, data):
+        """Purges self-test fixtures, for good (cannot be undone) {runs: [ids] or "all", fixtures: [fixture ids] (or every
+        fixture of those runs), confirm: "DELETE"}: a background task, run by run; only what each run recorded"""
+        data = data or {}
+        if data.get("confirm") != "DELETE":
+            abort(400, message='Type DELETE to confirm: the fixtures are removed for good and cannot be brought back.')
+        with get_engine().connect() as conn:
+            if data.get("runs") == "all":
+                runs = [r[0] for r in conn.execute(text(
+                    "SELECT DISTINCT run_id FROM core.test_fixtures WHERE purged_at IS NULL ORDER BY run_id")).all()]
+            else:
+                runs = sorted({int(x) for x in data.get("runs") or []})
+            picked = [int(x) for x in data.get("fixtures") or []]
+            if picked:
+                runs = sorted(set(runs) | {r[0] for r in conn.execute(text(
+                    "SELECT DISTINCT run_id FROM core.test_fixtures WHERE id = ANY(:i)"), {"i": picked}).all()})
+            busy = conn.execute(text("SELECT id FROM core.test_runs WHERE id = ANY(:r) AND state IN ('queued', 'running')"),
+                                {"r": runs}).scalar()
+        if not runs:
+            abort(400, message="Choose fixtures or runs to purge.")
+        if busy:
+            abort(409, message=f"Self-test {busy} is still running: stop it or let it finish first.")
+        from .sheets import _task
+        return {"task": _task("selftest.purge", None, f"Purge the fixtures of self-test run(s) {', '.join(map(str, runs))}",
+                              {"runs": runs, "fixtures": picked})}
+
+
+@blp.route("/scaling")
+class Scaling(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def get(self):
+        """The scaling rules of the API and job servers (fixed or by rules: fewest and most servers, people per server,
+        CPU up and down, minutes, cool-down), the load seen and the decisions taken (D526)"""
+        return _ops("GET", "/scaling", timeout=30)
+
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def put(self, data):
+        """Saves the scaling rules {settings: {EAX_SCALE_MODE: fixed|auto, EAX_SCALE_MIN, ...}} in the config file (a dated
+        copy first); in auto mode the operations helper applies them every minute"""
+        settings = (data or {}).get("settings") or {}
+        if not isinstance(settings, dict):
+            abort(400, message="settings is an object of EAX_SCALE_* values.")
+        with get_engine().begin() as conn:
+            audit.record(conn, actor=g.user.username, action="system.scaling", object_type="system", object_id="api",
+                         details={"settings": settings})
+        return _ops("POST", "/scaling", {"settings": settings, "by": g.user.username}, timeout=30)
+
+
+@blp.route("/scaling/load")
+class ScalingLoad(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    def get(self):
+        """For the operations helper only (its X-Ops-Token): how many people the API has seen in the last 15 minutes"""
+        import hmac
+        token = os.environ.get("EAX_OPS_TOKEN", "")
+        if not token or not hmac.compare_digest(request.headers.get("X-Ops-Token", ""), token):
+            abort(401, message="For the operations helper only.")
+        with get_engine().connect() as conn:
+            n = conn.execute(text("SELECT count(*) FROM core.known_users WHERE seen_at > now() - interval '15 minutes'")).scalar()
+        return {"people": int(n or 0), "window_minutes": 15}

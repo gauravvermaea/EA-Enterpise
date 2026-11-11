@@ -69,6 +69,9 @@ def main() -> int:
     ensure_database()
     done = migrate()
     _say(f"migrated: {', '.join(done)}" if done else "database up to date")
+    # the running version's documents as a library folder (D550)
+    from . import shipped_docs
+    shipped_docs.main()
     return 0
 
 

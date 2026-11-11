@@ -53,7 +53,7 @@ server {
         if ($plain_api != "true") { return 301 https://$host:${EAX_HTTPS_PORT}$request_uri; }
         if (-f /eax-proxy/maintenance) { return 503; }   # D230
         error_page 502 503 504 /eax-maintenance.json;
-        set $upstream http://api:8000;
+        set $upstream http://${EAX_API_UPSTREAM};
         proxy_set_header Host              $host:${EAX_HTTP_PORT};
         proxy_set_header X-Real-IP         $remote_addr;
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
@@ -68,7 +68,7 @@ server {
         if ($plain_api != "true") { return 301 https://$host:${EAX_HTTPS_PORT}$request_uri; }
         if (-f /eax-proxy/maintenance) { return 503; }   # D230
         error_page 502 503 504 /eax-maintenance.json;
-        set $upstream http://library:8100;               # the library service (D346)
+        set $upstream http://${EAX_LIBRARY_UPSTREAM};               # the library service (D346)
         proxy_set_header Host              $host:${EAX_HTTP_PORT};
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
         proxy_set_header X-EAX-Client-Cert "";
@@ -80,7 +80,7 @@ server {
         if ($plain_api != "true") { return 301 https://$host:${EAX_HTTPS_PORT}$request_uri; }
         if (-f /eax-proxy/maintenance) { return 503; }   # D230
         error_page 502 503 504 /eax-maintenance.json;
-        set $upstream http://views:8110;                 # the views service (D405)
+        set $upstream http://${EAX_VIEWS_UPSTREAM};                 # the views service (D405)
         client_max_body_size 12m;
         proxy_set_header Host              $host:${EAX_HTTP_PORT};
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
@@ -138,7 +138,7 @@ server {
     location /api/ {
         if (-f /eax-proxy/maintenance) { return 503; }   # D230
         error_page 502 503 504 /eax-maintenance.json;
-        set $upstream http://api:8000;
+        set $upstream http://${EAX_API_UPSTREAM};
         proxy_pass $upstream;
     }
 
@@ -146,7 +146,7 @@ server {
     location /api/library/ {
         if (-f /eax-proxy/maintenance) { return 503; }   # D230
         error_page 502 503 504 /eax-maintenance.json;
-        set $upstream http://library:8100;
+        set $upstream http://${EAX_LIBRARY_UPSTREAM};
         proxy_pass $upstream;
     }
 
@@ -154,7 +154,7 @@ server {
     location /api/views/ {
         if (-f /eax-proxy/maintenance) { return 503; }   # D230
         error_page 502 503 504 /eax-maintenance.json;
-        set $upstream http://views:8110;
+        set $upstream http://${EAX_VIEWS_UPSTREAM};
         client_max_body_size 12m;
         proxy_pass $upstream;
     }
@@ -279,7 +279,7 @@ server {
     location /api/ {
         if (-f /eax-proxy/maintenance) { return 503; }   # D230
         error_page 502 503 504 /eax-maintenance.json;
-        set $upstream http://api:8000;
+        set $upstream http://${EAX_API_UPSTREAM};
         proxy_set_header Host              $host:${EAX_MTLS_PORT};
         proxy_set_header X-Real-IP         $remote_addr;
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;

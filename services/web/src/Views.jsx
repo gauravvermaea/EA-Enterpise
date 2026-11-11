@@ -22,15 +22,15 @@ import { elementTypes } from "./elements.js";
 
 const EntityGraph = lazy(() => import("./EntityGraph"));
 const go = (path) => { window.location.hash = path; };
-// light to strong: pick lists of up to 8 values; numbers are spread over it
-export const HEAT = ["e8f5e9", "c8e6c9", "fff3c4", "ffe0a3", "ffc48a", "ff9e80", "f28b82", "d96b6b"];
+// low to high (owner, 10 Nov 2026): red, then orange, blue in the middle, green at the top; light enough for dark text
+export const HEAT = ["ef8a87", "f4a582", "f8bf80", "fbd49c", "b9d7f5", "93c3ef", "a9dca9", "7cc47c"];
 const ORDERED = {
-  Lifecycle: ["Plan", "Phase In", "Production", "Phase Out", "Retiring", "Retired"],
-  Maturity: ["5 - Optimised", "4 - Measured", "3 - Defined", "2 - Managed", "1 - Initial"],
+  Lifecycle: ["Retired", "Retiring", "Phase Out", "Plan", "Phase In", "Production"],
+  Maturity: ["1 - Initial", "2 - Managed", "3 - Defined", "4 - Measured", "5 - Optimised"],
   Priority: ["Won't", "Could", "Should", "Must"],
   "Data Classification": ["Public", "Internal", "Confidential", "Restricted"],
   "Architecture State": ["Baseline", "Transition", "Target"],
-  TIME: ["Invest", "Tolerate", "Migrate", "Eliminate"],
+  TIME: ["Eliminate", "Migrate", "Tolerate", "Invest"],
 };
 
 // a colour for every value of an attribute: numbers low to high, known lists in their order, others by count
