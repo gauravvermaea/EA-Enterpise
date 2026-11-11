@@ -27,7 +27,9 @@ documentation**, refreshed at every start (D550 to D552). On the command line, `
 **All the documentation, listed with what each covers: [docs/index.md](docs/index.md).** Backup and restore
 commands: [below](#backup-and-restore-from-the-command-line) and in [docs/operations.md](docs/operations.md#backup-and-restore-from-the-command-line-d227).
 
-**Status: version 0.19.0 (deployment, updates, scaling, the self-test, on-screen help and documentation being built). Everything up to 0.18.0 is accepted and closed** (10 Nov 2026). The short list is
+**Status: version 1.0.0, Release 1, released 11 Nov 2026** (tag `v1.0.0` on the `release` branch; release notes:
+[releases/1.0.0.md](releases/1.0.0.md)). Release 2 is being planned (the R2 rows in
+[docs/build-phases.md](docs/build-phases.md)); it starts with the self-test in its own container. The short list is
 below; every phase in detail: [docs/build-phases.md](docs/build-phases.md). Database design:
 [docs/database.md](docs/database.md). How it is built (for developers and AI agents):
 [docs/architecture.md](docs/architecture.md), [AGENTS.md](AGENTS.md); the high-level technical architecture (under 10 pages):
@@ -58,22 +60,23 @@ The major phases; each line covers its sub-phases. **In detail (every sub-phase,
 | 15.2 | The enterprise library and project libraries (a separate service); skills on each user's profile | accepted and closed (9 Nov 2026) |
 | 15.3 (part) | Business architecture: Business Model Canvases, the TOGAF Phase B artifacts and their views; key questions | accepted and closed (9 Nov 2026); the rest replaced by an *Other views and documents* project tab of sample templates (D358, D415; built in 0.17.0, D429, to be accepted) |
 | 16.3 | Guided wizards | accepted and closed (9 Nov 2026) |
-| 28, 29 | Drawn views in draw.io: ArchiMate notation, from the model's own entities, relationships added from the canvas; "view" everywhere (D354, D355) | next |
-| 19, 20 | Merge a child into its parent: a wizard with three-way review and approval, then freeze or refresh the child (D359, D422 to D425) | 0.17.0, built, to be accepted |
-| 21 | Dedupe within a model: a wizard, committed like any change; old IDs still find the one kept (D361, D426 to D428) | 0.17.0, built, to be accepted |
-| 24 | KPI trends, an OData feed, a report designer opening Superset (D365) | planned |
-| 25 | Machine access: tokens, API keys and client certificates with API areas set by admins (D366) | planned |
-| 26, 27, 27.1 | MCP: OAuth remote connector, AI activity log, citations (D368); scenario planning with AI in projects (D364) | planned |
+| 28, 29 | Drawn views in draw.io: ArchiMate notation, from the model's own entities, relationships added from the canvas; "view" everywhere (D354, D355) | released in 1.0.0 |
+| 19, 20 | Merge a child into its parent: a wizard with three-way review and approval, then freeze or refresh the child (D359, D422 to D425) | released in 1.0.0 |
+| 21 | Dedupe within a model: a wizard, committed like any change; old IDs still find the one kept (D361, D426 to D428) | released in 1.0.0 |
+| 24 | KPI trends, an OData feed, a report designer opening Superset (D365) | released in 1.0.0 |
+| 25 | Machine access: tokens, API keys and client certificates with API areas set by admins (D366) | released in 1.0.0 |
+| 26, 27, 27.1 | MCP: OAuth remote connector, AI activity log, citations (D368); scenario planning with AI in projects (D364) | released in 1.0.0 |
 | 33, 33.1 | ArchiMate exchange and conformance: dropped until the ArchiMate 4 exchange specification is published (D385, D386) | dropped |
-| 34 | Published import formats (ArchiMate 4, Excel, a CSV format close to the Excel imports), delivered by file drop, upload or API; no ETL (D370) | planned |
-| 35, 35.1 | Usage insight, metrics, retention and housekeeping, database health (D371) | planned |
-| 36, 36.1 | Deployment kinds, upgrades with rollback (in place from GitHub releases), moving installations, key vault, AD groups (D372); test automation with security tests (D367) | planned |
-| 8.5, 36.3 | Release process, scaling out set in the web application (D373, D378); 36.2 removed (D380) | planned |
-| 38.1 | Surveys: designer with conditions, recipients by person, role, model or project, task list and link, anonymous, results and Excel (D375, D446 to D449) | 0.17.0, built, to be accepted |
-| 40 | EA capability maturity: assessments as surveys on nine elements and six levels, scores, targets, gaps, evidence and trend (D377, D450 to D453) | 0.17.0, built, to be accepted |
-| 37, 38 | Release candidate: in-page help and guides (D374); version 1.0 (D375) | planned |
-| 39 | Industry models from the owner's documents (D376) | planned |
+| 34 | Published import formats (ArchiMate 4, Excel, a CSV format close to the Excel imports), delivered by file drop, upload or API; no ETL (D370) | released in 1.0.0 |
+| 35, 35.1 | Usage insight, metrics, retention and housekeeping, database health (D371) | released in 1.0.0 |
+| 36, 36.1 | Deployment kinds, upgrades with rollback (in place from GitHub releases), moving installations, key vault, AD groups (D372); test automation with security tests (D367) | released in 1.0.0 |
+| 8.5, 36.3 | Release process, scaling out set in the web application (D373, D378); 36.2 removed (D380) | released in 1.0.0 |
+| 38.1 | Surveys: designer with conditions, recipients by person, role, model or project, task list and link, anonymous, results and Excel (D375, D446 to D449) | released in 1.0.0 |
+| 40 | EA capability maturity: assessments as surveys on nine elements and six levels, scores, targets, gaps, evidence and trend (D377, D450 to D453) | released in 1.0.0 |
+| 37, 38 | Release candidate: in-page help and guides (D374); version 1.0 (D375) | released in 1.0.0 |
+| 39 | Industry models from the owner's documents (D376) | released in 1.0.0 |
 | 22, 23, 30, 31 | Closed as covered (D357, D362, D363) | closed |
+| R2 | Release 2: the self-test and test bench in their own container, stable start-up, on-screen help showing, layout switching, stencil and explorer on standard views in draw.io, remote instances, farms of installations | planned |
 
 ## Quick start (laptop)
 
