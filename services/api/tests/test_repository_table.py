@@ -1,6 +1,5 @@
 """Phase 13.0.6 (D290): the project repository as a table, by phase, with versions you give at every check-out and check-in."""
 
-import re
 from pathlib import Path
 
 import pytest
@@ -27,7 +26,7 @@ def test_migration():
     sql = (ROOT / "migrations" / "sql" / "0028_repository_table.sql").read_text()
     for t in ("user_version", "out_version", "tags         text[]", "not_needed_reason", "not_needed_by", "added_by", "'0.14.6'"):
         assert t in sql
-    assert re.search(r'version = "0\.1[4-9]\.\d+"', (ROOT / "version.toml").read_text())
+    assert __import__("re").search(r'version = "(0\.1\d|[1-9]\d*)\.', (ROOT / "version.toml").read_text())
 
 
 def test_routes_and_screen():

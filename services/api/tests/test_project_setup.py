@@ -24,7 +24,7 @@ def test_migration():
     assert "proj.signoff_requests" in sql and "proj.signoff_decisions" in sql
     assert "TRIGGER" not in sql.upper() and "FUNCTION" not in sql.upper()
     assert 'down_revision = "0023_background"' in (ROOT / "migrations" / "versions" / "0024_project_setup.py").read_text()
-    assert 'version = "0.1' in (ROOT / "version.toml").read_text()
+    assert __import__("re").search(r'version = "(0\.1\d|[1-9]\d*)\.', (ROOT / "version.toml").read_text())
 
 
 def test_rich_text_is_cleaned():

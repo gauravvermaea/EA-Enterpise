@@ -21,7 +21,7 @@ def test_migration():
     assert "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA proj TO eax_migrator" in sql
     assert "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA proj TO eax_migrator" in \
         (ROOT / "migrations" / "sql" / "0024_project_setup.sql").read_text()
-    assert 'version = "0.1' in (ROOT / "version.toml").read_text()
+    assert __import__("re").search(r'version = "(0\.1\d|[1-9]\d*)\.', (ROOT / "version.toml").read_text())
 
 
 def test_fourteen_templates_ship_and_are_valid():

@@ -9,8 +9,14 @@ from __future__ import annotations
 from typing import Any
 
 from . import iterations as it
-from .mcp_scenarios import _proj
 from .mcp_server import mcp
+
+
+async def _proj(*args, **kwargs):
+    """mcp_scenarios._proj, looked up when called: importing it at load time made a cycle when mcp_scenarios was imported
+    before mcp_server (the self-test's fixtures, owner's laptop, 11 Nov 2026)."""
+    from .mcp_scenarios import _proj as proj
+    return await proj(*args, **kwargs)
 
 
 @mcp.tool()

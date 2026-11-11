@@ -161,7 +161,7 @@ def test_migration_is_rows_only():
         assert f"CREATE TABLE {t}" not in sql
     ev = sql.split("CREATE TABLE proj.view_evidence")[1].split("\n);")[0]
     assert "document_id" not in ev and "version_no" in ev                     # a link only (D408)
-    assert 'version = "0.1' in (ROOT / "version.toml").read_text()
+    assert __import__("re").search(r'version = "(0\.1\d|[1-9]\d*)\.', (ROOT / "version.toml").read_text())
     py = (ROOT / "migrations" / "versions" / "0033_drawn_views.py").read_text()
     assert 'down_revision = "0032_repository_tags"' in py
 

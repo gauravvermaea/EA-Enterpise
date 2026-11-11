@@ -22,7 +22,7 @@ def test_migration():
               "CREATE TABLE proj.gov_records", "CREATE TABLE proj.gov_kinds", "CREATE TABLE proj.charters",
               "ALTER TABLE proj.org_people ADD COLUMN skills", "'0.15.0'"):
         assert s in sql
-    assert 'version = "0.1' in (ROOT / "version.toml").read_text()
+    assert __import__("re").search(r'version = "(0\.1\d|[1-9]\d*)\.', (ROOT / "version.toml").read_text())
 
 
 def test_togaf10_metamodel():

@@ -17,9 +17,15 @@ from sqlalchemy import text
 
 from . import mcp_ops, permissions
 from . import repository as repo
-from .mcp_build import _proj
 from .mcp_server import _run, mcp
 from .metamodel_edit import EditError
+
+
+async def _proj(*args, **kwargs):
+    """mcp_build._proj, looked up when called: importing it at load time made a cycle when mcp_build was imported
+    before mcp_server (the self-test's fixtures, owner's laptop, 11 Nov 2026)."""
+    from .mcp_build import _proj as proj
+    return await proj(*args, **kwargs)
 
 
 def _who():

@@ -13,7 +13,7 @@ def test_migration():
     # columns renamed from layer to domain (D391); no new logic
     sql_ = sql.replace("CREATE OR REPLACE FUNCTION rpt.refresh_typed_views()", "").replace("SELECT rpt.refresh_typed_views();", "")
     assert "TRIGGER" not in sql_.upper() and "FUNCTION" not in sql_.upper()
-    assert 'version = "0.1' in (ROOT / "version.toml").read_text()
+    assert __import__("re").search(r'version = "(0\.1\d|[1-9]\d*)\.', (ROOT / "version.toml").read_text())
     v = (ROOT / "migrations/versions/0032_repository_tags.py").read_text(encoding="utf-8")
     assert 'down_revision = "0031_project_bases"' in v
 

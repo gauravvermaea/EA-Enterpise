@@ -35,7 +35,7 @@ def test_the_migration_holds_rows_only_and_moves_to_0_18_0():
         assert word not in SQL.upper(), word
     v = (ROOT / "migrations" / "versions" / "0042_import_formats.py").read_text()
     assert 'revision = "0042_import_formats"' in v and 'down_revision = "0041_scenarios"' in v
-    assert 'version = "0.' in (ROOT / "version.toml").read_text()       # 0.18.0 or later (0.19.0: the last set)
+    assert __import__("re").search(r'version = "(0\.1\d|[1-9]\d*)\.', (ROOT / "version.toml").read_text())   # 0.18.0 or later
 
 
 def test_a_csv_set_carries_its_master_file_and_reads_back_by_it():

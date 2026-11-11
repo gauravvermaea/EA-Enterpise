@@ -224,7 +224,7 @@ def test_upgrade_with_fakes(tmp_path):
     def sh(argv, cwd):
         calls.append(tuple(argv[2:4]))
         if "update" in argv:
-            FakeClient.world.update(version="0.19.0", migration=lifecycle.migration_head(REPO))
+            FakeClient.world.update(version=lifecycle.version_of(REPO), migration=lifecycle.migration_head(REPO))
         return 0
     FakeClient.world.update(version="0.18.0", migration="0048_project_iterations", up=True, models=5)
     r = Run("https://localhost", tmp_path / "r", quiet=True)

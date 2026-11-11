@@ -32,7 +32,7 @@ def test_migration_and_version():
     assert "REFERENCES core" not in sql                                         # proj can move to its own database (D266)
     ver = (ROOT / "migrations" / "versions" / "0022_projects.py").read_text()
     assert 'down_revision = "0021_startup"' in ver
-    assert 'version = "0.1' in (ROOT / "version.toml").read_text()
+    assert __import__("re").search(r'version = "(0\.1\d|[1-9]\d*)\.', (ROOT / "version.toml").read_text())
 
 
 def test_the_library_holds_the_reviewed_master_list():

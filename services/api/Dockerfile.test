@@ -3,7 +3,10 @@
 #   eax test --build   (docker compose --profile test build testrunner; also System admin > Self-test, D570)
 # and started on demand by the operations helper (System admin > Self-test, eax test) or in CI. It tests the running
 # installation in fixtures of its own (D529): see eax/testing/__init__.py. About 1.5 GB.
-FROM python:3.12-slim
+# Debian 12 (bookworm), pinned: Playwright 1.48 installs Chromium's system packages only on Debian 12 / Ubuntu. The
+# plain python:3.12-slim tag moved to Debian 13 (trixie), where two of its font packages no longer exist, and the
+# build failed there (owner's laptop, 11 Nov 2026).
+FROM python:3.12-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

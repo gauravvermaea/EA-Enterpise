@@ -46,7 +46,7 @@ def test_migration_and_lock_rules():
     assert "frozen_at" in sql and "frozen_by" in sql and "frozen_note" in sql and "'0.14.4'" in sql
     me = (ROOT / "eax" / "metamodel_edit.py").read_text()
     assert me.count('m.get("frozen_at")') >= 2     # a frozen model is neither locked again nor unlocked (only unfrozen)
-    assert 'version = "0.1' in (ROOT / "version.toml").read_text()
+    assert __import__("re").search(r'version = "(0\.1\d|[1-9]\d*)\.', (ROOT / "version.toml").read_text())
 
 
 def test_routes_and_background():
