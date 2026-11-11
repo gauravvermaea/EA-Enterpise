@@ -27,6 +27,7 @@ from typing import Any
 
 from sqlalchemy import text
 
+from . import iterations as _iter
 from . import permissions as perms
 from .metamodel_edit import EditError
 
@@ -242,6 +243,7 @@ def mark_phase(conn, project: Any, user, phase: str, complete: bool, note: str =
     """A phase marked complete (or reopened) by anyone who contributes (owner, 8 Nov 2026); completion counts phases."""
     p = project_row(conn, project)
     _need(conn, p, user, "contribute")
+    _iter.guard(conn, p, phase)               # ADM iteration (D572): frozen phases are read only
     name = (_one(conn, "SELECT name FROM proj.lib_phases WHERE code = :c", c=phase) or {}).get("name")
     if not name:
         raise EditError(f"No phase {phase}.", 404)
@@ -397,6 +399,12 @@ def detail(conn, project: Any, user) -> dict:
     out["is_library"] = bool(p.get("is_library"))
     out["completion"] = completion(conn, [p["id"]]).get(p["id"])
     out["may_finish"] = out["may_admin"] and not out["frozen"]
+    # the ADM iteration of the current cycle (D571-D574): which phases are enabled; anyone who can open it may change it
+    out["iteration"] = _iter.current(conn, p)
+    out["iteration"]["frozen_phases"] = [x for x in _iter.PHASES if x not in out["iteration"]["phases"]]
+    out["iteration"]["may_change"] = not out["frozen"] and not p.get("base_kind")
+    out["iteration_history"] = _iter.history(conn, p)
+    out["iterations"] = _iter.catalogue()
     if out["frozen"]:
         out["may_admin"] = out["may_contribute"] = out["may_undo"] = False
     return out
@@ -462,6 +470,7 @@ def create(conn, user, d: dict, sample: bool = False) -> dict:
     set_quorum(conn, p, d.get("signoff_quorum"))
     if d.get("template"):
         conn.execute(text("UPDATE proj.projects SET template_code = :t WHERE id = :p"), {"t": d["template"], "p": p["id"]})
+        _template_iteration(conn, p, d["template"], user)
     # people: the person creating it is its Project Admin
     members = {(user.username.lower(), "project-admin")}
     for m in d.get("members") or []:
@@ -536,6 +545,24 @@ def create(conn, user, d: dict, sample: bool = False) -> dict:
                   body=f"{user.username} set up {p['name']} ({d['purpose']}). Its repository is being built in Documents.",
                   link=f"#/projects/{p['guid']}", recipients=sorted(people))
     return {"project": {"id": p["guid"], "name": p["name"]}, "copies": copies, "note": note}
+
+
+def _template_iteration(conn, p: dict, code: str, user) -> None:
+    """A template's default ADM iteration (D573) is the new project's first iteration; the wizard itself does not ask."""
+    row = _one(conn, "SELECT spec FROM proj.project_templates WHERE code = :c", c=code)
+    spec = row["spec"] if row else None
+    if isinstance(spec, str):
+        spec = __import__("json").loads(spec or "{}")
+    x = (spec or {}).get("iteration")
+    if not x:
+        return
+    try:
+        it, phases = _iter.clean(x.get("code"), x.get("phases"))
+    except EditError:
+        return
+    conn.execute(text("""INSERT INTO proj.iteration_changes (project_id, cycle, iteration, phases, by_user, note)
+                         VALUES (:p, 1, :i, :ph, :u, :n)"""),
+                 {"p": p["id"], "i": it, "ph": phases, "u": getattr(user, "username", "system"), "n": f"From the template {code}"})
 
 
 def link_model(conn, p: dict, user, m: dict) -> tuple[dict, dict | None]:
@@ -812,6 +839,7 @@ def choose_item(conn, project: Any, user, item: str, chosen: bool) -> dict:
     """Bring a not_for_use item into use, or put one out of use (its folder and documents stay)."""
     p = project_row(conn, project)
     _need(conn, p, user, "admin")
+    _iter.guard(conn, p, (_one(conn, "SELECT phase FROM proj.items WHERE project_id = :p AND guid = CAST(:i AS uuid)", p=p["id"], i=item) or {}).get("phase"))
     r = conn.execute(text("UPDATE proj.items SET chosen = :c WHERE project_id = :p AND guid = CAST(:i AS uuid) RETURNING id, mayan_cabinet_id"),
                      {"c": chosen, "p": p["id"], "i": item}).mappings().first()
     if not r:
@@ -828,6 +856,7 @@ def not_needed(conn, project: Any, user, item: str, reason: str = "", undo: bool
     it = _one(conn, "SELECT * FROM proj.items WHERE project_id = :p AND guid = CAST(:i AS uuid)", p=p["id"], i=item)
     if not it:
         raise EditError("No such document class in this project.", 404)
+    _iter.guard(conn, p, it["phase"])
     if undo:
         # a class left out when the project was set up is added by anyone who contributes (owner, 8 Nov 2026: Not added);
         # one marked "won't need" is brought back by whoever marked it, the Project Admin or the Lead Architect
@@ -861,6 +890,7 @@ def add_item(conn, project: Any, user, d: dict) -> dict:
     if len(name) > 120:
         raise EditError("The name is 120 characters at most.")
     phase = d.get("phase") or "X"
+    _iter.guard(conn, p, phase)
     if _one(conn, "SELECT 1 AS x FROM proj.items WHERE project_id = :p AND cycle = :c AND phase = :ph AND lower(name) = lower(:n)",
             p=p["id"], c=p["cycle"], ph=phase, n=name):
         raise EditError(f"Phase {phase} has a document class called {name} already: add your document to it.", 409)
@@ -1141,6 +1171,7 @@ def from_templates(conn, project: Any, user, item: str, docs: list[dict], kind: 
     it = _one(conn, "SELECT * FROM proj.items WHERE project_id = :p AND guid = CAST(:i AS uuid)", p=p["id"], i=item)
     if not it:
         raise EditError("No such item in this project.", 404)
+    _iter.guard(conn, p, it["phase"])
     kind = _doc_kind(kind)                   # checked before anything goes to Documents
     try:
         docs = [{**d, "template": int(d["template"])} for d in docs or [] if str(d.get("template") or "").strip()]
@@ -1212,6 +1243,7 @@ def upload(conn, project: Any, user, item: str, file_name: str, content: bytes, 
     it = _one(conn, "SELECT * FROM proj.items WHERE project_id = :p AND guid = CAST(:i AS uuid)", p=p["id"], i=item)
     if not it:
         raise EditError("No such item in this project.", 404)
+    _iter.guard(conn, p, it["phase"])
     if not content and (title or "").strip():
         return add_planned(conn, p, user, it, title, kind)
     if not file_name or not content:
@@ -1242,6 +1274,7 @@ def add_file(conn, project: Any, user, doc: str, file_name: str, content: bytes,
     p = project_row(conn, project)
     _need(conn, p, user, "contribute")
     d = _doc(conn, p, doc)
+    _iter.guard_doc(conn, p, d)
     _live(d)
     _not_link(d)
     if d["mayan_document_id"]:
@@ -1270,6 +1303,7 @@ def set_title(conn, project: Any, user, doc: str, title: str) -> dict:
     p = project_row(conn, project)
     _need(conn, p, user, "contribute")
     d = _doc(conn, p, doc)
+    _iter.guard_doc(conn, p, d)
     title = " ".join((title or "").split())[:300]
     if not title and not d["mayan_document_id"] and not (d.get("link_url") or d.get("link_project")):
         raise EditError("A document with no file yet needs a name.")
@@ -1311,6 +1345,7 @@ def accept(conn, project: Any, user, doc: str, note: str, evidence_name: str = "
     p = project_row(conn, project)
     _need(conn, p, user, "contribute")
     d = _doc(conn, p, doc)
+    _iter.guard_doc(conn, p, d)
     _live(d)
     if d.get("origin") == "other":      # the project's own uploads (D461) are never accepted or signed off
         raise EditError(f"{_dname(d)} is one of the project's own uploads: it needs no approval.", 409)
@@ -1344,6 +1379,7 @@ def set_hidden(conn, project: Any, user, doc: str, how: str, undo: bool = False)
     p = project_row(conn, project)
     _need(conn, p, user, "contribute")
     d = _doc(conn, p, doc)
+    _iter.guard_doc(conn, p, d)
     col = "archived" if how == "archive" else "deleted"
     if undo:
         if not d[f"{col}_at"]:
@@ -1369,6 +1405,7 @@ def check_out(conn, project: Any, user, doc: str, user_version: str = "") -> dic
     p = project_row(conn, project)
     _need(conn, p, user, "contribute")
     d = _doc(conn, p, doc)
+    _iter.guard_doc(conn, p, d)
     if d["checked_out_by"]:
         raise EditError(f"Checked out by {d['checked_out_by']} since {_when(d['checked_out_at'])}.", 409)
     _live(d)
@@ -1397,6 +1434,7 @@ def check_in(conn, project: Any, user, doc: str, file_name: str, content: bytes,
     p = project_row(conn, project)
     _need(conn, p, user, "contribute")
     d = _doc(conn, p, doc)
+    _iter.guard_doc(conn, p, d)
     _not_link(d)
     if (d["checked_out_by"] or "").lower() != user.username.lower():
         raise EditError("Check the document out first: only the person who checked it out checks it in." if not d["checked_out_by"]
@@ -1503,6 +1541,7 @@ def mark_step(conn, project: Any, user, step_id: int, done: bool, note: str = ""
     p = project_row(conn, project)
     _need(conn, p, user, "contribute")
     s = _step(conn, p, step_id)
+    _iter.guard(conn, p, s["phase"])
     note = (note or "").strip()[:1000]
     if s.get("parent_step_id"):                     # a sub step: complete it, or open it again (its step is not touched)
         conn.execute(text("""UPDATE proj.steps SET done_at = CASE WHEN :d THEN now() END, done_by = CASE WHEN :d THEN :u END,
@@ -1546,6 +1585,7 @@ def add_step(conn, project: Any, user, d: dict) -> dict:
     phase = d.get("phase") or ""
     if not _one(conn, "SELECT 1 AS x FROM proj.lib_phases WHERE code = :c", c=phase):
         raise EditError("Choose the phase the step belongs to.")
+    _iter.guard(conn, p, phase)
     seq = (_one(conn, """SELECT coalesce(max(seq), 0) AS n FROM proj.steps WHERE project_id = :p AND cycle = :c AND phase = :ph
                           AND parent_step_id IS NULL""", p=p["id"], c=p["cycle"], ph=phase) or {"n": 0})["n"] + 1
     r = _one(conn, """INSERT INTO proj.steps (project_id, cycle, phase, seq, name, added_by, added_at, due_date)
@@ -1561,6 +1601,7 @@ def add_substep(conn, project: Any, user, step_id: int, d: dict) -> dict:
     p = project_row(conn, project)
     _need(conn, p, user, "contribute")
     s = _step(conn, p, step_id)
+    _iter.guard(conn, p, s["phase"])
     if s["parent_step_id"]:
         raise EditError("Add the sub step to the step itself.")
     n = (_one(conn, "SELECT count(*) AS n FROM proj.steps WHERE parent_step_id = :s", s=step_id) or {"n": 0})["n"]
@@ -1597,6 +1638,7 @@ def delete_substep(conn, project: Any, user, step_id: int) -> dict:
     s = _step(conn, p, step_id)
     if not s["parent_step_id"]:
         raise EditError("Only a sub step is taken away; a step of the library is removed in the wizard (with the reason).")
+    _iter.guard(conn, p, s["phase"])
     if s["done_at"]:
         raise EditError("This sub step is done: mark it not done first.")
     conn.execute(text("DELETE FROM proj.steps WHERE id = :i"), {"i": step_id})
@@ -1674,6 +1716,7 @@ def offer_template(conn, project: Any, user, item: str, template_id: int, remove
     it = _one(conn, "SELECT * FROM proj.items WHERE project_id = :p AND guid = CAST(:i AS uuid)", p=p["id"], i=item)
     if not it:
         raise EditError("No such document class in this project.", 404)
+    _iter.guard(conn, p, it["phase"] if it else "")
     t = _one(conn, "SELECT * FROM proj.lib_templates WHERE id = :i", i=int(template_id))
     if not t:
         raise EditError("No such template.", 404)

@@ -95,6 +95,8 @@ The answers' names are listed by the wizard before it starts (e.g. `kind`, `wher
 3. It starts EA Explorer (`eax up`) and waits until `https://localhost/api/health` answers.
 4. It shows the address and the logins. Run `eax trust` once so the browser stops warning.
 
+Then: [check your installation](#check-your-installation).
+
 ### 2.2 Server
 A Linux server with 16 GB of memory or more; Ubuntu 22.04 or 24.04 is tested by its users. Two ways:
 
@@ -118,6 +120,8 @@ The steps:
 
 **DNS:** point three names at the server: `<address>`, `reports.<address>` and `docs.<address>`.
 
+Then: [check your installation](#check-your-installation).
+
 ### 2.3 AWS
 Needs the **AWS CLI** on this computer, with a profile, or an access key typed in the wizard (used for this run only).
 **Creating** makes:
@@ -134,6 +138,8 @@ Needs the **AWS CLI** on this computer, with a profile, or an access key typed i
 It then continues as a server over SSH (user `ubuntu`). **Existing machine:** give `user@address` and it continues
 as a server.
 
+Then: [check your installation](#check-your-installation).
+
 ### 2.4 Azure
 Needs the **Azure CLI** (`az login` first). **Creating** makes:
 
@@ -146,6 +152,8 @@ Needs the **Azure CLI** (`az login` first). **Creating** makes:
 | DNS | when an Azure DNS zone is given (`zone/resource-group`): the three names |
 
 It then continues as a server over SSH (user `eaxadmin`).
+
+Then: [check your installation](#check-your-installation).
 
 ### 2.5 DigitalOcean
 Needs **doctl**, with an API token: typed in the wizard, or doctl's current context. **Creating** makes:
@@ -161,6 +169,65 @@ Needs **doctl**, with an API token: typed in the wizard, or doctl's current cont
 | Load balancer | when asked: passes https through to the Droplet, for adding Droplets later (scaling out: 36.3) |
 
 It then continues as a server over SSH (user `root`).
+
+Then: [check your installation](#check-your-installation).
+
+## Check your installation
+
+When the install (or an update) is done, test it. Every way below makes its own test data (`self_test_<id>_n`) and
+changes nothing else. Detail: [testing.md](testing.md) (everything) and [testbench.md](testbench.md) (from outside).
+
+**1. From the browser** (Super Admin or IT Admin):
+
+1. **System admin › Self-test** › **Build the test runner** (the first time only; about 1.5 GB, 5 to 15 minutes).
+2. Choose **Smoke test**, then **Start** (2 to 5 minutes).
+3. Watch the counts, the current step and any failure as they come (or tick **Watch it in this browser**).
+4. Then choose **Detailed tests** (API, UI, Database, Security) and **Start** again.
+
+**2. From the command line, on the installation** (Windows / Linux and macOS):
+
+```
+.\eax test --build         ./eax.sh test --build
+.\eax test --smoke         ./eax.sh test --smoke
+.\eax test --detailed      ./eax.sh test --detailed
+.\eax test --status        ./eax.sh test --status
+.\eax test --last          ./eax.sh test --last
+.\eax test --report        ./eax.sh test --report
+```
+
+**3. From outside, with the test bench** (any machine that can open the address):
+
+```
+.\eax testbench setup --browsers chromium,firefox
+.\eax testbench --target https://<host> --i-own-this --token <token> --smoke
+.\eax testbench --target https://<host> --i-own-this --token <token> --detailed --browsers chromium,firefox
+.\eax testbench install --target https://localhost --i-own-this --insecure --answers answers.json
+.\eax testbench upgrade --from v0.18.0 --to v0.19.0 --target https://localhost --i-own-this --insecure --answers answers.json --user eaadmin --password <password>
+.\eax testbench load --target https://<host> --i-own-this --token <token> --users 50 --minutes 5
+```
+
+On Linux and macOS: `./eax.sh testbench …` with the same options. `--insecure` is for a laptop's own certificate.
+
+**4. Check the results**
+
+- **Where:** System admin › Self-test › **History** (every run, from the browser, `eax test` or the test bench, which
+  is marked *external testbench*); **Download report** (HTML or Excel) on a run; the test bench's
+  `testbench/reports/<time>/` (report.html, report.json, junit.xml); and the **exit code** (0 passed, 1 a check
+  failed, 2 a wrong command).
+- **The coverage summary** at the top of every report: *pages opened N of N*, *journeys passed*, *endpoints refused
+  without a sign-in*, *reads as every role*, *writes by area* (models 6/6, …), *database checks*, *security checks*.
+  Anything less than all is listed under the failures.
+- **What the outcomes mean:** **passed** works; **warning** works but look (a missing header, a slow answer);
+  **failed** broken, with the reason; **skipped** could not run here, with why (a tool or browser missing, nothing to
+  test).
+- **Failures:** each has the reason; an API failure shows what was asked and what came back; a page or journey
+  failure has a **screenshot** in the report and a **video** (work/tests/<run>/videos on the installation,
+  testbench/reports/<time>/videos for the test bench).
+- **Next:** fix what failed (often a setting or a service still starting: see **System admin › Health**), run the
+  same test again (each run shows the command it equals), or send the report (HTML or Excel) to whoever supports you.
+- **Clean up:** the test data stays until you remove it: **System admin › Self-test › Test fixtures** (tick the run,
+  **Delete selected**, type DELETE), or `.\eax test --clean <run>` (`./eax.sh test --clean <run>`), or
+  `.\eax testbench --target https://<host> --i-own-this --clean <run>`.
 
 ## 3. Moving an installation
 

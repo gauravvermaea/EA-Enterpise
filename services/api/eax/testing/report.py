@@ -36,6 +36,41 @@ def options_line(run: dict[str, Any]) -> str:
     return " · ".join(bits)
 
 
+def coverage(results: list[dict[str, Any]]) -> list[tuple[str, int, int]]:
+    """The report's coverage summary (D578), worked out from the results' names: [(what, passed, out of)]. Skipped ones
+    are not counted in "out of" (they say why on their own row)."""
+    def tally(rows):
+        rows = [r for r in rows if r["outcome"] != "skipped"]
+        return sum(1 for r in rows if r["outcome"] == "passed"), len(rows)
+    out: list[tuple[str, int, int]] = []
+    pages = [r for r in results if r["name"].startswith("page: ")]
+    if pages:
+        out.append(("Pages opened and checked (renders, heading, F1 help)", *tally(pages)))
+    js = [r for r in results if r["name"].startswith("journey: ") or r["name"].startswith("journey ")]
+    if js:
+        out.append(("Journeys that click, type and save (and refusals)", *tally(js)))
+    anon = [r for r in results if r["suite"] == "api" and r["name"].endswith(": without a token")]
+    if anon:
+        out.append(("API endpoints refused without a sign-in", *tally(anon)))
+    roles = [r for r in results if r["suite"] == "api" and (": every test role" in r["name"] or ": as " in r["name"])]
+    if roles:
+        out.append(("API reads (GET) as every test role", *tally(roles)))
+    cross = [r for r in results if r["suite"] == "api" and "cross-user" in r["name"]]
+    if cross:
+        out.append(("API reads refused to someone with no role on the model", *tally(cross)))
+    writes: dict[str, list] = {}
+    for r in results:
+        if r["suite"] == "api" and r["name"].startswith("write "):
+            writes.setdefault(r["name"][6:].split(":")[0], []).append(r)
+    for area, rows in sorted(writes.items()):
+        out.append((f"API writes: {area}", *tally(rows)))
+    for suite, label in (("db", "Database checks"), ("security", "Security checks"), ("smoke", "Smoke checks")):
+        rows = [r for r in results if r["suite"] == suite]
+        if rows:
+            out.append((label, *tally(rows)))
+    return out
+
+
 def to_html(conn, run_id: int) -> str:
     d = store.run_detail(conn, run_id)
     if not d:
@@ -66,10 +101,16 @@ table {{ border-collapse: collapse; width: 100%; }} td, th {{ border-bottom: 1px
 img {{ max-width: 100%; border: 1px solid var(--line); }} .k {{ display:inline-block; margin-right:18px; }} .k b {{ font-size: 22px; display:block; }}
 </style></head><body>
 <h1>EA Explorer self-test {run_id}: {e(STATE.get(run['state'], run['state']))}</h1>
-<p>{e(options_line(run))}<br><span class="q">Started by {e(run['started_by'])} ({e(run['trigger'])}) {run['started_at'] or run['queued_at']}, finished {run['finished_at'] or '-'} · version {e(run['version'] or '?')} · run on a separate test database</span></p>
+<p>{e(options_line(run))}<br><span class="q">Started by {e(run['started_by'])} ({e(run['trigger'])}) {run['started_at'] or run['queued_at']}, finished {run['finished_at'] or '-'} · version {e(run['version'] or '?')} · in the run's own fixtures</span></p>
 <p><span class="k"><b>{t['passed']}</b>passed</span><span class="k"><b style="color:{COLOUR['failed']}">{t['failed']}</b>failed</span>
 <span class="k"><b>{t['warning']}</b>warnings</span><span class="k"><b>{t['skipped']}</b>skipped</span></p>
 <p>{e(run['message'] or '')}</p>
+<p class="q">The same run from the command line: <code>{e(store.command_line(run))}</code></p>
+<h2>Coverage</h2>
+<table class="cov"><thead><tr><th>What</th><th>Passed</th><th>Out of</th></tr></thead><tbody>
+{''.join(f"<tr><td>{e(w)}</td><td>{p}</td><td>{n}</td></tr>" for w, p, n in coverage(results)) or '<tr><td colspan=3>Nothing ran yet</td></tr>'}
+</tbody></table>
+<h2>Every check</h2>
 <table><thead><tr><th>Suite</th><th>Check</th><th>Outcome</th><th>Details</th></tr></thead><tbody>
 {''.join(rows)}
 </tbody></table></body></html>"""
@@ -90,8 +131,15 @@ def to_xlsx(conn, run_id: int) -> bytes:
                 ("Started", str(run["started_at"] or run["queued_at"])), ("Finished", str(run["finished_at"] or "")),
                 ("Version", run["version"]), ("Passed", t["passed"]), ("Failed", t["failed"]), ("Warnings", t["warning"]),
                 ("Skipped", t["skipped"]), ("Message", run["message"]),
-                ("Where", "A separate test database (eaxtest) and the runner's own copy of the API: no real data")]:
+                ("Where", "This installation, inside the run's own fixtures (self_test_<id>_<n>): nothing else is changed"),
+                ("Command line", store.command_line(run))]:
         ws.append(list(row))
+    ws.append([])
+    ws.append(["Coverage", "Passed", "Out of"])
+    for c in ws[ws.max_row]:
+        c.font = Font(bold=True)
+    for w, p, n in coverage(results):
+        ws.append([w, p, n])
     ws.column_dimensions["A"].width, ws.column_dimensions["B"].width = 18, 90
     rs = wb.create_sheet("Results")
     head = ["Suite", "Check", "Outcome", "Details", "Request", "Response", "Browser", "Video", "Took (ms)"]

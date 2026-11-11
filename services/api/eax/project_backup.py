@@ -76,6 +76,7 @@ TABLES = [
     ("scenario_assessments", "project_id = :p", {"document_id": "documents", "gov_record_id": "gov_records"}),
     ("charters", "project_id = :p", {}),
     ("phase_states", "project_id = :p", {}),
+    ("iteration_changes", "project_id = :p", {}),          # the ADM iteration per cycle (D571-D574)
     ("task_statuses", "project_id = :p", {}),
     ("org_people", "project_id = :p", {"stakeholder_id": "stakeholders"}),
     ("tasks", "project_id = :p", {"step_id": "steps"}),

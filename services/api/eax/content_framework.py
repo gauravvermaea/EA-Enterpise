@@ -320,6 +320,10 @@ def _items(conn, p: dict) -> list[dict]:
         r["chosen_area"] = bool(areas_of(r["content_area"]))
         r["repository"] = repo_of_item(r["name"], r["library_repo"], r["default"])[0]
         r["area"] = areas_of(r["content_area"]) or r["default"]
+    from . import iterations as it
+    cur = it.current(conn, p)
+    for r in rows:                      # a class in a phase the ADM iteration leaves out is frozen (D572): shown, read only
+        r["frozen"] = not it.enabled(cur, r["phase"])
     return rows
 
 

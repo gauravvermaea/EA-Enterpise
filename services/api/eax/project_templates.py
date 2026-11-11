@@ -69,6 +69,11 @@ def clean_spec(spec: dict) -> dict:
     if s.get("primary") and s["primary"] not in ROLES:
         raise EditError(f"The goals go into a model role: one of {', '.join(ROLES)}, or none.")
     s["skip"] = [x for x in s.get("skip") or [] if x in STEPS]
+    if s.get("iteration"):          # a default ADM iteration for its projects (D573); none: they start as a Full cycle
+        from . import iterations as it
+        x = s["iteration"] if isinstance(s["iteration"], dict) else {"code": s["iteration"]}
+        code, phases = it.clean(x.get("code"), x.get("phases"))
+        s["iteration"] = {"code": code, "phases": phases}
     s["goals"] = bool(s.get("goals", True))
     from . import references as rf
     from . import stakeholders as sh
@@ -128,6 +133,8 @@ def from_project(conn, user, project: Any, data: dict) -> dict:
             "views": [r["view"] for r in _rows(conn, "SELECT view FROM proj.project_views WHERE project_id = :p AND NOT own", p=p["id"])],
             "goals": bool(p.get("home_model")), "primary": primary, "skip": [], "slots": slots,
             "finish": "", "from_project": p["name"],
+            "iteration": (lambda cur: {"code": cur["code"], "phases": cur["phases"]} if cur["chosen"] else None)(
+                __import__("eax.iterations", fromlist=["x"]).current(conn, p)),
             "stakeholders": [{k: r[k] for k in ("name", "category", "power", "interest", "concerns", "role_title")}
                              for r in _rows(conn, "SELECT * FROM proj.stakeholders WHERE project_id = :p ORDER BY sort_order, id", p=p["id"])],
             "reference": [{"title": r["file_name"], "url": r["link_url"], "folder": r["folder"].split("/", 1)[1] if "/" in r["folder"] else "",

@@ -818,6 +818,7 @@ log.info("EA Explorer MCP server %s ready at /mcp", __version__)
 from . import (  # noqa: E402,F401
     mcp_analysis,
     mcp_build,
+    mcp_iterations,
     mcp_more,
     mcp_ops,
     mcp_scenarios,

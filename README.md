@@ -145,6 +145,14 @@ exports, certificate) and `work/backups` (every backup and restore log). `.\eax 
 **backups and restore logs included** (copy `work/backups` elsewhere first to keep them); `.\eax cleanup --all`
 also deletes the Docker volumes so the databases start empty.
 
+### Check your installation
+
+Once it is up, test it: **System admin › Self-test** › Build the test runner (first time) › Smoke test › Start; or
+`.\eax test --smoke` (`./eax.sh test --smoke`); or from another machine `.\eax testbench --target https://<host>
+--i-own-this --smoke`. Results: Self-test › History, the HTML or Excel report, `testbench/reports/`, and the exit code.
+The full steps, what the coverage summary and the outcomes mean, and how to clean up:
+[Check your installation](docs/deployment.md#check-your-installation).
+
 ### Backup and restore from the command line
 
 They work when the screens cannot (Linux and macOS: `./eax.sh`):
@@ -197,6 +205,23 @@ The helper never generates passwords. On a server, `init server` copies a templa
 `change-me` value or the development password.
 
 Step-by-step checks for the phase 0 demo are in [docs/phase-0.md](docs/phase-0.md).
+
+## How we test EA Explorer
+
+Four layers, all in this repository ([docs/testing.md](docs/testing.md) has the full table of what each covers, how to
+run it, who runs it and where the results go):
+
+- **The code's own tests**: pytest for the API (`cd services/api && pytest -q`), the draw.io plugin's Playwright tests,
+  and tests that every screen has on-screen help and every command the same help in every form of eax.
+- **The self-test, inside a running installation** (System admin › Self-test, `eax test`): smoke or detailed tests of
+  the API (every endpoint as every role, allowed and refused, and writes), every page and real journeys in a browser,
+  read-only database checks and security scans, in test data of its own that you remove when you choose.
+- **The test bench, from outside** (`eax testbench`, [docs/testbench.md](docs/testbench.md)): the same tests from
+  another machine against any address you own, in Chromium, Firefox, WebKit and Edge, plus install, upgrade and load
+  tests, with HTML, JSON and JUnit reports. Its test data (Excel and CSV deliveries, a metamodel workbook, documents,
+  a survey, a drawn view, expected results) is in `testbench/data`, shared with the self-test.
+- **CI** (`ci/github-actions-ci.yml`): the code's tests and the test bench's API and UI suites on every change; nightly
+  a clean install, an upgrade from the previous release, every browser and a short load test.
 
 ## Certificate and https
 
@@ -270,6 +295,9 @@ services/
   api/                      Flask API, migrations, setup, job runner, tests
   web/                      React start page and heartbeat screen
   backup/                   backup and restore scripts
+testbench/                  the test bench: the self-test's tests run from outside (eax testbench)
+  data/                     the test data, shared with the self-test (python -m testbench.data build)
+  load/                     the k6 load test; thresholds.json its pass marks
 docs/                       phase guides, operations, decisions; requirements and build plan
 ```
 

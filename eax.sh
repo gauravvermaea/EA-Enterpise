@@ -394,6 +394,12 @@ up_services() {
   if [ -n "$READY" ]; then
     echo "EA Explorer is ready after ${READY} s: you can sign in."
     echo "Still starting in the background: Reports, Documents, Diagrams and the sample data; the screens show each in red, amber or green (down, starting, up)."
+    if [ ! -f "$WORK_DIR/.check-hint-shown" ]; then   # the first start: how to check it (D582)
+      echo "Check your installation: System admin > Self-test > Build the test runner, then Smoke test > Start;"
+      echo "  or ./eax.sh test --smoke; or from another machine ./eax.sh testbench --target https://<address> --i-own-this --smoke."
+      echo "  Results: Self-test > History and the report. Steps: docs/deployment.md, \"Check your installation\"."
+      : > "$WORK_DIR/.check-hint-shown" 2>/dev/null || true
+    fi
   fi
 }
 show_services() {
@@ -665,7 +671,7 @@ if [ "$CMD" = "test" ]; then case " $* " in *" --reset-survival "*) exec "$BASH"
 case "$CMD" in
   help|-h|--help|/\?) show_help "${2:-}" "${3:-}"; exit $? ;;
   document)       shift; document "$@"; exit 0 ;;
-  deploy|secrets|packs|schedule)   # packs: the industry packs (phase 39, D546); schedule: scheduled commands (D559)
+  deploy|secrets|packs|schedule|testbench)   # packs (D546); schedule: scheduled commands (D559); testbench: the outside test bench (D579)
     # phase 36 (D498, D504): one Python program for every form (D500): eaxpy.sh fetches uv and Python into work/tools
     exec "$BASH" ./eaxpy.sh "$@" ;;
   restart)

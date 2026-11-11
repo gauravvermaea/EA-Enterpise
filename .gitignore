@@ -8,6 +8,11 @@ logs/
 
 # Local data folders (laptop deployment)
 data/
+# ... but the test data is committed (D580); a filled-in credentials file never is
+!testbench/data/
+testbench/data/credentials.json
+# the test bench's reports
+testbench/reports/
 
 # Python
 __pycache__/

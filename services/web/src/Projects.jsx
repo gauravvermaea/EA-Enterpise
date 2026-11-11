@@ -11,6 +11,8 @@ import ScenariosTab from "./Scenarios";
 import PinButton from "./PinButton";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import AdmWheel from "./AdmWheel";
+import IterationControl from "./IterationControl";
+import { frozenNote, projectPhaseEnabled, readOnlyIn } from "./iterations";
 import { apiDownload, apiFetch, apiUpload, partOn, roles } from "./auth";
 import { fmtDate, fmtDateTime } from "./fmt";
 import { refreshAll, useApi } from "./ModelViews";
@@ -1892,6 +1894,7 @@ function ProjectPage({ id, tab, sub }) {
           title="Project admin: every project wizard for this project">⚙ Project wizards</a>}
       </div>
       {msg && <p className="small quiet">{msg}</p>}
+      <IterationControl p={p} />
       {p.frozen && <div className="lock-banner">{p.status === "merged" ? <>Merged into <a href={`#/projects/${p.merged_into?.id}`}>{p.merged_into?.name}</a></> : "Frozen"}
         {" "}on {fmtDateTime(p.finished_at)} by {p.finished_by}: read only. {p.finish_note}</div>}
       <BaseBanner p={p} />
@@ -2005,10 +2008,11 @@ function Landing({ p }) {
   return (
     <div className="landing">
       <div className="landing-wheel">
-        <AdmWheel stats={stats} selected={sel} onSelect={setSel} />
+        <AdmWheel stats={stats} selected={sel} onSelect={setSel} enabled={(c) => projectPhaseEnabled(p, c)} />
         <div className="phase-card">
+          {!projectPhaseEnabled(p, sel) && <p className="small phase-frozen-note">🔒 {frozenNote(p, sel)}</p>}
           <h3>{sel === "C" ? "Phase C: Information Systems Architecture (data and application)" : sel === "X" ? "Across the cycle (repository-wide)" : ph?.name}</h3>
-          {sel !== "X" && <PhaseDone p={p} codes={codes} />}
+          {sel !== "X" && <PhaseDone p={readOnlyIn(p, sel)} codes={codes} />}
           <p className="small">{steps.filter((s) => s.done_at).length} of {steps.length} steps done · {classes.length} document classes ·
             {" "}{docs.length} documents{empty ? ` · ${empty} class${empty === 1 ? "" : "es"} with no document yet` : ""}</p>
           <div className="row-gap">
@@ -2050,18 +2054,23 @@ function PhasesTab({ p, start = "documents" }) {
   const label = (c) => (c === "X" ? "Across the cycle" : c === "C" ? "C · Information Systems"
     : `${c} · ${shortName(p.phases.find((x) => x.code === c)?.name) || c}`);
   const nameOf = (c) => (c === "C" ? "Phase C: Information Systems Architecture" : p.phases.find((x) => x.code === c)?.name || c);
+  const outer = p;
+  p = readOnlyIn(outer, sel);           // a frozen phase (D572): open, read only; nothing hidden or deleted
   return (
     <div>
       <div className="tabs phase-tabs" role="tablist">
         {tabs.map((c) => {
           const n = p.items.filter((i) => i.chosen && subPhases(c).includes(i.phase)).length;
-          return <button key={c} role="tab" aria-selected={sel === c} className={`tab${sel === c ? " on" : ""}`} title={nameOf(c)} onClick={() => setSel(c)}>
-            {label(c)} <span className="small quiet">{n}</span></button>;
+          const off = !projectPhaseEnabled(outer, c);
+          return <button key={c} role="tab" aria-selected={sel === c} className={`tab${sel === c ? " on" : ""}${off ? " phase-off" : ""}`}
+            title={off ? `${nameOf(c)}: frozen in this iteration (read only)` : nameOf(c)} onClick={() => setSel(c)}>
+            {off && "🔒 "}{label(c)} <span className="small quiet">{n}</span></button>;
         })}
       </div>
       <div className="tab-panel">
         <h3 style={{ marginTop: 0 }}>{sel === "C" ? "Phase C: Information Systems Architecture (data and application)" : sel === "X" ? "Across the cycle (repository-wide)" : ph?.name}
           {sel !== "X" && <PhaseDone p={p} codes={codes} />}</h3>
+        {p.phase_frozen && <div className="lock-banner phase-frozen-note">🔒 {frozenNote(outer, sel)}</div>}
         <div className="tabs sub" role="tablist">
           <button role="tab" aria-selected={part === "documents"} className={`tab${part === "documents" ? " on" : ""}`} onClick={() => setPart("documents")}>
             Documents <span className="small quiet">{nDocs}</span></button>

@@ -1,0 +1,62 @@
+{
+  "title": "Self-test data survey",
+  "description": "A short survey the self-test sends to its own test accounts",
+  "sections": [
+    {
+      "key": "about",
+      "title": "About the application",
+      "questions": [
+        {
+          "key": "owner_known",
+          "kind": "yes_no",
+          "text": "Do you know who owns it?",
+          "required": true
+        },
+        {
+          "key": "hosting",
+          "kind": "single",
+          "text": "Where does it run?",
+          "required": true,
+          "options": [
+            {
+              "label": "SaaS",
+              "value": "saas"
+            },
+            {
+              "label": "Cloud",
+              "value": "cloud"
+            },
+            {
+              "label": "On premises",
+              "value": "onprem"
+            }
+          ]
+        },
+        {
+          "key": "fit",
+          "kind": "rating",
+          "text": "How well does it fit the business?",
+          "min": 1,
+          "max": 5,
+          "low_label": "Poorly",
+          "high_label": "Very well"
+        },
+        {
+          "key": "users",
+          "kind": "number",
+          "text": "About how many people use it?"
+        },
+        {
+          "key": "notes",
+          "kind": "long_text",
+          "text": "Anything else?",
+          "condition": {
+            "question": "owner_known",
+            "op": "equals",
+            "value": "yes"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -2452,3 +2452,22 @@ label.block input, label.block textarea { display: block; width: 100%; margin-to
 .build-log { max-height: 260px; overflow: auto; font-size: 12px; background: #0f1720; color: #d7e0ea; padding: 8px 10px; border-radius: 6px; white-space: pre-wrap; }
 @media (prefers-color-scheme: dark) { .runner-meter { background: #2a3440; } .self-test-runner.panel-soft { background: transparent; } }
 .rel-vals { color: #57606a; font-size: 12px; }
+
+/* ADM iteration types (D571-D574): the bar on the project page, the dialog, frozen phases greyed and marked */
+.iteration-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0 4px; }
+.iteration-ask { background: #fff4d6; color: #7a5200; border: 1px solid #f0d68a; border-radius: 10px; padding: 1px 8px; font-size: 12px; font-weight: 600; }
+.iteration-history { flex: 1 1 100%; margin-top: 4px; }
+.iteration-choices, .iteration-phases { border: 1px solid var(--line, #d9dde3); border-radius: 6px; padding: 8px 10px; margin: 8px 0; }
+.iteration-choice { display: flex; gap: 8px; align-items: flex-start; padding: 4px 0; }
+.iteration-phases { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.iteration-dialog { padding: 0 20px; }
+.iteration-dialog fieldset { border: 1px solid var(--line, #d9dde3); }
+.iteration-note { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; }
+.iteration-note input { width: 100%; box-sizing: border-box; padding: 6px 8px; }
+.iteration-phase { display: inline-flex; gap: 4px; align-items: center; }
+.adm-petal.frozen .adm-disc { fill: #e7e9ec; stroke: #b8bec6; stroke-dasharray: 4 3; }
+.adm-petal.frozen text { fill: #7b838c; }
+.adm-petal.frozen .adm-progress { opacity: 0.35; }
+.adm-lock { font-size: 13px; }
+.phase-tabs .tab.phase-off { color: #7b838c; }
+.phase-frozen-note { margin: 6px 0; }

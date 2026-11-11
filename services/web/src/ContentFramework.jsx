@@ -167,7 +167,7 @@ function TagRow({ p, r, kind, can, on, tick, place }) {
           {kind === "types" && `${r.domain || ""} · ${r.entities} entit${r.entities === 1 ? "y" : "ies"}`}
           {kind === "entities" && (r.display_id || "")}
         </div></td>
-      {kind === "classes" && <><td><span className={`kind-toggle ${r.kind === "Deliverable" ? "del" : "art"}`} title={r.kind}>{r.kind === "Deliverable" ? "D" : "A"}</span></td><td>{r.phase}</td></>}
+      {kind === "classes" && <><td><span className={`kind-toggle ${r.kind === "Deliverable" ? "del" : "art"}`} title={r.kind}>{r.kind === "Deliverable" ? "D" : "A"}</span></td><td>{r.phase}{r.frozen && <span title="Frozen in this ADM iteration: read only"> 🔒</span>}</td></>}
       {kind === "documents" && <><td>{r.class}</td><td>{r.phase}</td></>}
       {kind === "types" && <td>{r.model}</td>}
       {kind === "entities" && <td>{r.type}<div className="quiet small">{r.model}</div></td>}

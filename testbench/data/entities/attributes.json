@@ -1,0 +1,25 @@
+{
+  "attributes": [
+    {
+      "code": "st_hosting",
+      "name": "Hosting",
+      "data_type": "pick_list",
+      "values": [
+        "SaaS",
+        "Cloud",
+        "On premises"
+      ]
+    },
+    {
+      "code": "st_cost",
+      "name": "Yearly cost",
+      "data_type": "number",
+      "unit": "EUR"
+    },
+    {
+      "code": "st_live",
+      "name": "Live since",
+      "data_type": "date"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+{
+  "_comment": "The deploy wizard's answers for the test bench's nightly install and upgrade in CI (eax deploy --answers, D582): EA Explorer on the CI machine itself, as on a laptop. No secret here: the laptop template's own passwords are used.",
+  "kind": "laptop"
+}

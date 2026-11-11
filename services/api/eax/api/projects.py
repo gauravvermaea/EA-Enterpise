@@ -1963,6 +1963,34 @@ class ProjectPhase(MethodView):
                     action="project.phase", obj=project)
 
 
+@blp.route("/projects/<string:project>/iteration")
+class ProjectIteration(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def get(self, project):
+        """The project's ADM iteration in its current cycle, the choices and the history of changes (D571-D574)"""
+        from .. import iterations as it
+
+        def run(c):
+            p = pj.project_row(c, project)
+            pj._need(c, p, g.user, "read")
+            return {"iteration": it.current(c, p), "iterations": it.catalogue(), "history": it.history(c, p)}
+        return _run(run)
+
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth()
+    def post(self, data, project):
+        """Change the iteration ({iteration: full|capability|development|transition|governance|custom, phases: [..] for
+        custom, note}); anyone who can open the project, at any time; the phases left out are frozen, never deleted"""
+        from .. import iterations as it
+        d = data or {}
+        return _run(lambda c: it.set_iteration(c, project, g.user, d.get("iteration"), d.get("phases"), d.get("note") or ""),
+                    write=True)
+
+
 # ---------------------------------------------------------------- the organisation's reference library (phase 13.0.8, D300)
 def _form(*keys):
     return {k: request.form.get(k) for k in keys if request.form.get(k) is not None}

@@ -14,6 +14,8 @@ the `eax` commands (backups and restores included) and the phase table.
 | [Business Model Canvas](business-model-canvas.md) | A project's canvases: current, target, working copies and scenarios; compare, clean up, export (D344) |
 | [Key questions and placeholder views](key-questions.md) | The questions a project's work answers: views mapped to each, placeholders where none fits, the answer (rich text with links to the artifacts) and the stakeholder's acceptance (D341, D342) |
 | [Command line and console](command-line-and-console.md) | Every `eax` command in detail, and the console (`eax console`) item by item: for getting EA Explorer back up |
+| [Testing](testing.md) | Every kind of test, what each covers, how to run it, who runs it and where the results go; the self-test in detail |
+| [The test bench](testbench.md) | `eax testbench`: the self-test's tests from outside, in any browser; install, upgrade and load tests; the test data; reports and CI |
 | [Operations](operations.md) | Health, services on and off, backups and restores (console and command line), the maintenance page, upgrades, logs and diagnostics |
 | [Licences](licences.md) | The open-source components EA Explorer uses and their licences |
 | [CI](../ci/README.md) | The checks and tests run on every change |

@@ -8,16 +8,17 @@ const SHORT = {
 };
 
 // choosing (the project wizard, owner 7 Nov 2026): the ring shows the steps kept and the documents chosen instead
-function Petal({ code, x, y, r, stat, on, onSelect, center, choosing }) {
+function Petal({ code, x, y, r, stat, on, onSelect, center, choosing, off }) {
   const lines = SHORT[code] || [code];
   const s = stat || {};
   const frac = s.steps ? s.done / s.steps : 0;
   const circ = 2 * Math.PI * (r + 5);
   const label = choosing
     ? `${lines.join(" ")}: ${s.done || 0} of ${s.steps || 0} steps kept, ${s.docs || 0} of ${s.items || 0} deliverables and artifacts chosen`
-    : `${lines.join(" ")}: ${s.done || 0} of ${s.steps || 0} steps done, ${s.items || 0} deliverables and artifacts, ${s.docs || 0} documents`;
+    : `${lines.join(" ")}: ${s.done || 0} of ${s.steps || 0} steps done, ${s.items || 0} deliverables and artifacts, ${s.docs || 0} documents`
+      + (off ? " (frozen in this iteration: read only)" : "");
   return (
-    <g className={`adm-petal${on ? " on" : ""}${center ? " center" : ""}${s.items || s.steps ? "" : " empty"}`} role="button" tabIndex={0}
+    <g className={`adm-petal${on ? " on" : ""}${center ? " center" : ""}${s.items || s.steps ? "" : " empty"}${off ? " frozen" : ""}`} role="button" tabIndex={0}
       aria-pressed={on} aria-label={label} onClick={() => onSelect(code)}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(code); } }}>
       <title>{label}</title>
@@ -27,12 +28,15 @@ function Petal({ code, x, y, r, stat, on, onSelect, center, choosing }) {
       {lines.map((t, i) => (
         <text key={t} x={x} y={y + (i - (lines.length - 1) / 2) * 14 - (s.items ? 4 : 0)} className={i === 0 ? "adm-t1" : "adm-t2"} textAnchor="middle">{t}</text>
       ))}
+      {off && <text x={x} y={y - r + 16} className="adm-lock" textAnchor="middle">🔒</text>}
       {(s.items > 0 || s.docs > 0) && <text x={x} y={y + lines.length * 7 + 8} className="adm-count" textAnchor="middle">{choosing ? `${s.docs || 0} docs · ${s.done || 0} steps` : `${s.docs || 0} docs · ${s.done || 0}/${s.steps || 0}`}</text>}
     </g>
   );
 }
 
-export default function AdmWheel({ stats, selected, onSelect, choosing = false }) {
+// enabled (D572): a function of a phase code; the phases the project's ADM iteration leaves out are greyed and marked
+export default function AdmWheel({ stats, selected, onSelect, choosing = false, enabled = null }) {
+  const off = (c) => (enabled ? !enabled(c) : false);
   const cx = 230, cy = 312, R = 168, r = 54;
   const pos = (i) => {
     const a = (-90 + i * 45) * (Math.PI / 180);
@@ -49,10 +53,10 @@ export default function AdmWheel({ stats, selected, onSelect, choosing = false }
         return <path key={`arrow${c}`} d="M -6 -5 L 6 0 L -6 5 z" className="adm-arrow" transform={`translate(${mx} ${my}) rotate(${ang})`} />;
       })}
       <line x1={cx} y1={82} x2={cx} y2={cy - R - r} className="adm-link" />
-      <Petal code="P" x={cx} y={44} r={38} stat={stats.P} on={selected === "P"} onSelect={onSelect} choosing={choosing} />
+      <Petal code="P" x={cx} y={44} r={38} stat={stats.P} on={selected === "P"} onSelect={onSelect} choosing={choosing} off={off("P")} />
       {RING.map((c, i) => {
         const [x, y] = pos(i);
-        return <Petal key={c} code={c} x={x} y={y} r={r} stat={stats[c]} on={selected === c} onSelect={onSelect} choosing={choosing} />;
+        return <Petal key={c} code={c} x={x} y={y} r={r} stat={stats[c]} on={selected === c} onSelect={onSelect} choosing={choosing} off={off(c)} />;
       })}
       <Petal code="RM" x={cx} y={cy} r={70} stat={stats.RM} on={selected === "RM"} onSelect={onSelect} center choosing={choosing} />
     </svg>

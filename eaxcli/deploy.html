@@ -90,6 +90,12 @@
       <button type="button" data-choice="quit">Quit</button>
     </div>
     <div id="finished" class="status ok hidden"></div>
+    <div id="checkit" class="status hidden">
+      <b>Check your installation.</b> In EA Explorer: System admin › Self-test › <i>Build the test runner</i>, then
+      <i>Smoke test</i> › <i>Start</i>. Or on the command line: <code>eax test --smoke</code>; from another machine:
+      <code>eax testbench --target https://&lt;address&gt; --i-own-this --smoke</code>. Results: Self-test › History and
+      the report (docs/deployment.md, "Check your installation").
+    </div>
     <h3>What it does</h3>
     <pre id="log" class="log"></pre>
     <div class="buttons"><button type="button" id="again" class="hidden">Back to the answers</button><button type="button" id="close2">Close the wizard</button></div>
@@ -199,6 +205,7 @@ async function poll() {
   fin.textContent = { done: "Done: EA Explorer is deployed. The address and the first sign-in are at the end of the log.",
                       planned: "That is the plan. Back to the answers to change them, or Deploy to carry it out.",
                       quit: "Stopped. Nothing more is done; the log says how far it got." }[s.status] || "";
+  document.getElementById("checkit").classList.toggle("hidden", s.status !== "done");
   document.getElementById("again").classList.toggle("hidden", !(ended || s.status === "asking"));
   if (s.status === "asking") { back(); return; }
   if (!ended) setTimeout(poll, 1000);

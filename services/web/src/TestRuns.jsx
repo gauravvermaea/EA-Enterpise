@@ -12,6 +12,7 @@
 // log live, Retry when it fails, and "Build it automatically after each start or update" (persist/settings.json).
 // Health shows the last run in one line (LastSelfTest).
 import { useEffect, useRef, useState } from "react";
+import { CLI_FORMS, commandLine, journey, makeFrame, sweep } from "./selfTestDriver.js";
 import { apiBlobUrl, apiDownload, apiFetch, can } from "./auth";
 import { Modal } from "./ModelOps";
 import { fmtDateTime } from "./fmt";
@@ -87,6 +88,8 @@ function Chooser({ data, onStarted }) {
   const [role, setRole] = useState("");
   const [area, setArea] = useState("");
   const [watch, setWatch] = useState(false);
+  const [jpick, setJpick] = useState([]);
+  const [pagesOnly, setPagesOnly] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -98,7 +101,8 @@ function Chooser({ data, onStarted }) {
     setBusy(true); setMsg("");
     try {
       const r = await apiFetch("/api/v1/admin/tests", { method: "POST", body: JSON.stringify({ level, suites: pick, role, area,
-        watch: watch && level === "detailed" && pick.includes("ui"), build_first: notBuilt }) });
+        watch: watch && level === "detailed" && pick.includes("ui"), build_first: notBuilt,
+        journeys: level === "detailed" && !pagesOnly ? jpick : [], pages_only: level === "detailed" && pagesOnly }) });
       setMsg(r.message); setConfirm(false); onStarted();
     } catch (e) { setMsg(e.message); setConfirm(false); } finally { setBusy(false); }
   };
@@ -121,6 +125,18 @@ function Chooser({ data, onStarted }) {
             <label className="check" title="The browser journeys run here, in a frame of this page, in this browser, while you watch">
               <input type="checkbox" checked={watch} disabled={!pick.includes("ui")} onChange={(e) => setWatch(e.target.checked)} /> Watch it in this browser
               <span className="quiet small"> (the journeys run in this browser instead of headless on the server)</span></label>
+            <label className="check" title="Only the page sweep: every page, group, tab and sub-tab opened and checked (means the browser suite)">
+              <input type="checkbox" checked={pagesOnly} onChange={(e) => { setPagesOnly(e.target.checked); if (e.target.checked) { setJpick([]); setPick(["ui"]); } }} />
+              {" "}Pages only <span className="quiet small"> (every page opens, renders, has a heading and F1 help; no journeys)</span></label>
+            {(data.journeys || []).length > 0 && (
+              <fieldset className="self-test-journeys" disabled={pagesOnly}>
+                <legend className="small">Journeys <span className="quiet">(none ticked: every journey; ticking any means the browser suite)</span></legend>
+                {data.journeys.map((j) => (
+                  <label key={j.name} className="check" title={`As ${j.roles.join(", ")}${j.headless_only ? "; headless only" : ""}`}>
+                    <input type="checkbox" checked={jpick.includes(j.key)}
+                      onChange={(e) => { setJpick((p) => (e.target.checked ? [...p, j.key] : p.filter((x) => x !== j.key))); if (e.target.checked) setPick(["ui"]); }} />
+                    {" "}{j.name}{j.smoke && <span className="quiet small"> · in the smoke test</span>}{j.headless_only && <span className="quiet small"> · headless only</span>}</label>))}
+              </fieldset>)}
           </div>)}
       </fieldset>
       <div className="toolbar">
@@ -132,6 +148,9 @@ function Chooser({ data, onStarted }) {
           onClick={() => setConfirm(true)}>Start</button>
         {msg && <span className="small">{msg}</span>}
       </div>
+      <CommandLine run={{ level, suites: level === "detailed" ? pick : [], role, area, watch: watch && level === "detailed" && pick.includes("ui"),
+        journeys: level === "detailed" && !pagesOnly ? jpick : [], pages_only: level === "detailed" && pagesOnly }} />
+      <FromTheCommandLine commands={data.commands} />
       {confirm && (
         <Modal title="Start the self-test now?" onClose={() => setConfirm(false)}
           actions={<><button onClick={() => setConfirm(false)}>Cancel</button>
@@ -303,62 +322,116 @@ async function snapshot(frame) {
   } catch { return null; }
 }
 
+// ---------------------------------------------------------------- the same from the command line (D578)
+function useCliForm() {
+  const [form, setForm] = useState(() => { try { return localStorage.getItem("eax.selftest.cli") || CLI_FORMS[0][0]; } catch { return CLI_FORMS[0][0]; } });
+  const pick = (f) => { setForm(f); try { localStorage.setItem("eax.selftest.cli", f); } catch { /* private window */ } };
+  return [form, pick];
+}
+
+function CopyButton({ text }) {
+  const [done, setDone] = useState(false);
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(text); setDone(true); setTimeout(() => setDone(false), 1500); } catch { setDone(false); }
+  };
+  return <button className="small" onClick={copy} title="Copy the command">{done ? "Copied" : "Copy"}</button>;
+}
+
+function CommandLine({ run }) {
+  const [form, setForm] = useCliForm();
+  const cmd = commandLine(run, form).split("   (")[0];
+  return (
+    <div className="self-test-cli" aria-label="The same run from the command line">
+      <span className="small">The same from the command line:</span>{" "}
+      <code className="self-test-cli-cmd">{cmd}</code>
+      <CopyButton text={cmd} />
+      <select value={form} onChange={(e) => setForm(e.target.value)} aria-label="How you type eax" title="How you type the eax command">
+        {CLI_FORMS.map(([f, l]) => <option key={f} value={f}>{f} ({l})</option>)}</select>
+      {run.watch && <span className="quiet small">Watching in a browser is only from this page; the command runs the journeys headless.</span>}
+    </div>
+  );
+}
+
+function FromTheCommandLine({ commands }) {
+  const [form, setForm] = useCliForm();
+  if (!commands?.options?.length) return null;
+  const fill = (t) => t.replaceAll("{eax}", form);
+  return (
+    <details className="self-test-cli-help">
+      <summary>From the command line</summary>
+      <p className="small">{commands.summary} Every option of <code>{form} test</code> (from the command-line help, <code>{form} help test</code>);
+        the whole command line is in <a href="#/documentation">the documentation</a> (<code>{form} document</code>).
+        {" "}<label className="small">Typed as <select value={form} onChange={(e) => setForm(e.target.value)}>
+          {CLI_FORMS.map(([f, l]) => <option key={f} value={f}>{f} ({l})</option>)}</select></label></p>
+      <table className="grid-table small">
+        <thead><tr><th>Option</th><th>What it does</th></tr></thead>
+        <tbody>{commands.options.map((o) => <tr key={o.flag}><td className="nowrap"><code>{o.flag}</code></td><td>{o.what}</td></tr>)}</tbody>
+      </table>
+      {commands.examples?.length > 0 && <>
+        <p className="small">Examples:</p>
+        <ul className="self-test-cli-examples">
+          {commands.examples.map((x) => <li key={x}><code>{fill(x)}</code> <CopyButton text={fill(x)} /></li>)}
+        </ul></>}
+    </details>
+  );
+}
+
 function BrowserDriver({ runId, browser }) {
+  // the page sweep, then the journeys, in a frame of this page (selfTestDriver.js: the same rules as the headless runner)
   const frame = useRef(null);
-  const [rows, setRows] = useState(browser.journeys.map((j) => ({ name: j.name, role: j.role, state: "waiting", detail: "" })));
+  const js = browser.journeys || [];
+  const [rows, setRows] = useState(js.map((j) => ({ name: j.name, role: j.role, state: "waiting", detail: "" })));
+  const [pages, setPages] = useState({ done: 0, of: (browser.pages || []).length, failed: 0 });
   const [now, setNow] = useState("");
   const started = useRef(false);
   const set = (i, patch) => setRows((rs) => rs.map((r, k) => (k === i ? { ...r, ...patch } : r)));
-  const waitFor = async (test, ms) => {
-    const end = Date.now() + ms;
-    while (Date.now() < end) {
-      try { if (test()) return true; } catch { /* the frame is loading */ }
-      await new Promise((ok) => setTimeout(ok, 300));
-    }
-    return false;
-  };
   useEffect(() => {
     if (started.current) return;
     started.current = true;
     (async () => {
       const name = browserName();
-      for (const [i, j] of browser.journeys.entries()) {
+      const errors = [];
+      const f = makeFrame(frame.current, browser.ticket, (e) => errors.push(e));
+      const post = async (results, done) => {
+        try { await apiFetch(`/api/v1/admin/tests/${runId}/browser`, { method: "POST", body: JSON.stringify({ results, done }) }); }
+        catch { /* the run may have been stopped */ }
+      };
+      if ((browser.pages || []).length) {
+        await sweep(f, browser, errors, async (nm, outcome, detail, ms, wantShot) => {
+          const shot = wantShot ? await snapshot(frame.current) : null;
+          if (nm.startsWith("page: ") && outcome !== "skipped") {
+            setPages((p) => ({ ...p, done: p.done + 1, failed: p.failed + (outcome === "failed" ? 1 : 0) }));
+          }
+          await post([{ name: nm, outcome, detail, ms, browser: name, screenshot: shot }]);
+        }, (route, n, of) => { setNow(`page ${n + 1} of ${of}: ${route}`); setPages((p) => ({ ...p, of })); });
+      }
+      for (const [i, j] of js.entries()) {
         const t0 = Date.now();
         set(i, { state: "running" });
-        const errors = [];
-        let outcome = "passed", detail = "", shot = null;
-        for (const step of j.steps) {
-          setNow(`${j.name}: ${step.route}`);
-          const url = `/?eaxselftest=${encodeURIComponent(browser.ticket)}&eaxrole=${encodeURIComponent(j.role)}${step.route}`;
-          await new Promise((ok) => { frame.current.onload = ok; frame.current.src = url; setTimeout(ok, 15000); });
-          try { frame.current.contentWindow.addEventListener("error", (e) => errors.push(String(e.message || e))); } catch { /* not ours */ }
-          const body = () => frame.current.contentDocument?.body?.innerText || "";
-          const ok = await waitFor(() => body().includes("EA Explorer") && (!step.expect || body().includes(step.expect)), 30000);
-          if (!ok) { outcome = "failed"; detail = `"${step.expect || "EA Explorer"}" did not show on ${step.route} within 30 s`; break; }
-          await new Promise((r) => setTimeout(r, 1200));
-        }
+        setNow(`${j.name} as ${j.role}`);
+        errors.length = 0;
+        let [outcome, detail] = await journey(f, j);
         if (outcome === "passed" && errors.length) { outcome = "failed"; detail = errors.slice(0, 10).join("; "); }
-        if (outcome === "failed") shot = await snapshot(frame.current);
-        if (outcome === "passed") detail = `${j.steps.length} page(s) as ${j.role}`;
+        const shot = outcome === "failed" ? await snapshot(frame.current) : null;
         set(i, { state: outcome, detail });
-        try {
-          await apiFetch(`/api/v1/admin/tests/${runId}/browser`, { method: "POST", body: JSON.stringify({
-            results: [{ name: j.name, outcome, detail, ms: Date.now() - t0, browser: name, screenshot: shot }] }) });
-        } catch { /* the run may have been stopped */ }
+        await post([{ name: j.name, outcome, detail, ms: Date.now() - t0, browser: name, screenshot: shot }]);
       }
       setNow("done");
-      try { await apiFetch(`/api/v1/admin/tests/${runId}/browser`, { method: "POST", body: JSON.stringify({ results: [], done: true }) }); } catch { /* ended */ }
+      await post([], true);
     })();
   }, []);
   return (
     <div className="self-test-watch">
-      <ol className="self-test-steps" aria-label="Journeys in this browser">
-        {rows.map((r) => <li key={r.name} className={r.state}><span className={cls(r.state)}>{r.state === "running" ? "▶" : r.state === "passed" ? "✓" : r.state === "failed" ? "✗" : "·"}</span>
-          {" "}{r.name} <span className="quiet small">as {r.role}</span>{r.detail && r.state === "failed" && <div className="small bad-text">{r.detail}</div>}</li>)}
-      </ol>
+      <div>
+        {pages.of > 0 && <p className="small">Pages opened <b>{pages.done}</b> of {pages.of}{pages.failed ? <span className="bad-text"> · {pages.failed} failed</span> : ""}</p>}
+        <ol className="self-test-steps" aria-label="Journeys in this browser">
+          {rows.map((r) => <li key={r.name} className={r.state}><span className={cls(r.state)}>{r.state === "running" ? "▶" : r.state === "passed" ? "✓" : r.state === "failed" ? "✗" : "·"}</span>
+            {" "}{r.name} <span className="quiet small">as {r.role}</span>{r.detail && r.state === "failed" && <div className="small bad-text">{r.detail}</div>}</li>)}
+        </ol>
+      </div>
       <div className="self-test-frame-wrap">
-        <p className="quiet small">{now === "done" ? "The journeys have finished in this browser." : `Now: ${now || "starting"}`}</p>
-        <iframe ref={frame} title="The self-test's journeys in this browser" className="self-test-frame" />
+        <p className="quiet small">{now === "done" ? "The pages and journeys have finished in this browser." : `Now: ${now || "starting"}`}</p>
+        <iframe ref={frame} title="The self-test's pages and journeys in this browser" className="self-test-frame" />
       </div>
     </div>
   );
@@ -377,7 +450,7 @@ function History({ runs, onOpen }) {
             <td>{r.id} <span className="quiet small">{short(r.run_guid)}</span></td>
             <td className="nowrap">{fmtDateTime(r.started_at || r.queued_at)}</td>
             <td>{r.started_by}<span className="quiet small"> · {r.trigger}</span></td>
-            <td className="small">{what(r)}</td>
+            <td className="small">{what(r)}{r.command && <div><code className="quiet" title="The same run from the command line">{r.command}</code></div>}</td>
             <td><span className={cls(r.state)}>{STATE[r.state] || r.state}</span>
               {r.state === "error" && r.message && <div className="bad-text small">{r.message}</div>}</td>
             <td className="num">{r.passed || ""}</td>

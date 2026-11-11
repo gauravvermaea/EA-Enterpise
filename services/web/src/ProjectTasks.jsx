@@ -90,7 +90,7 @@ export function TasksTab({ p }) {
                 <td><button className="linkish task-title" onClick={() => setOpen(t)}>{t.title}</button>
                   {t.notes_html && <span className="quiet small" title="Has notes"> 📝</span>}</td>
                 <td>{t.assigned_to ? (t.assigned_to === me ? <b>me</b> : t.assigned_to) : <span className="quiet">nobody</span>}</td>
-                <td className="small">{t.step ? <>{stepLabel(t.step)}{t.step.done && <span className="quiet"> (step done)</span>}</> : <span className="quiet">–</span>}</td>
+                <td className="small">{t.step ? <>{stepLabel(t.step)}{t.step.done && <span className="quiet"> (step done)</span>}{t.paused && <span className="chip small" title="Its phase isn't part of the project's ADM iteration: the task is paused, not deleted"> ⏸ paused</span>}</> : <span className="quiet">–</span>}</td>
                 <td className="small quiet" title={`changed by ${t.modified_by}, ${fmtDateTime(t.modified_at)}`}>{t.created_by}</td>
                 <td>{!readOnly && data.may_add && (t.created_by.toLowerCase() === me || data.may_admin) && (
                   <button className="linkish" aria-label={`Delete ${t.title}`} title="Delete"

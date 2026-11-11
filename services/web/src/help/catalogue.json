@@ -3027,7 +3027,13 @@
       "Run: choose a smoke test or detailed tests, optionally one role or one API area, and start it; it says how long it takes and asks to confirm.",
       "Follow it live: its step and counts; Stop ends it at its next step.",
       "History: open a run's results; each failure says why, with what was asked and what came back, or a screenshot or video; download its report as HTML or Excel.",
-      "Test fixtures: purge what runs made (self_test_<id>_<n>), for good."
+      "Test fixtures: purge what runs made (self_test_<id>_<n>), for good.",
+      "Detailed tests: tick Pages only for the page sweep alone, or tick journeys to run only those.",
+      "The same from the command line: the exact eax test command for what you picked, as you pick it. Choose how you type eax (.\\eax, ./eax.sh or eaxpy) and press Copy.",
+      "From the command line (folded): every option of eax test with what it does, and examples.",
+      "History: each run shows the command line it equals.",
+      "Each report starts with the coverage: pages opened N of N, journeys, refusals without a sign-in, reads as every role, writes by area, database and security checks.",
+      "From outside: the test bench (eax testbench --target https://<address> --i-own-this) runs the same tests from another machine, in Chromium, Firefox, WebKit or Edge; its runs show in History by \"(external testbench)\". See Documentation, The test bench."
     ],
     "example": "A smoke test before and after an update; detailed API tests as architect after changing roles."
   },
@@ -3208,5 +3214,19 @@
     "example": "Primary Data Centre Cluster Association Disaster Recovery Cluster: Connection protocol: SFTP, Port: 22."
   },
   "field:Line labels": "What a line on the drawn view shows: its name and type, or name, type and attribute values as name (Type) [key:value]. Remembered for you.",
-  "field:Relationship name": "The relationship's own name, shown in bold on its line before its type. Renaming never changes the type."
+  "field:Relationship name": "The relationship's own name, shown in bold on its line before its type. Renaming never changes the type.",
+  "popup:ADM iteration": {
+    "what": "Choose which of TOGAF's iteration cycles this ADM cycle is: Full cycle, Architecture Capability (Preliminary, A), Architecture Development (B, C, D), Transition Planning (E, F), Architecture Governance (G, H), or Custom.",
+    "how": [
+      "Pick an iteration; for Custom, tick the phases to enable (at least one).",
+      "Check the Frozen list: those phases become read only. Nothing is deleted, and Requirements Management stays open.",
+      "Add a note if you like, then Save. Anyone on the project can change it again at any time."
+    ]
+  },
+  "field:for example: B to D signed off, now planning the transition": "Optional: why the iteration changed. It shows in the iteration history.",
+  "button:Iteration history (": "Show or hide every change of this project's ADM iteration: when, who, from, to and the note.",
+  "field:Typed as": "How you type the eax command on your computer: .\\eax (Windows), ./eax.sh (Linux or Mac), or eaxpy. The commands shown on the page use it; your choice is remembered in this browser.",
+  "field:Pages only": "Run only the page sweep: every page, group, tab and sub-tab is opened as Super Admin and checked (it renders, has a heading, F1 opens help). Same as eax test --pages-only.",
+  "field:Journeys": "Run only the ticked browser journeys (each as the roles allowed, plus one role that must be refused). None ticked: every journey. Same as eax test --journey <name>.",
+  "field:How you type eax": "How you type the eax command: .\\eax (Windows), ./eax.sh (Linux or Mac), or eaxpy. The command shown changes with it."
 }

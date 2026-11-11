@@ -25,14 +25,24 @@ installation in fixtures of its own instead of a separate test database). How to
 
 | Where | What |
 | --- | --- |
-| services/api/eax/testing/ | store, run, fixtures, api_matrix, ui_journeys, db_checks, security, report, cli |
+| services/api/eax/testing/ | store, run, fixtures, api_matrix, api_writes (D577), ui_pages (the page sweep, D575), ui_flows (the journeys, D576), ui_journeys, db_checks, security, report, cli |
 | services/api/Dockerfile.test | the runner image |
 | services/api/eax/api/platform_tests.py | `/admin/tests...` and `/admin/scaling...` |
 | services/api/eax/api/selftest_session.py | the test browser's sign-in by ticket |
 | services/api/eax/mcp_tests.py | the MCP tool `test_results` |
 | services/ops/testruns.py | starting the runner, the scans, `eax test`, building the runner (D570) |
-| services/web/src/TestRuns.jsx | the Self-test screen and the watched run |
+| services/web/src/TestRuns.jsx | the Self-test screen, the watched run, the command line (D578) |
+| services/web/src/selfTestDriver.js | the page sweep and journeys in the admin's browser; the command line a run equals |
+| services/api/migrations/sql/0049_selftest_coverage.sql | a run's journeys and pages-only |
 | services/api/eax/seed/sample_tests.py | the sample runs |
+
+## Added in 0.19.0 (D575 to D578)
+
+- The page sweep: every page, group, tab and sub-tab, "pages opened N of N".
+- Journeys that click, type and save, per role allowed and refused; three in the smoke test.
+- API writes per area inside the fixtures, and refused writes.
+- Database checks: history whole, values fit their type, relationship values within their mapping, drawn-view bindings, persist/ JSON.
+- The coverage summary at the top of the report; `--journey` and `--pages-only`; the command line on the page and in History.
 
 ## What the watched run cannot reach
 

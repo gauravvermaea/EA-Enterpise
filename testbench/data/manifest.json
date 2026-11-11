@@ -1,0 +1,162 @@
+{
+  "_comment": "The test data (D580): made by python -m testbench.data build; read by the outside test bench (testbench/) and the inside self-test (EAX_TEST_DATA, /testdata in the test runner).",
+  "load": "testbench/load/data.json (the load test's search words)",
+  "files": {
+    "credentials.template.json": {
+      "what": "How to give the test bench a sign-in, with no secret in it",
+      "used_by": [
+        "testbench: --credentials"
+      ],
+      "bytes": 339,
+      "sha256": "400ef19038b992eac3007fcd40ab2b036de7211bb776606f772edc7c693b2639"
+    },
+    "deliveries/good-csv.zip": {
+      "what": "The same delivery in the CSV format (master.csv and three CSVs)",
+      "used_by": [
+        "ui: deliveries journey",
+        "api: import-sources writes"
+      ],
+      "bytes": 1379,
+      "sha256": "300ce60a7cb924d05c9cbf2a461777cb462e65c9b50a1da3c04e440046be24dd"
+    },
+    "deliveries/good.xlsx": {
+      "what": "A clean delivery in the Excel format: 3 applications, 2 nodes, 3 relationships",
+      "used_by": [
+        "ui: deliveries journey",
+        "api: import-sources writes"
+      ],
+      "bytes": 23201,
+      "sha256": "4ef5f1301f7f6c184e4736a1b9c3a51f9a3b9f484f2b7a92b1c77a7bac76d039"
+    },
+    "deliveries/values-win.xlsx": {
+      "what": "The good delivery again with changed values, for a source whose values win",
+      "used_by": [
+        "ui: deliveries journey (values win)"
+      ],
+      "bytes": 23284,
+      "sha256": "a16eb3efa982e82fa308f3dae2b726b8d3fa23c8200ada806cf810eac85877f8"
+    },
+    "deliveries/with-errors.xlsx": {
+      "what": "A delivery with problems: a row with no name, an unknown pick-list value, a delete (never done by a delivery) and a relationship to an unknown entity",
+      "used_by": [
+        "ui: deliveries journey (problems shown)"
+      ],
+      "bytes": 22951,
+      "sha256": "c746130ff19845a279a1a234cdcf6a3f59ed744f716c6b7d191e3098f7c6711c"
+    },
+    "entities/attributes.json": {
+      "what": "Attribute definitions (the metamodel workbook's, as JSON)",
+      "used_by": [
+        "api: metamodel writes"
+      ],
+      "bytes": 412,
+      "sha256": "46ae3670d99b31cf08146cd5757654ff26043a1aed47f4ffc87f260377791ca7"
+    },
+    "entities/entities.json": {
+      "what": "Entities with attribute values, as the API takes them",
+      "used_by": [
+        "api: entity writes",
+        "load: data"
+      ],
+      "bytes": 1080,
+      "sha256": "f68cb8751b22a814f559584f65de3059121d7941b5804e466e4acbd287683537"
+    },
+    "entities/relationships.json": {
+      "what": "Relationships between those entities",
+      "used_by": [
+        "api: relationship writes"
+      ],
+      "bytes": 508,
+      "sha256": "38b0409bd6f54449405ba6ed35ac12d3969801ce86247c0ab0da829ae868c0ba"
+    },
+    "expected/expected.json": {
+      "what": "What each file should give when it is loaded",
+      "used_by": [
+        "ui and api: the checks compare with it"
+      ],
+      "bytes": 687,
+      "sha256": "1f35bfcdf70bc2db7a092e0da01a6c873e382c6d17a1fe30d4c8b7f440689e1e"
+    },
+    "metamodel/metamodel.xlsx": {
+      "what": "A small metamodel workbook (two types, three attributes, one rule)",
+      "used_by": [
+        "ui: new model from a metamodel workbook",
+        "api: metamodel workbook preview"
+      ],
+      "bytes": 33397,
+      "sha256": "30769f187f6c32f91a3cdd45fb344d9f59627f5a053f1afd29590fbc3cd65cbb"
+    },
+    "surveys/survey.json": {
+      "what": "A survey definition: five questions, each kind once, one condition",
+      "used_by": [
+        "api: surveys writes",
+        "ui: surveys journey"
+      ],
+      "bytes": 1464,
+      "sha256": "515ae7ebbcf141efb6d2c639f34e37df96842cd7a30773ed33818b0ab5297a51"
+    },
+    "uploads/document-v2.docx": {
+      "what": "Its replacement",
+      "used_by": [
+        "ui: documents journeys (upload, replace)",
+        "api: documents writes"
+      ],
+      "bytes": 1593,
+      "sha256": "e7d4128112485a7ecae40e2bb590724fe187f3e880f5f3aa77e514ad29e12dba"
+    },
+    "uploads/document-v2.pdf": {
+      "what": "Its replacement",
+      "used_by": [
+        "ui: documents journeys (upload, replace)",
+        "api: documents writes"
+      ],
+      "bytes": 615,
+      "sha256": "9c6fde08638a96a4092dc89181d05b5b4f7bbbc05c5f70140138123995b2ba2e"
+    },
+    "uploads/document.docx": {
+      "what": "A Word document to upload",
+      "used_by": [
+        "ui: documents journeys (upload, replace)",
+        "api: documents writes"
+      ],
+      "bytes": 1585,
+      "sha256": "43859ee17c8c8fe4d7a4deead279d698d79a7ebf418a275aff7aaa4601b351dc"
+    },
+    "uploads/document.pdf": {
+      "what": "A one-page PDF to upload",
+      "used_by": [
+        "ui: documents journeys (upload, replace)",
+        "api: documents writes"
+      ],
+      "bytes": 607,
+      "sha256": "c27670abfa4e66567bc6c542652785fcc357ef91480a8ed843e8ed00d48afc8d"
+    },
+    "uploads/image-v2.png": {
+      "what": "Its replacement, another colour",
+      "used_by": [
+        "ui: documents journeys (upload, replace)",
+        "api: documents writes"
+      ],
+      "bytes": 9332,
+      "sha256": "d7ba6417e823619caa005eea0ec260b4c8b0ab91f4caf00d4bc53ae82072bff6"
+    },
+    "uploads/image.png": {
+      "what": "A small image to upload (64 x 48)",
+      "used_by": [
+        "ui: documents journeys (upload, replace)",
+        "api: documents writes"
+      ],
+      "bytes": 9332,
+      "sha256": "a21723750fd389b105b7a2cf969cb6aae19e231ac3436bd57ced43ae1e7db735"
+    },
+    "views/drawn-view.xml": {
+      "what": "A drawn view (draw.io XML): two shapes and a line, named as the delivery's entities",
+      "used_by": [
+        "ui: drawn views journey",
+        "api: views writes"
+      ],
+      "bytes": 722,
+      "sha256": "5b7a7828ed43c8a54dc3f64eb82578f029e42775016a25c1aec73aef680b17f2"
+    }
+  }
+}

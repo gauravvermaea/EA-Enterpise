@@ -468,6 +468,8 @@ def laptop_steps(a: dict) -> list[Step]:
         ctx.note(f"    $ {EAX} url")
         if not ctx.plan:
             run_self(["url"])
+        for line in check_hint():
+            ctx.note(line)
 
     steps = [Step("Check that Docker Desktop is running", docker), Step("Make the config file (laptop)", config),
              Step("Start EA Explorer", up), Step("Check that it is healthy", healthy)]
@@ -475,6 +477,13 @@ def laptop_steps(a: dict) -> list[Step]:
         steps.append(Step("Move the old installation here: restore its backup", restore_local))
     steps.append(Step("Show the address and the logins", done))
     return steps
+
+
+def check_hint(address: str = "https://localhost") -> list[str]:
+    """The three lines shown when a deployment is done (and on the first start): how to check the installation."""
+    return ["    Check your installation: System admin > Self-test > Build the test runner, then Smoke test > Start;",
+            f"      or {EAX} test --smoke here; or from another machine {EAX} testbench --target {address} --i-own-this --smoke.",
+            "      Results: Self-test > History (and the report). Steps: docs/deployment.md, \"Check your installation\"."]
 
 
 def _http_ok(url: str) -> bool:
@@ -664,6 +673,8 @@ def server_steps(a: dict) -> list[Step]:
                  "Keycloak asks for a new one at the first sign-in.")
         if pw and not ctx.plan and ctx.reveal:
             ctx.out(f"    (this time only, on screen and not in the log: the first password is {pw})")
+        for line in check_hint(f"https://{a['hostname']}"):
+            ctx.note(line)
 
     steps.append(Step("Reach the server", reach))
     steps.append(Step("Docker on the server (installed if missing)", docker))

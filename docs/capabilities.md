@@ -201,6 +201,10 @@ Built (phase 13):
 - **Business architecture**: the TOGAF Phase B artifacts with their views, and **Business Model Canvases**
   (current, target, working copies marked by hand, compare and make a new one) (D344, D345).
 - **Project backups and restores**, with the project's documents, models and library.
+- **ADM iteration types** (0.19.0, D571 to D574): each project's ADM cycle is a Full cycle or one of TOGAF's
+  iterations (Architecture Capability, Development, Transition Planning, Governance) or a Custom set of phases, chosen
+  and changed on the project page by anyone on it; phases left out are frozen (read only, never deleted) on the ADM
+  wheel, the phase tabs and in the API; also in MCP, backups, templates and the report ([phase-iterations.md](phase-iterations.md)).
 - **Other views and documents** (0.17.0): a project tab of ten sample templates (SWOT, customer journey map, value
   proposition canvas, one-page business plan, interview guide, decision record, business case, RAID log, lessons
   learned) in Word, PowerPoint or Excel, our own wording, to download and use; and the project's **own uploads**
@@ -268,6 +272,11 @@ Built ([operations.md](operations.md), [command-line-and-console.md](command-lin
   more hosts, a database standby, shared storage and the library on its own server, all with Docker Compose.
 - **Self-test** (phase 36.1, [testing.md](testing.md)): smoke and detailed tests (API, UI, database, security) of the
   running installation in fixtures of its own, from the web page or `eax test`, with a report and a clean-up by hand.
+- **Test bench** ([testbench.md](testbench.md), D579 to D582): the same tests from another machine against any address
+  you own (`eax testbench`), in Chromium, Firefox, WebKit and Edge, with the same names and filters as `eax test`;
+  install, upgrade (data, version and migration checked) and load tests (k6: p50, p95, p99, errors, throughput);
+  HTML, JSON and JUnit reports with a coverage summary; results into the Self-test history; shared test data
+  (`testbench/data`); in CI on every change and nightly.
 - **Deployment** (phase 36, [deployment.md](deployment.md)): `eax deploy`, a guided wizard in the console or a local
   web page, for five kinds: this laptop; a Linux server (on it, or from here over SSH, Docker installed if missing);
   AWS, Azure and DigitalOcean (the machine, a data disk, the firewall, a fixed address, off-site backup storage and DNS

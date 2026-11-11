@@ -582,6 +582,7 @@ def set_document_kind(conn, project: Any, user, doc: str, kind: str) -> dict:
     if kind not in ("Deliverable", "Artifact", "None"):
         raise EditError("A document is a Deliverable, an Artifact, or neither (None).")
     d = pj._doc(conn, p, doc)
+    pj._iter.guard_doc(conn, p, d)
     conn.execute(text("UPDATE proj.documents SET kind = :k WHERE id = :i"), {"k": kind, "i": d["id"]})
     name = d.get("title") or d["file_name"]
     if kind == "None":         # neither needs no approval: a request open for it ends (review, 8 Nov 2026)
@@ -630,6 +631,7 @@ def raise_signoff(conn, project: Any, user, doc: str, note: str = "") -> dict:
     p = pj.project_row(conn, project)
     need(conn, p, user, "contribute")
     d = pj._doc(conn, p, doc)
+    pj._iter.guard_doc(conn, p, d)                # ADM iteration (D572)
     if not d["mayan_document_id"] and not (d.get("link_url") or d.get("link_project")):
         raise EditError(f"{d.get('title') or d['file_name']} has no file yet: add its file before asking for sign-off.", 409)
     if d.get("kind") == "None":
@@ -697,6 +699,7 @@ def decide_signoff(conn, project: Any, user, request: str, decision: str, commen
     if p.get("status") in FROZEN:
         raise EditError(f"{p['name']} is {p['status']}: it is read only.", 409)
     r = _request(conn, p, request)
+    pj._iter.guard_doc(conn, p, pj._one(conn, "SELECT item_id FROM proj.documents WHERE id = :i", i=r["doc_id"]) or {})
     if r["state"] != "open":
         raise EditError(f"This sign-off is {r['state']}.", 409)
     me = user.username.lower()

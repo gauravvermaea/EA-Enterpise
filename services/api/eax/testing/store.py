@@ -67,12 +67,48 @@ def estimate_minutes(level: str, suites: list[str], watch: bool = False) -> tupl
 
 
 def create_run(conn, by: str, trigger: str, suites: list[str], folder: str = "", version: str = "", level: str = "smoke",
-               role: str = "", area: str = "", watch: bool = False) -> int:
+               role: str = "", area: str = "", watch: bool = False, journeys: list[str] | None = None,
+               pages_only: bool = False) -> int:
     return int(conn.execute(text("""
-        INSERT INTO core.test_runs (started_by, trigger, suites, folder, version, level, role, area, watch)
-        VALUES (:by, :trigger, :suites, :folder, :version, :level, :role, :area, :watch) RETURNING id"""),
+        INSERT INTO core.test_runs (started_by, trigger, suites, folder, version, level, role, area, watch, journeys, pages_only)
+        VALUES (:by, :trigger, :suites, :folder, :version, :level, :role, :area, :watch, :journeys, :pages_only) RETURNING id"""),
         {"by": by or "unknown", "trigger": trigger, "suites": suites, "folder": folder, "version": version, "level": level,
-         "role": role, "area": area, "watch": watch}).scalar())
+         "role": role, "area": area, "watch": watch, "journeys": list(journeys or []), "pages_only": pages_only}).scalar())
+
+
+def clean_journeys(journeys: list[str] | str | None) -> list[str]:
+    """Browser journeys asked for by part of their names (D577); each must match one."""
+    from . import ui_flows
+    if isinstance(journeys, str):
+        journeys = [j for j in journeys.split(",") if j.strip()]
+    asked = [j.strip() for j in (journeys or []) if j and j.strip()][:20]
+    names = [j["name"].lower() for j in ui_flows.JOURNEYS]
+    bad = [j for j in asked if not any(j.lower() in n for n in names)]
+    if bad:
+        raise ValueError(f"No journey {', '.join(bad)}: choose from {', '.join(j['name'] for j in ui_flows.JOURNEYS)}.")
+    return asked
+
+
+def command_line(run: dict[str, Any], eax: str = ".\\eax") -> str:
+    """The `eax test` command a run equals (shown on the Self-test page's History and the report, D578)."""
+    bits = [eax, "test"]
+    suites = list(run.get("suites") or [])
+    journeys, pages_only = list(run.get("journeys") or []), bool(run.get("pages_only"))
+    if pages_only:
+        bits.append("--pages-only")
+    elif journeys:
+        bits += [f'--journey "{j}"' if " " in j else f"--journey {j}" for j in journeys]
+    elif run.get("level") == "detailed":
+        bits.append("--detailed")
+        if suites and set(suites) != set(SUITES):
+            bits += [f"--suite {x}" for x in suites]
+    else:
+        bits.append("--smoke")
+    if run.get("role"):
+        bits.append(f"--role {run['role']}")
+    if run.get("area"):
+        bits.append(f"--area {run['area']}")
+    return " ".join(bits) + ("   (journeys watched in a browser: from the Self-test page only)" if run.get("watch") else "")
 
 
 def short(run_guid: str) -> str:
@@ -168,7 +204,7 @@ def finish(conn, run_id: int, error: str = "", stopped: str = "") -> str:
 
 _LIVE = "CASE WHEN r.state IN ('queued', 'running') THEN (SELECT count(*) FROM core.test_results x WHERE x.run_id = r.id AND x.outcome {o}) ELSE r.{c} END AS {c}"
 _RUN_COLS = ("r.id, r.run_guid::text AS run_guid, r.started_by, r.trigger, r.suites, r.state, r.step, r.folder, r.version, "
-             "r.level, r.role, r.area, r.watch, r.stop_asked, r.message, r.purged_at, r.purged_by, r.queued_at, r.started_at, "
+             "r.level, r.role, r.area, r.watch, r.journeys, r.pages_only, r.stop_asked, r.message, r.purged_at, r.purged_by, r.queued_at, r.started_at, "
              "r.finished_at, (SELECT count(*) FROM core.test_fixtures f WHERE f.run_id = r.id AND f.purged_at IS NULL) AS fixtures, "
              + ", ".join(_LIVE.format(o=o, c=c) for o, c in (("= 'passed'", "passed"), ("= 'failed'", "failed"),
                                                              ("IN ('skipped', 'warning')", "skipped"))))
@@ -177,7 +213,7 @@ _RUN_COLS = ("r.id, r.run_guid::text AS run_guid, r.started_by, r.trigger, r.sui
 def runs(conn, limit: int = 30) -> list[dict[str, Any]]:
     rows = conn.execute(text(f"SELECT {_RUN_COLS} FROM core.test_runs r ORDER BY r.queued_at DESC, r.id DESC LIMIT :n"),
                         {"n": max(1, min(200, limit))}).mappings().all()
-    return [dict(r) for r in rows]
+    return [{**dict(r), "command": command_line(dict(r))} for r in rows]
 
 
 def run_row(conn, run_id: int) -> dict[str, Any] | None:
@@ -209,3 +245,28 @@ def run_detail(conn, run_id: int, outcome: str = "", suite: str = "") -> dict[st
 def screenshot(conn, result_id: int) -> bytes | None:
     row = conn.execute(text("SELECT screenshot FROM core.test_results WHERE id = :id"), {"id": result_id}).first()
     return bytes(row[0]) if row and row[0] is not None else None
+
+
+def test_entry(help_text: str) -> dict:
+    """The `test` entry of help.txt: its syntax line, its one-line summary, its options (flag and what it does) and its
+    examples ({eax} left for the page to fill with .\\eax, ./eax.sh or eaxpy)."""
+    lines = help_text.splitlines()
+    start = next((i for i, ln in enumerate(lines) if ln.startswith("### test ")), None)
+    if start is None:
+        return {"syntax": "", "summary": "", "options": [], "examples": []}
+    out = {"syntax": lines[start][4:].strip(), "summary": "", "options": [], "examples": []}
+    for ln in lines[start + 1:]:
+        if ln.startswith("### ") or ln.startswith("## "):
+            break
+        if ln.startswith("> "):
+            out["summary"] = ln[2:].strip()
+        elif ln.startswith("$ "):
+            out["examples"].append(ln[2:].strip())
+        elif ln.startswith("  --"):
+            import re as _re
+            m = _re.match(r"^(--\S+(?:\s+(?:\[[^\]]*\]|<[^>]*>|[A-Z]\b|--\S+))*)(?:\s+(.*))?$", ln.strip())
+            flag, what = (m.group(1), m.group(2) or "") if m else (ln.strip(), "")
+            out["options"].append({"flag": flag.strip(), "what": what.strip()})
+        elif ln.startswith("    ") and out["options"]:
+            out["options"][-1]["what"] = (out["options"][-1]["what"] + " " + ln.strip()).strip()
+    return out

@@ -107,6 +107,9 @@ def create_app(testing: bool = False) -> Flask:
     # updating to a new release (phase 36, D417)
     from .api.updates import blp as updates_blp
     api.register_blueprint(updates_blp)
+    # the outside test bench's door into a self-test run (D580, D581)
+    from .api.testbench_api import blp as testbench_blp
+    api.register_blueprint(testbench_blp)
     # deploying EA Explorer to another place from System admin > Deploy (phase 36, D555)
     from .api.deploys import blp as deploys_blp
     api.register_blueprint(deploys_blp)

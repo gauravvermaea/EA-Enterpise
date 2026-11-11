@@ -83,7 +83,8 @@ def models_and_project(engine, run: dict, by: str, roles: list[str], log) -> dic
     with engine.begin() as conn:
         store.add_fixture(conn, run["id"], "model", m1["model"], m1["name"])
     _as(me, mb.add_entities(m1["model"], "Capability", [{"name": f"Self-test capability {i}"} for i in (1, 2, 3)]))
-    _as(me, mb.add_entities(m1["model"], "ApplicationComponent", [{"name": f"Self-test application {i}"} for i in (1, 2)]))
+    _as(me, mb.add_entities(m1["model"], "ApplicationComponent", [{"name": f"Self-test application {i}"} for i in (1, 2)]
+                            + [{"name": "Self-test duplicate app"}, {"name": "Self-test duplicate ap"}]))   # a pair to find and merge (D576)
     _as(me, mb.add_relationships(m1["model"], [
         {"relationship_type": "Association", "source": "Self-test application 1", "target": "Self-test capability 1"},
         {"relationship_type": "Association", "source": "Self-test application 2", "target": "Self-test capability 2"}]))
@@ -102,7 +103,8 @@ def models_and_project(engine, run: dict, by: str, roles: list[str], log) -> dic
         ent = conn.execute(text("SELECT e.guid::text FROM core.entities e JOIN core.models m ON m.id = e.model_id "
                                 "WHERE m.guid = CAST(:g AS uuid) AND NOT e.is_deleted ORDER BY e.id LIMIT 1"),
                            {"g": m1["model"]}).scalar()
-    ids = {"model": m1["model"], "model_id": m1["model"], "model_name": m1["name"], "other_model": m2["model"]}
+    ids = {"model": m1["model"], "model_id": m1["model"], "model_name": m1["name"], "other_model": m2["model"], "sid": sid,
+           "dup": "Self-test duplicate ap"}
     if ent:
         ids.update(entity=ent, entity_id=ent)
     try:

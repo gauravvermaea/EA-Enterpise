@@ -1,0 +1,6 @@
+<mxfile host="EA Explorer" version="1"><diagram id="selftest" name="Self-test data view"><mxGraphModel><root>
+<mxCell id="0"/><mxCell id="1" parent="0"/>
+<mxCell id="a1" value="Self-test data Container Platform" style="rounded=1;whiteSpace=wrap;" vertex="1" parent="1"><mxGeometry x="40" y="40" width="200" height="60" as="geometry"/></mxCell>
+<mxCell id="a2" value="Self-test data Quote Optimiser" style="rounded=1;whiteSpace=wrap;" vertex="1" parent="1"><mxGeometry x="320" y="40" width="200" height="60" as="geometry"/></mxCell>
+<mxCell id="e1" value="hosts" style="endArrow=block;" edge="1" parent="1" source="a1" target="a2"><mxGeometry relative="1" as="geometry"/></mxCell>
+</root></mxGraphModel></diagram></mxfile>

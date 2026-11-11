@@ -69,7 +69,11 @@ class Tests(MethodView):
             runner = _ops_raw("GET", "/tests", timeout=10)
         except Exception as exc:  # noqa: BLE001 - the history still shows when the helper is down
             runner = {"image_present": None, "message": f"The operations helper is not reachable ({exc})."}
+        from ..testing import ui_flows
         return {"runs": runs, "runner": runner, "suites": list(store.SUITES),
+                "journeys": [{"name": j["name"], "key": ui_flows.key(j), "smoke": j["smoke"], "roles": j["roles"],
+                              "headless_only": bool(j.get("headless_only"))} for j in ui_flows.JOURNEYS],
+                "commands": _test_commands(),
                 "roles": store.TEST_ROLES, "areas": [{"code": c, "label": lbl} for c, lbl, _ in AREAS],
                 "estimates": {"smoke": store.estimate_minutes("smoke", []),
                               **{s: store.estimate_minutes("detailed", [s]) for s in ("api", "ui", "db", "security")},
@@ -86,6 +90,10 @@ class Tests(MethodView):
         try:
             level, role, area = store.clean_options(data.get("level"), data.get("role"), data.get("area"))
             suites = store.clean_suites(data.get("suites"))
+            journeys = store.clean_journeys(data.get("journeys"))
+            pages_only = bool(data.get("pages_only"))
+            if journeys or pages_only:                  # a journey or the page sweep: the browser suite (D577)
+                level, suites = "detailed", ["ui"]
         except ValueError as exc:
             abort(400, message=str(exc))
         watch = bool(data.get("watch")) and level == "detailed" and "ui" in suites
@@ -95,11 +103,13 @@ class Tests(MethodView):
                                      "AND queued_at > now() - interval '3 hours' ORDER BY id DESC LIMIT 1")).scalar()
             if busy:
                 abort(409, message=f"Self-test {busy} is going on: stop it or wait for it to finish.")
-            run_id = store.create_run(conn, g.user.username, "web", suites, level=level, role=role, area=area, watch=watch)
+            run_id = store.create_run(conn, g.user.username, "web", suites, level=level, role=role, area=area, watch=watch,
+                                      journeys=journeys, pages_only=pages_only)
             audit.record(conn, actor=g.user.username, action="selftest.started", object_type="test_run", object_id=str(run_id),
-                         details={"level": level, "suites": suites, "role": role, "area": area, "watch": watch})
+                         details={"level": level, "suites": suites, "role": role, "area": area, "watch": watch,
+                                  "journeys": journeys, "pages_only": pages_only})
         body = {"run_id": run_id, "level": level, "suites": suites, "role": role, "area": area, "watch": watch,
-                "by": g.user.username}
+                "journeys": journeys, "pages_only": pages_only, "by": g.user.username}
         try:
             if build_first:                     # the runner is missing: the helper builds it, then starts this run
                 _ops_raw("POST", "/tests/build", {"by": g.user.username, "then": body}, timeout=60)
@@ -189,7 +199,9 @@ class TestRun(MethodView):
             row = store.run_row(conn, run_id) or {}
         b = row.get("browser") or {}
         if row.get("watch") and row.get("state") in store.OPEN and b.get("ticket") and not b.get("done"):
-            d["browser"] = {"ticket": b["ticket"], "journeys": b.get("journeys") or [], "roles": sorted((b.get("tokens") or {}).keys())}
+            d["browser"] = {"ticket": b["ticket"], "journeys": b.get("journeys") or [], "roles": sorted((b.get("tokens") or {}).keys()),
+                            # the page sweep in this browser (D575): where it starts, what it skips, the run's own ids
+                            "pages": b.get("pages") or [], "pages_skip": b.get("pages_skip") or {}, "scope": b.get("scope") or []}
         folder = WORK_TESTS / d["run"]["folder"] if d["run"]["folder"] else None
         d["files"] = sorted(str(p.relative_to(folder)) for p in folder.rglob("*") if p.is_file()) if folder and folder.is_dir() else []
         return d
@@ -234,7 +246,9 @@ class TestBrowser(MethodView):
                     except (binascii.Error, ValueError):
                         shot = None
                 outcome = r.get("outcome") if r.get("outcome") in store.OUTCOMES else "failed"
-                store.add_result(conn, run_id, "ui", f"journey: {str(r.get('name') or '')[:300]}", outcome,
+                nm = str(r.get("name") or "")[:300]
+                nm = nm if nm.startswith(("page: ", "page sweep")) else f"journey: {nm}"   # the sweep names its own (D575)
+                store.add_result(conn, run_id, "ui", nm, outcome,
                                  str(r.get("detail") or ""), int(r.get("ms") or 0), shot, "", "", "", str(r.get("browser") or "")[:200])
             if data.get("done"):
                 store.set_browser(conn, run_id, {"done": True})
@@ -377,3 +391,15 @@ class ScalingLoad(MethodView):
         with get_engine().connect() as conn:
             n = conn.execute(text("SELECT count(*) FROM core.known_users WHERE seen_at > now() - interval '15 minutes'")).scalar()
         return {"people": int(n or 0), "window_minutes": 15}
+
+
+def _test_commands() -> dict:
+    """The `eax test` entry of the shared command-line help (eaxcli/help.txt, mounted read-only like the documents), for
+    the Self-test page's "From the command line" section: generated from the help, so it never drifts from it (D578)."""
+    from .. import shipped_docs
+    base = shipped_docs.root()
+    for f in (base / "eaxcli" / "help.txt", base / "help.txt"):
+        if f.is_file():
+            return store.test_entry(f.read_text(encoding="utf-8"))
+    return {"syntax": "", "summary": "", "options": [], "examples": []}
+

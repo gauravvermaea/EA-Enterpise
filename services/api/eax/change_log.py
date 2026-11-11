@@ -151,6 +151,8 @@ ACTIONS: dict[str, tuple[str, str]] = {
     "housekeeping.confirm": ("Confirmed a housekeeping dry run", "Housekeeping"),
     "housekeeping.run": ("Housekeeping archived or deleted old records", "Housekeeping"),
     "housekeeping.history_removed": ("Housekeeping removed old history versions", "Housekeeping"),
+    # ADM iteration types (D571-D574)
+    "project.iteration": ("Changed a project's ADM iteration", "Project"),
 }
 NAME_KEYS = ("name", "tag", "analysis_name", "title", "username", "keycloak_role", "message", "note", "number")
 KINDS = {"content": "Content", "metamodel": "Metamodel", "model": "Model", "action": "Action"}

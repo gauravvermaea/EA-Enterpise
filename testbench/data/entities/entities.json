@@ -1,0 +1,44 @@
+{
+  "entities": [
+    {
+      "type": "ApplicationComponent",
+      "name": "Self-test data Quote Optimiser",
+      "description": "Prices quotes for brokers",
+      "attributes": {
+        "Vendor": "Kestrel Labs",
+        "Version": "1.4",
+        "Hosting": "SaaS"
+      }
+    },
+    {
+      "type": "ApplicationComponent",
+      "name": "Self-test data Broker Portal",
+      "description": "Where brokers place business",
+      "attributes": {
+        "Vendor": "",
+        "Version": "3.2",
+        "Hosting": "On premises"
+      }
+    },
+    {
+      "type": "ApplicationComponent",
+      "name": "Self-test data Claims Hub",
+      "description": "Takes and settles claims",
+      "attributes": {
+        "Vendor": "Tidewater Systems",
+        "Version": "7.0",
+        "Hosting": "Cloud"
+      }
+    },
+    {
+      "type": "Node",
+      "name": "Self-test data Container Platform",
+      "description": "Runs the containers"
+    },
+    {
+      "type": "Node",
+      "name": "Self-test data Data Warehouse Server",
+      "description": "Holds the reporting data"
+    }
+  ]
+}

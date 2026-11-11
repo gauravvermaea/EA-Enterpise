@@ -273,6 +273,13 @@ function Invoke-Up([string[]]$Names, [switch]$NoThrow) {
     if ($ready) {
         Write-Log "EA Explorer is ready after $([int]((Get-Date) - $started).TotalSeconds) s: you can sign in." "Green"
         Write-Log "Still starting in the background: Reports, Documents, Diagrams and the sample data; the screens show each in red, amber or green (down, starting, up)." "Green"
+        $hint = Join-Path $WorkDir ".check-hint-shown"
+        if (-not (Test-Path $hint)) {   # the first start: how to check it (D582)
+            Write-Log "Check your installation: System admin > Self-test > Build the test runner, then Smoke test > Start;"
+            Write-Log "  or .\eax test --smoke; or from another machine .\eax testbench --target https://<address> --i-own-this --smoke."
+            Write-Log "  Results: Self-test > History and the report. Steps: docs\deployment.md, 'Check your installation'."
+            New-Item -ItemType File -Path $hint -Force -ErrorAction SilentlyContinue | Out-Null
+        }
     }
     return 0
 }
@@ -832,7 +839,7 @@ if ($Command -eq "console") {
     try { Invoke-Console $RestArgs; exit 0 }
     catch { Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red; exit 1 }
 }
-if (($Command -in @("deploy", "secrets", "packs", "schedule")) -or ($Command -eq "test" -and $RestArgs -contains "--reset-survival")) {   # packs (D546); schedule (D559); test --reset-survival (D561)
+if (($Command -in @("deploy", "secrets", "packs", "schedule", "testbench")) -or ($Command -eq "test" -and $RestArgs -contains "--reset-survival")) {   # packs (D546); schedule (D559); test --reset-survival (D561); testbench (D579)
     # phase 36 (D498, D504): one Python program for every form (D500); eaxpy.ps1 fetches uv and Python into work\tools
     & (Join-Path $PSScriptRoot "eaxpy.ps1") $Command @RestArgs
     exit $LASTEXITCODE

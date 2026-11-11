@@ -1,0 +1,8 @@
+{
+  "_comment": "The load test's pass marks (D582): eax testbench load fails when any is broken. Times in milliseconds, at the users and minutes given; error_rate is a fraction (0.01 = 1%); min_rps is requests per second over the whole run. Change them here: k6 is told the same marks.",
+  "p50_ms": 400,
+  "p95_ms": 1500,
+  "p99_ms": 4000,
+  "error_rate": 0.01,
+  "min_rps": 20
+}

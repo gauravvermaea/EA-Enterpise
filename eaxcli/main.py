@@ -413,6 +413,30 @@ def dispatch(command: str, rest: list[str], wait_all: bool) -> None:
         raise Failure(f"Unknown command '{command}'. Run {EAX} help")
 
 
+def testbench(rest: list[str]) -> int:
+    """eax testbench ... (D579): python -m testbench, with the packages of testbench/requirements.txt. Here when they
+    are already importable; otherwise through uv (work/tools/uv, as eaxpy), which keeps them in work/tools/cache:
+    nothing is installed on the machine."""
+    import importlib.util
+    import os
+    import subprocess
+    import sys as _sys
+    if all(importlib.util.find_spec(m) for m in ("sqlalchemy", "playwright", "openpyxl")):
+        _sys.path.insert(0, str(ROOT))
+        from testbench.cli import main as bench
+        return bench(rest)
+    uv = os.environ.get("EAX_UV") or str(ROOT / "work" / "tools" / ("uv.exe" if os.name == "nt" else "uv"))
+    if not Path(uv).exists():
+        say("The test bench needs its Python packages: run it through eax (which fetches uv), or "
+            "pip install -r testbench/requirements.txt", "red")
+        return 1
+    env = {**os.environ, "UV_PYTHON_INSTALL_DIR": str(ROOT / "work" / "tools" / "python"),
+           "UV_CACHE_DIR": str(ROOT / "work" / "tools" / "cache"), "UV_PYTHON_PREFERENCE": "only-managed"}
+    return subprocess.call([uv, "run", "--no-project", "--quiet", "--python", "3.12", "--with-requirements",
+                            str(ROOT / "testbench" / "requirements.txt"), "python", "-m", "testbench", *rest],
+                           cwd=str(ROOT), env=env)
+
+
 def main(argv: list[str]) -> int:
     command = argv[0] if argv else "help"
     rest = [a for a in argv[1:] if a]
@@ -446,6 +470,8 @@ def main(argv: list[str]) -> int:
         if command == "test" and "--reset-survival" in rest:   # settings outlive a real reset (D561): runs here
             from . import reset_survival
             return reset_survival.main(ROOT, rest)
+        if command == "testbench":              # the outside test bench (D579): testbench/, with its own packages
+            return testbench(rest)
         if command == "packs":                  # the industry packs (phase 39, D546): one Python program for every form
             from . import packs
             return packs.main(rest)

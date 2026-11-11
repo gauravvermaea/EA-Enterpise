@@ -26,7 +26,7 @@ from pathlib import Path
 
 from sqlalchemy import text
 
-from . import api_matrix, db_checks, fixtures, report, security, store, ui_journeys
+from . import api_matrix, api_writes, db_checks, fixtures, report, security, store, ui_journeys
 
 RESULTS = Path(os.environ.get("EAX_TEST_RESULTS", "/results"))
 API = os.environ.get("EAX_TEST_API_URL", "http://api:8000")
@@ -48,6 +48,7 @@ class Run:
         self.engine, self.id, self.folder = engine, run_id, folder
         self.dir = RESULTS / folder
         self.dir.mkdir(parents=True, exist_ok=True)
+        self.counts: dict[str, int] = {}
 
     def log(self, msg: str) -> None:
         line = f"{datetime.now(UTC).strftime('%H:%M:%S')} {msg}"
@@ -98,7 +99,47 @@ def smoke(r: Run, spec: dict, tokens: dict[str, str], ids: dict[str, str], ticke
     deploy_page(rec, tokens)
     command_centre(rec, tokens)
     banner_and_schedules(rec, tokens)
-    ui_journeys.run(ids, ticket, r.dir, rec, only=["sign in and the start page", "a model: overview, grid and quality"])
+    iterations(rec, tokens, ids)
+    r.log("every page opens (as Super Admin) and the key journeys, in a headless browser")
+    r.counts.update(ui_journeys.run_all(ids, ticket, r.dir, r.recorder("ui"), smoke=True))
+
+
+def _post_json(path: str, token: str | None, body: dict) -> tuple[int, str]:
+    import json as _json
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(API + path, data=_json.dumps(body).encode(), method="POST",
+                                 headers={"Content-Type": "application/json", "Accept": "application/json",
+                                          **({"Authorization": f"Bearer {token}"} if token else {})})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return resp.status, resp.read(4000).decode("utf-8", "replace")
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read(4000).decode("utf-8", "replace")
+    except OSError as exc:
+        return 0, str(exc)
+
+
+def iterations(rec, tokens: dict[str, str], ids: dict[str, str]) -> None:
+    """D571-D574: in the run's own project, the iteration answers, a Transition Planning iteration freezes phase B (a
+    change there is refused with 409), and a Full cycle opens it again. Only the run's project is touched."""
+    project = ids.get("project")
+    admin = tokens.get("super-admin") or next(iter(tokens.values()), None)
+    if not project or not admin:
+        rec("iterations: a project's ADM iteration", "skipped", "the run has no project", 0)
+        return
+    base = f"/api/v1/projects/{project}"
+    steps = [("the iteration answers", lambda: api_matrix.call(API, "get", base + "/iteration", admin), {200}),
+             ("Transition Planning (E, F) is chosen", lambda: _post_json(base + "/iteration", admin,
+                                                                        {"iteration": "transition", "note": "self-test"}), {200}),
+             ("phase B is frozen: marking it is refused", lambda: _post_json(base + "/phases/B", admin, {"complete": True}), {409}),
+             ("a Full cycle opens it again", lambda: _post_json(base + "/iteration", admin, {"iteration": "full"}), {200})]
+    for what, fn, ok_codes in steps:
+        t0 = time.time()
+        s, body = fn()
+        ok = s in ok_codes
+        rec(f"iterations: {what}", "passed" if ok else "failed", f"{s}", int((time.time() - t0) * 1000),
+            request="" if ok else what, response="" if ok else f"{s}\n{body}")
 
 
 def command_centre(rec, tokens: dict[str, str]) -> None:
@@ -228,9 +269,15 @@ def cmd_run(args) -> int:
         ids = fixtures.models_and_project(engine, run, by, roles, r.log)
         test_tokens = {k: v for k, v in tokens.items() if not role or k == role}
         ticket = secrets.token_urlsafe(24)
+        from . import ui_flows, ui_pages
+        journeys = store.clean_journeys(args.journey)
         with engine.begin() as conn:
-            store.set_browser(conn, run_id, {"ticket": ticket, "tokens": tokens, "journeys": ui_journeys.journeys(ids, role),
-                                             "done": False})
+            store.set_browser(conn, run_id, {
+                "ticket": ticket, "tokens": tokens, "done": False,
+                # what the admin's own browser runs (TestRuns.jsx): the same page sweep and journeys (D575, D576)
+                "pages": [] if journeys else ui_pages.seeds(ids), "pages_skip": ui_pages.SKIP_ROUTES,
+                "scope": [v for k, v in ids.items() if k in ("model", "other_model", "project", "entity") and v],
+                "journeys": [] if args.pages_only else ui_flows.journeys(ids, role=role, only=journeys, watch=True)})
         spec = api_matrix.fetch_spec(API)
         if level == "smoke":
             r.log("smoke test: sign-in, every area, the key journeys")
@@ -243,9 +290,14 @@ def cmd_run(args) -> int:
             if "api" in suites:
                 r.log(f"API: every endpoint{f' of {area}' if area else ''}, as {', '.join(test_tokens)}")
                 api_matrix.run(API, spec, test_tokens, ids, ids.get("other_model"), r.recorder("api"), area=area)
+                r.log("API writes, area by area, inside the run's own fixtures (and the same writes refused)")
+                r.counts.update({f"writes {k}": v for k, v in api_writes.run(API, test_tokens, ids, r.recorder("api"),
+                                                                              area=area).items()})
             if "ui" in suites and not args.watch:
-                r.log("browser journeys (Chromium, headless)")
-                ui_journeys.run(ids, ticket, r.dir, r.recorder("ui"), role=role)
+                r.log("browser: every page, then the journeys (Chromium, headless)" if not (journeys or args.pages_only)
+                      else "browser: the page sweep" if args.pages_only else f"browser: journey {', '.join(journeys)}")
+                r.counts.update(ui_journeys.run_all(ids, ticket, r.dir, r.recorder("ui"), role=role, journeys=journeys,
+                                                    pages_only=args.pages_only))
             if "ui" in suites and args.watch:
                 r.log("waiting for the journeys in your browser (Self-test page): keep it open")
                 for i in range(1800):
@@ -258,6 +310,9 @@ def cmd_run(args) -> int:
                     time.sleep(2)
                 else:
                     r.recorder("ui")("journeys in the browser", "skipped", "the browser did not finish within an hour", 0)
+                for why in ui_flows.skipped_in_browser():
+                    name, _, reason = why.partition(": ")
+                    r.recorder("ui")(f"journey: {name}", "skipped", f"headless only: {reason}", 0)
             if "security" in suites:
                 rec = r.recorder("security")
                 r.log("security: headers and cookies at the front door, Python dependencies")
@@ -338,6 +393,8 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("--role", default="")
     a.add_argument("--area", default="")
     a.add_argument("--watch", action="store_true")
+    a.add_argument("--journey", action="append", default=[])
+    a.add_argument("--pages-only", action="store_true")
     a.add_argument("--run-id", type=int, default=0)
     a.add_argument("--trigger", default="eax", choices=["web", "eax", "ci"])
     a.add_argument("--by", default="")

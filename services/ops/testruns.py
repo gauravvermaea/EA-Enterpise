@@ -346,7 +346,8 @@ def _security_scans(info: dict, folder: str, say) -> None:
 
 
 def run_sequence(level: str, suites: list[str], role: str = "", area: str = "", watch: bool = False, run_id: int = 0,
-                 by: str = "", trigger: str = "web", follow=None) -> dict:
+                 by: str = "", trigger: str = "web", follow=None, journeys: list[str] | None = None,
+                 pages_only: bool = False) -> dict:
     """The whole run: the runner, then (detailed with security) ZAP and Trivy, then collect. Returns {run_id, folder, code}."""
     say = follow or (lambda _m: None)
     with _lock:
@@ -371,6 +372,10 @@ def run_sequence(level: str, suites: list[str], role: str = "", area: str = "", 
                 cmd += [flag, value]
         if watch:
             cmd.append("--watch")
+        for j in journeys or []:                       # one browser journey only (D577)
+            cmd += ["--journey", j]
+        if pages_only:
+            cmd.append("--pages-only")
         cid = _start_runner(info, name, folder, cmd)
         current["container"] = cid
         code, out = _wait(cid, follow)
@@ -434,7 +439,8 @@ def start(body: dict) -> dict:
     threading.Thread(target=run_sequence, kwargs={
         "level": "detailed" if body.get("level") == "detailed" else "smoke", "suites": suites, "role": str(body.get("role") or ""),
         "area": str(body.get("area") or ""), "watch": bool(body.get("watch")), "run_id": int(body.get("run_id") or 0),
-        "by": str(body.get("by") or ""), "trigger": "web"}, daemon=True).start()
+        "by": str(body.get("by") or ""), "trigger": "web", "journeys": [str(j) for j in body.get("journeys") or []][:20],
+        "pages_only": bool(body.get("pages_only"))}, daemon=True).start()
     return {"run_id": int(body.get("run_id") or 0), "suites": suites, "message": "The self-test is starting."}
 
 
@@ -443,24 +449,28 @@ def _opt(args: list[str], flag: str) -> str:
 
 
 def cli(args: list[str]) -> int:
-    """ops.py test [--smoke|--detailed] [--suite S]... [--role R] [--area A] [--version V] [--ci]"""
+    """ops.py test [--smoke|--detailed] [--suite S]... [--role R] [--area A] [--journey J]... [--pages-only] [--version V] [--ci]"""
     level = "detailed" if "--detailed" in args else "smoke"
     picked = [args[i + 1] for i, a in enumerate(args) if a in ("--suite", "--suites") and i + 1 < len(args)]
     picked += [a for i, a in enumerate(args) if not a.startswith("--") and (i == 0 or args[i - 1] not in
-               ("--suite", "--suites", "--role", "--area", "--version"))]
+               ("--suite", "--suites", "--role", "--area", "--version", "--journey"))]
     try:
         suites = suites_of(",".join(picked))
     except ValueError as exc:
         print(exc)
         return 2
     role, area = _opt(args, "--role"), _opt(args, "--area")
+    journeys = [args[i + 1] for i, a in enumerate(args) if a == "--journey" and i + 1 < len(args)]
+    pages_only = "--pages-only" in args
+    if journeys or pages_only:                        # a journey or the page sweep: the browser suite, detailed (D577)
+        suites, level = ["ui"], "detailed"
     if picked and level == "smoke":
         level = "detailed"                            # choosing suites means the detailed tests
     print(f"Self-test now: {level}" + ("" if level == "smoke" else f" ({', '.join(suites)})") + (f", role {role}" if role else "")
           + (f", area {area}" if area else "") + ". It makes its own self_test_<id>_<n> models, project and accounts and tests "
           "in them; nothing else changes. Results: System admin > Self-test, and work/tests.", flush=True)
     r = run_sequence(level, suites, role, area, False, by="eax test", trigger="ci" if "--ci" in args else "eax",
-                     follow=lambda line: print(line, flush=True))
+                     follow=lambda line: print(line, flush=True), journeys=journeys, pages_only=pages_only)
     if r.get("error"):
         print(f"The self-test could not finish: {r['error']}")
         return 1

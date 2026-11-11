@@ -1,0 +1,8 @@
+# The outside test bench (testbench/, D579): pip install -r testbench/requirements.txt, then
+# python -m playwright install chromium (firefox webkit as wanted). `eax testbench` fetches these itself through uv
+# into work/tools (nothing installed on the machine). k6 (the load test), Docker (ZAP) and Trivy are separate programs.
+playwright==1.48.0
+sqlalchemy>=2.0,<3
+psycopg[binary]>=3.1,<4
+openpyxl>=3.1,<4
+pip-audit==2.7.3

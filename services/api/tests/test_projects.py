@@ -266,6 +266,7 @@ def test_steps_and_template_downloads(monkeypatch):
     monkeypatch.setattr(pj, "_one", lambda conn, sql, **k: None if "parent_step_id = :s" in sql else
                         {"id": 5, "name": "Agree scope", "removed": False, "done_at": "x", "cycle": 1, "phase": "A", "parent_step_id": None})
     monkeypatch.setattr(pj, "my_roles", lambda conn, p, user: {"architect"})
+    monkeypatch.setattr(pj._iter, "guard", lambda conn, p, phase: None)      # a Full cycle (D571-D574)
     assert pj.mark_step(Conn(), "P", _user(), 5, False)["done"] is False     # an architect reopens too (D275)
     assert pj.mark_step(Conn(), "P", _user(), 5, True)["done"]
     monkeypatch.setattr(pj, "my_roles", lambda conn, p, user: {"stakeholder"})

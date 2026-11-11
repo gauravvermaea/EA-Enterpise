@@ -466,6 +466,16 @@ export function ChangeDocumentsTab({ model }) {
 export function ChangeDocumentPage({ route }) {
   const ref = route.replace(/^#\/change-documents\/?/, "").split(/[/?]/)[0];
   const { data: d, error } = useApi(ref ? `/api/v1/change-documents/${ref}` : null);
+  // no document named (a bare #/change-documents, found by the self-test's page sweep, D575): it used to say Loading... for ever
+  if (!ref) {
+    return (
+      <section className="change-doc">
+        <h1>Change documents</h1>
+        <p>A change document opens from its notification, or from a model's <b>Documents</b> tab. Choose a model to see its
+          change documents.</p>
+        <p><a href="#/metamodel">Open a model</a></p>
+      </section>);
+  }
   if (error) return <section><p className="status bad">{error}</p></section>;
   if (!d) return <section><p className="quiet">Loading...</p></section>;
   return (

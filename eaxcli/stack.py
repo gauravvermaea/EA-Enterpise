@@ -147,6 +147,15 @@ def up(names: list[str], wait_everything: bool, no_throw: bool = False) -> int:
         say(f"EA Explorer is ready after {int(time.time() - started)} s: you can sign in.", "green")
         say("Still starting in the background: Reports, Documents, Diagrams and the sample data; the screens show each in "
             "red, amber or green (down, starting, up).", "green")
+        hint = WORK / ".check-hint-shown"
+        if not hint.exists():            # the first start: how to check it (D582)
+            say("Check your installation: System admin > Self-test > Build the test runner, then Smoke test > Start;")
+            say(f"  or {EAX} test --smoke; or from another machine {EAX} testbench --target https://<address> --i-own-this --smoke.")
+            say("  Results: Self-test > History and the report. Steps: docs/deployment.md, \"Check your installation\".")
+            try:
+                hint.touch()
+            except OSError:
+                pass
     return 0
 
 

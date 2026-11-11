@@ -1,0 +1,4 @@
+{
+  "_comment": "Search words the load test's virtual users pick from (testbench/load/scenarios.js). Made by python -m testbench.data build.",
+  "searches": ["Self-test", "application", "capability", "process", "customer", "data", "server", "service", "risk", "Outcome"]
+}

@@ -81,7 +81,12 @@ def listing(conn, project: Any, user) -> dict:
                              FROM proj.steps s LEFT JOIN proj.steps ps ON ps.id = s.parent_step_id
                             WHERE s.project_id = :p AND NOT s.removed
                             ORDER BY s.phase, coalesce(ps.seq, s.seq), s.parent_step_id NULLS FIRST, s.seq""", p=p["id"])
-    return {"tasks": [_out(r) for r in rows], "statuses": statuses(conn, p), "standard": list(STANDARD),
+    from . import iterations as it
+    cur = it.current(conn, p)
+    tasks = [_out(r) for r in rows]
+    for t in tasks:      # a task on a step of a frozen phase is paused, not deleted (D572)
+        t["paused"] = bool(t["step"]) and not it.enabled(cur, t["step"]["phase"])
+    return {"tasks": tasks, "statuses": statuses(conn, p), "iteration": cur, "standard": list(STANDARD),
             "finished": list(FINISHED), "people": sorted(_members(conn, p)), "me": user.username.lower(),
             "steps": [{"id": s["id"], "phase": s["phase"], "name": s["name"], "parent": s["parent_name"] or ""} for s in steps],
             "may_add": _may(conn, p, user, "contribute"), "may_admin": _may(conn, p, user, "admin")}

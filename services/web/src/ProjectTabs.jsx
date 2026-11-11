@@ -12,6 +12,7 @@ import { fmtDateTime, fmtStamp } from "./fmt";
 import ModelReports from "./ModelReports";
 import { refreshAll, useApi } from "./ModelViews";
 import { NewGapDialog } from "./Versions";
+import { projectPhaseEnabled } from "./iterations";
 
 const shortPhase = (ph) => ph.name.replace(/^Phase /, "").replace(" Architecture", "").replace(" (repository-wide)", "");
 
@@ -98,7 +99,7 @@ export function ProjectReports({ p, part = "all" }) {
     const items = p.items.filter((i) => i.phase === ph.code && i.chosen);
     const docs = p.documents.filter((d) => items.some((i) => i.id === d.item_id));
     return {
-      phase: ph.name, steps: steps.length, steps_done: steps.filter((s) => s.done_at).length,
+      phase: ph.name + (projectPhaseEnabled(p, ph.code) ? "" : " (frozen in this iteration)"), steps: steps.length, steps_done: steps.filter((s) => s.done_at).length,
       classes: items.length, classes_with_documents: items.filter((i) => docs.some((d) => d.item_id === i.id)).length,
       documents: docs.length, draft: docs.filter((d) => d.state === "Draft").length, in_review: docs.filter((d) => d.state === "In review").length,
       accepted_or_approved: docs.filter((d) => d.state === "Accepted" || d.state === "Approved").length,
@@ -113,6 +114,8 @@ export function ProjectReports({ p, part = "all" }) {
       <h3>Project status</h3>
       <p className="quiet small">Where {p.name} stands, phase by phase: its steps, its deliverables and artifacts (document classes), their documents
         and approvals. <button className="linkish" onClick={() => downloadCsv(rows, `${p.name} status`)}>⬇ CSV (opens in Excel)</button></p>
+      {p.iteration && <p className="small">ADM cycle {p.cycle}: <b>{p.iteration.label}</b>{p.iteration.chosen ? "" : " (not chosen yet)"}
+        {p.iteration.frozen_phases?.length > 0 && <> · frozen (read only): {p.iteration.frozen_phases.map((c) => (c === "P" ? "Preliminary" : c)).join(", ")}</>}</p>}
       <table className="grid-table small">
         <thead><tr><th>Phase</th><th className="num">Steps done</th><th className="num">Classes with documents</th><th className="num">Documents</th>
           <th className="num">Draft</th><th className="num">In review</th><th className="num">Accepted or approved</th><th className="num">Rejected</th><th className="num">Checked out</th></tr></thead>

@@ -1,0 +1,22 @@
+{
+  "relationships": [
+    {
+      "source": "Self-test data Container Platform",
+      "type": "Serving",
+      "target": "Self-test data Quote Optimiser",
+      "name": "hosts"
+    },
+    {
+      "source": "Self-test data Container Platform",
+      "type": "Serving",
+      "target": "Self-test data Broker Portal",
+      "name": "hosts"
+    },
+    {
+      "source": "Self-test data Quote Optimiser",
+      "type": "Flow",
+      "target": "Self-test data Broker Portal",
+      "name": "quotes"
+    }
+  ]
+}

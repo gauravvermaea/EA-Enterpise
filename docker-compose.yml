@@ -239,8 +239,11 @@ services:
     env_file: work/eaexplorer.env
     environment:
       EAX_TEST_RESULTS: /results
+      EAX_TEST_DATA: /testdata                      # the test data, shared with the outside test bench (D580)
     volumes:
       - ./work/tests:/results
+      - ./testbench/data:/testdata:ro               # testbench/data: deliveries, workbooks, uploads, expected results
+      - ${EAX_PERSIST_DIR:-./persist}:/persist:ro   # read only: the self-test checks the settings there are valid JSON (D577)
     networks: [frontend, backend]
     <<: *logging
 

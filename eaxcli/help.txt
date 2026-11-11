@@ -239,16 +239,22 @@ the API (and PostgreSQL) only.
 $ {eax} debug
 $ {eax} debug api
 
-### test [--smoke|--detailed] [--suite api|ui|db|security|all]... [--role R] [--area A] [--status|--last|--report|--fixtures|--clean <run|all> [--yes]] [--build] [--reset-survival --confirm <name>]
+### test [--smoke|--detailed] [--suite api|ui|db|security|all]... [--role R] [--area A] [--journey J]... [--pages-only] [--status|--last|--report|--fixtures|--clean <run|all> [--yes]] [--build] [--reset-survival --confirm <name>]
 > The self-test, at once: a smoke test or detailed tests of this installation, in fixtures of its own.
 Runs now (never scheduled), in the same runner and results store as System admin > Self-test, so a run started in
 either place shows in both (phase 36.1, D367, D529). It makes its own fixtures, named self_test_<id>_1, _2, _3
 (models and a project) and svc-self-test-<id>-<role> (an account and one-day token per role), tests inside them and
 never changes anything else; its tokens are revoked when it ends. Super Admins and IT Admins.
-  --smoke        (the default) a few minutes: every role signs in, every main area answers, the key journeys once.
-  --detailed     the suites chosen (all if none): api (every endpoint, every role, allowed and refused), ui (the main
-                 journeys in a headless browser), db (read-only database checks), security (headers, cookies, the
-                 Python dependencies, an OWASP ZAP baseline scan and Trivy image scans).
+  --smoke        (the default) a few minutes: every role signs in, every main area answers, every page opens (as
+                 Super Admin) and the three key journeys run once.
+  --detailed     the suites chosen (all if none): api (every endpoint, every role, allowed and refused, plus writes
+                 inside the run's own fixtures), ui (every page opens, renders, has a heading and F1 help; journeys
+                 that click, type and save, as each role allowed and refused to one that is not), db (read-only
+                 database checks), security (headers, cookies, the Python dependencies, an OWASP ZAP baseline scan and
+                 Trivy image scans). The report starts with a coverage summary (pages opened N of N, journeys, endpoints).
+  --journey J    one browser journey only, by part of its name (give it again for more): content, duplicates,
+                 iteration, help, admin, drawn view. Means --suite ui.
+  --pages-only   only the page sweep: every page, group, tab and sub-tab opened and checked. Means --suite ui.
   --suite S      one suite (give it again for more); choosing a suite means --detailed.
   --role R       one role only (super-admin, it-admin, model-creator, library-admin, model-admin, model-sub-admin,
                  committer, architect, history-viewer, report-viewer, no-role).
@@ -271,11 +277,46 @@ $ {eax} test
 $ {eax} test --detailed
 $ {eax} test --suite api --role architect
 $ {eax} test --detailed --area models
+$ {eax} test --pages-only
+$ {eax} test --journey duplicates --role model-admin
 $ {eax} test --last
 $ {eax} test --fixtures
 $ {eax} test --clean 12
 $ {eax} test --build
 $ {eax} test --reset-survival --confirm demo-laptop
+
+### testbench [run|install|upgrade|load|suites|data|setup] --target <address> --i-own-this [--smoke|--detailed] [--suite S]... [--role R] [--area A] [--journey J]... [--pages-only] [--browsers B] [--publish [address]]
+> The test bench: every self-test check, run from this machine against any EA Explorer address you own.
+The same tests as `test` (imported, never copied: services/api/eax/testing), with the same names and filters, run from
+outside the installation, as a person or CI reaches it (D579 to D582). It asks the target to make a self-test run's
+fixtures (self_test_<id>_<n>), runs the checks from here and gives the results back to that run. Never runs without
+--target <address> --i-own-this (or EAX_TESTBENCH_I_OWN_THIS=<host> in CI). Signs in with --token (a Super Admin's or
+IT Admin's machine-access token, or EAX_TESTBENCH_TOKEN), --user/--password (a Keycloak user) or --credentials <file>.
+  run            (the default) --smoke or --detailed, as `test`; also --status, --last, --report, --fixtures,
+                 --clean <run|all> [--yes], --reset-survival --confirm <installation name> [--token-after T].
+  --browsers B   chromium,firefox,webkit,msedge or all (default chromium); a browser missing here is skipped, with why.
+  --db <address> run the database checks on that database directly (default: through the target's API, read only).
+  --no-zap --no-trivy  leave out the scans (each is skipped anyway when Docker or trivy is not here).
+  --publish [address]  every result into the Self-test history (of the target, or of the address given).
+  install        --answers <file> [--folder F] [--ref tag --url repo]: eax deploy with the answers, waits until healthy,
+                 then the suites.
+  upgrade        --from <tag|version> --to <tag|version|folder> --answers <file>: installs --from, notes the version,
+                 migration and row counts, runs eax update --to, checks them again, then the suites.
+  load           --users N --minutes M: k6 with testbench/load/scenarios.js, judged by testbench/thresholds.json
+                 (p50, p95, p99, error rate, throughput). Needs k6 (it says how to get it).
+  suites         the suites, checks and journeys it runs.   data build|check|list   the test data (testbench/data).
+  setup          what this machine needs for the bench (Playwright browsers, k6, Docker, trivy) and how to get it.
+Reports: testbench/reports/<time>/report.html, report.json and junit.xml, with a coverage summary at the top.
+The exit code is 1 when a check failed, 2 when the command was wrong or the guard stopped it. docs/testbench.md.
+$ {eax} testbench --target https://ea.example.org --i-own-this --token eaxt_...
+$ {eax} testbench --target https://ea.example.org --i-own-this --detailed --browsers chromium,firefox,webkit
+$ {eax} testbench --target https://localhost --i-own-this --insecure --suite api --role architect
+$ {eax} testbench --target https://ea.example.org --i-own-this --detailed --publish
+$ {eax} testbench install --target https://localhost --i-own-this --insecure --answers answers.json
+$ {eax} testbench upgrade --from v0.18.0 --to v0.19.0 --target https://localhost --i-own-this --answers answers.json --user admin --password ...
+$ {eax} testbench load --target https://ea.example.org --i-own-this --users 50 --minutes 5
+$ {eax} testbench --last
+$ {eax} testbench setup --browsers all
 
 ## Backups and restores
 

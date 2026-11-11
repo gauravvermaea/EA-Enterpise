@@ -41,7 +41,10 @@ export function saveFolded(v) { try { window.localStorage.setItem(foldKey(), v ?
 
 // ---------------------------------------------------------------- the page shown now (read by quick jump)
 let current = null;
-export function setCurrentNav(nav) { current = nav; }
+export function setCurrentNav(nav) {
+  current = nav;
+  try { window.__eaxNav = nav; } catch { /* no window */ }    // the self-test's page sweep reads every tab of the page shown (D575)
+}
 export function clearCurrentNav(nav) { if (current === nav) current = null; }
 export function currentNav() { return current; }
 

@@ -111,3 +111,65 @@ def run(ids: dict[str, str], ticket: str, folder: Path, record: Record, role: st
             record(f"journey: {j['name']}", outcome, detail, int((time.time() - t0) * 1000), screenshot=shot,
                    video=f"videos/{kept}" if kept else "", browser=version)
         browser.close()
+
+
+def run_all(ids: dict[str, str], ticket: str, folder: Path, record: Record, role: str = "", smoke: bool = False,
+            journeys: list[str] | None = None, pages_only: bool = False) -> dict[str, int]:
+    """The browser suite (D575, D576): the page sweep (every page, group, tab and sub-tab, as Super Admin) and the journeys
+    that click, type and save (each as the roles allowed, and refused to one that is not), headless. Returns the counts
+    for the report's coverage summary."""
+    from . import ui_flows, ui_pages
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        record("browser", "skipped", "Playwright is not in this image (the test runner image has it)", 0)
+        return {}
+    base = base_url()
+    host = base.split("//", 1)[1].split("/")[0].split(":")[0]
+    proxy = os.environ.get("EAX_TEST_PROXY_HOST", "proxy")
+    videos = folder / "videos"
+    videos.mkdir(parents=True, exist_ok=True)
+    counts: dict[str, int] = {}
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(args=[f"--host-resolver-rules=MAP {host} {proxy}, MAP *.{host} {proxy}"])
+        version = f"Chromium {browser.version} (headless, on the server)"
+
+        def context(as_role: str, video: bool = True):
+            ctx = browser.new_context(ignore_https_errors=True, viewport={"width": 1400, "height": 900},
+                                      **({"record_video_dir": str(videos)} if video else {}))
+            page = ctx.new_page()
+            page.on("dialog", lambda d: d.accept())
+            def open_route(route: str, r=as_role) -> None:
+                page.goto(f"{base}/?eaxselftest={ticket}&eaxrole={r}{route}", wait_until="domcontentloaded", timeout=60000)
+            return ctx, page, open_route
+
+        def rec(name, outcome, detail="", ms=0, **kw):
+            record(name, outcome, detail, ms, browser=version, **kw)
+
+        if not journeys:                                                  # the page sweep
+            ctx, page, open_route = context(role if role else "super-admin", video=False)
+            counts.update({f"pages_{k}" if k != "pages" else k: v
+                           for k, v in ui_pages.sweep(page, open_route, ids, rec, role=role or "super-admin").items()})
+            ctx.close()
+        if not pages_only:                                                # the journeys
+            def factory(as_role: str):
+                ctx, page, open_route = context(as_role)
+
+                def close(outcome: str, c=ctx, p=page) -> str:
+                    video = p.video.path() if p.video else None
+                    c.close()
+                    if not video:
+                        return ""
+                    v = Path(video)
+                    if outcome == "failed":
+                        kept = f"journey-{int(time.time() * 1000)}.webm"
+                        v.rename(videos / kept)
+                        return f"videos/{kept}"
+                    v.unlink(missing_ok=True)
+                    return ""
+                return page, open_route, close
+            js = ui_flows.journeys(ids, role=role, only=journeys, smoke=smoke)
+            jc = ui_flows.run(factory, js, rec)
+            counts.update({f"journeys_{k}" if k != "journeys" else k: v for k, v in jc.items()})
+        browser.close()
+    return counts
