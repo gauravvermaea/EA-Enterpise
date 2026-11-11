@@ -112,6 +112,7 @@ def status(conn, fresh: bool = False) -> dict:
         if not fresh and _kept["data"] and now - _kept["at"] < KEEP_SECONDS:
             data = dict(_kept["data"])
             data["later"] = _later(conn)
+            data["packs"] = _packs(conn)
             return _finish(data)
     with ThreadPoolExecutor(max_workers=len(PARTS) + 1) as pool:
         checks = {k: pool.submit(f) for k, _n, _p, f, _c in PARTS}
@@ -131,11 +132,31 @@ def status(conn, fresh: bool = False) -> dict:
         _kept.update(at=now, data=data)
     data = dict(data)
     data["later"] = _later(conn)
+    data["packs"] = _packs(conn)
     return _finish(data)
 
 
+def _packs(conn) -> dict | None:
+    """The industry packs shipped with this version going into Documents (D584): "loading n of N", then up.
+    None when no packs are shipped or the table is not there yet."""
+    try:
+        from . import industry_packs as IP
+        if not IP.PACKS_DIR.is_dir():
+            return None
+        total = sum(1 for d in IP.PACKS_DIR.iterdir() if d.is_dir() and IP.industry_of(d.name)
+                    for f in d.iterdir() if f.is_file() and IP.classify(f.name[:-len(".parts.json")] if f.name.endswith(".parts.json") else f.name))
+        if not total:
+            return None
+        missing = len(IP.missing_shipped(conn))
+    except Exception:  # noqa: BLE001 - before the migration, or the folder is not mounted
+        return None
+    done = total - missing
+    return {"key": "packs", "name": "Industry packs", "product": "into Documents", "status": "starting" if missing else "up",
+            "detail": f"loading ({done} of {total})" if missing else f"{total} files loaded", "done": done, "total": total}
+
+
 def _finish(data: dict) -> dict:
-    parts = list(data["parts"]) + ([data["later"]] if data.get("later") else [])
+    parts = list(data["parts"]) + ([data["later"]] if data.get("later") else []) + ([data["packs"]] if data.get("packs") else [])
     states = [p["status"] for p in parts]
     data["overall"] = "down" if "down" in states else "starting" if "starting" in states else "up"
     data["all"] = parts

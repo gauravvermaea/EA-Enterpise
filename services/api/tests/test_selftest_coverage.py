@@ -19,7 +19,8 @@ WEB = ROOT / "services" / "web" / "src"
 IDS = {"model": "11111111-1111-1111-1111-111111111111", "other_model": "22222222-2222-2222-2222-222222222222",
        "project": "33333333-3333-3333-3333-333333333333", "entity": "44444444-4444-4444-4444-444444444444",
        "sid": "abcdef123456", "dup": "Self-test duplicate ap", "model_name": "self_test_abcdef123456_1",
-       "project_name": "self_test_abcdef123456_3"}
+       "project_name": "self_test_abcdef123456_3", "other_name": "self_test_abcdef123456_2",
+       "view": "55555555-5555-5555-5555-555555555555", "view_name": "self_test_abcdef123456 view"}
 
 
 # ---------------------------------------------------------------- the page sweep (D575)
@@ -63,7 +64,7 @@ def test_a_page_is_judged_the_same_way_every_time(found, errors, help_state, out
 
 # ---------------------------------------------------------------- the journeys (D576)
 def test_journeys_are_well_formed():
-    kinds = {"open", "click", "choose", "fill", "select", "press", "expect", "expect_not", "expect_sel", "upload"}
+    kinds = set(ui_flows.STEP_KINDS)
     keys = [ui_flows.key(j) for j in ui_flows.JOURNEYS]
     assert len(keys) == len(set(keys)), "every journey has its own --journey key"
     for j in ui_flows.JOURNEYS:
@@ -72,6 +73,17 @@ def test_journeys_are_well_formed():
             assert next(iter(s)) in kinds, (j["name"], s)
         if j.get("headless_only"):
             assert j.get("why_headless"), f"{j['name']}: say why it runs headless only"
+        assert j.get("refused") or j.get("why_no_refusal"), f"{j['name']}: refused to one role, or say why nobody is"
+        if j.get("refused"):
+            assert j["refused"]["role"] not in j["roles"], j["name"]
+        for s in j["steps"]:
+            if "remember" in s:
+                re.compile(s["url"])
+            if "click_re" in s:
+                re.compile(s["click_re"])
+        kept = {s["remember"] for s in j["steps"] if "remember" in s}
+        used = set(re.findall(r"\{\$([a-z_]+)\}", json.dumps(j["steps"])))
+        assert used <= kept, (j["name"], used - kept)
     assert sum(1 for j in ui_flows.JOURNEYS if j["smoke"]) == 3, "the smoke test runs three key journeys"
 
 
@@ -108,10 +120,112 @@ def test_smoke_runs_the_three_key_journeys_once_and_watch_leaves_out_the_headles
     assert ui_flows.skipped_in_browser()
 
 
+# ---------------------------------------------------------------- the role plan (D583)
+def test_every_journey_runs_as_each_allowed_role_then_one_refused():
+    for j in ui_flows.JOURNEYS:
+        plan = ui_flows.role_plan(j)
+        assert [r for r, refused in plan if not refused] == j["roles"], j["name"]
+        refused = [r for r, x in plan if x]
+        assert refused == ([j["refused"]["role"]] if j.get("refused") else []), j["name"]
+        assert ui_flows.role_plan(j, smoke=True) == [(j["roles"][0], False)]
+
+
+def test_one_role_given_runs_it_or_is_refused_or_skips():
+    admin = next(j for j in ui_flows.JOURNEYS if ui_flows.key(j) == "admin")
+    assert ui_flows.role_plan(admin, "it-admin") == [("it-admin", False)]
+    assert ui_flows.role_plan(admin, "committer") == [("committer", True)]
+    helpj = next(j for j in ui_flows.JOURNEYS if ui_flows.key(j) == "help and documentation")
+    assert ui_flows.role_plan(helpj, "it-admin") == []          # nobody is refused the help: nothing to run
+    assert ui_flows.role_plan(helpj, "super-admin") == [("super-admin", False)]
+
+
+def test_the_roles_a_journey_names_are_test_roles_given_rights_by_the_fixtures():
+    from eax.testing import fixtures
+    for j in ui_flows.JOURNEYS:
+        for r in j["roles"] + ([j["refused"]["role"]] if j.get("refused") else []):
+            assert r in store.TEST_ROLES, (j["name"], r)
+        for s in j["steps"]:
+            if "as" in s and s["as"] != "{role}":
+                assert s["as"] in store.TEST_ROLES, (j["name"], s)
+        if "{p}" in json.dumps(j["steps"]):
+            # a project journey's roles open the project: a Super Admin, or a member the fixtures add
+            assert all(r == "super-admin" or r in fixtures.PROJECT_TEST_ROLES for r in j["roles"]), j["name"]
+
+
+def test_new_journeys_need_their_fixtures_and_carry_their_data_to_the_browser():
+    no_view = ui_flows.journeys({k: v for k, v in IDS.items() if k != "view"})
+    assert not any(j["name"].startswith("drawn view") for j in no_view)
+    no_child = ui_flows.journeys({k: v for k, v in IDS.items() if k != "other_model"})
+    assert not any(j["name"].startswith("child merge") for j in no_child)
+    watched = ui_flows.journeys(IDS, watch=True)
+    ups = [s for j in watched for s in j["steps"] if "upload" in s and s.get("data")]
+    assert ups and all(s.get("b64") for s in ups)
+    import base64
+    assert base64.b64decode(ups[0]["b64"]) == ui_flows.data_bytes(ups[0]["data"])
+
+
+def test_the_test_data_folder_is_the_env_var_then_the_checkout(monkeypatch, tmp_path):
+    monkeypatch.setenv("EAX_TEST_DATA", str(tmp_path))
+    assert ui_flows.data_folder() == tmp_path
+    monkeypatch.delenv("EAX_TEST_DATA")
+    assert (ui_flows.data_folder() / "deliveries" / "good.xlsx").is_file()
+    with pytest.raises(ValueError):
+        ui_flows.data_bytes("../../etc/passwd")
+
+
+def test_the_words_the_journeys_click_are_on_the_screens():
+    """Each button, field and pop-up a journey names is in the screens' source (so a renamed button fails here first)."""
+    src = "\n".join(p.read_text(encoding="utf-8") for p in WEB.glob("*.jsx"))
+    for j in ui_flows.JOURNEYS:
+        if ui_flows.key(j) not in ("admin", "drawn view", "import", "survey", "child merge"):
+            continue
+        for s in j["steps"]:
+            for k in ("click", "fill"):
+                t = s.get(k)
+                if not isinstance(t, str) or "{" in t or t.startswith("Self-test") or s.get("optional"):
+                    continue
+                if t in ("Name", "Message", "Protocol", "Option 1", "Option 2"):   # shared, numbered, or the fixtures' own
+                    continue
+                for name in ("Application Component", "Capability"):       # the drawn view's pop-ups name the type
+                    t = t.replace(name, "${typeName}")
+                assert t.rstrip(".…").split(" (")[0][:12] in src, (j["name"], k, t)
+
+
+def test_the_admin_journey_puts_back_the_banner_and_removes_only_its_own_schedules():
+    calls = []
+    state = {"banner": {"text": "self_test_abcdef123456 banner"}, "schedules": [{"id": "s1", "name": "Nightly backup"},
+                                                                             {"id": "s2", "name": "self_test_abcdef123456 schedule"}]}
+
+    def call(method, path, body=None):
+        calls.append((method, path, body))
+        if method == "GET" and path.endswith("/banner"):
+            return 200, {"banner": state["banner"]}
+        if method == "GET":
+            return 200, {"schedules": state["schedules"]}
+        return 200, {}
+    before = {"banner": {"text": "Upgrade on Saturday", "level": "notice", "audience": "everyone"}, "schedules": ["s1"]}
+    done = ui_flows.admin_restore(call, before, "abcdef123456")
+    assert ("PUT", "/api/v1/admin/banner", {"text": "Upgrade on Saturday", "level": "notice", "audience": "everyone"}) in calls
+    assert ("POST", "/api/v1/admin/commands/schedules/s2/remove", {}) in calls
+    assert not any("s1" in c[1] for c in calls if c[0] == "POST")
+    assert len(done) == 2
+    calls.clear()
+    ui_flows.admin_restore(call, {"banner": None, "schedules": ["s1", "s2"]}, "abcdef123456")
+    assert ("DELETE", "/api/v1/admin/banner", None) in calls      # nothing was set before: the self-test's banner goes
+    snap = ui_flows.admin_snapshot(call)
+    assert snap["schedules"] == ["s1", "s2"]
+
+
+def test_a_remembered_value_fills_later_steps():
+    assert ui_flows.with_vars({"open": "#/merge-requests/{$mr}"}, {"mr": "7"}) == {"open": "#/merge-requests/7"}
+    assert "importCells" in ui_flows.drop_script("Capability") and "'Capability'" in ui_flows.drop_script("Capability")
+
+
 def test_one_role_runs_what_it_may_and_is_refused_the_rest():
     js = ui_flows.journeys(IDS, role="report-viewer")
     assert js and all(j["role"] == "report-viewer" for j in js)
-    assert all(j.get("refusal") for j in js)
+    assert all(j.get("refusal") for j in js if not j["name"].startswith("help"))
+    assert any(j["name"].startswith("help") and j["steps"] for j in js)
 
 
 def test_a_journey_is_chosen_by_part_of_its_name_and_needs_a_project_when_it_names_one():

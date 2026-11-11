@@ -121,6 +121,15 @@ depend on; for example, `eax up api proxy` starts the database, the API and the 
 everyday start and is the same as `up`. Running `up` on a running installation is an upgrade: everyone sees the
 maintenance page until it has finished.
 
+**Nothing to prepare by hand (D584).** A full `up` (and so `run`, `restart`, `debug`, `clean-run`, `clean-restart`)
+first runs the pack step, `eax packs auto`: what is new or changed in the pack source folders is copied into
+library/industry-packs (the "complete set" zips opened, the same file kept once); it is quick when nothing changed and
+says one line when there is no source folder. The sources: `eax packs source <folder...>` (kept in persist/), else
+`EAX_PACKS_SOURCE` in the config, else the default folders. As it starts it then loads the packs into Documents (the
+start-up status shows *Industry packs loading n of N*), the documentation into the library, sign-in and Reports set-up,
+the sample data and the persist/ settings, and builds the test runner in the background (about 1.5 GB). `eax test`
+prepares the runner itself every time, so `eax packs collect` and `eax test --build` are optional.
+
 ## Finding problems
 
 | Command | What it does |

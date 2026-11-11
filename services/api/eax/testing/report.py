@@ -48,7 +48,24 @@ def coverage(results: list[dict[str, Any]]) -> list[tuple[str, int, int]]:
         out.append(("Pages opened and checked (renders, heading, F1 help)", *tally(pages)))
     js = [r for r in results if r["name"].startswith("journey: ") or r["name"].startswith("journey ")]
     if js:
-        out.append(("Journeys that click, type and save (and refusals)", *tally(js)))
+        refused = [r for r in js if ": refused to " in r["name"] or r["name"].endswith("(refused)")]
+        done = [r for r in js if r not in refused]
+        if done:
+            out.append(("Journeys that click, type and save (each allowed role)", *tally(done)))
+        if refused:
+            out.append(("Journeys refused to a role that may not", *tally(refused)))
+        # how many of the defined journeys passed in full, for every role tried (D583): smoke runs 3, detailed all
+        from . import ui_flows
+        keys = {ui_flows.key(j): j for j in ui_flows.JOURNEYS}
+        tried: dict[str, bool] = {}
+        for r in js:
+            if r["outcome"] == "skipped":
+                continue
+            k = next((k for k in keys if r["name"].split(": ", 1)[-1].lower().startswith(k.lower())), None)
+            if k:
+                tried[k] = tried.get(k, True) and r["outcome"] == "passed"
+        if tried:
+            out.append((f"Journeys covered (of the {len(keys)} defined)", sum(tried.values()), len(keys)))
     anon = [r for r in results if r["suite"] == "api" and r["name"].endswith(": without a token")]
     if anon:
         out.append(("API endpoints refused without a sign-in", *tally(anon)))

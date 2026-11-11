@@ -4,6 +4,11 @@
                         start) or another folder on this computer (copied into the api container first)
   packs reload          the same as load (the shipped packs)
   packs status          each industry's pack: how many files are in Documents
+  packs auto            what up, run, restart, clean-restart and clean-run do by themselves before starting (D584):
+                        copy what is new or changed from the pack sources into library/industry-packs; quick
+                        when nothing changed; nothing to do when no source folder is there
+  packs source [folder...]
+                        show, set or (with --clear) forget the pack source folders (kept in persist/settings.json)
   packs collect [source...]
                         copy the owner's industry packs from folders on this computer into library/industry-packs, ready
                         to commit: one folder per industry, the "complete set" zips opened, duplicates (same checksum)
@@ -141,10 +146,100 @@ def collect(sources: list[Path], dest: Path = DEST) -> dict:
     return {"copied": copied, "duplicates": same, "refused": refused, "split": split, "unknown": unknown, "total": total}
 
 
+SETTINGS = "settings.json"            # persist/settings.json (D558): {"packs_sources": [...]} survives resets
+CACHE = "packs-cache.json"            # persist/: the sources' signature at the last copy, for the quick path
+
+
+def configured_sources(root: Path = ROOT) -> tuple[list[Path], str]:
+    """The pack source folders and where they came from: persist/settings.json, else EAX_PACKS_SOURCE (the config file
+    or the environment; several separated by ;), else the owner's folders in the home folder."""
+    import os
+
+    from . import persist as P
+    data, _w = P.read_json(P.folder(root) / SETTINGS, {})
+    if data.get("packs_sources"):
+        return [Path(x) for x in data["packs_sources"]], "persist/settings.json"
+    given = os.environ.get("EAX_PACKS_SOURCE") or P._config_value(root, "EAX_PACKS_SOURCE")
+    if given:
+        return [Path(x.strip()) for x in given.split(";") if x.strip()], "EAX_PACKS_SOURCE"
+    return default_sources(), "the default folders"
+
+
+def signature(sources: list[Path]) -> str:
+    """A quick fingerprint of the sources (every file's path, size and time), so an unchanged source is not read."""
+    h = hashlib.sha256()
+    for src in sources:
+        if not src.is_dir():
+            continue
+        for f in sorted(src.rglob("*")):
+            if f.is_file() and f.suffix.lower() in (*WANTED, ".zip"):
+                st = f.stat()
+                h.update(f"{f}|{st.st_size}|{st.st_mtime_ns}\n".encode())
+    return h.hexdigest()
+
+
+def auto(root: Path = ROOT, dest: Path | None = None, quiet: bool = False) -> dict:
+    """The pack step of every start (D584). Returns {state: none|same|copied, ...}; never raises for a missing source."""
+    from . import persist as P
+    dest = dest or root / "library" / "industry-packs"
+    sources, where = configured_sources(root)
+    present = [s for s in sources if s.is_dir()]
+    if not present:
+        if not quiet:
+            say(f"Industry packs: no pack source folder here ({where}); the packs in library/industry-packs are used.")
+        return {"state": "none", "sources": [str(s) for s in sources]}
+    sig = signature(present)
+    cache_path = P.folder(root) / CACHE
+    cache, _w = P.read_json(cache_path, {})
+    if cache.get("signature") == sig and dest.is_dir():
+        if not quiet:
+            say("Industry packs: no change in the pack sources.")
+        return {"state": "same", "sources": [str(s) for s in present]}
+    if not quiet:
+        say(f"Industry packs: copying what is new or changed from {len(present)} source folder(s)...")
+    out = collect(present, dest)
+    P.write_json(cache_path, {"version": 1, "_comment": "eax packs auto: the pack sources' fingerprint at the last copy",
+                              "signature": sig, "sources": [str(s) for s in present]})
+    if not quiet:
+        say(f"Industry packs: {len(out['copied'])} new or changed, {len(out['duplicates'])} unchanged"
+            + (f", {len(out['refused'])} left out (marked not for AI use)" if out["refused"] else "")
+            + ". They go into Documents as EA Explorer starts.")
+    return {"state": "copied", **out}
+
+
+def set_sources(folders: list[str], clear: bool = False, root: Path = ROOT) -> list[str]:
+    from . import persist as P
+    path = P.folder(root) / SETTINGS
+    data, _w = P.read_json(path, {})
+    data.setdefault("version", 1)
+    if clear:
+        data.pop("packs_sources", None)
+    else:
+        data["packs_sources"] = [str(Path(f)) for f in folders]
+    P.write_json(path, data)
+    return data.get("packs_sources", [])
+
+
 def main(args: list[str]) -> int:
     from . import stack
     sub = args[0] if args else "status"
     rest = args[1:]
+    if sub == "auto":
+        try:
+            auto()
+        except Exception as exc:  # noqa: BLE001 - a start never fails because of the packs
+            say(f"Industry packs: not copied ({exc}); the packs already in library/industry-packs are used.", "yellow")
+        return 0
+    if sub == "source":
+        if rest:
+            got = set_sources([a for a in rest if a != "--clear"], clear="--clear" in rest)
+            say("Pack sources: " + ("; ".join(got) if got else "none set (EAX_PACKS_SOURCE or the default folders are used)"))
+        else:
+            srcs, where = configured_sources()
+            say(f"Pack sources ({where}):")
+            for x in srcs:
+                say(f"  {x}  {'(there)' if x.is_dir() else '(not found)'}")
+        return 0
     if sub == "collect":
         out = collect([Path(a) for a in rest] or default_sources())
         for k in ("copied", "split", "refused"):
@@ -152,7 +247,7 @@ def main(args: list[str]) -> int:
                 say(f"  {k}: {x}", "red" if k == "refused" else "")
         say(f"{len(out['copied'])} copied, {len(out['duplicates'])} duplicates kept once, {len(out['refused'])} refused "
             f"(marked not for AI use), {len(out['split'])} split. library/industry-packs is now {out['total'] / 1048576:.1f} MB.")
-        say(f"Next: commit library/industry-packs, then {EAX} packs load (or {EAX} restart) to put them in Documents.")
+        say(f"They go into Documents at the next start ({EAX} up or {EAX} restart); commit library/industry-packs to ship them.")
         return 0
     if sub in ("load", "reload"):
         if rest and sub == "load":
@@ -169,7 +264,7 @@ def main(args: list[str]) -> int:
     if sub == "status":
         stack.interactive(["api", "python", "-m", "eax.industry_packs", "status"], [])
         return 0
-    raise Failure(f"Unknown: {EAX} packs {sub}. Use load [folder], reload, status or collect [source...].")
+    raise Failure(f"Unknown: {EAX} packs {sub}. Use auto, source [folder...], load [folder], reload, status or collect [source...].")
 
 
 if __name__ == "__main__":

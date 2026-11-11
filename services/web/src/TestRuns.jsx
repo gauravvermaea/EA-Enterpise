@@ -8,8 +8,9 @@
 //   Test fixtures every self_test_<id>_<n> model, project, account and credential of every run; tick and purge them
 //                 (for good: type DELETE), as a background task with its progress
 // Each run makes its own fixtures and tests only inside them; nothing else changes, and nothing is ever purged by itself.
-// The test runner (a container image, about 1.5 GB) is built from here too (D570): Build the test runner, its steps and
-// log live, Retry when it fails, and "Build it automatically after each start or update" (persist/settings.json).
+// The test runner (a container image, about 1.5 GB) is prepared whenever a test starts (D584): nothing to build by hand.
+// Advanced keeps "Rebuild the test runner" (its steps and log live, Retry) and "Build it automatically after each start
+// or update" (persist/settings.json, on by default).
 // Health shows the last run in one line (LastSelfTest).
 import { useEffect, useRef, useState } from "react";
 import { CLI_FORMS, commandLine, journey, makeFrame, sweep } from "./selfTestDriver.js";
@@ -101,7 +102,7 @@ function Chooser({ data, onStarted }) {
     setBusy(true); setMsg("");
     try {
       const r = await apiFetch("/api/v1/admin/tests", { method: "POST", body: JSON.stringify({ level, suites: pick, role, area,
-        watch: watch && level === "detailed" && pick.includes("ui"), build_first: notBuilt,
+        watch: watch && level === "detailed" && pick.includes("ui"),
         journeys: level === "detailed" && !pagesOnly ? jpick : [], pages_only: level === "detailed" && pagesOnly }) });
       setMsg(r.message); setConfirm(false); onStarted();
     } catch (e) { setMsg(e.message); setConfirm(false); } finally { setBusy(false); }
@@ -154,9 +155,10 @@ function Chooser({ data, onStarted }) {
       {confirm && (
         <Modal title="Start the self-test now?" onClose={() => setConfirm(false)}
           actions={<><button onClick={() => setConfirm(false)}>Cancel</button>
-            <button className="primary" disabled={busy} onClick={start}>{busy ? "Starting..." : notBuilt ? "Build, then run" : "Start now"}</button></>}>
-          {notBuilt && <p className="status warn">The test runner is not built yet. It is built first (about {runner.size_gb || 1.5} GB,
-            {" "}{(runner.build_minutes || [5, 15]).join(" to ")} minutes), then this run starts by itself.</p>}
+            <button className="primary" disabled={busy} onClick={start}>{busy ? "Starting..." : "Start now"}</button></>}>
+          <p className="small">The test runner is prepared first: seconds when it is current{notBuilt
+            ? <>; it is not built yet, so this time about <b>{(runner.build_minutes || [5, 15]).join(" to ")} minutes</b> (about {runner.size_gb || 1.5} GB)</>
+            : ""}. Then this run starts by itself.</p>
           <p>{level === "smoke" ? "A smoke test" : `Detailed tests: ${pick.join(", ")}`}{role ? `, as ${role} only` : ""}{area ? `, ${area} only` : ""}.
             It takes about <b>{Math.max(1, est[0])} to {Math.max(2, est[1])} minutes</b>{watch && level === "detailed" ? "; keep this page open while the journeys run in it" : ""}.</p>
           <p className="small">It makes its own models, project and test accounts (<code>self_test_&lt;id&gt;_&lt;n&gt;</code>) and tests only inside
@@ -187,23 +189,21 @@ function TestRunner({ runner, onBuilt, onChange }) {
     <label className="check small" title="When the image for the running version is missing, the operations helper builds it in the background after each start and each update">
       <input type="checkbox" checked={auto} onChange={(e) => saveAuto(e.target.checked)} /> Build it automatically after each start or update</label>);
   if (watching) return <RunnerBuild id={watching} onRetry={build} onBuilt={() => { setWatching(null); onBuilt(); }} />;
-  if (runner.image_present) {
-    return <p className="small self-test-runner">Test runner <code>{runner.image}</code> is built. {autoBox}</p>;
-  }
+  // nothing to build by hand (owner, 11 Nov 2026, D584): Start prepares the runner; Advanced keeps a rebuild for when it is needed
   return (
-    <section className="self-test-runner panel-soft" aria-label="The test runner">
-      <h3>The test runner is not built yet</h3>
-      <p>Self-tests run in a container image of their own: the API's code, Chromium for the browser tests and the security
-        scanners. It is about <b>{runner.size_gb || 1.5} GB</b> and building it takes about
-        {" "}<b>{(runner.build_minutes || [5, 15]).join(" to ")} minutes</b> the first time (it needs the internet). It is built once per version.</p>
-      {b.state === "failed" && <p className="status bad small">The last build failed{b.reason ? `: ${b.reason}` : ""}.</p>}
+    <details className="small self-test-runner">
+      <summary>Advanced: the test runner</summary>
+      <p>{runner.image_present ? <>The test runner <code>{runner.image}</code> is built.</>
+        : <>The test runner is not built yet: it is built when a test starts (about {runner.size_gb || 1.5} GB,
+          {" "}{(runner.build_minutes || [5, 15]).join(" to ")} minutes the first time).</>}
+        {b.state === "failed" && <span className="status bad"> The last build failed{b.reason ? `: ${b.reason}` : ""}.</span>}</p>
       <div className="toolbar">
-        <button className="primary" onClick={build}>{b.state === "failed" ? "Retry the build" : "Build the test runner"}</button>
+        <button onClick={build}>{b.state === "failed" ? "Retry the build" : "Rebuild the test runner"}</button>
         {autoBox}
       </div>
       {msg && <p className="status bad small">{msg}</p>}
-      <p className="quiet small">The same as <code>eax test --build</code>. You can also press Start below: the runner is built first, then the run starts.</p>
-    </section>
+      <p className="quiet small">The same as <code>eax test --build</code>. Never needed before a test: Start and <code>eax test</code> prepare it.</p>
+    </details>
   );
 }
 

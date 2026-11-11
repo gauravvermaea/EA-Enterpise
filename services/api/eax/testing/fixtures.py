@@ -30,6 +30,11 @@ from . import store
 
 DESCRIPTION = "Made by the EA Explorer self-test, run {run} ({guid}). Removed from System admin > Self-test > Test fixtures."
 
+# what the run's project members are, per test role (D583): the architect works on it, the report viewer only reads it
+PROJECT_TEST_ROLES = {"architect": "architect", "report-viewer": "stakeholder"}
+# the key of the key:value the drawn-view journey sets on a line (a text attribute on Association in self_test_<id>_1)
+LINE_ATTRIBUTE = "Protocol"
+
 
 def _principal(username: str, roles: tuple[str, ...]):
     return perms.Principal(username, roles)
@@ -92,7 +97,22 @@ def models_and_project(engine, run: dict, by: str, roles: list[str], log) -> dic
         _as(me, mb.commit_my_changes(m1["model"], "Self-test fixtures"))
     except RuntimeError:
         pass                                       # nothing to commit: the model saves straight away
-    m2 = _as(me, mb.create_model(f"self_test_{sid}_2", start="child", source=m1["model"], description=desc))
+    # the drawn-view journey sets a key:value on a line (D564): a text attribute on Association, in this model only
+    try:
+        from .. import metamodel_edit as med
+        with engine.begin() as conn:
+            med.apply(conn, m1["model"], "attribute.create",
+                      {"relationship_type": "Association", "name": LINE_ATTRIBUTE, "data_type": "text"}, me.username)
+    except Exception as exc:  # noqa: BLE001 - the journey then checks the line's name and type only
+        log(f"no line attribute for the drawn-view journey: {exc}")
+    view_ids: dict[str, str] = {}
+    try:                                           # a drawn view for the drawn-view journey (D583)
+        v = _as(me, mb.create_drawn_view(m1["model"], f"self_test_{sid} view",
+                                          ["Self-test application 1", "Self-test capability 1", "Self-test application 2"]))
+        view_ids = {"view": str(v["id"]), "view_name": f"self_test_{sid} view"}
+    except Exception as exc:  # noqa: BLE001 - no views service: the drawn-view journey is skipped, with why
+        log(f"no drawn view made: {exc}")
+    m2 =_as(me, mb.create_model(f"self_test_{sid}_2", start="child", source=m1["model"], description=desc))
     with engine.begin() as conn:
         store.add_fixture(conn, run["id"], "model", m2["model"], m2["name"])
         model_roles = [r for r in roles if r in store.MODEL_TEST_ROLES]
@@ -104,7 +124,7 @@ def models_and_project(engine, run: dict, by: str, roles: list[str], log) -> dic
                                 "WHERE m.guid = CAST(:g AS uuid) AND NOT e.is_deleted ORDER BY e.id LIMIT 1"),
                            {"g": m1["model"]}).scalar()
     ids = {"model": m1["model"], "model_id": m1["model"], "model_name": m1["name"], "other_model": m2["model"], "sid": sid,
-           "dup": "Self-test duplicate ap"}
+           "other_name": m2["name"], "dup": "Self-test duplicate ap", **view_ids}
     if ent:
         ids.update(entity=ent, entity_id=ent)
     try:
@@ -118,6 +138,14 @@ def models_and_project(engine, run: dict, by: str, roles: list[str], log) -> dic
             with engine.begin() as conn:
                 store.add_fixture(conn, run["id"], "project", p["project"], f"self_test_{sid}_3")
             ids.update(project=p["project"], project_id=p["project"], project_name=f"self_test_{sid}_3")
+            # the test roles the journeys' role plan runs on the project are its members (D583)
+            with pj.connections() as pc:
+                for role in [r for r in roles if r in PROJECT_TEST_ROLES]:
+                    pc.execute(text("""INSERT INTO proj.members (project_id, username, role, added_by)
+                                       SELECT id, :u, :r, :by FROM proj.projects WHERE guid::text = :g
+                                       ON CONFLICT DO NOTHING"""),
+                               {"u": f"svc-self-test-{sid}-{role}", "r": PROJECT_TEST_ROLES[role], "by": by,
+                                "g": str(p["project"])})
     except Exception as exc:  # noqa: BLE001 - the project journeys and endpoints are then skipped, with why
         log(f"no project made: {exc}")
     log(f"fixtures made: {m1['name']}, {m2['name']}" + (f", {ids['project_name']}" if "project" in ids else ""))

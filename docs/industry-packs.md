@@ -38,7 +38,15 @@ views (D548): their packs show those two tiles. A tile with no file shows "Not l
   Admin or Super Admin can also click **Load packs from the folder on the server** on the Pack tab.
 
 ## Bringing the owner's files into the repository
-`eax packs collect` copies the packs from folders on this computer into `library/industry-packs`, ready to commit:
+**Nothing to run by hand** (D584): every `eax up`, `run`, `restart`, `clean-restart` and `clean-run` copies what is
+new or changed in the pack sources into `library/industry-packs` first (`eax packs auto`; quick when nothing changed;
+nothing to do when no source folder is there), and EA Explorer loads them into Documents as it starts (the start-up
+status shows "Industry packs loading n of N"). The sources: `eax packs source <folder...>` (kept in
+`persist/settings.json`, so it survives resets), else `EAX_PACKS_SOURCE` in the config (several separated by `;`), else
+the owner's folders in the home folder (`Enterprise_Architecture\Industry Specific Guidance`,
+`Sample_Repo\Metamodels_And_Views_by_Industry`, `Sample_Repo\MetaModel_And_Views`).
+
+`eax packs collect` (optional) does the copy now, ready to commit:
 
 ```
 .\eax packs collect

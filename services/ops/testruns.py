@@ -86,8 +86,8 @@ def _networks(info: dict) -> list[str]:
     return list(((info.get("NetworkSettings") or {}).get("Networks") or {}).keys())
 
 
-NOT_BUILT = ("The test runner is not built yet: build it here (Build the test runner, about 1.5 GB, 5 to 15 minutes) "
-             "or with eax test --build.")
+NOT_BUILT = ("The test runner is prepared when a test starts (the first time about 1.5 GB, 5 to 15 minutes); "
+             "nothing to do by hand.")
 
 
 def status() -> dict:
@@ -129,9 +129,9 @@ def _deployment() -> str:
 
 
 def auto_build(deployment: str = "") -> bool:
-    """Build the runner automatically after each start or update: persist/settings.json, else off on a laptop and
-    on for servers and clouds."""
-    default = deployment != "laptop"
+    """Build the runner automatically after each start or update: persist/settings.json, else on everywhere (owner,
+    11 Nov 2026, D584: a test right after a start should not wait for the build; about 1.5 GB of disk)."""
+    default = True
     P = _persist()
     if P is None:
         return default
@@ -362,7 +362,7 @@ def run_sequence(level: str, suites: list[str], role: str = "", area: str = "", 
         info = _api_container()
         image = runner_image(info)
         if not image_present(image):
-            raise RuntimeError(f"The test runner image {image} is not built yet: build it on System admin > Self-test or with eax test --build.")
+            raise RuntimeError(f"The test runner image {image} is not there: start the test again (it prepares the runner first).")
         os.makedirs(f"{WORK}/tests/{folder}", exist_ok=True)
         os.chmod(f"{WORK}/tests/{folder}", 0o777)
         current["folder"] = folder

@@ -39,6 +39,15 @@ KEEP = ("tls",)                       # in work/data: the local certificate, kep
 KEEP_WORK = ("data", "tools")         # in work: data (its tls kept) and tools (uv and its Python, D331)
 
 
+def _packs_auto() -> None:
+    """Every full start copies what is new or changed in the pack sources first (owner, 11 Nov 2026, D584)."""
+    try:
+        from . import packs
+        packs.auto()
+    except Exception as exc:  # noqa: BLE001 - a start never fails because of the packs
+        say(f"Industry packs: not copied ({exc}); the packs already in library/industry-packs are used.", "yellow")
+
+
 def help_text(name: str = "") -> str:
     """The help from eaxcli/help.txt (the one source for every form, D331): the overview, one command, or --all."""
     return help_.render("py", EAX, WINDOWS, name)[0]
@@ -294,6 +303,8 @@ def dispatch(command: str, rest: list[str], wait_all: bool) -> None:
     elif command == "check":
         check()
     elif command == "up":
+        if not rest:                               # the industry packs first (D584); never fatal
+            _packs_auto()
         page = stack.upgrade_page(not rest)        # an upgrade (D230): the maintenance page while it rebuilds
         try:
             stack.up(rest, wait_all)
@@ -308,6 +319,8 @@ def dispatch(command: str, rest: list[str], wait_all: bool) -> None:
     elif command == "start-later":
         stack.later()
     elif command == "debug":
+        if not rest:
+            _packs_auto()
         code = stack.up(rest, wait_all, no_throw=True)
         if code != 0:
             say(f"docker compose up failed (exit {code}); recording what is running anyway.", "red")
@@ -371,6 +384,8 @@ def dispatch(command: str, rest: list[str], wait_all: bool) -> None:
             stack.interactive(["api", "python", "-m", "eax.testing.cli", read[0].removeprefix("--")],
                               [a for a in rest if a != read[0]])
         else:
+            # always prepare the runner first (D584): seconds when it is current, rebuilt when the code or version changed
+            say("Preparing the test runner... (the first time about 5 to 15 minutes; seconds when it is current)")
             compose(["--profile", "test", "build", "testrunner"])
             stack.backup_helpers()
             stack.interactive([*ops, "test"], [*rest, "--version", version()])

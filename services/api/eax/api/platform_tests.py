@@ -3,7 +3,7 @@ System admin > Scaling. Super Admins and IT Admins (system.operate) only; nobody
 
   GET  /api/v1/admin/tests                              runs (newest first), the runner, the choices and how long each takes
   POST /api/v1/admin/tests                              {level, suites, role, area, watch, build_first}: start a run now
-                                                        (build_first: build the test runner first, then run, D570)
+                                                        (build_first, default true: the runner is prepared first, then the run; D570, D584)
   POST /api/v1/admin/tests/build                        build the test runner (eax test --build, in the operations helper)
   GET  /api/v1/admin/tests/build/<id>?from=             the build: its record, its log from byte `from`, its steps
   PUT  /api/v1/admin/tests/settings                     {auto_build}: build it automatically after each start or update
@@ -97,7 +97,9 @@ class Tests(MethodView):
         except ValueError as exc:
             abort(400, message=str(exc))
         watch = bool(data.get("watch")) and level == "detailed" and "ui" in suites
-        build_first = bool(data.get("build_first"))
+        # always prepare the runner first (owner, 11 Nov 2026, D584): `docker compose build` is near-instant when the image is
+        # current (layer cache) and rebuilds it when the code or version changed, so no one builds it by hand
+        build_first = data.get("build_first", True) is not False
         with get_engine().begin() as conn:
             busy = conn.execute(text("SELECT id FROM core.test_runs WHERE state IN ('queued', 'running') "
                                      "AND queued_at > now() - interval '3 hours' ORDER BY id DESC LIMIT 1")).scalar()
@@ -111,10 +113,10 @@ class Tests(MethodView):
         body = {"run_id": run_id, "level": level, "suites": suites, "role": role, "area": area, "watch": watch,
                 "journeys": journeys, "pages_only": pages_only, "by": g.user.username}
         try:
-            if build_first:                     # the runner is missing: the helper builds it, then starts this run
+            if build_first:                     # the helper prepares (builds) the runner, then starts this run
                 _ops_raw("POST", "/tests/build", {"by": g.user.username, "then": body}, timeout=60)
                 with get_engine().begin() as conn:
-                    store.set_state(conn, run_id, step="Building the test runner first (5 to 15 minutes), then the run")
+                    store.set_state(conn, run_id, step="Preparing the test runner (seconds when it is current; the first time 5 to 15 minutes), then the run")
             else:
                 _ops_raw("POST", "/tests", body, timeout=30)
         except Exception as exc:  # noqa: BLE001 - the run is closed with the reason
@@ -124,7 +126,7 @@ class Tests(MethodView):
             abort(503, message=f"The self-test could not start: {msg}")
         lo, hi = store.estimate_minutes(level, suites, watch)
         if build_first:
-            return {"run_id": run_id, "message": f"Building the test runner first (5 to 15 minutes), then the run: about {lo} to {hi} minutes."}
+            return {"run_id": run_id, "message": f"Preparing the test runner (the first time 5 to 15 minutes), then the run: about {lo} to {hi} minutes."}
         return {"run_id": run_id, "message": f"Started: about {lo} to {hi} minutes."}
 
 

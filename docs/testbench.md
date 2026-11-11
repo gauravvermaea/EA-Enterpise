@@ -25,22 +25,21 @@ tested only inside.
 
 - **Python 3.12** with the packages in `testbench/requirements.txt` (Playwright, SQLAlchemy, psycopg, openpyxl, pip-audit).
   Through `eax testbench` you need nothing: eax fetches them with uv into `work/tools` (as for `eax deploy`).
-- **Browsers** for the UI suite: `python -m playwright install chromium` (add `firefox webkit`). Edge: Microsoft Edge
-  installed on the machine (`python -m playwright install msedge` on Windows or macOS).
+- **Browsers** for the UI suite: prepared by the bench itself before each run (`python -m playwright install` for the
+  browsers asked for; quick when they are there). Edge: Microsoft Edge as installed on the machine.
 - Optional: **k6** for the load test, **Docker** for the OWASP ZAP scan, **trivy** for the image scans. Each is skipped,
   with the reason, when it is not there.
 - A sign-in on the target: a **Super Admin's or IT Admin's machine-access token** (System admin › Machine access), or a
   Keycloak user and password (the bench signs in through the realm's `eax-odata` client, D433).
 
-`eax testbench setup --browsers all` says what is here and what is missing, with the command for each. The bench
-installs nothing itself.
+**Nothing to set up by hand** (D584): before each run the bench rebuilds `testbench/data` if a file is missing or
+changed and installs the Playwright browsers asked for, saying what it is doing; its Python packages come through uv
+into work/tools. `eax testbench setup --browsers all` (optional) only reports what is here and what is missing.
 
 ### Windows
 
 ```powershell
 cd C:\EA-Explorer                      # the repository or an installation folder
-.\eax testbench setup --browsers all
-.\eaxpy.cmd -m pip --version           # not needed: eax testbench fetches its packages itself
 .\eax testbench --target https://localhost --i-own-this --insecure --user eaadmin --password '...'
 ```
 
@@ -50,7 +49,6 @@ Without eax: `py -3.12 -m venv .venv; .\.venv\Scripts\pip install -r testbench\r
 ### Linux and macOS
 
 ```bash
-./eax.sh testbench setup --browsers chromium,firefox,webkit
 ./eax.sh testbench --target https://ea.example.org --i-own-this --token "$EAX_TESTBENCH_TOKEN"
 ```
 

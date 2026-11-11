@@ -23,8 +23,10 @@ First time: {eax} init, then {eax} up.   Every day: {eax} up to start, {eax} sto
 > Starts EA Explorer. Keeps the databases, documents and settings from last time.
 The everyday start; run is the same as up. It builds our images, pulls the others and starts in two tiers (D255):
 the core first (sign-in, the database, the API and the screens; you can sign in when it says ready), then Reports,
-Documents, draw.io and the sample data in the background. Afterwards it prints the addresses and, on a laptop,
-the logins.
+Documents, draw.io and the sample data in the background. Before starting it copies what is new or changed in the
+industry pack sources into library/industry-packs (packs auto; quick when nothing changed), and as it starts it loads
+the packs and the documentation into Documents and the library, and prepares the test runner in the background
+(everything you need, nothing to run by hand, D584). Afterwards it prints the addresses and, on a laptop, the logins.
   --wait-all     start everything and wait until all of it is up (also on debug, restart and the clean-* commands).
   service...     start only those services and what they need: "up api proxy" starts the database, the API and
                  nginx only (about 1 GB); the API is then at https://localhost/api/docs.
@@ -182,18 +184,20 @@ $ {eax} schedule add "Weekly smoke test" --weekly 1 --at 06:00 -- test --smoke
 $ {eax} schedule demo-reset --at 02:00 --confirm demo-laptop
 $ {eax} schedule off a1b2c3
 
-### packs [load [folder]|reload|status|collect [source...]]
+### packs [auto|source [folder...] [--clear]|load [folder]|reload|status|collect [source...]]
 > The industry packs: the books, workbooks, metamodel Excel and PowerPoints on the library's Pack tab.
-The packs are kept in the repository (library/industry-packs, one folder per industry) and put into Documents at every
-start, new or changed files only (by checksum); files marked not for AI use are never loaded. load (or reload) does it
-now; load <folder> loads another folder on this computer (copied into the api container first). status shows each
-industry's pack. collect copies the industry packs from folders on this computer into library/industry-packs, ready to
-commit: the "complete set" zips opened, the same file kept once, files over 50 MB split into parts below 45 MB (no Git
-LFS). Without sources collect reads Enterprise_Architecture\Industry Specific Guidance and Sample_Repo (the metamodels
-and views) in your home folder. Needs the api container running (not collect). See docs/industry-packs.md.
+Nothing to run by hand (D584): every up, run, restart, clean-restart and clean-run copies what is new or changed in the
+pack sources into library/industry-packs first (packs auto; quick when nothing changed; nothing to do when no source
+folder is there), and EA Explorer puts them into Documents as it starts (new or changed files only, by checksum; files
+marked not for AI use are never loaded; the start-up status shows "Industry packs loading n of N"). The pack sources:
+persist/settings.json (set with packs source, kept across resets), else EAX_PACKS_SOURCE in the config (several
+separated by ;), else Enterprise_Architecture\Industry Specific Guidance and Sample_Repo (the metamodels and views) in
+your home folder. collect (optional) copies them now; the "complete set" zips are opened, the same file kept once,
+files over 50 MB split into parts below 45 MB (no Git LFS). load (or reload) puts them into Documents now; load
+<folder> loads another folder on this computer. status shows each industry's pack. See docs/industry-packs.md.
 $ {eax} packs status
-$ {eax} packs reload
-$ {eax} packs collect
+$ {eax} packs source "D:\Packs\Industry Specific Guidance" "D:\Packs\Sample_Repo"
+$ {eax} packs source --clear
 $ {eax} packs load "D:\More packs"
 
 ### update [--status] [--retry] [--channel prod|rc|latest] [--to <version>] [--at <time>] [--url <link>] [--yes]
@@ -242,7 +246,8 @@ $ {eax} debug api
 ### test [--smoke|--detailed] [--suite api|ui|db|security|all]... [--role R] [--area A] [--journey J]... [--pages-only] [--status|--last|--report|--fixtures|--clean <run|all> [--yes]] [--build] [--reset-survival --confirm <name>]
 > The self-test, at once: a smoke test or detailed tests of this installation, in fixtures of its own.
 Runs now (never scheduled), in the same runner and results store as System admin > Self-test, so a run started in
-either place shows in both (phase 36.1, D367, D529). It makes its own fixtures, named self_test_<id>_1, _2, _3
+either place shows in both (phase 36.1, D367, D529). It prepares the test runner first every time (seconds when it is
+current; the first time about 5 to 15 minutes): nothing to build by hand (D584). It makes its own fixtures, named self_test_<id>_1, _2, _3
 (models and a project) and svc-self-test-<id>-<role> (an account and one-day token per role), tests inside them and
 never changes anything else; its tokens are revoked when it ends. Super Admins and IT Admins.
   --smoke        (the default) a few minutes: every role signs in, every main area answers, every page opens (as
@@ -253,7 +258,8 @@ never changes anything else; its tokens are revoked when it ends. Super Admins a
                  database checks), security (headers, cookies, the Python dependencies, an OWASP ZAP baseline scan and
                  Trivy image scans). The report starts with a coverage summary (pages opened N of N, journeys, endpoints).
   --journey J    one browser journey only, by part of its name (give it again for more): content, duplicates,
-                 iteration, help, admin, drawn view. Means --suite ui.
+                 iteration, help, admin, drawn view, import, survey, child merge. Each runs as every role allowed,
+                 then as one that must be refused (with --role, as that role only). Means --suite ui.
   --pages-only   only the page sweep: every page, group, tab and sub-tab opened and checked. Means --suite ui.
   --suite S      one suite (give it again for more); choosing a suite means --detailed.
   --role R       one role only (super-admin, it-admin, model-creator, library-admin, model-admin, model-sub-admin,
@@ -265,8 +271,8 @@ never changes anything else; its tokens are revoked when it ends. Super Admins a
   --report [run] where the run's report is (work/tests/<run folder>/report.html; --xlsx for Excel).
   --fixtures [run]  every self-test fixture still there, by run, with its size.
   --clean <run|all> [--yes]  purge those fixtures FOR GOOD (asks you to type DELETE); the reports stay.
-  --build        only build the test runner image (about 1.5 GB, 5 to 15 minutes): docker compose --profile test
-                 build testrunner. The Self-test page's Build the test runner button runs this (D570).
+  --build        optional: only (re)build the test runner image (about 1.5 GB); every test does this first anyway.
+                 The Self-test page's Advanced > Rebuild the test runner runs this (D570, D584).
   --reset-survival --confirm <installation name>
                  settings survive a reset (D561): writes a marker schedule and banner into persist/, runs a REAL
                  clean-restart (it DELETES every database and the work folder), waits for EA Explorer to come back,
@@ -279,6 +285,7 @@ $ {eax} test --suite api --role architect
 $ {eax} test --detailed --area models
 $ {eax} test --pages-only
 $ {eax} test --journey duplicates --role model-admin
+$ {eax} test --journey import --journey survey --journey "child merge"
 $ {eax} test --last
 $ {eax} test --fixtures
 $ {eax} test --clean 12
@@ -389,7 +396,8 @@ $ {eax} cleanup --all
 ### clean-restart [laptop|server] [--wait-all]
 > Stops EA Explorer, DELETES everything (databases included) and starts fresh. Does not ask.
 For testing a new version: stop (down), then cleanup --all --yes, init and up. Rebuilds our images and starts with
-empty databases and the sample data. The trusted certificate is kept.
+empty databases and the sample data, the industry packs, the documentation and (in the background) the test runner:
+nothing else to run before testing. The trusted certificate and persist/ are kept.
 $ {eax} clean-restart
 $ {eax} clean-restart --wait-all
 

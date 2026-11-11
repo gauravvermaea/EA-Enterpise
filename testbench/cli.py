@@ -271,7 +271,8 @@ def main(argv: list[str] | None = None) -> int:
             client = login() if ok else client
         if not ok:
             return finish(run, {"notes": [f"the {args.command} failed: the suites were not run"]})
-    from . import suites  # noqa: PLC0415
+    from . import prepare, suites  # noqa: PLC0415
+    prepare.everything(browsers, ui=(level == "smoke" or "ui" in suites_), say=run.log)    # nothing to set up by hand (D584)
     publish_to = None
     if args.publish:
         to = target if args.publish == "TARGET" else clean(args.publish)

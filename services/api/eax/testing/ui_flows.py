@@ -1,27 +1,64 @@
-"""The self-test's journeys that click, type and save (D576): each a list of plain steps, run the same way headless (here,
-Playwright) and watched in the admin's own browser (TestRuns.jsx runs the same steps in JavaScript), only inside the
-run's own fixtures (self_test_<id>_n).
+"""The self-test's journeys that click, type and save (D576, D583): each a list of plain steps, run the same way headless
+(here, Playwright) and watched in the admin's own browser (TestRuns.jsx with selfTestDriver.js runs the same steps in
+JavaScript), only inside the run's own fixtures (self_test_<id>_n).
 
-A journey: {name, smoke, roles: [allowed roles], refused: {role, check} | None, headless_only, why_headless, steps}.
-Steps (one key says what to do; texts may hold {sid} {m} {p} {other} {entity}, filled from the run's ids):
+A journey: {name, smoke, roles: [allowed roles], refused: {role, ...} | None, why_no_refusal, headless_only, why_headless,
+steps}. Each journey runs as every allowed role (smoke: the first only) and is refused to one role that may not (D583).
+Steps (one key says what to do; texts may hold {sid} {m} {p} {other} {other_name} {view} {view_name} {entity} {role},
+filled from the run's ids, and {$name}, filled from a "remember" step of the same journey):
   {"open": "#/route", "expect": "text"}     open a page, wait for a text (optional)
-  {"click": "text"}                          a button, link, tab or label whose text starts with this (first visible)
+  {"click": "text"}                          a button, link, tab or label whose text starts with this (first visible);
+                                             "exact": true for the whole text, "optional_alt": another text to try
+  {"click_re": "regex"}                      the same, by a regular expression ("^Merge \\d+ accepted")
   {"choose": "text"}                         a radio or checkbox by its label text
-  {"fill": "label", "value": "…"}            the field with this label (or placeholder)
+  {"fill": "label", "value": "…"}            the field with this label (or placeholder or aria-label)
   {"select": "label", "option": "…"}         a drop-down with this label: the first option starting with the text
+                                             ("*": the first real choice, not "(not set)")
   {"press": "F1"}                            a key
-  {"expect": "text"} / {"expect_not": "text"} / {"expect_sel": "css"}
-  {"upload": "css of the file input", "name": "…", "text": "file contents"}
-  any step may carry "optional": true (skipped if the control is not there) and "wait": ms.
+  {"expect": "text"} / {"expect_not": "text"} / {"expect_sel": "css"}   ("timeout": ms to wait longer)
+  {"upload": "css of the file input", "data": "deliveries/good.xlsx", "name": "good.xlsx"}
+                                             a test data file by its manifest key (testbench/data; EAX_TEST_DATA in the
+                                             test runner), or "text": inline contents
+  {"download": "text"}                       click it; a file must come (headless) or no error show (in a browser)
+  {"as": "role"}                             the next pages open as another test role (sending, then reviewing)
+  {"remember": "name", "url": "regex"}       wait until the page's address matches; keep its first group as {$name}
+  {"drawio_ready": ms} / {"drawio_drop": "TypeCode"} / {"drawio": "js body", "poll": true}
+                                             inside the draw.io frame of a drawn view (headless only): wait until the
+                                             plugin has set up, drop a placeholder of a type (as the stencil does), or run
+                                             a check returning true or why not (ui, g, m, a, cells, txt as in
+                                             deploy/drawio/tests/tests.cjs)
+  any step may carry "optional": true (skipped if the control is not there), "wait": ms, "within": "css" (inside the
+  last visible match, e.g. the pop-up) or "row": "text" (inside the table row, list item or fieldset holding the text).
 A refused check (the role that may not): {"open": route, "disabled_or_absent": "button text"}: the button is missing or
 disabled, so the save can never be made from the screen (the API matrix checks the same write is refused)."""
 
 from __future__ import annotations
 
+import base64
+import os
+import re
 import time
 from collections.abc import Callable
+from pathlib import Path
 
 Record = Callable[..., None]
+
+STEP_KINDS = ["open", "click", "click_re", "choose", "fill", "select", "press", "expect", "expect_not", "expect_sel",
+              "upload", "download", "as", "remember", "drawio_ready", "drawio_drop", "drawio"]
+DIALOG = "[role=dialog]"
+
+# the drawn-view journey's checks inside draw.io (D583): a shape bound to an entity, found by the name it shows
+_SHAPE = "cells().find(c => c.vertex && a(c, 'ea_id') && txt(c).indexOf({n}) >= 0)"
+_LINE = "cells().find(c => c.edge && a(c, 'ea_rel_id') && txt(c).indexOf({n}) >= 0)"
+
+
+def _shape(name: str) -> str:
+    return _SHAPE.replace("{n}", repr(name))
+
+
+def _line(name: str) -> str:
+    return _LINE.replace("{n}", repr(name))
+
 
 JOURNEYS: list[dict] = [
     {"name": "model content: create, edit, history", "smoke": True,
@@ -52,13 +89,13 @@ JOURNEYS: list[dict] = [
          {"click": "Merge 1 into the one kept", "wait": 1500},
          {"expect_not": "Merging…"},
      ]},
-    {"name": "project: iteration, frozen phase, back", "smoke": True, "roles": ["super-admin"],
-     "refused": None,
+    {"name": "project: iteration, frozen phase, back", "smoke": True, "roles": ["super-admin", "architect"],
+     "refused": {"role": "no-role", "open": "#/projects/{p}", "disabled_or_absent": "Change…"},
      "steps": [
          {"open": "#/projects/{p}", "expect": "{project_name}"},
          {"click": "Choose…", "optional_alt": "Change…"},
          {"choose": "Transition Planning"},
-         {"fill": "Note (optional)", "value": "self-test {sid}"},
+         {"fill": "Note (optional)", "value": "self-test {sid} {role}"},
          {"click": "Save", "exact": True, "wait": 1500},
          {"expect_not": "Note (optional)"},                 # the dialog closed: the iteration was saved
          {"expect": "Transition Planning"},
@@ -71,7 +108,8 @@ JOURNEYS: list[dict] = [
          {"click": "Iteration history", "optional": True},
          {"expect": "Full cycle"},
      ]},
-    {"name": "help and documentation", "smoke": False, "roles": ["architect"], "refused": None,
+    {"name": "help and documentation", "smoke": False, "roles": ["architect", "report-viewer"], "refused": None,
+     "why_no_refusal": "everyone signed in may read the help and the documentation",
      "steps": [
          {"open": "#/metamodel/{m}", "expect": "{model_name}"},
          {"press": "F1"}, {"expect_sel": ".help-panel"}, {"press": "Escape"},
@@ -81,23 +119,184 @@ JOURNEYS: list[dict] = [
          {"fill": "Search", "value": "backup", "wait": 800},
          {"expect": "ackup"},
      ]},
-    {"name": "admin: banner and a schedule, put back", "smoke": False, "roles": ["super-admin"],
-     "refused": {"role": "architect", "open": "#/admin/banner", "disabled_or_absent": "Save"},
+    # the real banner and schedules are read first and always put back (admin_guard, run.py), D583
+    {"name": "admin: banner and a schedule, put back", "smoke": False, "roles": ["super-admin", "it-admin"],
+     "refused": {"role": "architect", "open": "#/admin/banner", "disabled_or_absent": "Save the banner"},
+     "guard": "admin",
      "steps": [
-         {"open": "#/admin/banner", "expect": "Banner"},
-         {"open": "#/admin/commands/schedules", "expect": "Schedules", "optional": True},
+         {"open": "#/admin/banner", "expect": "Who sees it"},
+         {"fill": "Message", "value": "self_test_{sid} banner ({role}): a self-test, please ignore"},
+         {"select": "Who sees it", "option": "IT Admins and Super Admins only"},
+         {"click": "Save the banner", "wait": 1500},
+         {"expect": "The banner is set."},
+         {"expect": "self_test_{sid} banner", "optional": True},          # shown at the top, to admins only
+         {"click": "Clear the banner", "wait": 1500},
+         {"expect": "The banner is cleared"},
+         {"open": "#/admin/commands/schedules", "expect": "New schedule"},
+         {"click": "+ New schedule"},
+         {"fill": "Name", "value": "self_test_{sid} schedule {role}"},
+         {"click": "Make the schedule", "wait": 2000},
+         {"expect": "Schedule made"},
+         {"click": "Turn off", "row": "self_test_{sid} schedule {role}", "wait": 1500},   # off: it never runs
+         {"expect": "Turn on", "row": "self_test_{sid} schedule {role}"},
+         {"click": "Remove", "exact": True, "row": "self_test_{sid} schedule {role}", "wait": 1500},   # the confirm is accepted
+         {"expect_not": "self_test_{sid} schedule {role}", "timeout": 10000},
      ]},
-    {"name": "drawn view: labels, select a line, undo", "smoke": False, "roles": ["model-admin"], "refused": None,
+    {"name": "drawn view: drop, bind, create, line, undo, save", "smoke": False, "roles": ["model-admin", "committer"],
+     "refused": {"role": "report-viewer", "open": "#/metamodel/{m}/drawn-views/{view}", "disabled_or_absent": "Save",
+                 "exact": True},
      "headless_only": True,
      "why_headless": "the draw.io canvas is a separate site: a page in the admin's browser cannot reach into it",
      "steps": [
-         {"open": "#/metamodel/{m}/views", "expect": "Views"},
+         {"open": "#/metamodel/{m}/drawn-views/{view}", "expect": "{view_name}"},
+         {"select": "Layout", "option": "Editing", "optional": True},
+         {"drawio_ready": 60000},
+         # a capability dropped from the stencil, bound to an existing one found with a misspelling (fuzzy, D454)
+         {"drawio_drop": "Capability", "x": 640, "y": 380},
+         {"expect": "What is this Capability?"},
+         {"fill": "Find a Capability", "value": "Self-test capabilty 2", "within": DIALOG, "wait": 1000},
+         {"expect": "Self-test capability 2", "within": DIALOG},
+         {"click": "Self-test capability 2", "exact": True, "within": DIALOG, "wait": 1500},
+         {"drawio": "return !!" + _shape("Self-test capability 2") + " || 'the dropped shape is not bound';", "poll": True},
+         # an application created through the pop-up: a near name shows what is already in the model first
+         {"drawio_drop": "ApplicationComponent", "x": 380, "y": 560},
+         {"expect": "What is this Application Component?"},
+         {"click": "Create a new Application Component", "within": DIALOG, "wait": 1200},
+         {"fill": "Name", "value": "Self-test application 2x", "within": DIALOG, "wait": 1800},
+         {"expect": "Already in the model", "within": DIALOG},
+         {"fill": "Name", "value": "Drawn app {sid} {role}", "within": DIALOG, "wait": 800},
+         {"fill": "Owner", "value": "Self-test team", "within": DIALOG, "optional": True},     # required in some metamodels
+         {"select": "Lifecycle", "option": "*", "within": DIALOG, "optional": True},
+         {"click": "Save and commit", "within": DIALOG, "wait": 2500},
+         {"drawio": "return !!" + _shape("Drawn app {sid} {role}") + " || 'the new entity is not on the view';", "poll": True},
+         # a line drawn between them: the allowed relationship asked for, then named, with a key:value
+         {"drawio": "const s = " + _shape("Drawn app {sid} {role}") + ", t = " + _shape("Self-test capability 1") + ";"
+                    " if (!s || !t) return 'the two shapes are not on the view';"
+                    " g.insertEdge(g.getDefaultParent(), null, '', s, t); return true;"},
+         {"expect": "A new relationship"},
+         {"fill": "Relationship type", "value": "Association", "within": DIALOG},
+         {"press": "Enter"},
+         {"fill": "Name (optional)", "value": "feeds {sid} {role}", "within": DIALOG},
+         {"click": "Add the relationship", "within": DIALOG, "wait": 2500},
+         {"drawio": "return !!" + _line("feeds {sid} {role}") + " || 'the line is not bound to the relationship';", "poll": True},
+         {"drawio": "const e = " + _line("feeds {sid} {role}") + "; if (!e) return 'no line'; g.setSelectionCell(e); return true;",
+          "wait": 1200},
+         {"click": "Properties", "optional": True},
+         {"fill": "Relationship name", "value": "serves {sid} {role}"},
+         {"fill": "Protocol", "value": "https"},
+         {"click": "Save and commit", "wait": 2500},
+         {"drawio": "const e = " + _line("serves {sid} {role}") + "; const t = e ? txt(e) : '';"
+                    " return t === 'serves {sid} {role} (Association) [Protocol:https]' || ('the line shows ' + JSON.stringify(t));",
+          "poll": True},
+         # undo and redo of a move
+         {"drawio": "const v = " + _shape("Drawn app {sid} {role}") + "; const x = v.geometry.x; g.moveCells([v], 40, 0);"
+                    " if (v.geometry.x !== x + 40) return 'it did not move';"
+                    " ui.actions.get('undo').funct(); if (v.geometry.x !== x) return 'undo did not put it back';"
+                    " ui.actions.get('redo').funct(); return v.geometry.x === x + 40 || 'redo did not move it again';"},
+         {"click": "Save", "exact": True, "wait": 3000},
+         # opened again: what was saved comes back, the line's label with it
+         {"open": "#/metamodel/{m}/views", "optional": True},
+         {"open": "#/metamodel/{m}/drawn-views/{view}", "expect": "{view_name}"},
+         {"drawio_ready": 60000},
+         {"drawio": "const e = " + _line("serves {sid} {role}") + "; const t = e ? txt(e) : '';"
+                    " return t === 'serves {sid} {role} (Association) [Protocol:https]' || ('after reopening the line shows ' + JSON.stringify(t));",
+          "poll": True},
+     ]},
+    {"name": "import: upload a delivery, accept, undo", "smoke": False, "roles": ["model-admin"],
+     "refused": {"role": "report-viewer", "open": "#/metamodel/{m}/import/deliveries", "disabled_or_absent": "+ Add a source"},
+     "steps": [
+         {"open": "#/metamodel/{m}/import/deliveries", "expect": "Sources"},
+         {"click": "+ Add a source"},
+         {"fill": "Name", "value": "self_test_{sid} source {role}", "within": DIALOG},
+         {"click": "Save", "exact": True, "within": DIALOG, "wait": 1500},
+         {"expect": "self_test_{sid} source {role}"},
+         {"upload": "input[type=file]", "row": "self_test_{sid} source {role}", "data": "deliveries/good.xlsx",
+          "name": "good.xlsx", "wait": 3000},
+         {"expect": "Accept and commit", "timeout": 90000},             # previewed in the background
+         {"click": "Accept and commit", "wait": 3000},
+         {"expect": "Undo the load", "timeout": 90000},                 # accepted: committed as the load
+         {"click": "Undo the load", "wait": 3000},                      # the confirm is accepted
+         {"expect_not": "Undo the load", "timeout": 30000},
+     ]},
+    {"name": "survey: make, send, answer, Excel", "smoke": False, "roles": ["super-admin", "model-creator"],
+     "refused": {"role": "architect", "open": "#/surveys", "disabled_or_absent": "＋ New survey"},
+     "steps": [
+         {"open": "#/surveys", "expect": "Surveys"},
+         {"fill": "New survey title", "value": "self_test_{sid} survey {role}"},
+         {"click": "＋ New survey", "wait": 1500},
+         {"remember": "survey", "url": r"#/surveys/([^/?#]+)"},
+         {"expect": "Who it is for"},
+         {"click": "＋ Section"},
+         {"click": "＋ Question"},
+         {"fill": "What do you want to ask?", "value": "Is the self-test working?"},
+         {"fill": "Option 1", "value": "Yes"},
+         {"fill": "Option 2", "value": "No"},
+         {"click": "Save questions", "wait": 1500},
+         {"fill": "Person", "value": "svc-self-test-{sid}-architect"},
+         {"click": "Add", "exact": True, "wait": 1500},
+         {"click": "Send", "exact": True, "wait": 2000},                # the confirm is accepted
+         {"expect": "Sent:"},
+         {"as": "architect"},                                           # the person asked answers it
+         {"open": "#/surveys/{$survey}/answer", "expect": "Is the self-test working?"},
+         {"choose": "Yes"},
+         {"click": "Send my answers", "wait": 2000},
+         {"as": "{role}"},
+         {"open": "#/surveys/{$survey}/results", "expect": "Results:"},
+         {"download": "⬇ Excel"},
+         {"open": "#/surveys/{$survey}", "expect": "self_test_{sid} survey"},
+         {"click": "Close", "exact": True, "wait": 1500},               # closed: nobody else is asked
+     ]},
+    {"name": "child merge: send, accept, refresh", "smoke": False, "roles": ["super-admin"],
+     "refused": {"role": "architect", "open": "#/model-admin/{other}/send", "disabled_or_absent": "Preview and send…"},
+     "steps": [
+         {"open": "#/metamodel/{other}/entry", "expect": "Entity type"},
+         {"select": "Entity type", "option": "Application Component"},
+         {"click": "+ In a form"},
+         {"fill": "Name", "value": "Merged app {sid} {role}"},
+         {"click": "Save", "exact": True, "optional_alt": "Save and commit", "wait": 1500},
+         {"open": "#/metamodel/{other}/changes", "optional": True},
+         {"click": "Commit all", "optional": True, "wait": 2500},
+         {"open": "#/model-admin/{other}/send", "expect": "for merge into"},
+         {"click": "Preview and send…", "wait": 2000},
+         {"click": "Send for merge", "within": DIALOG, "wait": 4000},
+         {"click": "Open the request", "within": DIALOG, "wait": 2000},
+         {"remember": "mr", "url": r"#/merge-requests/([^/?#]+)"},
+         {"as": "model-admin"},                                         # the parent's Model Admin reviews and merges
+         {"open": "#/merge-requests/{$mr}", "expect": "Merge request"},
+         {"click_re": r"^Merge \d+ accepted", "wait": 4000},
+         {"expect": "Merged", "timeout": 90000},
+         {"as": "{role}"},                                              # the child's admin refreshes the child
+         {"open": "#/merge-requests/{$mr}", "expect": "What happens to"},
+         {"click": "Refresh {other_name}", "wait": 4000},
+         {"expect": "Done.", "timeout": 90000},
      ]},
 ]
+
+# what a journey needs from the run's fixtures, by the placeholders its steps use: left out when the run has none
+NEEDS = {"project": ("{p}", "{project_name}"), "view": ("{view}", "{view_name}"), "other_model": ("{other}", "{other_name}")}
+
+
+def data_folder() -> Path:
+    """The test data (testbench/data, D580): EAX_TEST_DATA in the test runner (/testdata), else this checkout's."""
+    env = os.environ.get("EAX_TEST_DATA", "").strip()
+    if env:
+        return Path(env)
+    if Path("/testdata/manifest.json").is_file():
+        return Path("/testdata")
+    return Path(__file__).resolve().parents[4] / "testbench" / "data"
+
+
+def data_bytes(name: str) -> bytes:
+    """A test data file by its manifest key ("deliveries/good.xlsx")."""
+    p = (data_folder() / name).resolve()
+    if data_folder().resolve() not in p.parents:
+        raise ValueError(f"{name}: not in the test data folder")
+    return p.read_bytes()
 
 
 def fill_text(s: str, ids: dict[str, str], role: str) -> str:
     vals = {"sid": ids.get("sid", ""), "m": ids.get("model", ""), "p": ids.get("project", ""), "other": ids.get("other_model", ""),
+            "other_name": ids.get("other_name", ""), "view": ids.get("view", ""), "view_name": ids.get("view_name", ""),
             "entity": ids.get("entity", ""), "model_name": ids.get("model_name", ""), "project_name": ids.get("project_name", ""),
             "role": role, "dup": ids.get("dup", "Self-test duplicate")}
     for k, v in vals.items():
@@ -110,10 +309,33 @@ def key(j: dict) -> str:
     return j["name"].split(":")[0].strip()
 
 
+def missing(j: dict, ids: dict[str, str]) -> list[str]:
+    """The fixtures a journey needs that this run has not got (a project, a drawn view, the child model)."""
+    text = str(j["steps"]) + str(j.get("refused") or "")
+    return [k for k, marks in NEEDS.items() if any(x in text for x in marks) and not ids.get(k)]
+
+
+def role_plan(j: dict, role: str = "", smoke: bool = False) -> list[tuple[str, bool]]:
+    """Who a journey runs as (D583): [(role, refused)]. Every allowed role and then the one refused; smoke the first
+    allowed role only; with --role, that role (refused when it may not, skipped when the journey refuses nobody)."""
+    if role:
+        if role in j["roles"] or (role == "super-admin" and not j.get("refused")):
+            return [(role, False)]
+        ref = j.get("refused")
+        return [(role, True)] if ref else []
+    if smoke:
+        return [(j["roles"][0], False)]
+    out = [(r, False) for r in j["roles"]]
+    if j.get("refused"):
+        out.append((j["refused"]["role"], True))
+    return out
+
+
 def journeys(ids: dict[str, str], role: str = "", only: list[str] | None = None, smoke: bool = False,
              watch: bool = False) -> list[dict]:
-    """The journeys to run: [{name, role, steps, refused, headless_only, …}], one per allowed role (or only `role`), filled.
-    Journeys needing a project are left out when the run has none."""
+    """The journeys to run: [{name, role, steps, refused, headless_only, …}], one per role of role_plan, filled.
+    Journeys needing a fixture the run has not got are left out. watch=True leaves out the headless ones and puts the
+    data files in (base64), as the admin's browser cannot read them."""
     out = []
     for j in JOURNEYS:
         if smoke and not j["smoke"]:
@@ -122,23 +344,31 @@ def journeys(ids: dict[str, str], role: str = "", only: list[str] | None = None,
             continue
         if watch and j.get("headless_only"):
             continue
-        needs_p = any("{p}" in str(s) or "{project_name}" in str(s) for s in j["steps"])
-        if needs_p and not ids.get("project"):
+        if missing(j, ids):
             continue
-        roles = [role] if role else (j["roles"][:1] if smoke else j["roles"])
-        if role and role not in j["roles"] and role != "super-admin":
-            ref = j.get("refused")
-            if ref:
-                out.append({"name": f"{j['name']} (refused)", "role": role, "refusal": _fill_obj(ref, ids, role), "steps": []})
-            continue
-        for r in roles:
-            out.append({"name": j["name"] + ("" if len(roles) == 1 else f" as {r}"), "role": r,
-                        "steps": [_fill_obj(s, ids, r) for s in j["steps"]], "headless_only": j.get("headless_only", False)})
-        if not role and not smoke and j.get("refused"):
-            ref = j["refused"]
-            out.append({"name": f"{j['name']}: refused to {ref['role']}", "role": ref["role"], "refusal": _fill_obj(ref, ids, ref["role"]),
-                        "steps": []})
+        plan = role_plan(j, role, smoke)
+        allowed = [r for r, refused in plan if not refused]
+        for r, refused in plan:
+            if refused:
+                ref = dict(j["refused"], role=r)
+                name = f"{j['name']} (refused)" if role else f"{j['name']}: refused to {r}"
+                out.append({"name": name, "role": r, "refusal": _fill_obj(ref, ids, r), "steps": []})
+                continue
+            steps = [_fill_obj(s, ids, r) for s in j["steps"]]
+            if watch:
+                steps = [_with_data(s) for s in steps]
+            out.append({"name": j["name"] + ("" if len(allowed) == 1 else f" as {r}"), "role": r, "steps": steps,
+                        "headless_only": j.get("headless_only", False), "guard": j.get("guard", "")})
     return out
+
+
+def _with_data(s: dict) -> dict:
+    if "upload" in s and s.get("data"):
+        try:
+            return {**s, "b64": base64.b64encode(data_bytes(s["data"])).decode()}
+        except OSError:
+            return s                                   # the step then says the file is missing
+    return s
 
 
 def _fill_obj(o, ids, role):
@@ -156,9 +386,49 @@ def skipped_in_browser() -> list[str]:
     return [f"{j['name']}: {j['why_headless']}" for j in JOURNEYS if j.get("headless_only")]
 
 
+# ---------------------------------------------------------------- the real settings an admin journey changes (D583)
+def admin_snapshot(call: Callable[..., tuple]) -> dict:
+    """The banner and the schedules as they are, before the admin journey changes them. call(method, path, body=None)
+    gives (status, answer) as a Super Admin."""
+    _st, b = call("GET", "/api/v1/admin/banner")
+    _st2, sc = call("GET", "/api/v1/admin/commands/schedules")
+    return {"banner": (b or {}).get("banner") if isinstance(b, dict) else None,
+            "schedules": [x.get("id") for x in ((sc or {}).get("schedules") or [])] if isinstance(sc, dict) else []}
+
+
+BANNER_FIELDS = ("text", "link", "link_text", "level", "audience", "dismissible", "starts", "ends")
+
+
+def admin_restore(call: Callable[..., tuple], before: dict, sid: str) -> list[str]:
+    """Puts the banner back as it was and removes any schedule the journey made (named self_test_<id>). Returns what
+    it did, for the log. Never touches a schedule that was there before."""
+    done: list[str] = []
+    _st, b = call("GET", "/api/v1/admin/banner")
+    now = (b or {}).get("banner") if isinstance(b, dict) else None
+    was = before.get("banner")
+    if was and (not now or {k: now.get(k) for k in BANNER_FIELDS} != {k: was.get(k) for k in BANNER_FIELDS}):
+        call("PUT", "/api/v1/admin/banner", {k: was.get(k) for k in BANNER_FIELDS if was.get(k) is not None})
+        done.append("banner put back")
+    elif not was and now and str(now.get("text", "")).startswith(f"self_test_{sid}"):
+        call("DELETE", "/api/v1/admin/banner")
+        done.append("the self-test banner cleared")
+    _st2, sc = call("GET", "/api/v1/admin/commands/schedules")
+    for x in ((sc or {}).get("schedules") or []) if isinstance(sc, dict) else []:
+        if x.get("id") not in before.get("schedules", []) and str(x.get("name", "")).startswith(f"self_test_{sid}"):
+            call("POST", f"/api/v1/admin/commands/schedules/{x['id']}/remove", {})
+            done.append(f"schedule {x.get('name')} removed")
+    return done
+
+
 # ---------------------------------------------------------------- running a journey with Playwright (headless)
 
-_CLICKABLE = "button, a, [role=tab], [role=button], summary, label"
+_CLICKABLE = "button, a, [role=tab], [role=button], [role=option], summary, label"
+_ROWS = "tr, li, fieldset, .chip"
+_DRAWIO = ("const ui = window.eaxEditorUi, g = ui.editor.graph, m = g.getModel();"
+           " const a = (c, n) => c && c.value && c.value.getAttribute ? c.value.getAttribute(n) : null;"
+           " const F = (id) => ui.eax.findEntity(id), R = (id) => ui.eax.findRelationship(id);"
+           " const cells = () => Object.values(m.cells);"
+           " const txt = (c) => String(g.convertValueToString(c) || '').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();")
 
 
 def _visible(loc):
@@ -168,9 +438,25 @@ def _visible(loc):
         return False
 
 
-def _clickable(page, text: str, exact: bool = False):
-    import re as _re
-    pat = _re.compile(rf"^\s*{_re.escape(text)}\s*$" if exact else rf"^\s*{_re.escape(text)}", _re.I)
+def _root(page, s: dict):
+    """Where a step looks: the page, the last visible pop-up ("within"), or the row holding a text ("row")."""
+    if s.get("within"):
+        loc = page.locator(s["within"])
+        for i in reversed(range(min(loc.count(), 10))):
+            if _visible(loc.nth(i)):
+                return loc.nth(i)
+        return None
+    if s.get("row"):
+        loc = page.locator(_ROWS).filter(has_text=s["row"])
+        for i in range(min(loc.count(), 20)):
+            if _visible(loc.nth(i)):
+                return loc.nth(i)
+        return None
+    return page
+
+
+def _clickable(page, text: str, exact: bool = False, pattern: str = ""):
+    pat = re.compile(pattern) if pattern else re.compile(rf"^\s*{re.escape(text)}\s*$" if exact else rf"^\s*{re.escape(text)}", re.I)
     loc = page.locator(_CLICKABLE).filter(has_text=pat)
     for i in range(min(loc.count(), 20)):
         el = loc.nth(i)
@@ -187,65 +473,177 @@ def _field(page, label: str):
     return None
 
 
-def _shows(page, text: str, timeout: int) -> None:
+def _shows(root, text: str, timeout: int) -> None:
     """Waits for the text to show somewhere visible (the same words in a hidden menu option do not count)."""
-    page.locator(f"text={text} >> visible=true").first.wait_for(state="visible", timeout=timeout)
+    root.locator(f"text={text} >> visible=true").first.wait_for(state="visible", timeout=timeout)
 
 
-def step(page, s: dict, open_route: Callable[[str], None]) -> str:
-    """Runs one step; returns "" when done, or why it could not be done (an optional step is then skipped)."""
-    timeout = 20000
-    if "open" in s:
-        open_route(s["open"])
-        page.wait_for_selector("text=EA Explorer", timeout=60000)
-        if s.get("expect"):
-            _shows(page, s["expect"], timeout)
-    elif "click" in s:
-        el = _clickable(page, s["click"], s.get("exact", False))
+def _drawio_frame(page):
+    for fr in page.frames:
+        if fr is page.main_frame:
+            continue
+        try:
+            if fr.evaluate("() => !!window.eaxEditorUi"):
+                return fr
+        except Exception:  # noqa: BLE001 - a frame still loading
+            continue
+    return None
+
+
+def _drawio(page, body: str, poll: bool, timeout: int):
+    """Runs a check inside draw.io: true when done, else why not (retried until the time is up when poll)."""
+    end = time.time() + timeout / 1000
+    why = "the draw.io frame is not there"
+    while True:
+        fr = _drawio_frame(page)
+        if fr is not None:
+            try:
+                out = fr.evaluate("() => { " + _DRAWIO + " " + body + " }")
+                if out is True:
+                    return ""
+                why = str(out) if out else "false"
+            except Exception as exc:  # noqa: BLE001 - not set up yet
+                why = str(exc).splitlines()[0][:200]
+        if not poll or time.time() >= end:
+            return why
+        page.wait_for_timeout(400)
+
+
+def drop_script(type_code: str, x: int = 600, y: int = 400) -> str:
+    """A placeholder of a type put on the canvas the way the stencil drops one (the plugin then asks what it is)."""
+    t = repr(type_code)
+    return ("const o = mxUtils.createXmlDocument().createElement('object');"
+            f" o.setAttribute('label', {t}); o.setAttribute('ea_type', {t}); o.setAttribute('ea_placeholder', '1');"
+            f" const v = new mxCell(o, new mxGeometry({int(x)}, {int(y)}, 120, 60), 'dashed=1;'); v.vertex = true;"
+            " g.importCells([v], 0, 0, g.getDefaultParent()); return true;")
+
+
+def with_vars(o, vars_: dict[str, str]):
+    """{$name} filled from what a "remember" step kept."""
+    if isinstance(o, str):
+        for k, v in vars_.items():
+            o = o.replace("{$" + k + "}", v)
+        return o
+    if isinstance(o, dict):
+        return {k: with_vars(v, vars_) for k, v in o.items()}
+    if isinstance(o, list):
+        return [with_vars(v, vars_) for v in o]
+    return o
+
+
+def step(page, s: dict, open_route: Callable[..., None], state: dict | None = None) -> str:
+    """Runs one step; returns "" when done, or why it could not be done (an optional step is then skipped). state keeps
+    the role pages open as ("as") and what was remembered."""
+    state = state if state is not None else {}
+    s = with_vars(s, state.setdefault("vars", {}))
+    if re.search(r"\{\$[a-z_]+\}", str(s)):
+        return "a {$name} no earlier step remembered"
+    timeout = int(s.get("timeout", 20000))
+    root = _root(page, s)
+    if root is None:
+        return f"nothing shows {s.get('within') or s.get('row')}"
+    if "as" in s:
+        state["role"] = s["as"]
+    elif "open" in s:
+        if state.get("role"):
+            open_route(s["open"], state["role"])
+        else:
+            open_route(s["open"])
+        if s.get("expect"):                            # a full-page screen (a drawn view) has no EA Explorer header
+            _shows(page, s["expect"], max(timeout, 60000))
+        else:
+            page.wait_for_selector("text=EA Explorer", timeout=60000)
+    elif "click" in s or "click_re" in s:
+        what = s.get("click") or s.get("click_re")
+        el = _clickable(root, s.get("click", ""), s.get("exact", False), s.get("click_re", ""))
         if el is None and s.get("optional_alt"):
-            el = _clickable(page, s["optional_alt"])
+            el = _clickable(root, s["optional_alt"])
         if el is None:
-            return f"no button or link \"{s['click']}\""
+            return f"no button or link \"{what}\""
         if el.is_disabled():
-            return f"\"{s['click']}\" is disabled"
+            return f"\"{what}\" is disabled"
         el.click()
     elif "choose" in s:
-        loc = page.locator("label").filter(has_text=s["choose"]).first
+        loc = root.locator("label").filter(has_text=s["choose"]).first
         if not loc.count():
             return f"no choice \"{s['choose']}\""
         loc.click()
     elif "fill" in s:
-        el = _field(page, s["fill"])
+        el = _field(root, s["fill"])
         if el is None:
             return f"no field \"{s['fill']}\""
         el.fill(s["value"])
     elif "select" in s:
-        el = _field(page, s["select"])
+        el = _field(root, s["select"])
         if el is None:
             return f"no drop-down \"{s['select']}\""
         opts = el.locator("option").all_inner_texts()
-        pick = next((o for o in opts if o.strip().lower().startswith(s["option"].lower())), None)
+        if s["option"] == "*":                         # any real choice: the first that is not "(not set)"
+            pick = next((o for o in opts if o.strip() and not o.strip().startswith("(")), None)
+        else:
+            pick = next((o for o in opts if o.strip().lower().startswith(s["option"].lower())), None)
         if pick is None:
             return f"\"{s['select']}\" has no option \"{s['option']}\""
         el.select_option(label=pick)
     elif "press" in s:
         page.keyboard.press(s["press"])
     elif "expect" in s:
-        _shows(page, s["expect"], timeout)
+        _shows(root, s["expect"], timeout)
     elif "expect_not" in s:
-        page.wait_for_timeout(500)
-        if page.locator(f"text={s['expect_not']}").count():
-            return f"\"{s['expect_not']}\" still shows"
+        end = time.time() + int(s.get("timeout", 500)) / 1000
+        while True:
+            page.wait_for_timeout(500)
+            if not page.locator(f"text={s['expect_not']} >> visible=true").count():
+                break
+            if time.time() >= end:
+                return f"\"{s['expect_not']}\" still shows"
     elif "expect_sel" in s:
         page.wait_for_selector(s["expect_sel"], timeout=timeout)
     elif "upload" in s:
-        page.set_input_files(s["upload"], files=[{"name": s["name"], "mimeType": "application/octet-stream",
-                                                  "buffer": s["text"].encode()}])
+        try:
+            content = data_bytes(s["data"]) if s.get("data") else str(s.get("text", "")).encode()
+        except OSError as exc:
+            return f"no test data file {s.get('data')}: {exc}"
+        root.locator(s["upload"]).first.set_input_files(files=[{"name": s.get("name") or Path(s.get("data", "file")).name,
+                                                                "mimeType": "application/octet-stream", "buffer": content}])
+    elif "download" in s:
+        el = _clickable(root, s["download"])
+        if el is None:
+            return f"no button or link \"{s['download']}\""
+        with page.expect_download(timeout=timeout) as d:
+            el.click()
+        path = d.value.path()
+        if not path or Path(path).stat().st_size == 0:
+            return f"\"{s['download']}\" gave an empty file"
+    elif "remember" in s:
+        end = time.time() + timeout / 1000
+        while True:
+            hit = re.search(s["url"], page.url)
+            if hit:
+                state["vars"][s["remember"]] = hit.group(1)
+                break
+            if time.time() >= end:
+                return f"the address never matched {s['url']} (it is {page.url})"
+            page.wait_for_timeout(300)
+    elif "drawio_ready" in s:
+        why = _drawio(page, "return !!(ui.eax && cells().some(c => a(c, 'ea_id'))) || 'not set up yet';", True,
+                      int(s["drawio_ready"]) or 60000)
+        if why:
+            return f"draw.io did not set up: {why}"
+        page.wait_for_timeout(1000)
+    elif "drawio_drop" in s:
+        why = _drawio(page, drop_script(s["drawio_drop"], s.get("x", 600), s.get("y", 400)), False, timeout)
+        if why:
+            return f"could not drop a {s['drawio_drop']}: {why}"
+    elif "drawio" in s:
+        why = _drawio(page, s["drawio"], bool(s.get("poll")), timeout)
+        if why:
+            return why
     page.wait_for_timeout(s.get("wait", 400))
     return ""
 
 
-def refusal(page, r: dict, open_route: Callable[[str], None]) -> tuple[str, str]:
+def refusal(page, r: dict, open_route: Callable[..., None]) -> tuple[str, str]:
     """The role that may not: the button that would save is missing or disabled."""
     open_route(r["open"])
     page.wait_for_selector("text=EA Explorer", timeout=60000)
@@ -263,7 +661,7 @@ def refusal(page, r: dict, open_route: Callable[[str], None]) -> tuple[str, str]
         if el is not None and not el.is_disabled():
             el.click()
             page.wait_for_timeout(1500)
-    el = _clickable(page, r["disabled_or_absent"])
+    el = _clickable(page, r["disabled_or_absent"], bool(r.get("exact")))
     if el is None:
         return "passed", f"\"{r['disabled_or_absent']}\" not offered to {r.get('role', 'this role')}"
     if el.is_disabled():
@@ -271,14 +669,15 @@ def refusal(page, r: dict, open_route: Callable[[str], None]) -> tuple[str, str]
     return "failed", f"\"{r['disabled_or_absent']}\" is offered to {r.get('role', 'this role')}, who may not do it"
 
 
-def run_one(page, j: dict, open_route: Callable[[str], None]) -> tuple[str, str]:
+def run_one(page, j: dict, open_route: Callable[..., None]) -> tuple[str, str]:
     """Runs one journey on a page; returns (outcome, detail)."""
     if j.get("refusal"):
         return refusal(page, j["refusal"], open_route)
     done, skipped = 0, []
+    state: dict = {"vars": {}}
     for s in j["steps"]:
         try:
-            why = step(page, s, open_route)
+            why = step(page, s, open_route, state)
         except Exception as exc:  # noqa: BLE001 - a step that times out is a failed step
             why = str(exc).splitlines()[0][:200]
         if why:
@@ -292,11 +691,13 @@ def run_one(page, j: dict, open_route: Callable[[str], None]) -> tuple[str, str]
 
 def _say(s: dict) -> str:
     k = next(iter(s))
-    return f"{k} {s[k]}"
+    v = str(s[k])
+    return f"{k} {v[:80]}{'…' if len(v) > 80 else ''}"
 
 
 def run(page_factory: Callable[[str], tuple], js: list[dict], record: Record) -> dict[str, int]:
-    """Runs the journeys; page_factory(role) gives (page, open_route, close) for that role's browser context."""
+    """Runs the journeys; page_factory(role) gives (page, open_route, close) for that role's browser context;
+    open_route(route, role=None) opens a route, as another test role when given."""
     counts = {"journeys": 0, "passed": 0, "failed": 0}
     for j in js:
         t0 = time.time()

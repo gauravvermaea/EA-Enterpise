@@ -84,6 +84,13 @@ others skip it.
 The start-up status is also readable without signing in at `/api/startup` (the parts and their states only), and with
 details at `/api/v1/startup` (signed in; the containers for IT and Super Admins).
 
+### What a start prepares by itself (D584)
+Before the containers start, the pack step (`eax packs auto`) copies new or changed industry packs from the pack
+source folders into library/industry-packs (quick when nothing changed; nothing when there is no source). Then, with no
+step by hand: the packs load into Documents (*Industry packs loading n of N* on the start-up page), the documentation
+loads into the library, Keycloak and Superset are set up, the sample data loads, persist/ is read, and the test runner
+is built in the background. `eax test` and the Self-test page prepare the runner again before each run.
+
 ## One-time task: the TOGAF templates (phase 13, D262)
 
 Architecture projects start their documents from templates. The TOGAF templates belong to The Open Group, so EA
@@ -282,6 +289,8 @@ time with a cool-down); the operations helper applies it every minute and logs w
 
 `eax test` or **System admin, Self-test** tests this installation in fixtures of its own (`self_test_<id>_n`), with a
 report at the end; fixtures stay until purged by hand (`eax test --clean <run|all>`). See [testing.md](testing.md).
+Every run, from the command line or the page, prepares the test runner first (seconds when it is current), and the
+runner is also built in the background at each start; nothing to build by hand (D584).
 
 ## The operations helper
 

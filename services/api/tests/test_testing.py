@@ -314,7 +314,7 @@ def test_auto_build_setting_is_kept_in_persist(tmp_path, monkeypatch):
     monkeypatch.setenv("EAX_PERSIST_DIR", str(tmp_path))
     sys.path.insert(0, str(REPO))
     t = _ops_module("testruns")
-    assert t.auto_build("laptop") is False and t.auto_build("server") is True and t.auto_build("aws") is True
+    assert t.auto_build("laptop") is True and t.auto_build("server") is True and t.auto_build("aws") is True   # on everywhere (D584)
     t.set_auto_build(True, "it")
     data = json.loads((tmp_path / "settings.json").read_text())
     assert data["testrunner_auto_build"] is True and data["testrunner_auto_build_by"] == "it"
@@ -335,7 +335,9 @@ def test_build_is_wired_through_the_helper_and_the_api():
         assert route in api
     assert "build_first" in api and '"/tests/build", {"by": g.user.username, "then": body}' in api
     web = (REPO / "services/web/src/TestRuns.jsx").read_text()
-    for s in ("Build the test runner", "Retry", "Build it automatically after each start or update", "Build, then run",
+    for s in ("Rebuild the test runner", "Retry", "Build it automatically after each start or update", "Advanced: the test runner",
               "/api/v1/admin/tests/build", "/api/v1/admin/tests/settings"):
         assert s in web, s
+    # nothing to build by hand (D584): a run from the page always prepares the runner first; no "Build, then run" choice
+    assert 'data.get("build_first", True) is not False' in api and "build_first: notBuilt" not in web and "Build, then run" not in web
 

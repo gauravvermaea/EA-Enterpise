@@ -42,7 +42,7 @@ export function useStartup() {
   return data;
 }
 
-const partText = (p) => (p.key === "later" && p.status === "starting" && p.total ? `loading ${p.done} of ${p.total}` : WORD[p.status] || p.status);
+const partText = (p) => ((p.key === "later" || p.key === "packs") && p.status === "starting" && p.total ? `loading ${p.done} of ${p.total}` : WORD[p.status] || p.status);
 
 export default function StartupStatus() {
   const data = useStartup();

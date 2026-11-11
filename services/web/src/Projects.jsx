@@ -1884,6 +1884,8 @@ function ProjectPage({ id, tab, sub }) {
         <span className="small">Repository: <RepoState state={p.repo_state} note={p.repo_note} /></span>
         <span className="small">Complete: <Completion c={p.completion} /></span>
         {p.is_library && <span className="chip on" title="Its reference material is offered to new projects">library project</span>}
+        {p.purpose && <span className="chip on purpose-chip" title={`What this architecture supports: ${PURPOSE_HELP[p.purpose] || p.purpose}. Change it with ✎ Edit.`}>
+          Supports: {({ strategy: "Strategy", portfolio: "Portfolio", project: "Project", solution: "Solution" })[p.purpose] || p.purpose}</span>}
         <span style={{ marginLeft: "auto" }} />
         {p.may_admin && !p.frozen && <a className="button" href={`#/projects/${id}/edit`} title="Change the project: the set-up wizard again">✎ Edit</a>}
         {p.may_admin && !p.frozen && <button title={p.completion?.completed_at ? "Open it again: completion goes back to its phases" : "Mark the whole project complete (it can be opened again at any time)"}

@@ -1,13 +1,17 @@
 // The self-test watched in the admin's own browser (D575, D576): the page sweep and the journeys, run in a same-origin
 // frame of System admin › Self-test. The same rules as the headless runner (services/api/eax/testing/ui_pages.py and
 // ui_flows.py): each page renders (no script error, no API answer of 500 or more, not "no route"), shows a heading and
-// opens help on F1; each journey's steps (open, click, choose, fill, select, press, expect, expect_not, expect_sel,
-// upload) are done the way a person would. test_selftest_coverage.py checks both sides know the same step kinds.
+// opens help on F1; each journey's steps (see ui_flows.py's docstring) are done the way a person would, with "as" to go
+// on as another test role, "remember" to keep part of the address for later steps ({$name}), "within" a pop-up and "row"
+// in a table row. The draw.io steps are for the headless runner only (that canvas is another site). test_selftest_coverage.py
+// checks both sides know the same step kinds.
 
-export const STEP_KINDS = ["open", "click", "choose", "fill", "select", "press", "expect", "expect_not", "expect_sel", "upload"];
+export const STEP_KINDS = ["open", "click", "click_re", "choose", "fill", "select", "press", "expect", "expect_not", "expect_sel",
+  "upload", "download", "as", "remember", "drawio_ready", "drawio_drop", "drawio"];
+const ROWS = "tr, li, fieldset, .chip";
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 const LEAVE = /^#\/(break-glass|heartbeat|sql)\b|logout|sign-?out/i;
-const CLICKABLE = "button, a, [role=tab], [role=button], summary, label";
+const CLICKABLE = "button, a, [role=tab], [role=button], [role=option], summary, label";
 const TABS = '[role=tablist] a[href^="#/"], .tabs a[href^="#/"], .nav-groups a[href^="#/"], .nav-menu a[href^="#/"], '
   + 'nav.subnav a[href^="#/"], .subtabs a[href^="#/"], .seg a[href^="#/"]';
 export const MAX_PAGES = 400;
@@ -83,16 +87,33 @@ function visible(el) {
   return !!el && !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
 }
 
-function clickable(doc, label, exact) {
-  const pat = new RegExp(exact ? `^\\s*${esc(label)}\\s*$` : `^\\s*${esc(label)}`, "i");
+function clickable(doc, label, exact, re) {
+  const pat = re ? new RegExp(re) : new RegExp(exact ? `^\\s*${esc(label)}\\s*$` : `^\\s*${esc(label)}`, "i");
   return [...doc.querySelectorAll(CLICKABLE)].find((el) => visible(el) && pat.test(el.innerText || el.getAttribute("aria-label") || ""));
 }
+
+// where a step looks: the page, the last visible pop-up ("within") or the row holding a text ("row")
+function rootOf(doc, s) {
+  if (s.within) return [...doc.querySelectorAll(s.within)].filter(visible).pop() || null;
+  if (s.row) return [...doc.querySelectorAll(ROWS)].find((el) => visible(el) && (el.innerText || "").includes(s.row)) || null;
+  return doc;
+}
+
+// {$name} filled from what a "remember" step kept
+export function withVars(o, vars) {
+  if (typeof o === "string") return Object.entries(vars).reduce((x, [k, v]) => x.split(`{$${k}}`).join(v), o);
+  if (Array.isArray(o)) return o.map((x) => withVars(x, vars));
+  if (o && typeof o === "object") return Object.fromEntries(Object.entries(o).map(([k, v]) => [k, withVars(v, vars)]));
+  return o;
+}
+
+const textIn = (el) => (el?.body || el)?.innerText || "";
 
 function field(doc, label) {
   const low = label.toLowerCase();
   for (const l of doc.querySelectorAll("label")) {
     if (!(l.innerText || "").trim().toLowerCase().startsWith(low)) continue;
-    const el = l.htmlFor ? doc.getElementById(l.htmlFor) : l.querySelector("input, select, textarea");
+    const el = l.htmlFor ? (doc.ownerDocument || doc).getElementById(l.htmlFor) : l.querySelector("input, select, textarea");
     if (visible(el)) return el;
   }
   return [...doc.querySelectorAll("input, select, textarea")].find((el) => visible(el)
@@ -113,48 +134,73 @@ function press(f, key) {
   for (const type of ["keydown", "keyup"]) target.dispatchEvent(new f.win().KeyboardEvent(type, { key, code: key, bubbles: true }));
 }
 
-// one step; "" when done, else why not (an optional step is then skipped)
-export async function step(f, s, role) {
+// one step; "" when done, else why not (an optional step is then skipped). state: the role pages open as, what was kept
+export async function step(f, s0, role, state = {}) {
+  state.vars = state.vars || {};
+  const s = withVars(s0, state.vars);
+  if (/\{\$[a-z_]+\}/.test(JSON.stringify(s))) return "a {$name} no earlier step remembered";
+  const ms = s.timeout || 20000;
   const d = f.doc();
-  if ("open" in s) {
-    await f.open(s.open, role);
-    if (s.expect && !(await f.waitFor(() => f.doc().body.innerText.includes(s.expect), 20000))) return `"${s.expect}" did not show`;
-  } else if ("click" in s) {
-    const el = clickable(d, s.click, s.exact) || (s.optional_alt && clickable(d, s.optional_alt));
-    if (!el) return `no button or link "${s.click}"`;
-    if (el.disabled || el.getAttribute("aria-disabled") === "true") return `"${s.click}" is disabled`;
+  const root = rootOf(d, s);
+  if (!root) return `nothing shows ${s.within || s.row}`;
+  if ("as" in s) {
+    state.role = s.as;
+  } else if ("open" in s) {
+    await f.open(s.open, state.role || role);
+    if (s.expect && !(await f.waitFor(() => f.doc().body.innerText.includes(s.expect), ms))) return `"${s.expect}" did not show`;
+  } else if ("click" in s || "click_re" in s) {
+    const el = clickable(root, s.click || "", s.exact, s.click_re) || (s.optional_alt && clickable(root, s.optional_alt));
+    if (!el) return `no button or link "${s.click || s.click_re}"`;
+    if (el.disabled || el.getAttribute("aria-disabled") === "true") return `"${s.click || s.click_re}" is disabled`;
     el.click();
   } else if ("choose" in s) {
-    const l = [...d.querySelectorAll("label")].find((x) => visible(x) && (x.innerText || "").includes(s.choose));
+    const l = [...root.querySelectorAll("label")].find((x) => visible(x) && (x.innerText || "").includes(s.choose));
     if (!l) return `no choice "${s.choose}"`;
     l.click();
   } else if ("fill" in s) {
-    const el = field(d, s.fill);
+    const el = field(root, s.fill);
     if (!el) return `no field "${s.fill}"`;
     el.focus();
     setValue(el, s.value);
   } else if ("select" in s) {
-    const el = field(d, s.select);
+    const el = field(root, s.select);
     if (!el) return `no drop-down "${s.select}"`;
-    const o = [...el.options].find((x) => x.text.trim().toLowerCase().startsWith(s.option.toLowerCase()));
+    const o = s.option === "*" ? [...el.options].find((x) => x.value && !x.text.trim().startsWith("("))
+      : [...el.options].find((x) => x.text.trim().toLowerCase().startsWith(s.option.toLowerCase()));
     if (!o) return `"${s.select}" has no option "${s.option}"`;
     setValue(el, o.value);
   } else if ("press" in s) {
     press(f, s.press);
   } else if ("expect" in s) {
-    if (!(await f.waitFor(() => f.doc().body.innerText.includes(s.expect), 20000))) return `"${s.expect}" did not show`;
+    if (!(await f.waitFor(() => textIn(rootOf(f.doc(), s)).includes(s.expect), ms))) return `"${s.expect}" did not show`;
   } else if ("expect_not" in s) {
     await pause(500);
-    if (f.doc().body.innerText.includes(s.expect_not)) return `"${s.expect_not}" still shows`;
+    if (!(await f.waitFor(() => !f.doc().body.innerText.includes(s.expect_not), s.timeout || 500))) return `"${s.expect_not}" still shows`;
   } else if ("expect_sel" in s) {
-    if (!(await f.waitFor(() => f.doc().querySelector(s.expect_sel), 20000))) return `nothing matches ${s.expect_sel}`;
+    if (!(await f.waitFor(() => f.doc().querySelector(s.expect_sel), ms))) return `nothing matches ${s.expect_sel}`;
   } else if ("upload" in s) {
-    const el = d.querySelector(s.upload);
+    const el = root.querySelector(s.upload);
     if (!el) return `no file input ${s.upload}`;
+    if (s.data && !s.b64) return `the test data file ${s.data} was not sent to this browser`;
+    const bytes = s.b64 ? Uint8Array.from(atob(s.b64), (c) => c.charCodeAt(0)) : s.text;
     const dt = new (f.win().DataTransfer)();
-    dt.items.add(new (f.win().File)([s.text], s.name, { type: "application/octet-stream" }));
+    dt.items.add(new (f.win().File)([bytes], s.name || (s.data || "file").split("/").pop(), { type: "application/octet-stream" }));
     el.files = dt.files;
     el.dispatchEvent(new Event("change", { bubbles: true }));
+  } else if ("download" in s) {
+    // the browser saves the file itself: here, the click must not end in an error
+    const el = clickable(root, s.download);
+    if (!el) return `no button or link "${s.download}"`;
+    el.click();
+    await pause(2000);
+    const bad = [...f.doc().querySelectorAll(".status.bad")].find(visible);
+    if (bad) return `"${s.download}": ${bad.innerText.slice(0, 200)}`;
+  } else if ("remember" in s) {
+    const re = new RegExp(s.url);
+    if (!(await f.waitFor(() => re.test(f.win().location.href), ms))) return `the address never matched ${s.url}`;
+    state.vars[s.remember] = f.win().location.href.match(re)[1];
+  } else if ("drawio_ready" in s || "drawio_drop" in s || "drawio" in s) {
+    return "a draw.io step runs headless only (the canvas is another site)";
   }
   await pause(s.wait || 400);
   return "";
@@ -173,7 +219,7 @@ async function refusal(f, r, role) {
     const el = clickable(f.doc(), r.click_first);
     if (el && !el.disabled) { el.click(); await pause(1500); }
   }
-  const el = clickable(f.doc(), r.disabled_or_absent);
+  const el = clickable(f.doc(), r.disabled_or_absent, r.exact);
   if (!el) return ["passed", `"${r.disabled_or_absent}" not offered to ${role}`];
   if (el.disabled) return ["passed", `"${r.disabled_or_absent}" disabled for ${role}`];
   return ["failed", `"${r.disabled_or_absent}" is offered to ${role}, who may not do it`];
@@ -183,9 +229,10 @@ export async function journey(f, j) {
   if (j.refusal) return refusal(f, j.refusal, j.role);
   let done = 0;
   const skipped = [];
+  const state = { vars: {} };
   for (const s of j.steps) {
     let why;
-    try { why = await step(f, s, j.role); } catch (e) { why = String(e.message || e).slice(0, 200); }
+    try { why = await step(f, s, j.role, state); } catch (e) { why = String(e.message || e).slice(0, 200); }
     if (why) {
       if (s.optional) { skipped.push(why); continue; }
       const k = Object.keys(s)[0];

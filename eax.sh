@@ -395,7 +395,7 @@ up_services() {
     echo "EA Explorer is ready after ${READY} s: you can sign in."
     echo "Still starting in the background: Reports, Documents, Diagrams and the sample data; the screens show each in red, amber or green (down, starting, up)."
     if [ ! -f "$WORK_DIR/.check-hint-shown" ]; then   # the first start: how to check it (D582)
-      echo "Check your installation: System admin > Self-test > Build the test runner, then Smoke test > Start;"
+      echo "Check your installation: System admin > Self-test > Smoke test > Start (it prepares what it needs);"
       echo "  or ./eax.sh test --smoke; or from another machine ./eax.sh testbench --target https://<address> --i-own-this --smoke."
       echo "  Results: Self-test > History and the report. Steps: docs/deployment.md, \"Check your installation\"."
       : > "$WORK_DIR/.check-hint-shown" 2>/dev/null || true
@@ -731,6 +731,8 @@ case "$CMD" in
     ;;
   up)
     shift
+    # the industry packs first (D584): new or changed files from the pack sources; quick when nothing changed; never fatal
+    if [ "$#" -eq 0 ]; then "$BASH" ./eaxpy.sh packs auto || true; fi
     # an upgrade (D230): while a running installation is rebuilt, the proxy shows the maintenance page
     PAGE=""
     if [ "$#" -eq 0 ] && [ ! -f work/proxy/maintenance ] && [ -n "$(compose ps --status running -q proxy 2>/dev/null)" ]; then
@@ -748,6 +750,7 @@ case "$CMD" in
   start-later) start_later ;;
   debug)
     shift
+    if [ "$#" -eq 0 ]; then "$BASH" ./eaxpy.sh packs auto || true; fi        # the industry packs first (D584)
     if ! up_services "$@"; then echo "docker compose up failed; recording what is running anyway."; fi
     diagnostics
     if [ "$#" -gt 0 ]; then show_part_urls "$@"; else show_urls; show_logins; fi
@@ -791,7 +794,8 @@ case "$CMD" in
           # shellcheck disable=SC2086
           compose exec api python -m eax.testing.cli "$READ" $REST
         else
-          compose --profile test build testrunner
+          echo "Preparing the test runner... (the first time about 5 to 15 minutes; seconds when it is current)"   # D584
+          compose --profile test build testrunner || { echo "ERROR: the test runner could not be built."; exit 1; }
           VER=$(sed -n 's/^version = "\(.*\)"/\1/p' services/api/version.toml)
           backup_helpers; compose exec ops python3 /app/ops.py test "$@" --version "$VER"
         fi ;;

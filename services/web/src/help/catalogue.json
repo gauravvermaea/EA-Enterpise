@@ -3023,7 +3023,7 @@
     "title": "Self-test",
     "what": "Tests this installation in fixtures of its own: a smoke test or detailed tests (API, browser, database, security), with their history, reports and the test fixtures they made. Super Admins and IT Admins.",
     "how": [
-      "The test runner: if it is not built yet, press Build the test runner (about 1.5 GB, 5 to 15 minutes) and follow its steps and log; Retry if it fails. Or tick Build it automatically after each start or update.",
+      "Nothing to build by hand: Start prepares the test runner first (seconds when it is current; the first time about 5 to 15 minutes), and it is built in the background after every start. Advanced has Rebuild the test runner and the automatic-build box.",
       "Run: choose a smoke test or detailed tests, optionally one role or one API area, and start it; it says how long it takes and asks to confirm.",
       "Follow it live: its step and counts; Stop ends it at its next step.",
       "History: open a run's results; each failure says why, with what was asked and what came back, or a screenshot or video; download its report as HTML or Excel.",
@@ -3032,7 +3032,7 @@
       "The same from the command line: the exact eax test command for what you picked, as you pick it. Choose how you type eax (.\\eax, ./eax.sh or eaxpy) and press Copy.",
       "From the command line (folded): every option of eax test with what it does, and examples.",
       "History: each run shows the command line it equals.",
-      "Each report starts with the coverage: pages opened N of N, journeys, refusals without a sign-in, reads as every role, writes by area, database and security checks.",
+      "Each report starts with the coverage: pages opened N of N, journeys as each allowed role, journeys refused, journeys covered of those defined, refusals without a sign-in, reads as every role, writes by area, database and security checks.",
       "From outside: the test bench (eax testbench --target https://<address> --i-own-this) runs the same tests from another machine, in Chromium, Firefox, WebKit or Edge; its runs show in History by \"(external testbench)\". See Documentation, The test bench."
     ],
     "example": "A smoke test before and after an update; detailed API tests as architect after changing roles."
@@ -3199,7 +3199,7 @@
   "button:Reset and test": "Runs a real clean-restart, then checks the settings in persist/ survived it. Deletes all data.",
   "button:Save the banner": "Show this banner now (within its times).",
   "button:← All schedules": "Back to the list of schedules.",
-  "button:Build the test runner": "Build the self-test's runner image now (about 1.5 GB, 5 to 15 minutes; the same as eax test --build). Its steps and log show here.",
+  "button:Rebuild the test runner": "Optional (under Advanced): rebuild the self-test's runner image now; every test already prepares it first (about 1.5 GB, 5 to 15 minutes; the same as eax test --build). Its steps and log show here.",
   "button:Retry the build": "Build the test runner again after the last build failed (its reason is shown above).",
   "button:Retry": "Try the failed build again (after fixing what its log says, e.g. the internet or the disk space).",
   "button:Build, then run": "The test runner is missing: build it first (5 to 15 minutes), then this run starts by itself.",
@@ -3227,6 +3227,6 @@
   "button:Iteration history (": "Show or hide every change of this project's ADM iteration: when, who, from, to and the note.",
   "field:Typed as": "How you type the eax command on your computer: .\\eax (Windows), ./eax.sh (Linux or Mac), or eaxpy. The commands shown on the page use it; your choice is remembered in this browser.",
   "field:Pages only": "Run only the page sweep: every page, group, tab and sub-tab is opened as Super Admin and checked (it renders, has a heading, F1 opens help). Same as eax test --pages-only.",
-  "field:Journeys": "Run only the ticked browser journeys (each as the roles allowed, plus one role that must be refused). None ticked: every journey. Same as eax test --journey <name>.",
+  "field:Journeys": "Run only the ticked browser journeys: model content, duplicates, project iteration, help, admin (banner and a schedule, put back afterwards), drawn view (headless only), import a delivery, survey, child merge. Each runs as every role allowed, then as one role that must be refused. None ticked: every journey (the smoke test runs the first three once). Same as eax test --journey <name>.",
   "field:How you type eax": "How you type the eax command: .\\eax (Windows), ./eax.sh (Linux or Mac), or eaxpy. The command shown changes with it."
 }

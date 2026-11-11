@@ -43,6 +43,27 @@ def call(base: str, method: str, path: str, token: str | None, body: dict | None
         return status, raw[:1500]
 
 
+def upload(base: str, path: str, token: str | None, name: str, content: bytes, timeout: int = 120) -> tuple[int, dict | str]:
+    """One multipart upload (field "file"), as the screens and eax import send a delivery."""
+    boundary = "eaxselftest" + str(int(time.time() * 1000))
+    body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{name}\"\r\n"
+            "Content-Type: application/octet-stream\r\n\r\n").encode() + content + f"\r\n--{boundary}--\r\n".encode()
+    req = urllib.request.Request(base + path, data=body, method="POST",
+                                 headers={"Content-Type": f"multipart/form-data; boundary={boundary}", "Accept": "application/json",
+                                          **({"Authorization": f"Bearer {token}"} if token else {})})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            raw, status = r.read().decode("utf-8", "replace"), r.status
+    except urllib.error.HTTPError as exc:
+        raw, status = exc.read().decode("utf-8", "replace"), exc.code
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        return 599, f"no answer: {exc}"
+    try:
+        return status, json.loads(raw) if raw else {}
+    except ValueError:
+        return status, raw[:1500]
+
+
 def ident(answer) -> str | None:
     """The id of what a write made: id, guid or ident, at the top or one level down (entity, survey, credential...)."""
     if not isinstance(answer, dict):
@@ -120,8 +141,24 @@ def plan(ids: dict[str, str], sid: str) -> list[dict]:
                  path=f"/api/v1/models/{other}/merge-requests", body={"note": "refused"}, who="report-viewer", refused=True),
         ]
     if m:
-        w += [dict(area="imports", what="refused: add an import source as a Report Viewer", method="post",
-                   path=f"/api/v1/models/{m}/import-sources", body={"name": f"{tag} refused"}, who="report-viewer", refused=True)]
+        # a delivery really loaded, accepted and undone (D583): the test data's good delivery (testbench/data)
+        w += [
+            dict(area="imports", what="add an import source", method="post", path=f"/api/v1/models/{m}/import-sources",
+                 body={"name": f"{tag} API source", "description": "made by the self-test"}, who="model-admin", ok={200, 201},
+                 save="source"),
+            dict(area="imports", what="upload a delivery", method="post", path="/api/v1/import-sources/{source}/deliveries",
+                 data="deliveries/good.xlsx", who="model-admin", ok={200, 201, 202}, save="load", save_at="load",
+                 until={"path": "/api/v1/loads/{load}", "status": ["previewed"], "seconds": 180}),
+            dict(area="imports", what="refused: accept it as a Report Viewer", method="post", path="/api/v1/loads/{load}/accept",
+                 body={}, who="report-viewer", refused=True, needs=["load"]),
+            dict(area="imports", what="accept it (committed as the load)", method="post", path="/api/v1/loads/{load}/accept",
+                 body={}, who="model-admin", ok={200, 202}, needs=["load"],
+                 until={"path": "/api/v1/loads/{load}", "status": ["added"], "seconds": 180}),
+            dict(area="imports", what="undo the load", method="post", path="/api/v1/loads/{load}/undo", body={},
+                 who="model-admin", ok={200}, needs=["load"]),
+            dict(area="imports", what="refused: add an import source as a Report Viewer", method="post",
+                 path=f"/api/v1/models/{m}/import-sources", body={"name": f"{tag} refused"}, who="report-viewer", refused=True),
+        ]
     if p:
         w += [
             dict(area="projects", what="refused: change the iteration as a Report Viewer", method="post",
@@ -161,6 +198,22 @@ def _fill(x, saved: dict[str, str]):
     return x
 
 
+def wait_for(base: str, token: str | None, until: dict, saved: dict[str, str], pause: float = 2.0) -> tuple[str, str]:
+    """Waits for what a write started in the background (a preview, an accept) to reach a status."""
+    path = _fill(until["path"], saved)
+    end = time.time() + until.get("seconds", 120)
+    last = ""
+    while True:
+        status, answer = call(base, "GET", path, token)
+        got = (answer.get("status") or (answer.get("load") or {}).get("status")) if isinstance(answer, dict) else None
+        last = str(got or status)
+        if got in until["status"]:
+            return "passed", f"{last}"
+        if got in ("failed", "declined") or status >= 400 or time.time() >= end:
+            return "failed", f"stopped at {last}, expected {' or '.join(until['status'])}"
+        time.sleep(pause)
+
+
 def run(base: str, tokens: dict[str, str], ids: dict[str, str], record: Record, area: str | None = None) -> dict[str, int]:
     """Runs the writes (of one area, if given); a write whose role is not in this run, or that needs something an
     earlier write did not make, is skipped with the reason. Returns passed and failed counts."""
@@ -181,14 +234,23 @@ def run(base: str, tokens: dict[str, str], ids: dict[str, str], record: Record, 
             continue
         path, body = _fill(w["path"], saved), _fill(w.get("body"), saved)
         t0 = time.time()
-        status, answer = call(base, w["method"], path, token, body)
+        if w.get("data"):
+            from . import ui_flows
+            try:
+                status, answer = upload(base, path, token, w["data"].rsplit("/", 1)[-1], ui_flows.data_bytes(w["data"]))
+            except OSError as exc:
+                status, answer = 0, f"no test data file {w['data']}: {exc}"
+        else:
+            status, answer = call(base, w["method"], path, token, body)
         outcome, detail = judge(status, w.get("ok", {200}), w.get("refused", False))
         if outcome == "passed" and w.get("save"):
-            got = ident(answer)
+            got = ident(answer.get(w["save_at"]) if w.get("save_at") and isinstance(answer, dict) else answer)
             if got:
                 saved[w["save"]] = got
             else:
                 outcome, detail = "failed", f"{status}, but the answer has no id"
+        if outcome == "passed" and w.get("until"):
+            outcome, detail = wait_for(base, token, w["until"], saved)
         counts["writes"] += 1
         counts[outcome] = counts.get(outcome, 0) + 1
         req = f"{w['method'].upper()} {path} as {w['who']}" + (f"  body {json.dumps(body)}" if body is not None else "")

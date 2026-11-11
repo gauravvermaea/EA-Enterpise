@@ -55,17 +55,18 @@ count them until they are purged.
 ## The test runner
 
 Self-tests run in a container image of their own, the **test runner** (the API's code, Chromium for the browser tests
-and the security scanners; about **1.5 GB**). It is built once per version (D570):
+and the security scanners; about **1.5 GB**). **Nothing to build by hand** (owner, 11 Nov 2026, D584):
 
-- On **System admin, Self-test**, when it is missing, press **Build the test runner** (5 to 15 minutes the first time;
-  it needs the internet). The page shows its steps (base image, Python packages, Chromium, scanners, the code) and the
-  log as it goes, then opens the Run tab, ready. If it fails, the reason is shown with **Retry**. You can leave the
-  page: the build goes on.
-- Or press **Start** anyway: it offers **Build, then run**, and the run starts by itself once the runner is built.
-- Or tick **Build it automatically after each start or update**: the operations helper builds it in the background
-  whenever the image for the running version is missing (after start-up, after an update, and every 15 minutes). The
-  setting is kept in `persist/settings.json` (`testrunner_auto_build`); off on a laptop and on for servers by default.
-- From the command line: `eax test --build` builds it only; `eax test` builds it first when it is missing.
+- **Every test prepares it first**: Start on **System admin, Self-test** and `eax test` (any suite) run
+  `docker compose --profile test build testrunner` before the run. Docker's layer cache makes that a few seconds when
+  the image is current; it is rebuilt when the code or the version changed (the image is tagged with the version, so an
+  older version's runner is never used). The first time takes 5 to 15 minutes and needs the internet; the page and the
+  console say "Preparing the test runner...", then the run starts by itself.
+- **Built in the background after every start or update** (on by default: `testrunner_auto_build` in
+  `persist/settings.json`; the box is under Advanced on the Self-test page), so a test right after `eax up` or
+  `eax clean-restart` does not wait. It takes about 1.5 GB of disk.
+- **Advanced › Rebuild the test runner** on the page (`eax test --build`) is there for the rare case it is wanted on
+  its own; its steps and log show live, with Retry.
 
 ## Running a test
 
@@ -95,9 +96,12 @@ sub-tab each page shows (the navigation registry and the tab bars), and nothing 
 Journeys click, type and save like a person, only inside the run's `self_test_<id>_n` fixtures: model content (create
 an Application Component in a form, find it, its changes and history), quality and duplicates (find the seeded pair and
 merge it), the project (Transition Planning, the frozen phase, back to Full cycle, the iteration history), help and
-documentation (F1 and the documentation search), the banner and schedules pages, and the drawn view (headless only:
-draw.io's editor is on its own origin). Each runs as every role allowed, then once as a role that may not, who must find
-the button missing or disabled.
+documentation (F1 and the documentation search), admin (an admins-only banner and a schedule, made and removed; the
+real banner and schedules are put back afterwards), the drawn view (headless only, as draw.io's editor is on its own
+origin: drop, bind, create through the pop-up, draw a line, name it with a key:value, undo, save, reopen), import (upload
+testbench/data's good delivery, accept, undo), survey (make, send, answer as the run's architect, Excel) and child merge
+(send self_test_<id>_2, accept as the parent's Model Admin, refresh). Each runs as every role allowed, then once as a role
+that may not, who must find the button missing or disabled (D583). The smoke test runs the first three, once.
 
 **Start** shows how long it should take and asks you to confirm. Then you see live counts, the current step and the
 failures as they come, with **Stop**. Tests always start at once; there is no scheduling.
@@ -136,7 +140,7 @@ eax test --last              the last run's results
 eax test --report [run] [--xlsx]   save the report
 eax test --fixtures [run]    list fixtures
 eax test --clean <run|all> [--yes]   purge fixtures (asks you to type DELETE without --yes)
-eax test --build             only build the test runner image
+eax test --build             optional: only (re)build the test runner image (every test does this first)
 ```
 
 `eax test` shows progress as it goes and exits non-zero when anything failed, so CI can use it (`--ci`).

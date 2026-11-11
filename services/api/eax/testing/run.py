@@ -104,6 +104,47 @@ def smoke(r: Run, spec: dict, tokens: dict[str, str], ids: dict[str, str], ticke
     r.counts.update(ui_journeys.run_all(ids, ticket, r.dir, r.recorder("ui"), smoke=True))
 
 
+def _admin_journey(journeys: list[str] | None, role: str, pages_only: bool) -> bool:
+    """Whether this run's journeys change the installation's banner and schedules (the admin journey)."""
+    from . import ui_flows
+    if pages_only:
+        return False
+    for j in ui_flows.JOURNEYS:
+        if j.get("guard") == "admin" and (not journeys or any(o.lower() in j["name"].lower() for o in journeys)) \
+                and ui_flows.role_plan(j, role):
+            return True
+    return False
+
+
+def _admin_guard(tokens: dict[str, str], before, log, sid: str = ""):
+    """before="before": reads the real banner and schedules; else puts them back as they were (D583)."""
+    from . import ui_flows
+
+    def call(method: str, path: str, body: dict | None = None):
+        return api_writes.call(API, method, path, tokens.get("super-admin"), body)
+    try:
+        if before == "before":
+            return ui_flows.admin_snapshot(call)
+        done = ui_flows.admin_restore(call, before or {}, sid)
+        log("admin journey: " + (", ".join(done) if done else "the banner and schedules were already as before"))
+    except Exception as exc:  # noqa: BLE001 - said in the log; the run goes on
+        log(f"admin journey: could not read or put back the banner and schedules: {exc}")
+    return None
+
+
+def _wait_for_browser(engine, run_id: int, r) -> None:
+    r.log("waiting for the journeys in your browser (Self-test page): keep it open")
+    for i in range(1800):
+        with engine.connect() as conn:
+            done = conn.execute(text("SELECT browser->>'done' FROM core.test_runs WHERE id = :id"), {"id": run_id}).scalar()
+        if done == "true":
+            return
+        if i and i % 30 == 0:
+            r.log("waiting for the journeys in your browser (Self-test page)")
+        time.sleep(2)
+    r.recorder("ui")("journeys in the browser", "skipped", "the browser did not finish within an hour", 0)
+
+
 def _post_json(path: str, token: str | None, body: dict) -> tuple[int, str]:
     import json as _json
     import urllib.error
@@ -293,23 +334,21 @@ def cmd_run(args) -> int:
                 r.log("API writes, area by area, inside the run's own fixtures (and the same writes refused)")
                 r.counts.update({f"writes {k}": v for k, v in api_writes.run(API, test_tokens, ids, r.recorder("api"),
                                                                               area=area).items()})
-            if "ui" in suites and not args.watch:
-                r.log("browser: every page, then the journeys (Chromium, headless)" if not (journeys or args.pages_only)
-                      else "browser: the page sweep" if args.pages_only else f"browser: journey {', '.join(journeys)}")
-                r.counts.update(ui_journeys.run_all(ids, ticket, r.dir, r.recorder("ui"), role=role, journeys=journeys,
-                                                    pages_only=args.pages_only))
+            guarded = "ui" in suites and _admin_journey(journeys, role, args.pages_only)
+            if guarded:                                  # the real banner and schedules, put back however the run ends (D583)
+                admin_before = _admin_guard(tokens, "before", r.log)
+            try:
+                if "ui" in suites and not args.watch:
+                    r.log("browser: every page, then the journeys (Chromium, headless)" if not (journeys or args.pages_only)
+                          else "browser: the page sweep" if args.pages_only else f"browser: journey {', '.join(journeys)}")
+                    r.counts.update(ui_journeys.run_all(ids, ticket, r.dir, r.recorder("ui"), role=role, journeys=journeys,
+                                                        pages_only=args.pages_only))
+                if "ui" in suites and args.watch:
+                    _wait_for_browser(engine, run_id, r)
+            finally:
+                if guarded:
+                    _admin_guard(tokens, admin_before, r.log, sid=ids.get("sid", ""))
             if "ui" in suites and args.watch:
-                r.log("waiting for the journeys in your browser (Self-test page): keep it open")
-                for i in range(1800):
-                    with engine.connect() as conn:
-                        done = conn.execute(text("SELECT browser->>'done' FROM core.test_runs WHERE id = :id"), {"id": run_id}).scalar()
-                    if done == "true":
-                        break
-                    if i and i % 30 == 0:
-                        r.log("waiting for the journeys in your browser (Self-test page)")
-                    time.sleep(2)
-                else:
-                    r.recorder("ui")("journeys in the browser", "skipped", "the browser did not finish within an hour", 0)
                 for why in ui_flows.skipped_in_browser():
                     name, _, reason = why.partition(": ")
                     r.recorder("ui")(f"journey: {name}", "skipped", f"headless only: {reason}", 0)

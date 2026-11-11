@@ -147,7 +147,7 @@ also deletes the Docker volumes so the databases start empty.
 
 ### Check your installation
 
-Once it is up, test it: **System admin › Self-test** › Build the test runner (first time) › Smoke test › Start; or
+Once it is up, test it: **System admin › Self-test** › Smoke test › Start (it prepares what it needs); or
 `.\eax test --smoke` (`./eax.sh test --smoke`); or from another machine `.\eax testbench --target https://<host>
 --i-own-this --smoke`. Results: Self-test › History, the HTML or Excel report, `testbench/reports/`, and the exit code.
 The full steps, what the coverage summary and the outcomes mean, and how to clean up:

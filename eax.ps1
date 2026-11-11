@@ -275,7 +275,7 @@ function Invoke-Up([string[]]$Names, [switch]$NoThrow) {
         Write-Log "Still starting in the background: Reports, Documents, Diagrams and the sample data; the screens show each in red, amber or green (down, starting, up)." "Green"
         $hint = Join-Path $WorkDir ".check-hint-shown"
         if (-not (Test-Path $hint)) {   # the first start: how to check it (D582)
-            Write-Log "Check your installation: System admin > Self-test > Build the test runner, then Smoke test > Start;"
+            Write-Log "Check your installation: System admin > Self-test > Smoke test > Start (it prepares what it needs);"
             Write-Log "  or .\eax test --smoke; or from another machine .\eax testbench --target https://<address> --i-own-this --smoke."
             Write-Log "  Results: Self-test > History and the report. Steps: docs\deployment.md, 'Check your installation'."
             New-Item -ItemType File -Path $hint -Force -ErrorAction SilentlyContinue | Out-Null
@@ -884,6 +884,9 @@ try {
             Write-Log "Compose configuration is valid."
         }
         "up"      {
+            # the industry packs first (D584): new or changed files from the pack sources into library/industry-packs;
+            # quick when nothing changed; a start never fails because of them
+            if ($RestArgs.Count -eq 0) { & (Join-Path $PSScriptRoot "eaxpy.ps1") packs auto; $global:LASTEXITCODE = 0 }
             # an upgrade (D230): while the containers are rebuilt and restarted, the proxy shows the maintenance page
             $page = Set-UpgradePage ($RestArgs.Count -eq 0)
             try { Invoke-Up $RestArgs | Out-Null } finally { if ($page) { Remove-Item -Force "work/proxy/maintenance" -ErrorAction SilentlyContinue } }
@@ -891,6 +894,7 @@ try {
         }
         "start-later" { Invoke-Later }
         "debug" {
+            if ($RestArgs.Count -eq 0) { & (Join-Path $PSScriptRoot "eaxpy.ps1") packs auto; $global:LASTEXITCODE = 0 }   # D584
             $code = Invoke-Up $RestArgs -NoThrow
             if ($code -ne 0) { Write-Log "docker compose up failed (exit $code); recording what is running anyway." "Red" }
             Save-Diagnostics
@@ -943,6 +947,8 @@ try {
                 $rest = @($RestArgs | Where-Object { $_ -ne $which[0] })
                 Invoke-Interactive @("api", "python", "-m", "eax.testing.cli", $read[$which[0]]) $rest
             } else {
+                # always prepare the runner first (D584): seconds when it is current, rebuilt when the code or version changed
+                Write-Host "Preparing the test runner... (the first time about 5 to 15 minutes; seconds when it is current)"
                 Invoke-Compose @("--profile", "test", "build", "testrunner") | Out-Null
                 Start-BackupHelpers
                 Invoke-Interactive @("ops", "python3", "/app/ops.py", "test") ($RestArgs + @("--version", (Get-Version)))

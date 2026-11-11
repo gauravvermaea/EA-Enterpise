@@ -82,5 +82,5 @@ the seed (`eax.seed`) loads every industry model that is missing on the next sta
 - **Still to copy from the owner's laptop** (the remote copy timed out on files over about 2 MB): the books and
   workbooks (PDF, 5 to 9 MB each), the Comparison Tool workbooks (3.6 to 5.6 MB), the Healthcare and Pharmaceuticals
   View Templates (2.5 to 2.8 MB), the Government, Logistics, Minerals and Mining and Retail ArchiMate 4 views (2 to 3 MB),
-  and the Banking and Insurance "complete set" zips (16 to 17 MB). `.\eax packs collect` copies all of them in one go;
+  and the Banking and Insurance "complete set" zips (16 to 17 MB). every `.\eax up` or `clean-restart` copies all of them by itself (D584; `.\eax packs collect` does it on demand);
   then commit and `.\eax packs reload`.

@@ -179,15 +179,14 @@ changes nothing else. Detail: [testing.md](testing.md) (everything) and [testben
 
 **1. From the browser** (Super Admin or IT Admin):
 
-1. **System admin › Self-test** › **Build the test runner** (the first time only; about 1.5 GB, 5 to 15 minutes).
-2. Choose **Smoke test**, then **Start** (2 to 5 minutes).
-3. Watch the counts, the current step and any failure as they come (or tick **Watch it in this browser**).
-4. Then choose **Detailed tests** (API, UI, Database, Security) and **Start** again.
+1. **System admin › Self-test**: choose **Smoke test**, then **Start** (2 to 5 minutes). It prepares the test runner
+   first by itself (seconds when it is current; the first time about 5 to 15 minutes): nothing to build by hand.
+2. Watch the counts, the current step and any failure as they come (or tick **Watch it in this browser**).
+3. Then choose **Detailed tests** (API, UI, Database, Security) and **Start** again.
 
 **2. From the command line, on the installation** (Windows / Linux and macOS):
 
 ```
-.\eax test --build         ./eax.sh test --build
 .\eax test --smoke         ./eax.sh test --smoke
 .\eax test --detailed      ./eax.sh test --detailed
 .\eax test --status        ./eax.sh test --status
@@ -198,7 +197,6 @@ changes nothing else. Detail: [testing.md](testing.md) (everything) and [testben
 **3. From outside, with the test bench** (any machine that can open the address):
 
 ```
-.\eax testbench setup --browsers chromium,firefox
 .\eax testbench --target https://<host> --i-own-this --token <token> --smoke
 .\eax testbench --target https://<host> --i-own-this --token <token> --detailed --browsers chromium,firefox
 .\eax testbench install --target https://localhost --i-own-this --insecure --answers answers.json

@@ -5,7 +5,7 @@ installation in fixtures of its own instead of a separate test database). How to
 
 ## What was built
 
-- **Build the test runner** from the page (11 Nov 2026, D570): the button runs `eax test --build` through the Command
+- **Rebuild the test runner** under Advanced on the page (11 Nov 2026, D570; D584: never needed, every test prepares the runner first): the button runs `eax test --build` through the Command
   centre's command container, with its steps and log live and Retry; Start without it offers Build, then run; and an
   automatic build after each start or update (persist/settings.json; off on laptops, on for servers).
 
@@ -43,6 +43,12 @@ installation in fixtures of its own instead of a separate test database). How to
 - API writes per area inside the fixtures, and refused writes.
 - Database checks: history whole, values fit their type, relationship values within their mapping, drawn-view bindings, persist/ JSON.
 - The coverage summary at the top of the report; `--journey` and `--pages-only`; the command line on the page and in History.
+- Every journey complete (D583): import, survey and child merge added; the drawn view (drop, bind, create, line, key:value
+  label, undo and redo, save and reopen) and admin (banner and schedule, the real ones put back) done in full; every
+  journey as each allowed role and one refused; the fixtures add project members, a drawn view and a line attribute;
+  a real delivery among the API writes; journeys refused and journeys covered in the report. The drawn-view journey was
+  run in the preview and passes; import, survey and child merge are checked by the unit tests and the API writes there,
+  and run on a real installation.
 
 ## What the watched run cannot reach
 
@@ -56,6 +62,6 @@ Usage figures and backups include self-test fixtures while they exist (they are 
 
 ## Needs on the owner's side
 
-Docker (the runner image, about 1.5 GB with Chromium, is built from the Self-test page, by `eax test --build`, or on first use); the internet for pip-audit's advisory
+Docker (the runner image, about 1.5 GB with Chromium, is prepared before every test and in the background after every start; D584); the internet for pip-audit's advisory
 database, the Trivy database and the first pull of the ZAP and Trivy images. Without the internet those checks are
 recorded as skipped.
