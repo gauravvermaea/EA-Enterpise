@@ -1,9 +1,16 @@
 name: CI
 
+# CI on every change (8.5, D513): every push to any branch (main, rc, release and work branches), every pull request,
+# and every version tag. A version tag (vX.Y.Z or vX.Y.Z-rc.N) also checks that the release is consistent and makes the
+# GitHub release with its notes (releases/<version>.md). No images are published: every installation builds them on its
+# own host (D417).
 on:
   push:
-    branches: [main]
+    branches: ["**"]
+    tags: ["v*"]
   pull_request:
+  schedule:
+    - cron: "17 2 * * *"      # nightly: the test bench's install, upgrade, cross-browser and load runs (D582)
 
 jobs:
   api:
@@ -54,3 +61,105 @@ jobs:
       - name: Shell scripts
         run: |
           for f in services/backup/*.sh services/api/entrypoint.sh deploy/postgres/initdb/*.sh deploy/superset/*.sh eax.sh; do bash -n "$f"; done
+
+  testbench:
+    # the outside test bench (D579 to D582) against EA Explorer started on the CI machine: the API and UI suites on every
+    # change; nightly also a clean install with the deploy wizard, an upgrade from the previous tag, every browser and a
+    # short load test. Reports (HTML, JSON, JUnit) are kept as the run's artifacts.
+    name: Test bench - ${{ github.event_name == 'schedule' && 'nightly' || 'API and UI' }}
+    needs: [api, stack]
+    if: "!startsWith(github.ref, 'refs/tags/v')"
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      EAX_TESTBENCH_I_OWN_THIS: localhost
+      EAX_TESTBENCH_USER: eaadmin
+      BENCH: python -m testbench --target https://localhost --insecure --quiet
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: The bench's packages and browsers
+        run: |
+          pip install -r testbench/requirements.txt
+          python -m playwright install --with-deps chromium ${{ github.event_name == 'schedule' && 'firefox webkit' || '' }}
+      - name: The test data is as built
+        run: python -m testbench.data check
+      - name: EA Explorer on this machine (nightly - with the deploy wizard)
+        run: |
+          mkdir -p work && cp deploy/templates/eaexplorer.laptop.env work/eaexplorer.env
+          export EAX_TESTBENCH_PASSWORD="$(grep '^EAX_FIRST_ADMIN_PASSWORD=' work/eaexplorer.env | cut -d= -f2-)"
+          echo "EAX_TESTBENCH_PASSWORD=$EAX_TESTBENCH_PASSWORD" >> "$GITHUB_ENV"
+          if [ "${{ github.event_name }}" = schedule ]; then
+            $BENCH install --answers ci/testbench-answers.json --i-own-this --smoke
+          else
+            ./eax.sh up --wait-all
+          fi
+      - name: API and UI suites (every change)
+        run: $BENCH --i-own-this --detailed --suite api --suite ui --browsers chromium --out testbench/reports/suites
+      - name: Every browser (nightly)
+        if: github.event_name == 'schedule'
+        run: $BENCH --i-own-this --detailed --suite ui --browsers chromium,firefox,webkit --out testbench/reports/browsers
+      - uses: grafana/setup-k6-action@v1
+        if: github.event_name == 'schedule'
+      - name: Short load test (nightly)
+        if: github.event_name == 'schedule'
+        run: $BENCH load --i-own-this --users 20 --minutes 2 --out testbench/reports/load
+      - name: Upgrade from the previous tag (nightly)
+        if: github.event_name == 'schedule'
+        run: |
+          ./eax.sh cleanup --all --yes || true
+          prev="$(git describe --tags --abbrev=0 --match 'v*' --exclude '*-rc.*' HEAD^ 2>/dev/null || true)"
+          if [ -z "$prev" ]; then echo "No earlier tag: nothing to upgrade from."; exit 0; fi
+          $BENCH upgrade --i-own-this --from "$prev" --to "$PWD" --answers ci/testbench-answers.json \
+            --url "$PWD" --folder "$RUNNER_TEMP/eax-$prev" --smoke --out testbench/reports/upgrade
+      - name: Keep the reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: testbench-reports
+          path: testbench/reports/
+      - name: JUnit summary
+        if: always()
+        run: |
+          for f in testbench/reports/*/junit.xml; do [ -f "$f" ] && echo "$f: $(grep -o 'tests=\"[0-9]*\"' "$f" | head -1)"; done || true
+
+  plugin:
+    name: draw.io plugin - syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: node --check deploy/drawio/eax-plugin.js
+      - name: The load test's k6 script parses
+        run: cp testbench/load/scenarios.js /tmp/scenarios.mjs && node --check /tmp/scenarios.mjs
+
+  release:
+    name: Release - notes and GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [api, web, stack]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: The tag, version.toml and the release notes agree
+        run: python tools/release.py check "${GITHUB_REF_NAME}"
+      - name: GitHub release with the notes (no images, D417)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          notes="releases/${v}.md"; [ -f "$notes" ] || notes="releases/${v%%-rc.*}.md"
+          gh release create "${GITHUB_REF_NAME}" --title "EA Explorer ${v}" --notes-file "$notes" \
+            $([[ "$v" == *-rc.* ]] && echo --prerelease) || gh release edit "${GITHUB_REF_NAME}" --notes-file "$notes"
