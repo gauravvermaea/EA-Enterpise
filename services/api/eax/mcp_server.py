@@ -54,7 +54,8 @@ You can also BUILD: make models (empty, a copy, a copy at a tag, a child), add e
 and run architecture projects (TOGAF ADM: steps, document classes, approvals). Call how_to_build first, and always
 get the person's yes before creating models or projects.
 MODEL OPERATIONS (D458): copy_model, find_duplicates and merge_duplicates, override_parent, refresh_from_parent,
-decide_merge_request, model_wizard, common_analysis, change_entities. Every tool that changes something answers first
+decide_merge_request, model_wizard, common_analysis, change_entities, change_relationships (names and attribute values
+of relationships; get_relationship shows which attributes a relationship has). Every tool that changes something answers first
 with a PREVIEW and a confirm token: show the person the preview, and call the same tool again with the same arguments
 and confirm=<token> only when they agree. The model is tagged first, so it can be restored. Pass why (the person's
 request in a line) to these tools. ANALYSIS: impact_analysis, application_rationalisation, cost_rollup_analysis,

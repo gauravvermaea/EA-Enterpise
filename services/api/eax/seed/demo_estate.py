@@ -723,11 +723,50 @@ rel("Core Policy Replacement", "Association", "Core systems hosted in the cloud"
 rel("Customer Data Programme", "Association", "Build a single customer view")
 rel("Broker API Project", "Association", "Open up to brokers through APIs")
 
+# relationship attributes (D563, D564): defined on the demo estate's own metamodel, per relationship type (every
+# allowed relationship of that type) or per allowed relationship (source type + type + target type).
+rel("Primary Data Centre Cluster", "Association", "Disaster Recovery Cluster")   # replication link
+rel("Container Platform", "Association", "Mainframe Partition")                  # message queue to the mainframe
+rel("Cloud Landing Zone", "Association", "Disaster Recovery Cluster")            # its protocol is still missing
+rel("Backup Generator", "Association", "Cloud Migration")                         # physical to work package: no attributes
+REL_PICK_LISTS = {"ConnectionProtocol": ("Connection protocol", ["HTTPS", "SFTP", "MQ", "JDBC"]),
+                  "FlowFrequency": ("Flow frequency", ["Real time", "Hourly", "Daily", "Weekly", "Monthly"])}
+# code, name, data type (Workbench name), pick list, description
+REL_ATTRS = [
+    ("ConnectionProtocol", "Connection protocol", "List", "ConnectionProtocol", "How the two nodes talk to each other"),
+    ("Port", "Port", "Integer", "", "The port the connection uses"),
+    ("Frequency", "Frequency", "List", "FlowFrequency", "How often the flow runs"),
+    ("DataVolume", "Data volume", "Text", "", "How much data a run moves, for example 2 GB a day"),
+    ("SLA", "SLA", "Text", "", "Service level agreed for this serving, for example 99.9% in business hours"),
+]
+# type-level: (relationship type, attribute, required): on every allowed relationship of the type
+REL_TYPE_ATTRS = [("Serving", "SLA", False)]
+# mapping-level: (source type, relationship type, target type, attribute, required)
+REL_MAPPING_ATTRS = [
+    ("Node", "Association", "Node", "ConnectionProtocol", True),
+    ("Node", "Association", "Node", "Port", False),
+    ("ApplicationComponent", "Flow", "ApplicationComponent", "Frequency", False),
+    ("ApplicationComponent", "Flow", "ApplicationComponent", "DataVolume", False),
+]
+# values: (source, relationship type, target) -> {attribute: value}
+REL_VALUES = {
+    ("Primary Data Centre Cluster", "Association", "Disaster Recovery Cluster"): {"ConnectionProtocol": "SFTP", "Port": 22},
+    ("Container Platform", "Association", "Mainframe Partition"): {"ConnectionProtocol": "MQ", "Port": 1414},
+    ("Cloud Landing Zone", "Association", "Disaster Recovery Cluster"): {"Port": 443},   # required protocol missing
+    ("Policy Administration System", "Flow", "Billing Engine"): {"Frequency": "Daily", "DataVolume": "2 GB a day"},
+    ("Claims Platform", "Flow", "Payments Hub"): {"Frequency": "Real time", "DataVolume": "5,000 payments a day"},
+    ("Cloud Data Platform", "Flow", "Regulatory Reporting Tool"): {"Frequency": "Monthly"},
+    ("Container Platform", "Serving", "Customer Portal"): {"SLA": "99.9% around the clock"},
+    ("Relational Database 19", "Serving", "Policy Administration System"): {"SLA": "99.5% in business hours"},
+}
+
 _names = [n for _t, n, *_ in E]
 assert len(_names) == len(set(_names)), sorted({n for n in _names if _names.count(n) > 1})
 _known = set(_names)
 _bad = [(a, b) for a, _k, b in R if a not in _known or b not in _known]
 assert not _bad, _bad
+_missing = [k for k in REL_VALUES if k not in set(R)]
+assert not _missing, _missing
 
 # relationship multiplicity (D395) on the demo estate's own metamodel: (source type, relationship, target type, source end,
 # target end). Every application supports at least one capability (some do not yet: the quality checks show them); a

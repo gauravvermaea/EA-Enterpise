@@ -274,3 +274,68 @@ def test_mcp_tool_reads_test_results():
     src = (API / "eax/mcp_tests.py").read_text()
     assert "async def test_results(" in src and "_operator()" in src
     assert "may_write" not in src                              # read only: no change through MCP
+
+
+# ---------------------------------------------------------------- building the test runner from the page (D570)
+def test_build_command_in_every_form():
+    main = (REPO / "eaxcli/main.py").read_text()
+    assert 'command == "test" and "--build" in rest' in main
+    i = main.index('command == "test" and "--build" in rest')
+    assert '"--profile", "test", "build", "testrunner"' in main[i:i + 600]
+    sh = (REPO / "eax.sh").read_text()
+    assert '*" --build "*)' in sh and "compose --profile test build testrunner &&" in sh
+    ps = (REPO / "eax.ps1").read_text()
+    assert '$RestArgs -contains "--build"' in ps
+    helptext = (REPO / "eaxcli/help.txt").read_text()
+    assert "[--build]" in helptext and "  --build " in helptext and "$ {eax} test --build" in helptext
+    sys.path.insert(0, str(REPO))
+    from eaxcli import commands as C
+    assert C.check_argv(["test", "--build"]) == ["test", "--build"]
+    assert C.kind_of_argv(["test", "--build"]) == "run"
+    docker = (API / "Dockerfile.test").read_text()
+    for step in ("EAX-STEP python", "EAX-STEP chromium", "EAX-STEP scanners", "EAX-STEP code"):
+        assert step in docker
+
+
+def test_build_steps_follow_the_log():
+    t = _ops_module("testruns")
+    assert [s["state"] for s in t.build_steps("")] == ["waiting"] * 5
+    log = "#1 [internal] load metadata for docker.io/library/python:3.12-slim\n#5 [3/6] RUN echo \"EAX-STEP python: x\"\n"
+    st = {s["key"]: s["state"] for s in t.build_steps(log)}
+    assert st == {"base": "done", "python": "running", "chromium": "waiting", "scanners": "waiting", "code": "waiting"}
+    log += "#6 EAX-STEP chromium: y\nERROR: failed to solve: no space left on device\n"
+    st = {s["key"]: s["state"] for s in t.build_steps(log, finished=True, ok=False)}
+    assert st["python"] == "done" and st["chromium"] == "failed" and st["scanners"] == "waiting"
+    assert "no space left" in t._reason(log)
+    assert all(s["state"] == "done" for s in t.build_steps(log, finished=True, ok=True))
+
+
+def test_auto_build_setting_is_kept_in_persist(tmp_path, monkeypatch):
+    monkeypatch.setenv("EAX_PERSIST_DIR", str(tmp_path))
+    sys.path.insert(0, str(REPO))
+    t = _ops_module("testruns")
+    assert t.auto_build("laptop") is False and t.auto_build("server") is True and t.auto_build("aws") is True
+    t.set_auto_build(True, "it")
+    data = json.loads((tmp_path / "settings.json").read_text())
+    assert data["testrunner_auto_build"] is True and data["testrunner_auto_build_by"] == "it"
+    assert t.auto_build("laptop") is True
+    t.set_auto_build(False, "it")
+    assert t.auto_build("server") is False
+    assert (tmp_path / "settings.json.bak").exists()        # written atomically, the last good copy kept
+
+
+def test_build_is_wired_through_the_helper_and_the_api():
+    ops = (REPO / "services/ops/ops.py").read_text()
+    assert '"/tests/build"' in ops and '"/tests/settings"' in ops and 'startswith("/tests/build/")' in ops
+    assert "testruns.auto_build_loop" in ops
+    t = (REPO / "services/ops/testruns.py").read_text()
+    assert 'cc._launch(["test", "--build"]' in t and "start(then)" in t
+    api = (API / "eax/api/platform_tests.py").read_text()
+    for route in ('@blp.route("/tests/build")', '@blp.route("/tests/build/<string:build_id>")', '@blp.route("/tests/settings")'):
+        assert route in api
+    assert "build_first" in api and '"/tests/build", {"by": g.user.username, "then": body}' in api
+    web = (REPO / "services/web/src/TestRuns.jsx").read_text()
+    for s in ("Build the test runner", "Retry", "Build it automatically after each start or update", "Build, then run",
+              "/api/v1/admin/tests/build", "/api/v1/admin/tests/settings"):
+        assert s in web, s
+

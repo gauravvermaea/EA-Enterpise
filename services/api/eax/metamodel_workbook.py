@@ -43,6 +43,9 @@ SHEETS = [   # sheet, section, columns (codes), the package's name for the same 
     ("Rules", "rules", ["entity_type", "attribute", "field", "rule_type", "param1", "param2", "severity", "message"], "Rules"),
 ]
 TYPE_ATTRIBUTES = ["type", "attribute", "required", "section", "default", "help", "quality_weight"]
+# attributes of one allowed relationship only (D564): an attribute given here for a relationship type is limited to
+# these allowed relationships; one given on Type attributes for a relationship type applies to all of them
+MAPPING_ATTRIBUTES = ["source", "relationship", "target", "attribute", "required"]
 MAX_ROWS = 20000
 YES = {"yes", "y", "true", "1", "x"}
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -55,6 +58,8 @@ README = [
     "Pick lists: values one per line in the cell. Attributes: data_type from the drop-down (url is a Link); list needs a pick list.",
     "Types: the entity types (domain from the drop-down). Type attributes: which attributes each type (or relationship type) has.",
     "Relationship types: directed Yes or No. Allowed relationships: source, relationship, target, multiplicities such as 0..1, 1, 1..*, 0..*.",
+    "Relationship attributes: an attribute for one allowed relationship only (source type, relationship type, target type), "
+    "for example Port on Node Association Node. On Type attributes, a relationship type's attribute applies to all of them.",
     "Rules: optional data quality rules (rule_type from the drop-down; severity error or warning).",
     "Upload it with Models > Model from a metamodel workbook: start blank, or add it to an existing model (it adds and "
     "updates, never takes away). You see what it would make before the model is made.",
@@ -114,6 +119,9 @@ def template(conn, model: Any = None) -> tuple[bytes, str]:
     items = [{"type": t["code"], **i} for t in spec["entity_types"] for i in t.get("attributes") or []]
     items += [{"type": r["code"], **i} for r in spec["relationship_types"] for i in r.get("attributes") or []]
     ta = sheet("Type attributes", TYPE_ATTRIBUTES, items)
+    ra = sheet("Relationship attributes", MAPPING_ATTRIBUTES,
+               [{"source": a["source"], "relationship": a["relationship"], "target": a["target"], **i}
+                for a in spec.get("allowed") or [] for i in a.get("attributes") or []])
     lists = wb.create_sheet("Lists")
     for n, (head, vals) in enumerate((("data_type", data_types), ("rule_type", rule_types), ("yes_no", ["Yes", "No"]),
                                       ("severity", ["error", "warning"])), start=1):
@@ -140,6 +148,11 @@ def template(conn, model: Any = None) -> tuple[bytes, str]:
     dd(made["rules"], "G", "Lists!$D$2:$D$3")
     dd(ta, "B", f"Attributes!$A$2:$A${MAX_ROWS}")
     dd(ta, "C", "Lists!$C$2:$C$3")
+    dd(ra, "A", f"Types!$A$2:$A${MAX_ROWS}")
+    dd(ra, "B", f"'Relationship types'!$A$2:$A${MAX_ROWS}")
+    dd(ra, "C", f"Types!$A$2:$A${MAX_ROWS}")
+    dd(ra, "D", f"Attributes!$A$2:$A${MAX_ROWS}")
+    dd(ra, "E", "Lists!$C$2:$C$3")
     buf = io.BytesIO()
     wb.save(buf)
     name = f"{(m or {}).get('name') or 'EA Explorer'} metamodel workbook.xlsx".replace("/", "-")
@@ -214,6 +227,19 @@ def read(content: bytes) -> dict:
             spec.setdefault("_pending_items", []).append((code, item))
         else:
             owner["attributes"].append(item)
+    allowed = {(str(a.get("source") or "").lower(), str(a.get("relationship") or "").lower(), str(a.get("target") or "").lower()): a
+               for a in spec["allowed"]}
+    for i in rows_of("Relationship attributes"):   # attributes of one allowed relationship (D564)
+        k = (str(i.get("source") or "").lower(), str(i.get("relationship") or "").lower(), str(i.get("target") or "").lower())
+        if not all(k) or not i.get("attribute"):
+            continue
+        a = allowed.get(k)
+        if a is None:   # the allowed relationship itself comes with it
+            a = {"source": i["source"], "relationship": i["relationship"], "target": i["target"], "note": ""}
+            spec["allowed"].append(a)
+            allowed[k] = a
+        a.setdefault("attributes", []).append({"attribute": str(i["attribute"]),
+                                               "required": str(i.get("required") or "").lower() in YES})
     return spec
 
 
@@ -282,6 +308,8 @@ def merge_specs(base: dict, wb: dict) -> tuple[dict, dict]:
             continue
         if k not in have:
             item = {kk: a.get(kk) for kk in ("source", "relationship", "target", "note", "source_multiplicity", "target_multiplicity")}
+            if a.get("attributes"):
+                item["attributes"] = [dict(x) for x in a["attributes"]]
             allowed.append(item)
             index[k] = item
             have[k] = item
@@ -292,6 +320,15 @@ def merge_specs(base: dict, wb: dict) -> tuple[dict, dict]:
             for f in ("note", "source_multiplicity", "target_multiplicity"):
                 if a.get(f) not in ("", None) and str(cur.get(f) or "") != str(a[f]):
                     cur[f] = a[f]
+                    d = True
+            mine = {str(x["attribute"]).lower(): x for x in cur.get("attributes") or []}
+            for x in a.get("attributes") or []:   # mapping attributes added or made (not) required (D564)
+                old = mine.get(str(x["attribute"]).lower())
+                if old is None:
+                    cur["attributes"] = list(cur.get("attributes") or []) + [dict(x)]
+                    d = True
+                elif bool(old.get("required")) != bool(x.get("required")):
+                    old["required"] = bool(x.get("required"))
                     d = True
             if d:
                 changed.append(f"{a['source']} {a['relationship']} {a['target']}")

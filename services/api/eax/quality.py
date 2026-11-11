@@ -279,6 +279,41 @@ def load(conn, m: dict) -> dict:
                             JOIN core.entity_types s ON s.id = ar.source_type_id JOIN core.entity_types t ON t.id = ar.target_type_id
                            WHERE ar.model_id = :m AND NOT ar.is_deleted
                              AND (ar.source_multiplicity <> '' OR ar.target_multiplicity <> '')""", m=mid)
+    # relationship attributes (D563, D564): a required one with no value, or a value that no longer belongs (the ends
+    # changed type, or the attribute was limited to other mappings); shown on the relationship's source entity
+    rel_attr = defaultdict(list)
+    applies = """(NOT EXISTS (SELECT 1 FROM core.item_attribute_mappings y WHERE y.item_attribute_id = ia.id AND NOT y.is_deleted)
+                  OR x.id IS NOT NULL)"""
+    for r in _rows(conn, f"""
+        SELECT r.source_entity_id AS e, rt.name AS rel, at.name AS attr, t.name AS other
+          FROM core.relationships r
+          JOIN core.relationship_types rt ON rt.id = r.relationship_type_id
+          JOIN core.entities s ON s.id = r.source_entity_id AND NOT s.is_deleted
+          JOIN core.entities t ON t.id = r.target_entity_id AND NOT t.is_deleted
+          LEFT JOIN core.allowed_relationships ar ON ar.relationship_type_id = r.relationship_type_id
+               AND ar.source_type_id = s.entity_type_id AND ar.target_type_id = t.entity_type_id AND NOT ar.is_deleted
+          JOIN core.item_attributes ia ON ia.relationship_type_id = r.relationship_type_id AND NOT ia.is_deleted
+          JOIN core.attribute_types at ON at.id = ia.attribute_type_id AND NOT at.is_deleted
+          LEFT JOIN core.item_attribute_mappings x ON x.item_attribute_id = ia.id AND x.allowed_relationship_id = ar.id AND NOT x.is_deleted
+         WHERE r.model_id = :m AND NOT r.is_deleted AND {applies} AND coalesce(x.is_required, ia.is_required)
+           AND NOT EXISTS (SELECT 1 FROM core.attribute_values v WHERE v.relationship_id = r.id AND v.attribute_type_id = at.id
+                           AND NOT v.is_deleted)""", m=mid):
+        rel_attr[r["e"]].append(f"{r['rel']} to {r['other']}: {r['attr']} is required on this relationship")
+    for r in _rows(conn, f"""
+        SELECT r.source_entity_id AS e, rt.name AS rel, at.name AS attr, t.name AS other
+          FROM core.attribute_values v
+          JOIN core.relationships r ON r.id = v.relationship_id AND NOT r.is_deleted
+          JOIN core.relationship_types rt ON rt.id = r.relationship_type_id
+          JOIN core.entities s ON s.id = r.source_entity_id AND NOT s.is_deleted
+          JOIN core.entities t ON t.id = r.target_entity_id AND NOT t.is_deleted
+          JOIN core.attribute_types at ON at.id = v.attribute_type_id
+          LEFT JOIN core.allowed_relationships ar ON ar.relationship_type_id = r.relationship_type_id
+               AND ar.source_type_id = s.entity_type_id AND ar.target_type_id = t.entity_type_id AND NOT ar.is_deleted
+          LEFT JOIN core.item_attributes ia ON ia.relationship_type_id = r.relationship_type_id AND ia.attribute_type_id = at.id
+               AND NOT ia.is_deleted
+          LEFT JOIN core.item_attribute_mappings x ON x.item_attribute_id = ia.id AND x.allowed_relationship_id = ar.id AND NOT x.is_deleted
+         WHERE v.model_id = :m AND NOT v.is_deleted AND (ia.id IS NULL OR NOT {applies})""", m=mid):
+        rel_attr[r["e"]].append(f"{r['rel']} to {r['other']}: {r['attr']} does not belong to this relationship any more (kept)")
     seals = {r["entity_id"]: r for r in _rows(conn, "SELECT * FROM core.quality_seals WHERE model_id = :m", m=mid)}
     exempt, exempt_pending = defaultdict(dict), defaultdict(dict)        # D246: not applicable on one entity
     exempt_rejected = defaultdict(dict)
@@ -295,7 +330,7 @@ def load(conn, m: dict) -> dict:
     admins = sorted({r["u"] for r in _rows(conn, """SELECT lower(username) AS u FROM core.model_users
                                                        WHERE model_id = :m AND role = 'model-admin'""", m=mid)})
     return {"types": types, "attrs": attrs, "entities": ents, "values": values, "last_value": last_value, "rels": rels,
-            "multiplicity": mult, "junctions": junctions.problems(conn, mid), "seals": seals, "people": people, "admins": admins, "exempt": exempt, "exempt_pending": exempt_pending,
+            "multiplicity": mult, "rel_attr": rel_attr, "junctions": junctions.problems(conn, mid), "seals": seals, "people": people, "admins": admins, "exempt": exempt, "exempt_pending": exempt_pending,
             "exempt_rejected": exempt_rejected}
 
 
@@ -606,6 +641,9 @@ def measure(conn, model: Any, *, only: set[int] | None = None, metamodel_checks:
                             "source": "metamodel", "field": None})
         for why in multiplicity.check(data, e, data.get("multiplicity") or []):    # D395: a warning, never blocks a commit
             failing.append({"rule": "multiplicity", "name": "Relationship multiplicity", "severity": "warning", "message": why,
+                            "source": "metamodel", "field": None})
+        for why in (data.get("rel_attr") or {}).get(e["id"], []):          # D563: a warning, never blocks a commit
+            failing.append({"rule": "relationship_attribute", "name": "Relationship attribute", "severity": "warning", "message": why,
                             "source": "metamodel", "field": None})
         for r in by_type_rules.get(t["code"].lower(), []):
             names = names_model if (r["spec"] or {}).get("scope") == "model" else \

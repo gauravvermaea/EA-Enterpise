@@ -2430,3 +2430,25 @@ label.block input, label.block textarea { display: block; width: 100%; margin-to
 .admin-banner-hide { margin-left: auto; color: inherit; }
 .banner-admin textarea { width: 100%; font: inherit; }
 .cc-schedules .pill { margin-left: 6px; }
+
+/* a line's attributes on a drawn view (D563, D564): key : value rows, required ones marked */
+.drawn-lineattrs .facts th { white-space: nowrap; font-weight: 600; }
+.drawn-lineattrs .facts input, .drawn-lineattrs .facts select { width: 100%; max-width: 260px; }
+.drawn-lineattrs .req { color: #a40e26; }
+.drawn-lineattrs tr.missing th { color: #a40e26; }
+.mapping .map-attr { display: inline-flex; align-items: center; gap: 2px; margin-left: 4px; padding: 0 6px; border-radius: 10px;
+  background: #eef3f8; color: #1f3b57; font-size: 12px; }
+
+/* the test runner, built from System admin > Self-test (D570) */
+.self-test-runner.panel-soft { border: 1px solid var(--line, #d8dee6); border-radius: 8px; padding: 12px 16px; margin: 10px 0 14px; background: var(--panel, #fafbfc); }
+.self-test-runner h3 { margin: 0 0 6px; font-size: 1.05rem; }
+.self-test-runner .toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.runner-meter { height: 8px; background: #e6eaef; border-radius: 4px; overflow: hidden; max-width: 520px; margin: 8px 0; }
+.runner-meter > span { display: block; height: 100%; background: var(--accent); transition: width .4s; }
+.build-steps { list-style: none; padding: 0; margin: 6px 0 10px; }
+.build-steps li { padding: 2px 0; }
+.build-steps li.waiting { color: var(--muted, #6b7785); }
+.build-steps li.running { font-weight: 600; }
+.build-log { max-height: 260px; overflow: auto; font-size: 12px; background: #0f1720; color: #d7e0ea; padding: 8px 10px; border-radius: 6px; white-space: pre-wrap; }
+@media (prefers-color-scheme: dark) { .runner-meter { background: #2a3440; } .self-test-runner.panel-soft { background: transparent; } }
+.rel-vals { color: #57606a; font-size: 12px; }

@@ -928,7 +928,11 @@ try {
                      # through the operations helper (it builds the test runner first)
             $read = @{ "--status" = "status"; "--last" = "last"; "--report" = "report"; "--fixtures" = "fixtures"; "--clean" = "clean" }
             $which = @($RestArgs | Where-Object { $read.ContainsKey($_) })
-            if ($which.Count -gt 0) {
+            if ($RestArgs -contains "--build") {      # only build the runner image (D570; the Self-test page's button)
+                Write-Host "Building the test runner (about 1.5 GB, 5 to 15 minutes the first time): base image, Python packages, Chromium, scanners."
+                Invoke-Compose @("--profile", "test", "build", "testrunner") | Out-Null
+                Write-Host "The test runner is built."
+            } elseif ($which.Count -gt 0) {
                 $rest = @($RestArgs | Where-Object { $_ -ne $which[0] })
                 Invoke-Interactive @("api", "python", "-m", "eax.testing.cli", $read[$which[0]]) $rest
             } else {

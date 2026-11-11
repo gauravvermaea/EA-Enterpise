@@ -372,6 +372,36 @@ export function attributeSpec(t, pickLists, hasEntities, a = null) {
   };
 }
 
+// an attribute on relationships (D563, D564): on a relationship type (every allowed relationship of it), or on one
+// allowed relationship (source type + relationship type + target type), e.g. Port on Node - Association - Node
+export function relAttributeSpec(where, fixed, pickLists) {
+  return {
+    title: `New attribute on ${where}`, op: "attribute.create", fixed,
+    intro: fixed.mapping
+      ? `Only relationships of ${where} carry it; other relationships of the same type do not.`
+      : `Every relationship of this type carries it, whatever the types at its ends. To give it to one allowed relationship only, use + A on that mapping (an entity type's page).`,
+    fields: [
+      { name: "name", label: "Name", required: true, placeholder: "for example Connection protocol" },
+      { name: "data_type", label: "Data type", type: "select", options: DATA_TYPES, required: true },
+      { name: "pick_list", label: "Pick list", type: "select", blank: "(new pick list from the values below)",
+        options: (pickLists || []).map((p) => [p.id, `${p.name} (${p.values.filter((v) => v.status !== "retired").map((v) => v.value).join(", ")})`]),
+        when: (v) => v.data_type === "list" },
+      { name: "values", label: "Values, one per line", type: "lines", when: (v) => v.data_type === "list" && !v.pick_list },
+      { name: "is_required", label: "Mandatory", type: "check",
+        help: "Relationships without a value show on the failing-checks screen; nothing is blocked." },
+      { name: "unit", label: "Unit", placeholder: "for example ms or GB", when: (v) => ["integer", "decimal", "currency", "percent"].includes(v.data_type) },
+      { name: "help_text", label: "Help text" },
+      { name: "description", label: "Description", type: "textarea" },
+    ],
+  };
+}
+
+export function unmapAttributeSpec(a, where, mappingId) {
+  return { title: `Remove ${a.name} from ${where}`, op: "attribute.unmap", fixed: { item: a.item_id, mapping: mappingId }, danger: true,
+    saveLabel: "Remove", fields: [],
+    intro: `Relationships of ${where} no longer carry ${a.name}. Values already given are kept and show as not belonging (a quality finding).` };
+}
+
 export function removeAttributeSpec(t, a) {
   return { title: `Remove ${a.name} from ${t.name}`, op: "attribute.remove", fixed: { item: a.item_id }, danger: true, saveLabel: "Remove",
     intro: `The attribute leaves ${t.name} and its value is removed from every ${t.name}. Each removed value stays in the entity's history. Check impact shows how many.`, fields: [] };

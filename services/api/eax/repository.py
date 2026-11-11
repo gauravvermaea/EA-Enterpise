@@ -144,9 +144,16 @@ def get_metamodel(conn, model: Any) -> dict:
           JOIN core.layers l ON l.id = et.layer_id
          WHERE et.model_id = :m AND NOT et.is_deleted ORDER BY et.sort_order, et.name""", m=mid)
     rel_types = _rows(conn, """
-        SELECT guid AS id, code, name, verb, category, is_directed, description, status_code AS status
-          FROM core.relationship_types
-         WHERE model_id = :m AND NOT is_deleted ORDER BY sort_order, name""", m=mid)
+        SELECT rt.guid AS id, rt.code, rt.name, rt.verb, rt.category, rt.is_directed, rt.description, rt.status_code AS status,
+               -- the type's own attributes, on every allowed relationship of it (those limited to some are on the mappings, D564)
+               (SELECT coalesce(json_agg(json_build_object('item_id', ia.guid, 'name', at.name, 'required', ia.is_required,
+                                                           'data_type', at.data_type_code) ORDER BY ia.sort_order, at.name), '[]')
+                  FROM core.item_attributes ia JOIN core.attribute_types at ON at.id = ia.attribute_type_id AND NOT at.is_deleted
+                 WHERE ia.relationship_type_id = rt.id AND NOT ia.is_deleted
+                   AND NOT EXISTS (SELECT 1 FROM core.item_attribute_mappings x WHERE x.item_attribute_id = ia.id AND NOT x.is_deleted)
+               ) AS attributes
+          FROM core.relationship_types rt
+         WHERE rt.model_id = :m AND NOT rt.is_deleted ORDER BY rt.sort_order, rt.name""", m=mid)
     for t in types:
         _cf_defaults(t)
         t["drawio"] = notation.type_look(t)          # how it looks on a drawn view (phase 28, D354)
@@ -183,7 +190,12 @@ def _find_type(conn, model_id: int, entity_type: Any) -> dict:
 _ALLOWED_SQL = """
     SELECT ar.guid AS id, rt.name AS relationship_type, rt.guid AS relationship_type_id, rt.verb,
            o.guid AS other_type_id, o.name AS other_type, ar.note,
-           ar.source_multiplicity, ar.target_multiplicity
+           ar.source_multiplicity, ar.target_multiplicity,
+           (SELECT coalesce(json_agg(json_build_object('item_id', ia.guid, 'name', at.name, 'required', x.is_required,
+                                                       'data_type', at.data_type_code) ORDER BY ia.sort_order, at.name), '[]')
+              FROM core.item_attribute_mappings x JOIN core.item_attributes ia ON ia.id = x.item_attribute_id AND NOT ia.is_deleted
+              JOIN core.attribute_types at ON at.id = ia.attribute_type_id
+             WHERE x.allowed_relationship_id = ar.id AND NOT x.is_deleted) AS attributes
       FROM core.allowed_relationships ar
       JOIN core.relationship_types rt ON rt.id = ar.relationship_type_id
       JOIN core.entity_types o ON o.id = ar.{other}
@@ -282,7 +294,13 @@ def get_metamodel_diagram(conn, model: Any) -> dict:
         SELECT s.guid AS source, t.guid AS target,
                array_agg(rt.code ORDER BY rt.sort_order) AS relationship_types,
                array_agg(ar.source_multiplicity ORDER BY rt.sort_order) AS source_multiplicities,
-               array_agg(ar.target_multiplicity ORDER BY rt.sort_order) AS target_multiplicities
+               array_agg(ar.target_multiplicity ORDER BY rt.sort_order) AS target_multiplicities,
+               -- each mapping's own attributes, for the diagram's tooltip (D564)
+               array_agg(coalesce((SELECT string_agg(at.name, ', ' ORDER BY ia.sort_order, at.name)
+                                     FROM core.item_attribute_mappings x JOIN core.item_attributes ia ON ia.id = x.item_attribute_id
+                                      AND NOT ia.is_deleted JOIN core.attribute_types at ON at.id = ia.attribute_type_id
+                                    WHERE x.allowed_relationship_id = ar.id AND NOT x.is_deleted), '') ORDER BY rt.sort_order)
+                   AS mapping_attributes
           FROM core.allowed_relationships ar
           JOIN core.entity_types s ON s.id = ar.source_type_id
           JOIN core.entity_types t ON t.id = ar.target_type_id
@@ -426,8 +444,8 @@ def list_relationships(conn, model: Any, relationship_type: Any = None, limit: i
     whether the metamodel allows it (allowed is false for a relationship added outside the rules)."""
     m = get_model(conn, model)
     rid = _find_relationship_type(conn, m["_id"], relationship_type)["_id"] if relationship_type else None
-    return _rows(conn, f"""
-        SELECT r.guid AS id, rt.name AS relationship_type, rt.code AS relationship_type_code, rt.verb,
+    rows = _rows(conn, f"""
+        SELECT r.id AS _rid, r.guid AS id, rt.name AS relationship_type, rt.code AS relationship_type_code, rt.verb,
                s.guid AS source_id, s.display_id AS source_display_id, s.name AS source_name,
                st.name AS source_type, sl.colour AS source_colour,
                t.guid AS target_id, t.display_id AS target_display_id, t.name AS target_name,
@@ -445,6 +463,12 @@ def list_relationships(conn, model: Any, relationship_type: Any = None, limit: i
            AND (CAST(:r AS bigint) IS NULL OR r.relationship_type_id = :r)
          ORDER BY rt.sort_order, s.name, t.name
          LIMIT :n""", m=m["_id"], r=rid, n=limit)
+    from . import content as ct
+    # each relationship's attribute values (D563)
+    vals = ct.relationship_values(conn, [r["_rid"] for r in rows])
+    for r in rows:
+        r["values"] = vals.get(r.pop("_rid"), {})
+    return rows
 
 
 def relationship_type_summary(conn, model: Any) -> list[dict]:
@@ -715,6 +739,14 @@ def get_entity_detail(conn, model: Any, entity: Any) -> dict:
           JOIN core.layers ol ON ol.id = ot.layer_id
          WHERE (r.source_entity_id = :e OR r.target_entity_id = :e) AND NOT r.is_deleted AND NOT o.is_deleted
          ORDER BY 7 DESC, rt.sort_order, o.name""", e=eid)
+    if e["relationships"]:   # each relationship's attribute values (D563)
+        from . import content as ct
+        ids = _rows(conn, "SELECT id, guid FROM core.relationships WHERE guid = ANY (CAST(:g AS uuid[]))",
+                    g=[str(r["id"]) for r in e["relationships"]])
+        vals = ct.relationship_values(conn, [i["id"] for i in ids])
+        by_guid = {str(i["guid"]): vals.get(i["id"], {}) for i in ids}
+        for r in e["relationships"]:
+            r["values"] = by_guid.get(str(r["id"]), {})
     e["children"] = _rows(conn, """
         SELECT c.guid AS id, c.display_id, c.name FROM core.entities c
          WHERE c.parent_entity_id = :e AND NOT c.is_deleted ORDER BY c.name""", e=eid)

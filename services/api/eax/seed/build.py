@@ -139,6 +139,7 @@ FOREIGN_KEYS = {
     "relationship_type_id": "relationship_type", "pick_list_id": "pick_list",
     "attribute_type_id": "attribute_type", "entity_id": "entity", "source_entity_id": "entity",
     "target_entity_id": "entity", "relationship_id": "relationship",
+    "item_attribute_id": "item_attribute", "allowed_relationship_id": "allowed_relationship",
 }
 RENAMED = {"id": "guid", "origin_id": "origin_guid"}
 
@@ -150,6 +151,7 @@ TABLES = {
     "attribute_type": "attribute_types", "item_attribute": "item_attributes",
     "validation_rule": "validation_rules", "allowed_relationship": "allowed_relationships",
     "entity": "entities", "attribute_value": "attribute_values", "relationship": "relationships",
+    "item_attribute_mapping": "item_attribute_mappings",
 }
 
 
@@ -648,6 +650,49 @@ def demo_estate_sql() -> str:
         insert("relationship", ["id", "model_id", "relationship_type_id", "source_entity_id", "target_entity_id"], rels),
         "".join(f"UPDATE core.allowed_relationships SET source_multiplicity = {lit(sm)}, target_multiplicity = {lit(tm)} "
                 f"WHERE guid = '{gid(k, 'allowed_relationship', s, r, t)}'::uuid;\n" for s, r, t, sm, tm in DEMO.MULTIPLICITY),
+        demo_relationship_attributes_sql(k, m),
+    ])
+
+
+def demo_relationship_attributes_sql(k: str, m: str) -> str:
+    """The demo estate's relationship attributes (D563, D564): pick lists and attribute types of its own, SLA on every
+    Serving, Connection protocol (required) and Port on Node - Association - Node, Frequency and Data volume on
+    Application Component - Flow - Application Component, nothing on Equipment - Association - Work Package; and values,
+    one required protocol left missing so quality lists it."""
+    lists, values = [], []
+    for code, (name, items) in DEMO.REL_PICK_LISTS.items():
+        lists.append([gid(k, "pick_list", code), m, code, name])
+        values += [[gid(k, "pick_list_value", code, v), m, gid(k, "pick_list", code), v, i * 10] for i, v in enumerate(items, 1)]
+    types = [[gid(k, "attribute_type", code), m, code, name, desc, DATA_TYPES[dt],
+              gid(k, "pick_list", pick) if pick else None, snake(code)] for code, name, dt, pick, desc in DEMO.REL_ATTRS]
+    items = [[gid(k, "item_attribute", "rel", r, a), m, gid(k, "attribute_type", a), gid(k, "relationship_type", r), req, i * 10]
+             for i, (r, a, req) in enumerate(DEMO.REL_TYPE_ATTRS, 1)]
+    seen = set()
+    for i, (_s, r, _t, a, _req) in enumerate(DEMO.REL_MAPPING_ATTRS, 1):
+        if (r, a) not in seen:   # one item per type and attribute, limited to its mappings
+            seen.add((r, a))
+            items.append([gid(k, "item_attribute", "rel", r, a), m, gid(k, "attribute_type", a), gid(k, "relationship_type", r),
+                          False, 100 + i * 10])
+    maps = [[gid(k, "item_attribute_mapping", s_, r, t, a), m, gid(k, "item_attribute", "rel", r, a),
+             gid(k, "allowed_relationship", s_, r, t), req] for s_, r, t, a, req in DEMO.REL_MAPPING_ATTRS]
+    dtype = {code: DATA_TYPES[dt] for code, _n, dt, _p, _d in DEMO.REL_ATTRS}
+    vals = []
+    for (src, kind, tgt), attrs in DEMO.REL_VALUES.items():
+        for attr, value in attrs.items():
+            row = {"value_text": None, "value_number": None}
+            row[STORAGE[dtype[attr]]] = value
+            vals.append([gid(k, "attribute_value", "rel", src, kind, tgt, attr), m, gid(k, "attribute_type", attr),
+                         gid(k, "relationship", src, kind, tgt), row["value_text"], row["value_number"]])
+    return "".join([
+        insert("pick_list", ["id", "model_id", "code", "name"], lists),
+        insert("pick_list_value", ["id", "model_id", "pick_list_id", "value", "sort_order"], values),
+        insert("attribute_type", ["id", "model_id", "code", "name", "description", "data_type_code", "pick_list_id",
+                                  "column_name"], types),
+        insert("item_attribute", ["id", "model_id", "attribute_type_id", "relationship_type_id", "is_required", "sort_order"],
+               items),
+        insert("item_attribute_mapping", ["id", "model_id", "item_attribute_id", "allowed_relationship_id", "is_required"], maps),
+        insert("attribute_value", ["id", "model_id", "attribute_type_id", "relationship_id", "value_text", "value_number"],
+               vals),
     ])
 
 

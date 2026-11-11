@@ -360,7 +360,12 @@ def dispatch(command: str, rest: list[str], wait_all: bool) -> None:
         stack.interactive([*ops, command], rest)
     elif command == "restore-model":
         stack.interactive([*api, "restore"], rest)
-    elif command == "test":             # the self-test (phase 36.1, D367, D530): results read in the api container, a
+    elif command == "test" and "--build" in rest:   # only build the test runner image (D570; the Self-test page's button)
+        say("Building the test runner (about 1.5 GB, 5 to 15 minutes the first time): base image, Python packages, "
+            "Chromium, scanners.")
+        compose(["--profile", "test", "build", "testrunner"])
+        say("The test runner is built.")
+    elif command == "test":             # the self-test (phase 36.1, D367, D529): results read in the api container, a
         read = [a for a in rest if a in ("--status", "--last", "--report", "--fixtures", "--clean")]   # run through ops
         if read:
             stack.interactive(["api", "python", "-m", "eax.testing.cli", read[0].removeprefix("--")],

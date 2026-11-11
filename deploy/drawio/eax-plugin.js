@@ -68,6 +68,8 @@
     var gone = {};                         // relationship id -> a deleted line EA Explorer is asking about (D413)
     var undoing = 0;                       // > 0 while draw.io undoes or redoes (Ctrl+Z, Ctrl+Y, the toolbar)
     var removedRels = {};                  // relationships deleted from the model from this view: an undo never brings them back
+    var relValues = {};                    // relationship id -> {attribute name: value}, for the line's label (D565); never saved
+    var relAttrsShown = true;              // "Line labels: with attributes" (D565), per person in EA Explorer
 
     function post(msg) { msg.eax = msg.eax || "event"; host.postMessage(JSON.stringify(msg), "*"); }
     function attr(cell, name) {
@@ -116,8 +118,7 @@
         if (attr(cell, "ea_decor") === "1") return base;
         var rc = attr(cell, "ea_rel") || (attr(cell, "ea_waiting") === "1" ? attr(cell, "ea_rel_type") : null);
         if (!rc) return base;
-        var t = attr(cell, "label") || relName(rc);
-        return html ? esc(t) : t;
+        return lineLabel(attr(cell, "label") || "", relName(rc), relAttrsShown ? relValues[attr(cell, "ea_rel_id")] : null, html);
       }
       if (model.isVertex(cell) && attr(cell, "ea_type") && !isJunction(cell)) {
         var unbound = attr(cell, "ea_placeholder") === "1" && !attr(cell, "ea_id");
@@ -129,6 +130,18 @@
       }
       return base;
     };
+    // a line: "<name> (<Type>) [key:value key:value]" (owner, 11 Nov 2026, D565). The name never hides the type; no name:
+    // "(<Type>)"; no values: no brackets; more than 3 values: the first 3 and "+n". The name bold, the type italic a size
+    // smaller, the values smaller and grey (as the shapes, D460); everything escaped
+    function lineLabel(name, type, values, html) {
+      var keys = values ? Object.keys(values).filter(function (k) { return values[k] !== null && values[k] !== "" && values[k] !== undefined; }) : [];
+      var pairs = keys.slice(0, 3).map(function (k) { return k + ":" + String(values[k]).split("\n")[0]; });
+      var more = keys.length > 3 ? " +" + (keys.length - 3) : "";
+      if (!html) return (name ? name + " " : "") + "(" + type + ")" + (pairs.length ? " [" + pairs.join(" ") + more + "]" : "");
+      return (name ? "<b>" + esc(name) + "</b> " : "") + '<span style="font-size:0.85em;"><i>(' + esc(type) + ")</i></span>" +
+        (pairs.length ? ' <span style="font-size:0.8em;color:#6a737d;">[' + pairs.map(esc).join(" ") + esc(more) + "]</span>" : "");
+    }
+    ui.eaxLineLabel = lineLabel;             // for the tests
     // editing a label in place starts from the plain name, never the bold and italic markup (the type is not part of it)
     var origEditing = graph.getEditingValue;
     graph.getEditingValue = function (cell) {
@@ -463,7 +476,11 @@
 
     // ------------------------------------------------------------ what the person does: checked, locked or reported
     var origEditable = graph.isCellEditable;
-    graph.isCellEditable = function (cell) { return !meta.readOnly && !isEa(cell) && origEditable.apply(this, arguments); };
+    // a bound line's name may be edited in place (D565): only its name changes, the type stays (eax-rel-rename)
+    function namedLine(cell) { return model.isEdge(cell) && !!attr(cell, "ea_rel") && !!attr(cell, "ea_rel_id"); }
+    graph.isCellEditable = function (cell) {
+      return !meta.readOnly && (!isEa(cell) || namedLine(cell)) && origEditable.apply(this, arguments);
+    };
     ["editData", "editStyle", "editTooltip", "editLink", "editShape"].forEach(function (name) {
       var a = ui.actions.get(name);
       if (!a) return;
@@ -527,6 +544,13 @@
             var keep = lockedStyle(std, model.getStyle(c));
             if (!sameStyle(keep, model.getStyle(c))) model.setStyle(c, keep);
           });
+        } else if (ch instanceof mxValueChange && c && model.isEdge(c) && attr(c, "ea_rel_id") && !meta.readOnly && meta.mayChange !== false &&
+                   ch.previous && typeof ch.previous === "object" && ch.previous.getAttribute && onlyLabelChanged(ch.previous, c.value)) {
+          // a line renamed in place (D565): the name only; its type stays. EA Explorer changes it in the model at once
+          // (D413) and puts it back if it cannot
+          var oldName = ch.previous.getAttribute("label") || "";
+          var relId = attr(c, "ea_rel_id"), newName = attr(c, "label") || "";
+          if (newName !== oldName) setTimeout(function () { post({ event: "eax-rel-rename", relationship: relId, name: newName, previous: oldName }); }, 0);
         } else if (ch instanceof mxValueChange && c !== root() && (isEa(c) || (ch.previous && typeof ch.previous === "object" &&
                    ch.previous.getAttribute && (ch.previous.getAttribute("ea_id") || ch.previous.getAttribute("ea_rel"))))) {
           var prev = ch.previous;
@@ -575,6 +599,13 @@
       });
       if (reverts.length) setTimeout(function () { silently(function () { reverts.forEach(function (f) { f(); }); }); }, 0);
     });
+    function onlyLabelChanged(prev, cur) {
+      if (!cur || typeof cur !== "object" || !cur.attributes) return false;
+      var names = {}, i;
+      for (i = 0; i < prev.attributes.length; i++) names[prev.attributes[i].name] = true;
+      for (i = 0; i < cur.attributes.length; i++) names[cur.attributes[i].name] = true;
+      return Object.keys(names).every(function (k) { return k === "label" || (prev.getAttribute(k) || "") === (cur.getAttribute(k) || ""); });
+    }
     function undoneLine(e, back) {
       var rel = relOf(e);
       setTimeout(function () {
@@ -866,6 +897,10 @@
       try { m = typeof ev.data === "string" ? JSON.parse(ev.data) : ev.data; } catch (x) { return; }
       if (!m || !m.eax || ev.source !== host) return;
       var c, n;
+      // relationships EA Explorer sends carry their attribute values: kept for the lines' labels (D565)
+      (Array.isArray(m.relationships) ? m.relationships : []).forEach(function (r) {
+        if (r && r.id && typeof r === "object" && "values" in r) relValues[r.id] = r.values || {};
+      });
       if (m.eax === "setup") {
         meta.types = m.types || {}; meta.allowed = m.allowed || []; meta.readOnly = !!m.readOnly;
         meta.rels = m.relationshipTypes || {};
@@ -1028,6 +1063,16 @@
         });
         graph.refresh();
         post({ event: "eax-resynced", added: added, renamed: renamed, deleted: deleted, committed: solid, auto: !!m.auto, quiet: !!m.quiet });
+      } else if (m.eax === "rel-values") {                      // a line's attribute values changed (D565)
+        Object.keys(m.values || {}).forEach(function (id) { relValues[id] = m.values[id] || {}; });
+        graph.refresh();
+      } else if (m.eax === "rel-name") {                        // a line's name as the model has it (a rename refused: put back)
+        c = findRelationship(m.id);
+        if (c) silently(function () { model.setValue(c, withAttrs(c, { label: m.name || "" })); });
+        graph.refresh();
+      } else if (m.eax === "line-labels") {                     // "Line labels: name and type | with attributes" (D565)
+        relAttrsShown = m.attrs !== false;
+        graph.refresh();
       } else if (m.eax === "heat") {                            // part 2: on screen only, never saved
         heat = m.colours || {};
         graph.refresh();

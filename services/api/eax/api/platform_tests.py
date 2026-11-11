@@ -2,7 +2,11 @@
 System admin > Scaling. Super Admins and IT Admins (system.operate) only; nobody else sees self-test results.
 
   GET  /api/v1/admin/tests                              runs (newest first), the runner, the choices and how long each takes
-  POST /api/v1/admin/tests                              {level, suites, role, area, watch}: start a run now
+  POST /api/v1/admin/tests                              {level, suites, role, area, watch, build_first}: start a run now
+                                                        (build_first: build the test runner first, then run, D570)
+  POST /api/v1/admin/tests/build                        build the test runner (eax test --build, in the operations helper)
+  GET  /api/v1/admin/tests/build/<id>?from=             the build: its record, its log from byte `from`, its steps
+  PUT  /api/v1/admin/tests/settings                     {auto_build}: build it automatically after each start or update
   GET  /api/v1/admin/tests/<run>                        a run, its results (?outcome=, ?suite=), files and fixtures; while it
                                                         waits for a watching browser also its ticket and journeys
   POST /api/v1/admin/tests/<run>/stop                   stop it
@@ -85,6 +89,7 @@ class Tests(MethodView):
         except ValueError as exc:
             abort(400, message=str(exc))
         watch = bool(data.get("watch")) and level == "detailed" and "ui" in suites
+        build_first = bool(data.get("build_first"))
         with get_engine().begin() as conn:
             busy = conn.execute(text("SELECT id FROM core.test_runs WHERE state IN ('queued', 'running') "
                                      "AND queued_at > now() - interval '3 hours' ORDER BY id DESC LIMIT 1")).scalar()
@@ -93,16 +98,79 @@ class Tests(MethodView):
             run_id = store.create_run(conn, g.user.username, "web", suites, level=level, role=role, area=area, watch=watch)
             audit.record(conn, actor=g.user.username, action="selftest.started", object_type="test_run", object_id=str(run_id),
                          details={"level": level, "suites": suites, "role": role, "area": area, "watch": watch})
+        body = {"run_id": run_id, "level": level, "suites": suites, "role": role, "area": area, "watch": watch,
+                "by": g.user.username}
         try:
-            _ops_raw("POST", "/tests", {"run_id": run_id, "level": level, "suites": suites, "role": role, "area": area,
-                                        "watch": watch, "by": g.user.username}, timeout=30)
+            if build_first:                     # the runner is missing: the helper builds it, then starts this run
+                _ops_raw("POST", "/tests/build", {"by": g.user.username, "then": body}, timeout=60)
+                with get_engine().begin() as conn:
+                    store.set_state(conn, run_id, step="Building the test runner first (5 to 15 minutes), then the run")
+            else:
+                _ops_raw("POST", "/tests", body, timeout=30)
         except Exception as exc:  # noqa: BLE001 - the run is closed with the reason
             msg = _ops_message(exc)
             with get_engine().begin() as conn:
                 store.set_state(conn, run_id, state="error", message=f"Could not start: {msg}")
             abort(503, message=f"The self-test could not start: {msg}")
         lo, hi = store.estimate_minutes(level, suites, watch)
+        if build_first:
+            return {"run_id": run_id, "message": f"Building the test runner first (5 to 15 minutes), then the run: about {lo} to {hi} minutes."}
         return {"run_id": run_id, "message": f"Started: about {lo} to {hi} minutes."}
+
+
+@blp.route("/tests/build")
+class TestRunnerBuild(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(202, Free)
+    @require_auth("system.operate")
+    def post(self):
+        """Builds the test runner image (about 1.5 GB, 5 to 15 minutes): `eax test --build` in the operations helper's
+        short-lived command container; follow it with GET /tests/build/<id>"""
+        try:
+            out = _ops_raw("POST", "/tests/build", {"by": g.user.username}, timeout=60)
+        except Exception as exc:  # noqa: BLE001
+            abort(503, message=f"The build could not start: {_ops_message(exc)}")
+        with get_engine().begin() as conn:
+            audit.record(conn, actor=g.user.username, action="selftest.runner_build", object_type="test_runner",
+                         object_id=str(out.get("run_id") or ""))
+        return out
+
+
+@blp.route("/tests/build/<string:build_id>")
+class TestRunnerBuildRun(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def get(self, build_id):
+        """A test-runner build: its record, its log from byte ?from=, its steps (base image, Python packages, Chromium,
+        scanners, the code), whether it ended and, if it failed, why"""
+        from urllib.parse import quote
+        try:
+            return _ops_raw("GET", f"/tests/build/{quote(build_id)}?from={int(request.args.get('from', 0) or 0)}", timeout=20)
+        except ValueError:
+            abort(400, message="from must be a number.")
+        except Exception as exc:  # noqa: BLE001
+            abort(404, message=f"No such build: {_ops_message(exc)}")
+
+
+@blp.route("/tests/settings")
+class TestRunnerSettings(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def put(self, data):
+        """{auto_build: true|false}: build the test runner automatically after each start or update when its image is
+        missing (kept in persist/settings.json; default off on a laptop, on for servers)"""
+        on = bool((data or {}).get("auto_build"))
+        try:
+            out = _ops_raw("POST", "/tests/settings", {"auto_build": on, "by": g.user.username}, timeout=20)
+        except Exception as exc:  # noqa: BLE001
+            abort(503, message=f"The setting could not be saved: {_ops_message(exc)}")
+        with get_engine().begin() as conn:
+            audit.record(conn, actor=g.user.username, action="selftest.auto_build", object_type="test_runner",
+                         object_id="settings", details={"auto_build": on})
+        return out
 
 
 @blp.route("/tests/<int:run_id>")

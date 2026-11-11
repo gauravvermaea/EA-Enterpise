@@ -28,6 +28,13 @@ CHECKS: list[tuple[str, str, str]] = [
     ("display IDs are unique within a model", """
         SELECT model_id || ' ' || display_id FROM core.entities WHERE NOT is_deleted AND display_id IS NOT NULL
          GROUP BY model_id, display_id HAVING count(*) > 1 LIMIT 50""", "failed"),
+    ("relationship attributes are limited to allowed relationships of their own type and model", """
+        SELECT x.guid::text FROM core.item_attribute_mappings x
+          JOIN core.item_attributes i ON i.id = x.item_attribute_id
+          JOIN core.allowed_relationships a ON a.id = x.allowed_relationship_id
+         WHERE NOT x.is_deleted AND (i.relationship_type_id IS DISTINCT FROM a.relationship_type_id
+                                     OR i.model_id <> x.model_id OR a.model_id <> x.model_id)
+         LIMIT 50""", "failed"),
     ("the reporting login only reads", """
         SELECT 'eax_report may ' || p FROM unnest(ARRAY['INSERT', 'UPDATE', 'DELETE']) p
          WHERE EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'eax_report')

@@ -31,7 +31,7 @@ import {
 } from "./ModelViews";
 import {
   attributeSpec, EditButton, entityTypeSpec, FailingChecks, lifecycleSpec, LockBanner, LockControl, mappingSpec, mappingUpdateSpec, multiplicityLabel,
-  MetamodelHistory, PickLists, relationshipTypeSpec, removeAttributeSpec, ruleSpec, simpleSpec,
+  MetamodelHistory, PickLists, relAttributeSpec, relationshipTypeSpec, removeAttributeSpec, ruleSpec, simpleSpec, unmapAttributeSpec,
   changeableModel,
 } from "./MetamodelEditor";
 import ModelPeople from "./ModelPeople";
@@ -226,7 +226,7 @@ function grouped(list) {
   return out;
 }
 
-function Allowed({ title, list, model, m, typeName, outgoing }) {
+function Allowed({ title, list, model, m, typeName, outgoing, pickLists }) {
   const groups = grouped(list);
   const names = Object.keys(groups);
   if (!names.length) return null;
@@ -242,13 +242,20 @@ function Allowed({ title, list, model, m, typeName, outgoing }) {
             <tr key={rel}>
               <th>{rel}</th>
               <td>
-                {(groups[rel].length >= 40 ? groups[rel].filter((a) => a.source_multiplicity || a.target_multiplicity) : groups[rel]).map((a, i) => (
+                {(groups[rel].length >= 40 ? groups[rel].filter((a) => a.source_multiplicity || a.target_multiplicity || (a.attributes || []).length) : groups[rel]).map((a, i) => (
                   <span key={a.other_type_id} className="mapping">{i > 0 && ", "}<a href={`#/metamodel/${model}/type/${a.other_type_id}`}>{a.other_type}</a>
                     {multiplicityLabel(a.source_multiplicity, a.target_multiplicity) &&
                       <span className="mult" title="Multiplicity, source end : target end">{multiplicityLabel(a.source_multiplicity, a.target_multiplicity)}</span>}
                     <EditButton model={model} m={m} label="#" className="tiny" title="Set the multiplicity at each end"
                       spec={() => mappingUpdateSpec(a, outgoing ? `${typeName} ${a.verb} ${a.other_type}` : `${a.other_type} ${a.verb} ${typeName}`)} />
-                    <EditButton model={model} m={m} label="×" className="tiny" title="Remove this mapping" spec={() => removeSpec(a)} /></span>
+                    <EditButton model={model} m={m} label="×" className="tiny" title="Remove this mapping" spec={() => removeSpec(a)} />
+                    {(a.attributes || []).map((x) => (
+                      <span key={x.item_id} className="map-attr" title={`An attribute of ${outgoing ? `${typeName} ${a.verb} ${a.other_type}` : `${a.other_type} ${a.verb} ${typeName}`} relationships only`}>
+                        {x.name}{x.required ? "*" : ""}
+                        <EditButton model={model} m={m} label="×" className="tiny" title={`Remove ${x.name} from this mapping`}
+                          spec={() => unmapAttributeSpec(x, outgoing ? `${typeName} - ${rel} - ${a.other_type}` : `${a.other_type} - ${rel} - ${typeName}`, a.id)} /></span>))}
+                    <EditButton model={model} m={m} label="+ A" className="tiny" title="An attribute these relationships carry (only this mapping), e.g. Connection protocol"
+                      spec={() => relAttributeSpec(outgoing ? `${typeName} - ${rel} - ${a.other_type}` : `${a.other_type} - ${rel} - ${typeName}`, { mapping: a.id }, pickLists)} /></span>
                 ))}
                 {groups[rel].length >= 40 && <em>{groups[rel].some((a) => a.source_multiplicity || a.target_multiplicity) ? "; " : ""}any type ({groups[rel].length})</em>}
               </td>
@@ -341,8 +348,8 @@ function TypeDetail({ model, m, mm, typeId, holdsContent }) {
           </table>
         </>
       )}
-      <Allowed title={`From ${t.name} to other types`} list={t.outgoing} model={model} m={m} typeName={t.name} outgoing />
-      <Allowed title={`From other types to ${t.name}`} list={t.incoming} model={model} m={m} typeName={t.name} />
+      <Allowed title={`From ${t.name} to other types`} list={t.outgoing} model={model} m={m} typeName={t.name} outgoing pickLists={pickLists || []} />
+      <Allowed title={`From other types to ${t.name}`} list={t.incoming} model={model} m={m} typeName={t.name} pickLists={pickLists || []} />
     </div>
   );
 }
@@ -427,8 +434,12 @@ function MetamodelView({ model, m, typeId, holdsContent, sub, gridKind }) {
           <h3>Relationship types</h3>
           <ul>{mm.relationship_types.map((r) => (
             <li key={r.id} title={r.description} className={r.status === "retired" ? "retired" : ""}>
-              <span>{r.name} <span className="quiet">({r.verb})</span></span>
+              <span>{r.name} <span className="quiet">({r.verb})</span>
+                {(r.attributes || []).length > 0 && <span className="quiet small" title="Attributes every relationship of this type carries">
+                  {" "}[{r.attributes.map((x) => x.name + (x.required ? "*" : "")).join(", ")}]</span>}</span>
                 <span className="row-actions">
+                  <EditButton model={model} m={m} label="+ A" className="tiny" title={`An attribute every ${r.name} relationship carries`}
+                    spec={() => relAttributeSpec(`every ${r.name} relationship`, { relationship_type: r.id }, [])} />
                   <EditButton model={model} m={m} label="✎" className="tiny" title={`Change ${r.name}`} spec={() => relationshipTypeSpec(r)} />
                   {r.status === "retired"
                     ? <EditButton model={model} m={m} label="↺" className="tiny" title={`Restore ${r.name}`} spec={simpleSpec(`Restore ${r.name}`, "relationship_type.restore", { id: r.id }, "")} />

@@ -239,10 +239,10 @@ the API (and PostgreSQL) only.
 $ {eax} debug
 $ {eax} debug api
 
-### test [--smoke|--detailed] [--suite api|ui|db|security|all]... [--role R] [--area A] [--status|--last|--report|--fixtures|--clean <run|all> [--yes]] [--reset-survival --confirm <name>]
+### test [--smoke|--detailed] [--suite api|ui|db|security|all]... [--role R] [--area A] [--status|--last|--report|--fixtures|--clean <run|all> [--yes]] [--build] [--reset-survival --confirm <name>]
 > The self-test, at once: a smoke test or detailed tests of this installation, in fixtures of its own.
 Runs now (never scheduled), in the same runner and results store as System admin > Self-test, so a run started in
-either place shows in both (phase 36.1, D367, D529, D530). It makes its own fixtures, named self_test_<id>_1, _2, _3
+either place shows in both (phase 36.1, D367, D529). It makes its own fixtures, named self_test_<id>_1, _2, _3
 (models and a project) and svc-self-test-<id>-<role> (an account and one-day token per role), tests inside them and
 never changes anything else; its tokens are revoked when it ends. Super Admins and IT Admins.
   --smoke        (the default) a few minutes: every role signs in, every main area answers, the key journeys once.
@@ -259,12 +259,14 @@ never changes anything else; its tokens are revoked when it ends. Super Admins a
   --report [run] where the run's report is (work/tests/<run folder>/report.html; --xlsx for Excel).
   --fixtures [run]  every self-test fixture still there, by run, with its size.
   --clean <run|all> [--yes]  purge those fixtures FOR GOOD (asks you to type DELETE); the reports stay.
+  --build        only build the test runner image (about 1.5 GB, 5 to 15 minutes): docker compose --profile test
+                 build testrunner. The Self-test page's Build the test runner button runs this (D570).
   --reset-survival --confirm <installation name>
                  settings survive a reset (D561): writes a marker schedule and banner into persist/, runs a REAL
                  clean-restart (it DELETES every database and the work folder), waits for EA Explorer to come back,
                  checks the markers and every persist/ file survived, removes the markers. Never part of --smoke or
                  --detailed. The result is kept in persist/test-results/ (the Self-test page lists it).
-The exit code is 1 when the run failed, so CI can use it. The test runner is built the first time (a few minutes).
+The exit code is 1 when the run failed, so CI can use it. A run builds the test runner first when it is missing.
 $ {eax} test
 $ {eax} test --detailed
 $ {eax} test --suite api --role architect
@@ -272,6 +274,7 @@ $ {eax} test --detailed --area models
 $ {eax} test --last
 $ {eax} test --fixtures
 $ {eax} test --clean 12
+$ {eax} test --build
 $ {eax} test --reset-survival --confirm demo-laptop
 
 ## Backups and restores

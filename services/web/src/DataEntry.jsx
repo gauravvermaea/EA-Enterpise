@@ -19,6 +19,7 @@ import { toneOf } from "./Quality";
 import { AreaChips, AreaPicker } from "./CfAreaPicker";
 import { fieldClass, FieldQuality, q2, QualityBadge, QualityCell, RecheckAll, ScoreChip, useEntityQuality, useTypeQuality } from "./QualityBits";
 import { elementTypes } from "./elements.js";
+import { RelationshipAttributes } from "./RelAttributes";
 
 const CONTENT_ROLES = ["architect", "model-sub-admin", "model-admin"];
 const me = () => currentUser().preferred_username || "";
@@ -530,6 +531,31 @@ function AddRelationshipDialog({ model, m, e, onClose }) {
       {msg && <p className="status bad">{msg}</p>}
       {added.length > 0 && <div className="status ok">Added: <ul>{added.map((x, i) => <li key={i}>{x}</li>)}</ul></div>}
     </Modal>
+  );
+}
+
+// a relationship's name and attribute values (D563): a small dialog from the entity page and the relationships grid;
+// kept as an uncommitted change in a working model, as any content change
+export function RelationshipAttributesButton({ model, m, r }) {
+  const access = contentAccess(model, m);
+  const [open, setOpen] = useState(false);
+  const vals = Object.entries(r.values || {});
+  return (
+    <>
+      <button className="linkish" title={access.ok ? "The relationship's name and attribute values" : access.why} onClick={() => setOpen(true)}>
+        {vals.length ? <span className="rel-vals">[{vals.slice(0, 3).map(([k, v]) => `${k}:${v}`).join(" ")}{vals.length > 3 ? ` +${vals.length - 3}` : ""}]</span> : "⋯"}</button>
+      {open && (
+        <Modal title="Relationship attributes" onClose={() => setOpen(false)}>
+          <RelationshipAttributes model={model} id={r.id} readOnly={!access.ok} saveLabel="Save"
+            note="In a working model it is kept as your uncommitted change until committed."
+            onSave={async (id, data) => {
+              const out = await apiFetch(`/api/v1/models/${model}/content/relationships/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+              refreshAll();
+              return out;
+            }} />
+        </Modal>
+      )}
+    </>
   );
 }
 

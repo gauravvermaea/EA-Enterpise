@@ -8,6 +8,8 @@
 //   Test fixtures every self_test_<id>_<n> model, project, account and credential of every run; tick and purge them
 //                 (for good: type DELETE), as a background task with its progress
 // Each run makes its own fixtures and tests only inside them; nothing else changes, and nothing is ever purged by itself.
+// The test runner (a container image, about 1.5 GB) is built from here too (D570): Build the test runner, its steps and
+// log live, Retry when it fails, and "Build it automatically after each start or update" (persist/settings.json).
 // Health shows the last run in one line (LastSelfTest).
 import { useEffect, useRef, useState } from "react";
 import { apiBlobUrl, apiDownload, apiFetch, can } from "./auth";
@@ -45,11 +47,13 @@ export default function SelfTest() {
   const load = async () => { try { setData(await apiFetch("/api/v1/admin/tests")); setErr(""); } catch (e) { setErr(e.message); } };
   useEffect(() => { load(); }, []);
   const live = data?.runs?.find(open_);
+  const building = !!data?.runner?.build?.busy;
   useEffect(() => {
-    if (!live) return undefined;
+    if (!live && !building) return undefined;
     const t = setInterval(load, 3000);
     return () => clearInterval(t);
-  }, [live?.id]);
+  }, [live?.id, building]);
+  const built = () => { setTab("run"); load(); };
   if (!can("system.operate")) return <p className="status bad">The self-test is for Super Admins and IT Admins.</p>;
   return (
     <div className="self-test">
@@ -61,6 +65,7 @@ export default function SelfTest() {
           <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{l}</button>))}
       </div>
       {err && <p className="status bad">{err}</p>}
+      {tab === "run" && data && <TestRunner runner={data.runner || {}} onBuilt={built} onChange={load} />}
       {tab === "run" && data && (live ? <LiveRun runId={live.id} onChange={load} onOpen={setOpen} />
         : <Chooser data={data} onStarted={load} />)}
       {tab === "run" && data && !live && <ResetSurvival />}
@@ -88,16 +93,18 @@ function Chooser({ data, onStarted }) {
   const runner = data.runner || {};
   const toggle = (k) => setPick((p) => (p.includes(k) ? p.filter((x) => x !== k) : [...p, k]));
   const est = level === "smoke" ? data.estimates.smoke : pick.reduce((a, s) => [a[0] + data.estimates[s][0] - 1, a[1] + data.estimates[s][1] - 2], [1, 2]);
+  const notBuilt = runner.image_present === false;
   const start = async () => {
     setBusy(true); setMsg("");
     try {
-      const r = await apiFetch("/api/v1/admin/tests", { method: "POST", body: JSON.stringify({ level, suites: pick, role, area, watch: watch && level === "detailed" && pick.includes("ui") }) });
+      const r = await apiFetch("/api/v1/admin/tests", { method: "POST", body: JSON.stringify({ level, suites: pick, role, area,
+        watch: watch && level === "detailed" && pick.includes("ui"), build_first: notBuilt }) });
       setMsg(r.message); setConfirm(false); onStarted();
     } catch (e) { setMsg(e.message); setConfirm(false); } finally { setBusy(false); }
   };
   return (
     <section className="self-test-choose" aria-label="Choose a self-test">
-      {runner.message && <p className="status warn small">{runner.message}</p>}
+      {runner.message && runner.image_present !== false && <p className="status warn small">{runner.message}</p>}
       <fieldset>
         <legend>What to run</legend>
         <label className="radio"><input type="radio" name="level" checked={level === "smoke"} onChange={() => setLevel("smoke")} />
@@ -121,19 +128,107 @@ function Chooser({ data, onStarted }) {
           <option value="">every role</option>{data.roles.map((r) => <option key={r} value={r}>{r}</option>)}</select></label>
         <label>Area <select value={area} onChange={(e) => setArea(e.target.value)} title="Test one API area only">
           <option value="">every area</option>{data.areas.map((a) => <option key={a.code} value={a.code}>{a.label}</option>)}</select></label>
-        <button className="primary" disabled={busy || (level === "detailed" && !pick.length) || runner.image_present === false}
+        <button className="primary" disabled={busy || (level === "detailed" && !pick.length) || !!runner.build?.busy}
           onClick={() => setConfirm(true)}>Start</button>
         {msg && <span className="small">{msg}</span>}
       </div>
       {confirm && (
         <Modal title="Start the self-test now?" onClose={() => setConfirm(false)}
           actions={<><button onClick={() => setConfirm(false)}>Cancel</button>
-            <button className="primary" disabled={busy} onClick={start}>{busy ? "Starting..." : "Start now"}</button></>}>
+            <button className="primary" disabled={busy} onClick={start}>{busy ? "Starting..." : notBuilt ? "Build, then run" : "Start now"}</button></>}>
+          {notBuilt && <p className="status warn">The test runner is not built yet. It is built first (about {runner.size_gb || 1.5} GB,
+            {" "}{(runner.build_minutes || [5, 15]).join(" to ")} minutes), then this run starts by itself.</p>}
           <p>{level === "smoke" ? "A smoke test" : `Detailed tests: ${pick.join(", ")}`}{role ? `, as ${role} only` : ""}{area ? `, ${area} only` : ""}.
             It takes about <b>{Math.max(1, est[0])} to {Math.max(2, est[1])} minutes</b>{watch && level === "detailed" ? "; keep this page open while the journeys run in it" : ""}.</p>
           <p className="small">It makes its own models, project and test accounts (<code>self_test_&lt;id&gt;_&lt;n&gt;</code>) and tests only inside
             them; nothing else changes. Its test accounts' tokens are revoked when it ends; its fixtures stay until you purge them.</p>
         </Modal>)}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------- the test runner: built here (D570)
+function TestRunner({ runner, onBuilt, onChange }) {
+  const b = runner.build || {};
+  const [watching, setWatching] = useState(b.busy ? b.run_id : null);
+  const [msg, setMsg] = useState("");
+  const [auto, setAuto] = useState(!!runner.auto_build);
+  useEffect(() => { setAuto(!!runner.auto_build); }, [runner.auto_build]);
+  useEffect(() => { if (b.busy && b.run_id) setWatching(b.run_id); }, [b.busy, b.run_id]);
+  if (runner.image_present === null || runner.image_present === undefined) return null;     // the helper is not reachable
+  const build = async () => {
+    setMsg("");
+    try { const r = await apiFetch("/api/v1/admin/tests/build", { method: "POST" }); setWatching(r.run_id); onChange(); } catch (e) { setMsg(e.message); }
+  };
+  const saveAuto = async (on) => {
+    setAuto(on);
+    try { await apiFetch("/api/v1/admin/tests/settings", { method: "PUT", body: JSON.stringify({ auto_build: on }) }); onChange(); } catch (e) { setAuto(!on); setMsg(e.message); }
+  };
+  const autoBox = (
+    <label className="check small" title="When the image for the running version is missing, the operations helper builds it in the background after each start and each update">
+      <input type="checkbox" checked={auto} onChange={(e) => saveAuto(e.target.checked)} /> Build it automatically after each start or update</label>);
+  if (watching) return <RunnerBuild id={watching} onRetry={build} onBuilt={() => { setWatching(null); onBuilt(); }} />;
+  if (runner.image_present) {
+    return <p className="small self-test-runner">Test runner <code>{runner.image}</code> is built. {autoBox}</p>;
+  }
+  return (
+    <section className="self-test-runner panel-soft" aria-label="The test runner">
+      <h3>The test runner is not built yet</h3>
+      <p>Self-tests run in a container image of their own: the API's code, Chromium for the browser tests and the security
+        scanners. It is about <b>{runner.size_gb || 1.5} GB</b> and building it takes about
+        {" "}<b>{(runner.build_minutes || [5, 15]).join(" to ")} minutes</b> the first time (it needs the internet). It is built once per version.</p>
+      {b.state === "failed" && <p className="status bad small">The last build failed{b.reason ? `: ${b.reason}` : ""}.</p>}
+      <div className="toolbar">
+        <button className="primary" onClick={build}>{b.state === "failed" ? "Retry the build" : "Build the test runner"}</button>
+        {autoBox}
+      </div>
+      {msg && <p className="status bad small">{msg}</p>}
+      <p className="quiet small">The same as <code>eax test --build</code>. You can also press Start below: the runner is built first, then the run starts.</p>
+    </section>
+  );
+}
+
+function RunnerBuild({ id, onRetry, onBuilt }) {
+  const [d, setD] = useState(null);
+  const [log, setLog] = useState("");
+  const [err, setErr] = useState("");
+  const from = useRef(0);
+  const pre = useRef(null);
+  useEffect(() => {
+    let stop = false;
+    from.current = 0; setLog("");
+    const tick = async () => {
+      try {
+        const r = await apiFetch(`/api/v1/admin/tests/build/${encodeURIComponent(id)}?from=${from.current}`);
+        if (stop) return;
+        from.current = r.next; if (r.text) setLog((l) => (l + r.text).slice(-60000)); setD(r); setErr("");
+        if (r.finished) { stop = true; if (r.ok) setTimeout(onBuilt, 2500); }
+      } catch (e) { setErr(e.message); }
+    };
+    tick();
+    const t = setInterval(() => { if (!stop) tick(); }, 2000);
+    return () => { stop = true; clearInterval(t); };
+  }, [id]);
+  useEffect(() => { if (pre.current) pre.current.scrollTop = pre.current.scrollHeight; }, [log]);
+  const steps = d?.steps || [];
+  const done = steps.filter((s) => s.state === "done").length;
+  return (
+    <section className="self-test-runner panel-soft" aria-live="polite" aria-label="Building the test runner">
+      <h3>{!d?.finished ? "Building the test runner..." : d.ok ? "The test runner is built" : "The build failed"}</h3>
+      <div className="runner-meter" role="progressbar" aria-valuemin={0} aria-valuemax={steps.length || 5} aria-valuenow={done}>
+        <span style={{ width: `${steps.length ? (100 * done) / steps.length : 3}%` }} /></div>
+      <ol className="build-steps">
+        {steps.map((s) => <li key={s.key} className={s.state}>
+          <span className={cls(s.state === "done" ? "passed" : s.state)}>{s.state === "done" ? "✓" : s.state === "failed" ? "✗" : s.state === "running" ? "▶" : "·"}</span> {s.label}</li>)}
+      </ol>
+      {d?.finished && d.ok && <p className="status good small">Ready: the Run tab opens in a moment.</p>}
+      {d?.finished && !d.ok && <>
+        <p className="status bad small">Why: {d.reason || "see the log below"}</p>
+        <button className="primary" onClick={onRetry}>Retry</button></>}
+      {err && <p className="status warn small">{err}</p>}
+      <details open><summary>The build's log</summary>
+        <pre ref={pre} className="build-log">{log || "Starting..."}</pre></details>
+      <p className="quiet small">Started by {d?.status?.by || "?"} · {d?.status?.command || "eax test --build"}. You can leave this page; the build goes on.</p>
     </section>
   );
 }

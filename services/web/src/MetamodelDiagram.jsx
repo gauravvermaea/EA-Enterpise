@@ -44,7 +44,9 @@ export function multText(l, i) {
   const sm = (l.source_multiplicities || [])[i] || "", tm = (l.target_multiplicities || [])[i] || "";
   return sm || tm ? ` ${sm || "*"} : ${tm || "*"}` : "";
 }
-export const linkText = (l) => l.relationship_types.map((c, i) => c + multText(l, i)).join(", ");
+// with the attributes of that allowed relationship only (D564): "Association [Connection protocol, Port]"
+const mapAttrs = (l, i) => ((l.mapping_attributes || [])[i] ? ` [${l.mapping_attributes[i]}]` : "");
+export const linkText = (l) => l.relationship_types.map((c, i) => c + multText(l, i) + mapAttrs(l, i)).join(", ");
 
 // ---------------------------------------------------------------- what to show (mirrors eax/diagram.py)
 export function scopeDiagram(data, { domains, focus, rels, connected }) {
@@ -54,7 +56,7 @@ export function scopeDiagram(data, { domains, focus, rels, connected }) {
       const at = l.relationship_types.map((c, i) => i).filter((i) => keep.has(l.relationship_types[i]));
       const pick = (arr) => at.map((i) => (arr || [])[i] || "");
       return { ...l, relationship_types: pick(l.relationship_types), source_multiplicities: pick(l.source_multiplicities),
-        target_multiplicities: pick(l.target_multiplicities) };
+        target_multiplicities: pick(l.target_multiplicities), mapping_attributes: pick(l.mapping_attributes) };
     })
     .filter((l) => l.relationship_types.length);
   let ids;

@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REPO = ROOT.parents[1]
 
 CHANGING = {"copy_model", "merge_duplicates", "override_parent", "decide_merge_request", "refresh_from_parent", "model_wizard",
-            "common_analysis", "change_entities", "save_report_document", "create_survey", "survey_action", "add_own_kpi"}
+            "common_analysis", "change_entities", "change_relationships", "save_report_document", "create_survey", "survey_action", "add_own_kpi"}
 
 
 def _tools() -> dict:

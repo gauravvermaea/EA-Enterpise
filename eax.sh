@@ -773,7 +773,11 @@ case "$CMD" in
   update) shift; backup_helpers; compose exec ops python3 /app/ops.py update "$@" ;;      # updates (phase 36, D417)
   rollback) shift; backup_helpers; compose exec ops python3 /app/ops.py rollback "$@" ;;
   restore-model) shift; compose exec api python -m eax.backups_cli restore "$@" ;;
-  test) shift                                                              # the self-test (phase 36.1, D367, D530)
+  test) shift                                                              # the self-test (phase 36.1, D367, D529)
+        case " $* " in *" --build "*)                                          # only build the runner image (D570)
+          echo "Building the test runner (about 1.5 GB, 5 to 15 minutes the first time): base image, Python packages, Chromium, scanners."
+          compose --profile test build testrunner && echo "The test runner is built."; exit $? ;;
+        esac
         READ=""
         for a in "$@"; do case "$a" in --status|--last|--report|--fixtures|--clean) READ="${a#--}" ;; esac; done
         if [ -n "$READ" ]; then

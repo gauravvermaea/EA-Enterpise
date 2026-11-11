@@ -44,7 +44,8 @@ restarts the system from the administration console. It talks to the Docker engi
   GET  /scaling                 the scaling rules, the load seen and the decisions (phase 36.3, D526; scaling.py)
   POST /scaling                 {settings, by}: save the rules (config file, a dated copy first)
   GET  /tests                   the test runner image and the self-test going on;  POST /tests {run_id, level, suites,
-                                role, area, watch, by}: start it at once;  POST /tests/stop (phase 36.1, D367; testruns.py)
+                                role, area, watch, by}: start it at once;  POST /tests/stop (phase 36.1, D367; testruns.py);
+                                POST /tests/build, GET /tests/build/<id>, POST /tests/settings (the runner, D570)
   GET  /services                the optional services, on or off in the config file (D191)
   POST /services                {service, on, by}: switch one on or off: the config file is copied first (a dated copy
                                 in work/config-history), the switch written, then its containers started or stopped
@@ -1824,6 +1825,14 @@ class Handler(BaseHTTPRequestHandler):
             return None
         if self.path == "/tests":                    # test runs (phase 36.1, D367; testruns.py)
             return self._send(200, testruns.status())
+        if self.path.startswith("/tests/build/"):    # building the test runner from the page (D570)
+            from urllib.parse import parse_qs, urlparse
+            u = urlparse(self.path)
+            try:
+                frm = int((parse_qs(u.query).get("from") or ["0"])[0] or 0)
+                return self._send(200, testruns.build_detail(u.path.rsplit("/", 1)[-1], frm))
+            except (FileNotFoundError, ValueError) as exc:
+                return self._send(404, {"message": str(exc)})
         if self.path == "/deploys" or self.path.startswith("/deploys/"):   # deploying elsewhere (D555; deploys.py)
             try:
                 if self.path == "/deploys":
@@ -2028,11 +2037,15 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):  # noqa: N802
         if not self._ok():
             return None
-        if self.path in ("/tests", "/tests/stop", "/scaling"):     # the self-test (36.1) and scaling rules (36.3)
+        if self.path in ("/tests", "/tests/stop", "/tests/build", "/tests/settings", "/scaling"):   # self-test, scaling
             b = self._body()
             try:
                 if self.path == "/tests":
                     return self._send(202, testruns.start(b))
+                if self.path == "/tests/build":
+                    return self._send(202, testruns.build(b))
+                if self.path == "/tests/settings":
+                    return self._send(200, testruns.set_auto_build(bool(b.get("auto_build")), str(b.get("by") or "")))
                 if self.path == "/tests/stop":
                     return self._send(200, testruns.stop(b))
                 return self._send(200, scaling.save(b.get("settings") or {}, str(b.get("by") or "console")))
@@ -2475,6 +2488,7 @@ if __name__ == "__main__":
     threading.Thread(target=updates.scheduler, daemon=True).start()   # scheduled updates (D417)
     threading.Thread(target=commandcentre.scheduler, daemon=True).start()   # scheduled eax commands (D559)
     scaling.start()                       # the scaling rules, looked at every minute (D526)
+    threading.Thread(target=testruns.auto_build_loop, daemon=True).start()   # the test runner built when missing (D570)
     terminals = ThreadingHTTPServer(("0.0.0.0", TERMINAL_PORT), TerminalHandler)
     terminals.daemon_threads = True
     threading.Thread(target=terminals.serve_forever, daemon=True).start()

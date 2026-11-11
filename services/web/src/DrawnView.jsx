@@ -15,6 +15,7 @@ import { EntityFormDialog } from "./DataEntry";
 import { fuzzyFilter } from "./names";
 import { fmtDateTime } from "./fmt";
 import { LinkList } from "./Links";
+import { RelationshipAttributes as LineAttributes } from "./RelAttributes";
 import { downloadDrawio, downloadPicturePng, downloadPictureSvg, drawioXml, saveBlob } from "./exporting";
 
 const go = (path) => { window.location.hash = path; };
@@ -251,7 +252,7 @@ const boundIds = (xml) => [...new Set([...String(xml || "").matchAll(/\bea_id="(
 const PRESETS = { drawing: { stencil: true, bottom: false }, editing: { stencil: true, bottom: true }, canvas: { stencil: false, bottom: false } };
 const PRESET_NAMES = [["drawing", "Drawing"], ["editing", "Editing"], ["canvas", "Canvas only"]];
 const BOTTOM_MIN = 120;
-const LAYOUT_DEFAULT = { preset: "editing", ...PRESETS.editing, height: 260, stencilWidth: 0 };
+const LAYOUT_DEFAULT = { preset: "editing", ...PRESETS.editing, height: 260, stencilWidth: 0, lineAttrs: true };
 const layoutKey = () => `eax.drawn.layout.${currentUser()?.preferred_username || "me"}`;
 function savedLayout() {
   try {
@@ -392,6 +393,7 @@ export function DrawnViewPage({ model, m, view, full = false }) {
           const show = hiddenPalettes();
           if (Object.keys(show).length) post({ eax: "palettes", show });
           post({ eax: "stencil-size", size: stencilSize() });
+          post({ eax: "line-labels", attrs: layout.lineAttrs !== false });
           checkPending();
           if (!old) resync(true);         // the model as it is now (D413): names, new relationships, deletions, commits
           break;
@@ -429,6 +431,7 @@ export function DrawnViewPage({ model, m, view, full = false }) {
           break;
         }
         case "eax-line-deleted": setDlg({ kind: "line-del", rel: msg.relationship }); break;
+        case "eax-rel-rename": renameLine(msg); break;
         case "eax-dropped": setDlg({ kind: "drop", ...msg }); break;
         case "eax-waiting-line": makeWaiting(msg); break;
         case "eax-related-added": if (!msg.already) setDirty(true); break;
@@ -547,6 +550,28 @@ export function DrawnViewPage({ model, m, view, full = false }) {
     return () => { live = false; clearInterval(t); window.removeEventListener("focus", onFocus); };
   }, [model, old]);
 
+  // a line renamed in place on the canvas (D565): the name only, in the model at once as the person (D413); refused,
+  // the line gets the model's name back
+  async function renameLine(msg) {
+    try {
+      await changeNow(model, "relationship.rename", { relationship: msg.relationship, name: msg.name || "" }, info?.name);
+      setDetails({});
+      say(`Renamed: ${msg.name || "(no name)"}. The relationship's type stays.`);
+    } catch (err) {
+      post({ eax: "rel-name", id: msg.relationship, name: msg.previous || "" });
+      say(err.message, false);
+    }
+  }
+  // a line's name and attribute values saved from the Properties panel (D563): the label follows at once
+  async function saveLine(id, data) {
+    const out = await changeNow(model, "relationship.rename", { relationship: id, ...data }, info?.name);
+    const r = out?.result || out || {};
+    if ("name" in data) post({ eax: "rel-name", id, name: data.name || "" });
+    if (r.values) post({ eax: "rel-values", values: { [id]: r.values } });
+    else resync(false, true);
+    setDirty(true);
+    return r;
+  }
   async function resync(auto = false, quietly = false) {
     try {
       const r = await apiFetch(`${base(model)}/resync`, { method: "POST", body: JSON.stringify(st.current.xml ? { xml: st.current.xml } : { view }) });
@@ -554,7 +579,7 @@ export function DrawnViewPage({ model, m, view, full = false }) {
       const rels = [...(r.relationships || []), ...(r.new_relationships || [])];
       const seen = new Set();
       post({ eax: "resync", auto: auto === true, quiet: quietly === true, entities: ents, deleted: [...(r.deleted_entities || []), ...(r.missing_entities || [])],
-        relationships: rels.filter((x) => !seen.has(x.id) && seen.add(x.id)).map((x) => ({ id: x.id, type: x.type, source: x.source, target: x.target, name: x.name || "", pending: !x.committed })),
+        relationships: rels.filter((x) => !seen.has(x.id) && seen.add(x.id)).map((x) => ({ id: x.id, type: x.type, source: x.source, target: x.target, name: x.name || "", values: x.values || {}, pending: !x.committed })),
         deletedRelationships: r.gone_relationships || [] });
       setChangedBanner(false);
       st.current.mineChanged?.();
@@ -726,7 +751,8 @@ export function DrawnViewPage({ model, m, view, full = false }) {
                 realise(sel.cell, { id: e.id, name: e.name, type: code });
               }} onSelectEntity={(id) => post({ eax: "select", entity: id })} onTab={setTab}
               onType={(code) => { post({ eax: "placeholder-type", cell: sel.cell, type: code }); setSelected((x) => ({ ...x, type: code })); }}
-              onEdit={(e) => setDlg({ kind: "edit", e })} onCreate={(code) => setDlg({ kind: "create", code, cell: sel.cell })} />
+              onEdit={(e) => setDlg({ kind: "edit", e })} onCreate={(code) => setDlg({ kind: "create", code, cell: sel.cell })}
+              onSaveLine={saveLine} />
               : <p className="small quiet">Select an object or a line to see all its attributes. Select a placeholder to choose the entity it shows.</p>}
             {phList && <div><h4>Placeholders</h4>{!phList.length ? <p className="small quiet">None.</p> : <ul className="small">{phList.map((p) => (
               <li key={p.cell}>{setup.types[p.type]?.name || p.type} <button className="linkish" onClick={() => setSelected({ cell: p.cell, type: p.type, placeholder: true, choosing: Date.now() })}>choose</button></li>))}</ul>}</div>}
@@ -780,6 +806,10 @@ export function DrawnViewPage({ model, m, view, full = false }) {
         {!readOnly && <label className="drawn-size small" title="The size of the stencil's items; this browser remembers it for you">Stencil size
           <select value={size} disabled={phase !== "ready"} onChange={(e) => { setSize(e.target.value); keepStencilSize(e.target.value); post({ eax: "stencil-size", size: e.target.value }); }}>
             {STENCIL_SIZES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>}
+        <label className="drawn-size small" title="What a relationship's line shows: its name and type, or also its attribute values in [key:value]; this browser remembers it for you">Line labels
+          <select value={layout.lineAttrs === false ? "type" : "attrs"} aria-label="Line labels"
+            onChange={(e) => { const on = e.target.value === "attrs"; changeLayout({ lineAttrs: on }); post({ eax: "line-labels", attrs: on }); }}>
+            <option value="type">Name and type</option><option value="attrs">With attributes</option></select></label>
         <label className="drawn-size small" title="Drawing: the stencil pinned, the panel folded away. Editing: both pinned. Canvas only: everything folded away. Within any of them, pin, unpin and resize as you like; this browser remembers it for you">Layout
           <select value={layout.preset} onChange={(e) => choosePreset(e.target.value)} aria-label="Layout">
             {PRESET_NAMES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>
@@ -908,7 +938,7 @@ function useEntityDetail(model, id, details, setDetails) {
   return id ? details[id] : null;
 }
 
-function Properties({ model, sel, setup, entities, readOnly, details, setDetails, onView, onChoose, onSelectEntity, committer, onType, onEdit, onCreate, onTab }) {
+function Properties({ model, sel, setup, entities, readOnly, details, setDetails, onView, onChoose, onSelectEntity, committer, onType, onEdit, onCreate, onTab, onSaveLine }) {
   const [changing, setChanging] = useState(false);
   const e = useEntityDetail(model, sel.entity || (sel.relationship ? sel.source : null), details, setDetails);
   useEffect(() => { setChanging(false); }, [sel.cell]);
@@ -927,11 +957,12 @@ function Properties({ model, sel, setup, entities, readOnly, details, setDetails
         <table className="facts"><tbody>
           <tr><th>From</th><td>{sel.source ? <button className="linkish" onClick={() => onSelectEntity(sel.source)}>{nm(sel.source)}</button> : "—"}</td></tr>
           <tr><th>To</th><td>{sel.target ? <button className="linkish" onClick={() => onSelectEntity(sel.target)}>{nm(sel.target)}</button> : "—"}</td></tr>
-          {r && <tr><th>Name</th><td>{r.name || "—"}</td></tr>}
           {r && <tr><th>Status</th><td>{r.status || "—"}</td></tr>}
           {r && <tr><th>Changed</th><td>{r.modified_by || "—"}{r.modified_at ? ` · ${fmtDateTime(r.modified_at)}` : ""}</td></tr>}
           {r && r.allowed === false && <tr><th>Rules</th><td className="status bad">Outside the metamodel's rules</td></tr>}
         </tbody></table>
+        {r && sel.relationship && <LineAttributes model={model} id={sel.relationship} readOnly={readOnly || sel.pending} onSave={onSaveLine}
+          note={"A relationship's change is in the model at once, as you (\"Drawn on view …\")."} />}
         {!r && sel.relationship && <p className="quiet">Not committed yet: an uncommitted change from before relationships were committed at once
           (Uncommitted changes commits it).</p>}
         {!readOnly && sel.relationship && <p className="quiet">Delete the line to hide it in this view or delete it from the model (you are asked).</p>}

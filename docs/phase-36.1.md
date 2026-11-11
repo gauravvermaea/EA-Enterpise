@@ -5,6 +5,10 @@ installation in fixtures of its own instead of a separate test database). How to
 
 ## What was built
 
+- **Build the test runner** from the page (11 Nov 2026, D570): the button runs `eax test --build` through the Command
+  centre's command container, with its steps and log live and Retry; Start without it offers Build, then run; and an
+  automatic build after each start or update (persist/settings.json; off on laptops, on for servers).
+
 - **System admin, Self-test** (Super Admins and IT Admins): Run, History and Test fixtures tabs.
 - **`eax test`** in all four forms (eax.ps1, eax.sh, the Python CLI, the console), and in CI.
 - **One runner** (the `testrunner` image, profile `test`, started on demand by the operations helper) and **one results
@@ -26,7 +30,7 @@ installation in fixtures of its own instead of a separate test database). How to
 | services/api/eax/api/platform_tests.py | `/admin/tests...` and `/admin/scaling...` |
 | services/api/eax/api/selftest_session.py | the test browser's sign-in by ticket |
 | services/api/eax/mcp_tests.py | the MCP tool `test_results` |
-| services/ops/testruns.py | starting the runner, the scans, `eax test` |
+| services/ops/testruns.py | starting the runner, the scans, `eax test`, building the runner (D570) |
 | services/web/src/TestRuns.jsx | the Self-test screen and the watched run |
 | services/api/eax/seed/sample_tests.py | the sample runs |
 
@@ -42,6 +46,6 @@ Usage figures and backups include self-test fixtures while they exist (they are 
 
 ## Needs on the owner's side
 
-Docker (the runner image is built on first use, about 1.5 GB with Chromium); the internet for pip-audit's advisory
+Docker (the runner image, about 1.5 GB with Chromium, is built from the Self-test page, by `eax test --build`, or on first use); the internet for pip-audit's advisory
 database, the Trivy database and the first pull of the ZAP and Trivy images. Without the internet those checks are
 recorded as skipped.

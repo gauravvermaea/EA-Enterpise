@@ -123,13 +123,34 @@ def metamodel_spec(conn, model: Any) -> dict:
     for r in rels:
         r["attributes"] = [strip(i) for i in items if i["_r"] == r["_id"]]
         del r["_id"]
-    allowed = _rows(conn, """SELECT s.code AS source, rt.code AS relationship, t.code AS target, a.note,
+    allowed = _rows(conn, """SELECT a.id AS _id, s.code AS source, rt.code AS relationship, t.code AS target, a.note,
                                     a.source_multiplicity, a.target_multiplicity
                                FROM core.allowed_relationships a
                                JOIN core.entity_types s ON s.id = a.source_type_id
                                JOIN core.entity_types t ON t.id = a.target_type_id
                                JOIN core.relationship_types rt ON rt.id = a.relationship_type_id
-                              WHERE a.model_id = :m AND NOT a.is_deleted ORDER BY 1, 2, 3""", m=mid)
+                              WHERE a.model_id = :m AND NOT a.is_deleted ORDER BY 2, 3, 4""", m=mid)
+    # the attributes limited to one allowed relationship (D564), with their own "required" there
+    limited = _rows(conn, """SELECT x.allowed_relationship_id AS _a, at.code AS attribute, x.is_required AS required
+                               FROM core.item_attribute_mappings x JOIN core.item_attributes i ON i.id = x.item_attribute_id
+                               JOIN core.attribute_types at ON at.id = i.attribute_type_id
+                              WHERE x.model_id = :m AND NOT x.is_deleted AND NOT i.is_deleted ORDER BY i.sort_order, at.code""", m=mid)
+    for a in allowed:
+        mine = [strip(x) for x in limited if x["_a"] == a["_id"]]
+        if mine:
+            a["attributes"] = mine
+        del a["_id"]
+    limited_attrs = {(x["_a"], x["attribute"]) for x in limited}
+    if limited_attrs:   # a relationship type's attribute limited to some mappings is listed with them, not on the type
+        lim_codes = {c for _a, c in limited_attrs}
+        for r in rels:
+            r["attributes"] = [i for i in r["attributes"] if i["attribute"] not in lim_codes or
+                               not _one(conn, """SELECT 1 AS x FROM core.item_attribute_mappings x JOIN core.item_attributes i
+                                                  ON i.id = x.item_attribute_id JOIN core.attribute_types at ON at.id = i.attribute_type_id
+                                                  JOIN core.relationship_types rt ON rt.id = i.relationship_type_id
+                                                 WHERE rt.model_id = :m AND lower(rt.code) = lower(:r) AND at.code = :c
+                                                   AND NOT x.is_deleted AND NOT i.is_deleted LIMIT 1""",
+                                        m=mid, r=r["code"], c=i["attribute"])]
     rules = _rows(conn, """SELECT et.code AS entity_type, at.code AS attribute, vr.field_name AS field,
                                   vr.rule_type_code AS rule_type, vr.param1, vr.param2, vr.severity, vr.message
                              FROM core.validation_rules vr
@@ -462,6 +483,32 @@ def apply_spec(conn, model_id: int, spec: dict, mode: str = "new", remove_missin
                           i=old["id"], sm=sm, tm=tm).rowcount
                 if n and not old["is_deleted"]:
                     counts["changed"] += 1
+        for la in a.get("attributes") or []:     # attributes limited to this allowed relationship (D564)
+            aid = ids["attributes"].get(str(la["attribute"]).lower())
+            if aid is None:
+                raise EditError(f"Relationship attributes: {la['attribute']!r} is not an attribute of this metamodel.")
+            ar = _one(conn, """SELECT id FROM core.allowed_relationships WHERE relationship_type_id = :r AND source_type_id = :s
+                                AND target_type_id = :t AND NOT is_deleted""", r=r, s=s, t=t)["id"]
+            item = _one(conn, """SELECT i.id, EXISTS (SELECT 1 FROM core.item_attribute_mappings x WHERE x.item_attribute_id = i.id
+                                                         AND NOT x.is_deleted) AS limited
+                                   FROM core.item_attributes i WHERE i.relationship_type_id = :r AND i.attribute_type_id = :a
+                                    AND NOT i.is_deleted""", r=r, a=aid)
+            if item and not item["limited"]:
+                continue     # already on every allowed relationship of its type: adding never takes it from the others (D289)
+            if not item:
+                item = _one(conn, """INSERT INTO core.item_attributes (model_id, attribute_type_id, relationship_type_id, is_required,
+                                                                       section, sort_order)
+                                     VALUES (:m, :a, :r, false, 'General', 1000) RETURNING id""", m=model_id, a=aid, r=r)
+            have = _one(conn, """SELECT id, is_required FROM core.item_attribute_mappings WHERE item_attribute_id = :i
+                                  AND allowed_relationship_id = :ar AND NOT is_deleted""", i=item["id"], ar=ar)
+            if not have:
+                _exec(conn, """INSERT INTO core.item_attribute_mappings (model_id, item_attribute_id, allowed_relationship_id, is_required)
+                               VALUES (:m, :i, :ar, :q)""", m=model_id, i=item["id"], ar=ar, q=bool(la.get("required")))
+                counts["added"] += 1
+            elif bool(have["is_required"]) != bool(la.get("required")):
+                _exec(conn, "UPDATE core.item_attribute_mappings SET is_required = :q WHERE id = :i",
+                      q=bool(la.get("required")), i=have["id"])
+                counts["changed"] += 1
     # rules
     def rule_key(r):
         return (r.get("entity_type_id"), r.get("attribute_type_id"), r.get("field_name") or None, r["rule_type_code"],
@@ -580,6 +627,26 @@ def copy_into(conn, src_id: int, dst_id: int, content: bool) -> dict:
                             AND ds.id = d.source_type_id AND dt.id = d.target_type_id AND dr.id = d.relationship_type_id
                             AND lower(ds.code) = lower(ss.code) AND lower(dt.code) = lower(st.code) AND lower(dr.code) = lower(sr.code)
                             AND (s.source_multiplicity <> '' OR s.target_multiplicity <> '')"""), {"s": src_id, "d": dst_id})
+    # and the relationship attributes limited to some allowed relationships (D564), matched by codes
+    conn.execute(text("""INSERT INTO core.item_attribute_mappings (model_id, item_attribute_id, allowed_relationship_id, is_required)
+                         SELECT :d, di.id, da.id, x.is_required
+                           FROM core.item_attribute_mappings x
+                           JOIN core.item_attributes si ON si.id = x.item_attribute_id
+                           JOIN core.attribute_types sat ON sat.id = si.attribute_type_id
+                           JOIN core.relationship_types srt ON srt.id = si.relationship_type_id
+                           JOIN core.allowed_relationships sa ON sa.id = x.allowed_relationship_id
+                           JOIN core.entity_types sst ON sst.id = sa.source_type_id JOIN core.entity_types stt ON stt.id = sa.target_type_id
+                           JOIN core.relationship_types drt ON drt.model_id = :d AND lower(drt.code) = lower(srt.code) AND NOT drt.is_deleted
+                           JOIN core.attribute_types dat ON dat.model_id = :d AND lower(dat.code) = lower(sat.code) AND NOT dat.is_deleted
+                           JOIN core.item_attributes di ON di.relationship_type_id = drt.id AND di.attribute_type_id = dat.id AND NOT di.is_deleted
+                           JOIN core.entity_types dst ON dst.model_id = :d AND lower(dst.code) = lower(sst.code)
+                           JOIN core.entity_types dtt ON dtt.model_id = :d AND lower(dtt.code) = lower(stt.code)
+                           JOIN core.allowed_relationships da ON da.relationship_type_id = drt.id AND da.source_type_id = dst.id
+                                AND da.target_type_id = dtt.id AND NOT da.is_deleted
+                          WHERE x.model_id = :s AND NOT x.is_deleted AND NOT si.is_deleted
+                            AND NOT EXISTS (SELECT 1 FROM core.item_attribute_mappings y WHERE y.item_attribute_id = di.id
+                                            AND y.allowed_relationship_id = da.id AND NOT y.is_deleted)"""),
+                 {"s": src_id, "d": dst_id})
     # and each attribute's data quality weight (D241), so a copy scores as its source does
     conn.execute(text("""UPDATE core.attribute_types d SET quality_weight = s.quality_weight
                            FROM core.attribute_types s
@@ -1316,6 +1383,7 @@ _XL_SHEETS = [  # sheet, section, columns
     ("Rules", "rules", ["entity_type", "attribute", "field", "rule_type", "param1", "param2", "severity", "message"]),
 ]
 _XL_ITEMS = ["owner", "code", "attribute", "required", "section", "default", "help", "quality_weight"]
+_XL_MAPPING_ITEMS = ["source", "relationship", "target", "attribute", "required"]
 
 
 def _to_xlsx(manifest: dict, spec: dict, content: dict, hist: dict | None = None) -> bytes:
@@ -1347,6 +1415,9 @@ def _to_xlsx(manifest: dict, spec: dict, content: dict, hist: dict | None = None
     items = [{"owner": "entity_type", "code": t["code"], **i} for t in spec["entity_types"] for i in t.get("attributes") or []]
     items += [{"owner": "relationship_type", "code": r["code"], **i} for r in spec["relationship_types"] for i in r.get("attributes") or []]
     sheet("Type attributes", _XL_ITEMS, items)
+    sheet("Relationship attributes", _XL_MAPPING_ITEMS,     # attributes of one allowed relationship only (D564)
+          [{"source": a["source"], "relationship": a["relationship"], "target": a["target"], **i}
+           for a in spec.get("allowed") or [] for i in a.get("attributes") or []])
     used = set(wb.sheetnames)
     for code, rows in content["entities"].items():
         title = f"E {code}"[:31]
@@ -1449,6 +1520,13 @@ def _from_xlsx(data: bytes) -> dict:
             o["attributes"].append({"attribute": i.get("attribute"), "required": str(i.get("required")).lower() in ("yes", "true", "1"),
                                     "section": i.get("section") or "", "default": i.get("default") or None, "help": i.get("help") or "",
                                     "quality_weight": _qw(i.get("quality_weight"))})
+    by_allowed = {(str(a.get("source")).lower(), str(a.get("relationship")).lower(), str(a.get("target")).lower()): a
+                  for a in spec["allowed"]}
+    for i in rows_of("Relationship attributes"):   # attributes of one allowed relationship (D564)
+        a = by_allowed.get((str(i.get("source")).lower(), str(i.get("relationship")).lower(), str(i.get("target")).lower()))
+        if a is not None and i.get("attribute"):
+            a.setdefault("attributes", []).append({"attribute": str(i["attribute"]),
+                                                   "required": str(i.get("required")).lower() in ("yes", "true", "1")})
     for r in spec["rules"]:
         for k in ("entity_type", "attribute", "field"):
             r[k] = r.get(k) or None

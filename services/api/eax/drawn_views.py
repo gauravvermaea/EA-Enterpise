@@ -236,11 +236,17 @@ def _relationships(conn, m: dict, ids: list[str], among: bool = True, of: str | 
     where = ("s.guid = ANY(CAST(:ids AS uuid[])) AND t.guid = ANY(CAST(:ids AS uuid[]))" if among else
              "((s.guid = CAST(:of AS uuid) AND t.guid = ANY(CAST(:ids AS uuid[]))) OR "
              "(t.guid = CAST(:of AS uuid) AND s.guid = ANY(CAST(:ids AS uuid[]))))")
-    return _rows(conn, f"""SELECT r.guid::text AS id, rt.code AS type, rt.name AS type_name, s.guid::text AS source,
+    rows = _rows(conn, f"""SELECT r.id AS _rid, r.guid::text AS id, rt.code AS type, rt.name AS type_name, s.guid::text AS source,
                                   t.guid::text AS target, coalesce(r.name, '') AS name
                              FROM core.relationships r JOIN core.relationship_types rt ON rt.id = r.relationship_type_id
                              JOIN core.entities s ON s.id = r.source_entity_id JOIN core.entities t ON t.id = r.target_entity_id
                             WHERE r.model_id = :m AND NOT r.is_deleted AND {where}""", m=m["_id"], ids=ids, of=of)
+    from . import content as ct
+    # each line's attribute values, for its label (D565)
+    vals = ct.relationship_values(conn, [r["_rid"] for r in rows])
+    for r in rows:
+        r["values"] = vals.get(r.pop("_rid"), {})
+    return rows
 
 
 def _with_pending(conn, m: dict, user, fn):

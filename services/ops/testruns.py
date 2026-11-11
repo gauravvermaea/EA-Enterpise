@@ -8,6 +8,10 @@ images next to it; then the runner reads their reports (collect) and closes the 
   GET  /tests                   whether the runner image is there, the run going on (if any)
   POST /tests                   {run_id, level, suites, role, area, watch, by}: start a run the API has recorded (Self-test)
   POST /tests/stop              {run_id, by}: stop it (the runner ends at its next step; if it does not, it is removed)
+  POST /tests/build             {by, then?}: build the runner image (`eax test --build` in the Command centre's
+                                short-lived container, D554), then start `then` (a run the API recorded) if given (D570)
+  GET  /tests/build/<id>?from=  the build's record, its log from byte `from` and its steps
+  POST /tests/settings          {auto_build, by}: build it automatically after each start or update (persist/settings.json)
   ops.py test [--smoke|--detailed] [--suite S]... [--role R] [--area A] [--version V] [--ci]
                                 the same from `eax test`, at once, following the runner's output in the console
 
@@ -82,14 +86,194 @@ def _networks(info: dict) -> list[str]:
     return list(((info.get("NetworkSettings") or {}).get("Networks") or {}).keys())
 
 
+NOT_BUILT = ("The test runner is not built yet: build it here (Build the test runner, about 1.5 GB, 5 to 15 minutes) "
+             "or with eax test --build.")
+
+
 def status() -> dict:
+    extra = {"build": build_status(), "auto_build": auto_build(_deployment()), "size_gb": RUNNER_SIZE_GB,
+             "build_minutes": BUILD_MINUTES}
     try:
         image = runner_image()
         present = image_present(image)
     except RuntimeError as exc:
-        return {"image": "", "image_present": False, "running": dict(current), "message": str(exc)}
+        return {"image": "", "image_present": False, "running": dict(current), "message": str(exc), **extra}
     return {"image": image, "image_present": present, "running": dict(current),
-            "message": "" if present else "The test runner is not built yet: run eax test once on this server (it builds it)."}
+            "message": "" if present else NOT_BUILT, **extra}
+
+
+# ---------------------------------------------------------------- building the runner from the page (D570)
+RUNNER_SIZE_GB = 1.5
+BUILD_MINUTES = [5, 15]
+SETTINGS = "settings.json"                     # in persist/ (D558): {"testrunner_auto_build": true|false, ...}
+AUTO_KEY = "testrunner_auto_build"
+BUILD_STEPS = (("base", "Base image (python:3.12-slim)"), ("python", "Python packages"),
+               ("chromium", "Chromium for the browser tests"), ("scanners", "Scanners (pip-audit)"),
+               ("code", "EA Explorer's code"))
+build_state: dict = {}                         # {busy, run_id, by, then, started, state, reason}
+
+
+def _persist():
+    try:
+        from eaxcli import persist
+        return persist
+    except Exception:  # noqa: BLE001 - an older compose file without the eaxcli mount
+        return None
+
+
+def _deployment() -> str:
+    try:
+        return H["_values"](H["_read_config"]()).get("EAX_DEPLOYMENT", "")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def auto_build(deployment: str = "") -> bool:
+    """Build the runner automatically after each start or update: persist/settings.json, else off on a laptop and
+    on for servers and clouds."""
+    default = deployment != "laptop"
+    P = _persist()
+    if P is None:
+        return default
+    data, _warn = P.read_json(P.folder() / SETTINGS, {})
+    value = data.get(AUTO_KEY)
+    return default if value is None else bool(value)
+
+
+def set_auto_build(on: bool, by: str = "") -> dict:
+    P = _persist()
+    if P is None:
+        raise RuntimeError("persist/ is not reachable from the operations helper (docker-compose.yml mounts it).")
+    path = P.folder() / SETTINGS
+    data, _warn = P.read_json(path, {"version": P.VERSION})
+    data.update({AUTO_KEY: bool(on), f"{AUTO_KEY}_by": by or "?",
+                 f"{AUTO_KEY}_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+    P.write_json(path, data)
+    return {"auto_build": bool(on)}
+
+
+def build_steps(log: str, finished: bool = False, ok: bool = False) -> list[dict]:
+    """The build's steps from its plain log: base (FROM / load metadata), then the EAX-STEP markers the Dockerfile
+    echoes; each step before the last seen is done; the last is running until the build ends."""
+    seen = []
+    if re.search(r"load metadata for|FROM docker\.io|\[1/\d+\] FROM", log):
+        seen.append("base")
+    for m in re.finditer(r"EAX-STEP (\w+)", log):
+        if m.group(1) not in seen:
+            seen.append(m.group(1))
+    out, last = [], seen[-1] if seen else ""
+    for key, label in BUILD_STEPS:
+        if key not in seen:
+            state = "done" if finished and ok else "waiting"
+        elif key != last or (finished and ok):
+            state = "done"
+        else:
+            state = "failed" if finished and not ok else "running"
+        out.append({"key": key, "label": label, "state": state})
+    return out
+
+
+def _reason(log: str) -> str:
+    lines = [x for x in log.splitlines() if x.strip() and not x.startswith("[finished")]
+    bad = [x for x in lines if re.search(r"error|failed|denied|no space|could not|not found", x, re.IGNORECASE)]
+    return (bad[-1] if bad else (lines[-1] if lines else "The build stopped without a message."))[-400:]
+
+
+def build_status() -> dict:
+    """The build going on or the last one (from this helper's memory, else the Command centre's history)."""
+    st = dict(build_state)
+    if not st.get("run_id"):
+        try:
+            last = [r for r in H["commandcentre"].history(100) if (r.get("argv") or [])[:2] == ["test", "--build"]]
+        except Exception:  # noqa: BLE001
+            last = []
+        if not last:
+            return {}
+        r = last[0]
+        st = {"run_id": r["id"], "by": r.get("by"), "busy": r.get("state") == "running",
+              "state": {"done": "done", "running": "running"}.get(r.get("state"), "failed")}
+    st.pop("then", None)
+    return st
+
+
+def build_detail(run_id: str, start: int = 0) -> dict:
+    d = H["commandcentre"].detail(run_id, 0)
+    rec = d["status"]
+    log = d["text"]
+    finished = rec.get("state") != "running" and not d.get("running")
+    ok = finished and rec.get("exit_code") == 0
+    return {"status": rec, "text": log[max(0, start):], "next": len(log.encode()) if start == 0 else d["next"],
+            "steps": build_steps(log, finished, ok), "finished": finished, "ok": ok,
+            "reason": "" if ok or not finished else _reason(log)}
+
+
+def build(body: dict) -> dict:
+    """Start `eax test --build` in the Command centre's short-lived container (it has the installation folder and
+    Docker); `then` (a run the API recorded) starts when the image is there."""
+    by, then = str(body.get("by") or "someone"), body.get("then") or None
+    cc = H["commandcentre"]
+    with _lock:
+        if build_state.get("busy"):
+            if then:
+                build_state["then"] = then
+            return {k: v for k, v in build_state.items() if k != "then"}
+        run_id = cc._new_id("testbuild")
+        cc._launch(["test", "--build"], by, run_id, env={"BUILDKIT_PROGRESS": "plain"})
+        build_state.clear()
+        build_state.update(busy=True, run_id=run_id, by=by, then=then, started=time.time(), state="running", reason="")
+    threading.Thread(target=_after_build, args=(run_id,), daemon=True).start()
+    return {"run_id": run_id, "busy": True, "state": "running",
+            "message": "Building the test runner: about 1.5 GB, 5 to 15 minutes."}
+
+
+def _after_build(run_id: str) -> None:
+    cc = H["commandcentre"]
+    time.sleep(5)
+    while cc._container(run_id):
+        time.sleep(5)
+    try:
+        d = build_detail(run_id)
+        ok, reason = d["ok"], d["reason"]
+    except Exception as exc:  # noqa: BLE001
+        ok, reason = False, str(exc)
+    if ok:
+        try:
+            ok = image_present(runner_image())
+            reason = "" if ok else "The build ended but the image for this version is not there."
+        except RuntimeError as exc:
+            ok, reason = False, str(exc)
+    with _lock:
+        then = build_state.get("then")
+        build_state.update(busy=False, state="done" if ok else "failed", reason=reason, finished=time.time(), then=None)
+    if then and ok:
+        try:
+            start(then)
+        except Exception as exc:  # noqa: BLE001
+            print(f"ops: the self-test after the build did not start ({exc})", flush=True)
+    elif then and then.get("run_id"):
+        try:
+            api = _api_container()                       # the runner is not there: the api's own copy closes the run
+            H["docker"]("exec", "-e", "EAX_TEST_RESULTS=/tmp/eax-test-results", api["Id"], "python", "-m", "eax.testing",
+                        "collect", "--run-id", str(int(then["run_id"])),
+                        "--error", f"The test runner could not be built: {reason}"[:1500], timeout=300)
+        except Exception as exc:  # noqa: BLE001
+            print(f"ops: could not close run {then.get('run_id')} ({exc})", flush=True)
+
+
+def auto_build_loop() -> None:
+    """When the setting is on: build the runner in the background after start-up (and so after an update, which
+    starts this helper again), and whenever the image for the running version is missing; looked at every 15 minutes."""
+    time.sleep(120)                           # let the stack come up first
+    while True:
+        try:
+            gave_up = build_state.get("state") == "failed" and build_state.get("by") == "automatic build"
+            if (auto_build(_deployment()) and not gave_up and not build_state.get("busy") and not current.get("busy")
+                    and not image_present(runner_image()) and not H["commandcentre"].busy()):
+                print("ops: building the test runner (automatic build is on)", flush=True)
+                build({"by": "automatic build"})
+        except Exception as exc:  # noqa: BLE001 - the API not up yet, Docker busy: try again later
+            print(f"ops: automatic test-runner build skipped ({exc})", flush=True)
+        time.sleep(900)
 
 
 def _runner_args(info: dict, name: str, folder: str, cmd: list[str]) -> list[str]:
@@ -177,7 +361,7 @@ def run_sequence(level: str, suites: list[str], role: str = "", area: str = "", 
         info = _api_container()
         image = runner_image(info)
         if not image_present(image):
-            raise RuntimeError(f"The test runner image {image} is not built yet: run eax test once on this server.")
+            raise RuntimeError(f"The test runner image {image} is not built yet: build it on System admin > Self-test or with eax test --build.")
         os.makedirs(f"{WORK}/tests/{folder}", exist_ok=True)
         os.chmod(f"{WORK}/tests/{folder}", 0o777)
         current["folder"] = folder

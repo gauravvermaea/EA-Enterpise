@@ -46,9 +46,15 @@ def scope(data: dict, domains: Iterable[str] | None = None, entity_type: str | N
     types = {str(t["id"]): t for t in data["entity_types"]}
     links = []
     for link in data["links"]:
-        codes = [c for c in link["relationship_types"] if c in keep]
-        if codes:
-            links.append({"source": str(link["source"]), "target": str(link["target"]), "relationship_types": codes})
+        at = [i for i, c in enumerate(link["relationship_types"]) if c in keep]
+        if at:
+            item = {"source": str(link["source"]), "target": str(link["target"]),
+                    "relationship_types": [link["relationship_types"][i] for i in at]}
+            extra = link.get("mapping_attributes") or []
+            limited = {link["relationship_types"][i]: extra[i] for i in at if i < len(extra) and extra[i]}
+            if limited:   # attributes of these allowed relationships only (D564)
+                item["mapping_attributes"] = limited
+            links.append(item)
 
     if entity_type:
         focus = next((t for t in data["entity_types"]

@@ -386,6 +386,19 @@ def _remove_metamodel_extras(conn, m: dict, spec: dict) -> int:
     on_type = {(t["code"].lower(), str(i["attribute"]).lower()) for t in spec.get("entity_types") or [] for i in t.get("attributes") or []}
     on_rel = {(r["code"].lower(), str(i["attribute"]).lower()) for r in spec.get("relationship_types") or []
               for i in r.get("attributes") or []}
+    on_map = {(str(a["source"]).lower(), str(a["relationship"]).lower(), str(a["target"]).lower(), str(i["attribute"]).lower())
+              for a in spec.get("allowed") or [] for i in a.get("attributes") or []}      # limited to some mappings (D564)
+    on_rel |= {(r, at) for _s, r, _t, at in on_map}
+    for r in _rows(conn, """SELECT x.id, s.code AS s, rt.code AS r, t.code AS t, a.code AS a
+                              FROM core.item_attribute_mappings x JOIN core.item_attributes i ON i.id = x.item_attribute_id
+                              JOIN core.attribute_types a ON a.id = i.attribute_type_id
+                              JOIN core.allowed_relationships ar ON ar.id = x.allowed_relationship_id
+                              JOIN core.entity_types s ON s.id = ar.source_type_id JOIN core.entity_types t ON t.id = ar.target_type_id
+                              JOIN core.relationship_types rt ON rt.id = ar.relationship_type_id
+                             WHERE x.model_id = :m AND NOT x.is_deleted""", m=mid):
+        if (r["s"].lower(), r["r"].lower(), r["t"].lower(), r["a"].lower()) not in on_map:
+            _exec(conn, "UPDATE core.item_attribute_mappings SET is_deleted = true WHERE id = :i", i=r["id"])
+            n += 1
     for r in _rows(conn, """SELECT i.id, t.code AS t, rt.code AS r, a.code AS a FROM core.item_attributes i
                               JOIN core.attribute_types a ON a.id = i.attribute_type_id
                               LEFT JOIN core.entity_types t ON t.id = i.entity_type_id

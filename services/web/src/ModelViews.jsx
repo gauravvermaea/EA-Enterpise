@@ -14,7 +14,7 @@ import { apiFetch, canOn } from "./auth";
 import { downloadCsv } from "./exporting";
 import { PendingMark } from "./ModelMarks";
 import { EntityChanges, useEntityChanges, WasValue } from "./Changes";
-import { AddRelationshipButton, EntityActions, NewEntityButton, NewRelationshipButton, RemoveRelationshipButton, RollBackButton, RowActions } from "./DataEntry";
+import { AddRelationshipButton, EntityActions, NewEntityButton, NewRelationshipButton, RelationshipAttributesButton, RemoveRelationshipButton, RollBackButton, RowActions } from "./DataEntry";
 import { fmtDate, fmtDateTime } from "./fmt";
 import { EntityTree } from "./Trees";
 import { EntityReasons, fieldClass, FieldQuality, q2, QualityBadge, QualityCell, RecheckAll, ScoreChip, useEntityQuality, useTypeQuality, useTypeScores } from "./QualityBits";
@@ -446,6 +446,7 @@ export function RelationshipsOfType({ model, m, relTypeId }) {
               <td><Swatch colour={r.target_colour} /> <a href={`#/metamodel/${model}/entity/${r.target_id}`}>{r.target_name}</a> <span className="quiet">{r.target_display_id}</span></td>
               <td className="quiet">{r.target_type}</td>
               <td>{!r.allowed && <span className="sev warning" title="No mapping allows this pair of types">not in metamodel</span>}
+                {" "}<RelationshipAttributesButton model={model} m={m} r={r} />
                 {" "}<RemoveRelationshipButton model={model} m={m} e={{ name: r.source_name }} r={{ id: r.id, verb: r.verb, other_name: r.target_name }} /></td>
             </tr>
           ))}
@@ -615,6 +616,7 @@ function RelationsTab({ model, m, e }) {
                   <td className="quiet">{r.other_type}</td>
                   <td className="quiet">{r.status}</td>
                   <td>{!r.allowed && <span className="sev warning" title="No mapping in the metamodel allows this">not in metamodel</span>}
+                    {" "}<RelationshipAttributesButton model={model} m={m} r={r} />
                     {" "}<RemoveRelationshipButton model={model} m={m} e={e} r={r} /></td>
                 </tr>
               ))}

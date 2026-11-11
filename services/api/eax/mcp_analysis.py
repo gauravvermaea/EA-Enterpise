@@ -598,6 +598,70 @@ async def change_entities(model: str, changes: list[dict], commit_message: str =
 
 
 @mcp.tool()
+async def get_relationship(model: str, relationship: str) -> Any:
+    """One relationship (by guid): its type, name, ends, the attributes it has (its type's, and those of its allowed
+    relationship: source type + type + target type) with their values and which are required, and its quality
+    findings (a required value missing, a value kept that no longer belongs) (D563, D564)."""
+    from . import content as ct
+    return await _run(lambda conn: ct.relationship_detail(conn, str(repo.get_model(conn, model)["id"]), relationship))
+
+
+@mcp.tool()
+async def change_relationships(model: str, changes: list[dict], commit_message: str = "", confirm: str = "",
+                               why: str = "") -> Any:
+    """Name relationships and set their attribute values as YOUR changes: changes = [{relationship: guid, name?,
+    values: {attribute code or name: value}?}] (an empty value clears it; the type and ends stay). Only the attributes
+    of the relationship's type and its allowed relationship are accepted (get_relationship lists them). They stay your
+    uncommitted changes unless commit_message is given and you may commit. The model is tagged first. First call: a
+    preview (each relationship's current and new values) and a confirm token; call again with confirm=<token>."""
+    from . import content as ct
+    if not changes:
+        return {"error": "Give the changes: [{relationship, name?, values?}]."}
+    if len(changes) > 2000:
+        return {"error": "At most 2,000 relationships at a time."}
+    args = {"model": model, "changes": changes, "commit_message": commit_message}
+
+    def resolved(conn):
+        mid = str(repo.get_model(conn, model)["id"])
+        rows = []
+        for c in changes:
+            r = ct.relationship_detail(conn, mid, c.get("relationship"))
+            data = {k: c[k] for k in ("name", "values") if c.get(k) is not None}
+            rows.append((r, data))
+        return rows
+
+    def preview(conn, user):
+        m = repo.get_model(conn, model)
+        rows = resolved(conn)
+        shown = [{"relationship": f"{r['source_name']} {r['relationship_type']} {r['target_name']}",
+                  "changes": {k: {"now": (r.get("name") if k == "name" else {a: (r.get("values") or {}).get(a) for a in v}),
+                                  "new": v} for k, v in data.items()}} for r, data in rows[:200]]
+        commits = cm.uses_commits(m)
+        return {"model": m["name"], "relationships": len(rows), "first": shown,
+                "will": f"Change {len(rows)} relationships in {m['name']} as your changes"
+                        + (", then commit them" if commit_message and commits and cm.may_commit(conn, user, m) else
+                           " (uncommitted until a committer commits them)" if commits else "") + ", after tagging it."}
+
+    def apply(conn, user):
+        m = repo.get_model(conn, model)
+        items = [("relationship.rename", {"relationship": str(r["id"]), **data}) for r, data in resolved(conn)]
+        res = cm.record_many(conn, m["id"], user.username, items)
+        ok = [x for x in res if x.get("ok")]
+        failed = [x["error"] for x in res if not x.get("ok")]
+        out = {"changed": len(ok), "failed": failed[:30], "pending": cm.uses_commits(m)}
+        ids = [x["kept"]["change"] for x in ok if x.get("kept")]
+        if commit_message and ids and cm.uses_commits(m) and cm.may_commit(conn, user, m):
+            done = cm.commit(conn, m["id"], user, None, ids, None, f"{commit_message} (through MCP)")
+            out.update(pending=False, commit=done.get("number"))
+        out["message"] = f"{len(ok)} relationships changed" + (
+            f", committed as commit {out['commit']}" if out.get("commit") else
+            ": your uncommitted changes" if out["pending"] else "") + (f"; {len(failed)} failed" if failed else "") + "."
+        return out
+    return await mcp_ops.operate("change_relationships", args, confirm, preview, apply, tag=[model],
+                                 label="changing relationships")
+
+
+@mcp.tool()
 async def why_commit_blocked(model: str) -> Any:
     """Why your changes in a model cannot be committed now, and what would fix it: the model's lock or freeze, your role,
     and the errors on your uncommitted changes (errors block a commit, warnings do not)."""

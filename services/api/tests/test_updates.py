@@ -267,7 +267,7 @@ def test_a_scheduled_update_starts_when_its_time_comes(tmp_path, monkeypatch):
 def test_times_are_read_plainly(tmp_path, monkeypatch):
     m = _ops_updates(tmp_path, monkeypatch)
     assert m._parse_at("23:59").endswith("Z")
-    later = (datetime.now(UTC) + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M")
+    later = (datetime.now(UTC) + timedelta(days=2)).strftime("%Y-%m-%dT12:00")      # midday: no time zone can move its date
     assert m._parse_at(later).startswith(later[:10])
     with pytest.raises(ValueError):
         m._parse_at("2020-01-01T10:00")

@@ -88,8 +88,30 @@ const SETUP = {
   await wait(500);
   check((await events('eax-placed')).length === 4, '4 placed');
   check(await inFrame("return !!R('r-1') && a(R('r-1'),'ea_uncommitted') !== '1';"), 'the relationship the model has is drawn (committed, solid)');
-  check(await inFrame("return a(R('r-1'),'label')==='performs' && /labelBackgroundColor=#ffffff/.test(m.getStyle(R('r-1')));"), "a relationship's name is the line's label (D412)");
-  check(await inFrame("return !g.isCellEditable(R('r-1'));"), 'the label stays locked');
+  check(await inFrame("return a(R('r-1'),'label')==='performs' && /labelBackgroundColor=#ffffff/.test(m.getStyle(R('r-1')));"), "a relationship's name is kept as the line's label (D412)");
+  // the label shows name, type and values (D565)
+  const shown = await inFrame("return g.convertValueToString(R('r-1'));");
+  check(/<b>performs<\/b>/.test(shown) && /\(<\/?i>?|\(Assignment\)|<i>\(/.test(shown) && /Assignment|Serving|Realization|Association|Composition|Aggregation/.test(shown),
+    'the line shows its name in bold and its type in italics', shown);
+  check(await inFrame("return ui.eaxLineLabel('Nightly', 'Flow', {Frequency: 'Daily'}, false);") === 'Nightly (Flow) [Frequency:Daily]', 'label format: name (Type) [key:value]');
+  check(await inFrame("return ui.eaxLineLabel('', 'Flow', {}, false);") === '(Flow)', 'no name: (Type); no values: no brackets');
+  check(await inFrame("return ui.eaxLineLabel('a', 'Flow', {A: 1, B: 2, C: 3, D: 4, E: 5}, false);") === 'a (Flow) [A:1 B:2 C:3 +2]', 'more than 3 values: the first 3 and +n');
+  check(!/<script/.test(await inFrame("return ui.eaxLineLabel('<script>', 'Flow', {k: '<b>'}, true);")), 'the label is escaped');
+  check(await inFrame("return g.isCellEditable(R('r-1'));"), 'a bound line may be renamed in place');
+  check(await inFrame("return g.getEditingValue(R('r-1')) === 'performs';"), 'editing starts from the name alone, never the type');
+  // renaming in place: the type stays, the host is asked to commit it
+  await inFrame("m.setValue(R('r-1'), (function () { const v = R('r-1').value.cloneNode(true); v.setAttribute('label', 'runs'); return v; })());"); await wait(300);
+  const ren = await last('eax-rel-rename');
+  check(ren && ren.relationship === 'r-1' && ren.name === 'runs', 'renaming a line posts eax-rel-rename', ren);
+  check(await inFrame("return a(R('r-1'),'ea_rel') !== null && /\\(/.test(g.convertValueToString(R('r-1'))) && a(R('r-1'),'label') === 'runs';"),
+    'the line keeps its type after the rename');
+  await send({ eax: 'rel-values', values: { 'r-1': { Frequency: 'Daily', 'Data volume': '2 GB' } } }); await wait(200);
+  check(/Frequency:Daily/.test(await inFrame("return g.convertValueToString(R('r-1'));")), 'rel-values shows key:value on the line');
+  await send({ eax: 'line-labels', attrs: false }); await wait(200);
+  check(!/Frequency/.test(await inFrame("return g.convertValueToString(R('r-1'));")), 'Line labels: name and type hides the values');
+  await send({ eax: 'line-labels', attrs: true }); await wait(100);
+  await send({ eax: 'rel-name', id: 'r-1', name: 'performs' }); await wait(200);
+  check(await inFrame("return a(R('r-1'),'label') === 'performs';"), 'rel-name puts the model\'s name back');
   check(await inFrame("return /image=data:image\\/png,/.test(m.getStyle(F('e-app')));"), "the entity's own icon shows (box form)");
   check(await inFrame("return /fillColor=#B0D0D9/.test(m.getStyle(F('e-app')));"), 'type colour kept with an icon');
 
@@ -383,9 +405,9 @@ const SETUP = {
   check(await inFrame("const x = new XMLSerializer().serializeToString(F('e-proc').value); return /label=\"Register Claim\"/.test(x) && !/<b>|&lt;b&gt;/.test(x);"), 'the saved file: our attributes hold the plain name, no markup');
   check(await inFrame("const p2 = cells().find(c => c.vertex && a(c,'ea_placeholder')==='1' && !a(c,'ea_id')); const t = !!p2 && g.convertValueToString(p2); return !!p2 && t.indexOf('(unbound) ') === 0 && (g.isHtmlLabel(p2) ? /: <i>/.test(t) : / : /.test(t)) && !/<b>/.test(t);"),
     'a placeholder shows "(unbound) : <i>Entity Type</i>"');
-  check(await inFrame("const e = R('r-ps10'); return g.convertValueToString(e) === 'Realization';"), 'a relationship with no name shows its type on the line');
+  check(await inFrame("const e = R('r-ps10'); const t = g.convertValueToString(e); return t.replace(/<[^>]+>/g, '') === '(Realization)';"), 'a relationship with no name shows "(Type)" on the line (D565)');
   await send({ eax: 'resync', entities: {}, relationships: [{ id: 'r-ps10', type: 'Realization', source: 'e-proc', target: 'e-svc10', name: 'pays', pending: false }] }); await wait(300);
-  check(await inFrame("return g.convertValueToString(R('r-ps10')) === 'pays';"), 'a named one shows its name');
+  check(await inFrame("return g.convertValueToString(R('r-ps10')).replace(/<[^>]+>/g, '') === 'pays (Realization)';"), 'a named one shows its name and keeps its type (D565)');
   // the same entity twice: the Relationships tab at the second copy draws the line there, not a new relationship
   await send({ eax: 'place', entity: { id: 'e-proc', name: 'Register Claim', type: 'Process' }, at: { x: 900, y: 600 }, relationships: [] }); await wait(300);
   const second = (await last('eax-placed')).cell;

@@ -328,13 +328,16 @@ def _weight(v, what: str):
 
 def _op_attribute_create(conn, m, p):
     mid = m["_id"]
-    owner_type = owner_rel = None
+    owner_type = owner_rel = mapping = None
     if p.get("entity_type"):
         owner_type = _type_by_ref(conn, mid, p["entity_type"])
+    elif p.get("mapping"):   # an attribute of one allowed relationship (source + type + target), D564
+        mapping = _row(conn, "allowed_relationships", mid, p["mapping"], "mapping")
+        owner_rel = _one(conn, "SELECT * FROM core.relationship_types WHERE id = :i", i=mapping["relationship_type_id"])
     elif p.get("relationship_type"):
         owner_rel = _rel_type_by_ref(conn, mid, p["relationship_type"])
     else:
-        raise EditError("Give the entity type (or relationship type) the attribute belongs to.")
+        raise EditError("Give the entity type, relationship type or allowed relationship the attribute belongs to.")
     if p.get("existing_attribute"):
         attr = _row(conn, "attribute_types", mid, p["existing_attribute"], "attribute")
     else:
@@ -358,6 +361,8 @@ def _op_attribute_create(conn, m, p):
                     m=mid, c=code, n=p["name"].strip(), d=p.get("description", ""), t=dtype, p=pick_list_id,
                     u=p.get("unit", "") or "", col=column, qw=_weight(p.get("quality_weight"), "data quality weight"))
     default = typed_default(attr["data_type_code"], p.get("default_value"), _pick_values(conn, attr["pick_list_id"]))
+    if mapping:
+        return _attribute_on_mapping(conn, mid, mapping, owner_rel, attr, p)
     owner_col, owner_id = ("entity_type_id", owner_type["id"]) if owner_type else ("relationship_type_id", owner_rel["id"])
     if _one(conn, f"SELECT 1 AS x FROM core.item_attributes WHERE {owner_col} = :o AND attribute_type_id = :a AND NOT is_deleted",
             o=owner_id, a=attr["id"]):
@@ -377,6 +382,75 @@ def _op_attribute_create(conn, m, p):
     req = " (mandatory)" if p.get("is_required") else ""
     return ({"item": item["guid"], "attribute": attr["guid"], "filled_with_default": filled},
             f"Added attribute {attr['name']}{req} to {where}", [owner_type["id"]] if owner_type else [])
+
+
+def _mapping_name(conn, mapping_id: int) -> str:
+    r = _one(conn, """SELECT s.name AS s, t.name AS t, rt.name AS r FROM core.allowed_relationships a
+                        JOIN core.entity_types s ON s.id = a.source_type_id JOIN core.entity_types t ON t.id = a.target_type_id
+                        JOIN core.relationship_types rt ON rt.id = a.relationship_type_id WHERE a.id = :i""", i=mapping_id)
+    return f"{r['s']} - {r['r']} - {r['t']}"
+
+
+def _attribute_on_mapping(conn, mid: int, mapping: dict, rel: dict, attr: dict, p: dict):
+    """An attribute for one allowed relationship only (D564), e.g. Port on Node - Association - Node: the relationship
+    type gets the attribute (limited), and the mapping is listed for it with its own "required". An attribute the type
+    already has for every mapping is refused: it applies here already."""
+    item = _one(conn, """SELECT ia.id, ia.guid, EXISTS (SELECT 1 FROM core.item_attribute_mappings x WHERE x.item_attribute_id = ia.id
+                                                           AND NOT x.is_deleted) AS limited
+                           FROM core.item_attributes ia WHERE ia.relationship_type_id = :r AND ia.attribute_type_id = :a
+                            AND NOT ia.is_deleted""", r=rel["id"], a=attr["id"])
+    where = _mapping_name(conn, mapping["id"])
+    if item and not item["limited"]:
+        raise EditError(f"{attr['name']} is already an attribute of every {rel['name']} relationship, so {where} has it.", 409)
+    if not item:
+        sort = _one(conn, "SELECT coalesce(max(sort_order), 0) + 10 AS s FROM core.item_attributes WHERE relationship_type_id = :r",
+                    r=rel["id"])["s"]
+        item = _one(conn, """INSERT INTO core.item_attributes (model_id, attribute_type_id, relationship_type_id, is_required, section,
+                                                               sort_order, help_text)
+                             VALUES (:m, :a, :r, false, :s, :so, :h) RETURNING id, guid""",
+                    m=mid, a=attr["id"], r=rel["id"], s=p.get("section") or "General", so=sort, h=p.get("help_text", "") or "")
+    if _one(conn, """SELECT 1 AS x FROM core.item_attribute_mappings WHERE item_attribute_id = :i AND allowed_relationship_id = :a
+                      AND NOT is_deleted""", i=item["id"], a=mapping["id"]):
+        raise EditError(f"{attr['name']} is already an attribute of {where}.", 409)
+    _exec(conn, """INSERT INTO core.item_attribute_mappings (model_id, item_attribute_id, allowed_relationship_id, is_required)
+                   VALUES (:m, :i, :a, :r)""", m=mid, i=item["id"], a=mapping["id"], r=bool(p.get("is_required")))
+    req = " (mandatory)" if p.get("is_required") else ""
+    return ({"item": item["guid"], "attribute": attr["guid"], "mapping": mapping["guid"]},
+            f"Added attribute {attr['name']}{req} to {where}", [mapping["source_type_id"], mapping["target_type_id"]])
+
+
+def _op_attribute_unmap(conn, m, p):
+    """Takes an attribute off one allowed relationship (D564). Its values on relationships of that mapping are kept and
+    shown as not belonging (a quality finding), never deleted. When no mapping is left, the attribute leaves the type."""
+    _need(p, "item", "mapping")
+    it = _item(conn, m["_id"], p["item"])
+    mapping = _row(conn, "allowed_relationships", m["_id"], p["mapping"], "mapping")
+    row = _one(conn, """SELECT id FROM core.item_attribute_mappings WHERE item_attribute_id = :i AND allowed_relationship_id = :a
+                         AND NOT is_deleted""", i=it["id"], a=mapping["id"])
+    if not row:
+        raise EditError(f"{it['attr_name']} is not limited to {_mapping_name(conn, mapping['id'])}.", 404)
+    _exec(conn, "UPDATE core.item_attribute_mappings SET is_deleted = true WHERE id = :i", i=row["id"])
+    left = _one(conn, "SELECT count(*) AS n FROM core.item_attribute_mappings WHERE item_attribute_id = :i AND NOT is_deleted",
+                i=it["id"])["n"]
+    if not left:   # never let it fall back to "every mapping"
+        _exec(conn, "UPDATE core.item_attributes SET is_deleted = true WHERE id = :i", i=it["id"])
+    return ({"item": it["guid"], "attribute_left_the_type": not left},
+            f"Removed attribute {it['attr_name']} from {_mapping_name(conn, mapping['id'])}",
+            [mapping["source_type_id"], mapping["target_type_id"]])
+
+
+def _op_attribute_mapping_required(conn, m, p):
+    """Whether a limited attribute is required on one allowed relationship (D564)."""
+    _need(p, "item", "mapping")
+    it = _item(conn, m["_id"], p["item"])
+    mapping = _row(conn, "allowed_relationships", m["_id"], p["mapping"], "mapping")
+    n = _exec(conn, """UPDATE core.item_attribute_mappings SET is_required = :r WHERE item_attribute_id = :i
+                        AND allowed_relationship_id = :a AND NOT is_deleted""",
+              r=bool(p.get("is_required")), i=it["id"], a=mapping["id"]).rowcount
+    if not n:
+        raise EditError(f"{it['attr_name']} is not limited to {_mapping_name(conn, mapping['id'])}.", 404)
+    return ({"item": it["guid"]}, f"{it['attr_name']} on {_mapping_name(conn, mapping['id'])}: "
+            f"{'mandatory' if p.get('is_required') else 'optional'}", [mapping["source_type_id"], mapping["target_type_id"]])
 
 
 def _item(conn, mid: int, guid) -> dict:
@@ -738,6 +812,8 @@ OPS = {
     "attribute.create": _op_attribute_create,
     "attribute.update": _op_attribute_update,
     "attribute.remove": _op_attribute_remove,
+    "attribute.unmap": _op_attribute_unmap,
+    "attribute.mapping_required": _op_attribute_mapping_required,
     "lifecycle.create": _op_lifecycle_create,
     "pick_list.create": _op_pick_list_create,
     "pick_list.add_value": _op_pick_list_add_value,

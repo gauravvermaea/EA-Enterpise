@@ -1,8 +1,8 @@
 # EA Explorer test runner image (phase 36.1, D367, D523): the API's own code, plus what the tests need: pytest,
 # Playwright with Chromium (the browser journeys) and pip-audit (the Python dependency scan). Built with
-#   docker compose --profile test build testrunner        (eax test does it)
-# and started on demand by the operations helper (the Health page, eax test) or in CI. It builds its own test database
-# and runs its own copy of the API on it: see eax/testing/__init__.py.
+#   eax test --build   (docker compose --profile test build testrunner; also System admin > Self-test, D570)
+# and started on demand by the operations helper (System admin > Self-test, eax test) or in CI. It tests the running
+# installation in fixtures of its own (D529): see eax/testing/__init__.py. About 1.5 GB.
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -13,13 +13,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 COPY requirements.txt requirements-dev.txt ./
-RUN pip install -r requirements.txt -r requirements-dev.txt "playwright==1.48.0" "pip-audit==2.7.3" \
+# each step echoes EAX-STEP <key>, which the Self-test page shows as the build goes (D570)
+RUN echo "EAX-STEP python: Python packages" && pip install -r requirements.txt -r requirements-dev.txt
+RUN echo "EAX-STEP chromium: Chromium for the browser tests" && pip install "playwright==1.48.0" \
  && python -m playwright install --with-deps chromium \
  && rm -rf /var/lib/apt/lists/*
+RUN echo "EAX-STEP scanners: pip-audit" && pip install "pip-audit==2.7.3"
 
 COPY . .
-RUN useradd --system --uid 10001 --home /app eax && mkdir -p /results && chown eax /results \
- && chmod -R a+rx /ms-playwright
+RUN echo "EAX-STEP code: EA Explorer's code" && useradd --system --uid 10001 --home /app eax \
+ && mkdir -p /results && chown eax /results && chmod -R a+rx /ms-playwright
 
 USER eax
 ENTRYPOINT ["python", "-m", "eax.testing"]

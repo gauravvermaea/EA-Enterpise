@@ -147,20 +147,44 @@ def _coerce(attr: dict, value: Any) -> Any:
     return str(value).strip() if isinstance(value, str) else value
 
 
-def _plan_values(conn, m: dict, tid: int, values: dict[str, Any]) -> list[tuple[dict, str, Any]]:
-    """Checks and converts the given attribute values (by attribute code) before anything is written:
-    (attribute, column, value) for each; a bad value is refused with the field's name."""
+# a relationship type's attribute applies to every allowed relationship of the type, unless it is limited to some of
+# them (core.item_attribute_mappings, D564): then only to those
+_FOR_MAPPING = """(NOT EXISTS (SELECT 1 FROM core.item_attribute_mappings x WHERE x.item_attribute_id = ia.id AND NOT x.is_deleted)
+                   OR EXISTS (SELECT 1 FROM core.item_attribute_mappings x WHERE x.item_attribute_id = ia.id AND NOT x.is_deleted
+                              AND x.allowed_relationship_id = :ar))"""
+
+
+def allowed_id(conn, rel_type_id: int, source_entity: int, target_entity: int) -> int | None:
+    """The allowed relationship (mapping) a relationship of this type between these two entities falls under."""
+    r = _one(conn, """SELECT a.id FROM core.allowed_relationships a
+                        JOIN core.entities s ON s.id = :s JOIN core.entities t ON t.id = :t
+                       WHERE a.relationship_type_id = :r AND a.source_type_id = s.entity_type_id
+                         AND a.target_type_id = t.entity_type_id AND NOT a.is_deleted LIMIT 1""",
+             r=rel_type_id, s=source_entity, t=target_entity)
+    return r["id"] if r else None
+
+
+def _plan_values(conn, m: dict, tid: int, values: dict[str, Any], owner: str = "entity_type_id",
+                 allowed: int | None = None) -> list[tuple[dict, str, Any]]:
+    """Checks and converts the given attribute values (by attribute code or name) before anything is written:
+    (attribute, column, value) for each; a bad value is refused with the field's name. owner is the type the
+    attributes belong to: an entity type (entity_type_id) or a relationship type (relationship_type_id, D563)."""
     if not values:
         return []
-    attrs = {a["code"].lower(): a for a in _rows(conn, """
+    found = _rows(conn, f"""
         SELECT at.id, at.code, at.name, at.data_type_code AS data_type, dt.name AS data_type_name, at.pick_list_id
           FROM core.item_attributes ia JOIN core.attribute_types at ON at.id = ia.attribute_type_id AND NOT at.is_deleted
           JOIN core.data_types dt ON dt.code = at.data_type_code
-         WHERE ia.entity_type_id = :t AND NOT ia.is_deleted""", t=tid)}
+         WHERE ia.{owner} = :t AND NOT ia.is_deleted{" AND " + _FOR_MAPPING if owner == "relationship_type_id" else ""}""",
+        t=tid, ar=allowed or 0)
+    attrs = {a["code"].lower(): a for a in found}
+    attrs.update({a["name"].lower(): a for a in found if a["name"].lower() not in attrs})
     plan = []
     for code, raw in values.items():
         a = attrs.get(str(code).lower())
         if not a:
+            if owner == "relationship_type_id":
+                raise EditError(f"{code!r} is not an attribute of this relationship (its type and the types at its ends).")
             raise EditError(f"{code!r} is not an attribute of this entity's type.")
         if a["pick_list_id"]:
             a["pick_list_values"] = [r["value"] for r in _rows(conn, """SELECT value FROM core.pick_list_values
@@ -172,14 +196,15 @@ def _plan_values(conn, m: dict, tid: int, values: dict[str, Any]) -> list[tuple[
 
 
 def _set_values(conn, m: dict, eid: int, tid: int, values: dict[str, Any] | None = None,
-                plan: list[tuple[dict, str, Any]] | None = None) -> list[str]:
-    """Writes attribute values (checked first by _plan_values); an empty value clears it. Returns the codes changed."""
+                plan: list[tuple[dict, str, Any]] | None = None, owner_col: str = "entity_id") -> list[str]:
+    """Writes attribute values (checked first by _plan_values); an empty value clears it. Returns the codes changed.
+    owner_col: entity_id for an entity's values, relationship_id for a relationship's (D563)."""
     if plan is None:
-        plan = _plan_values(conn, m, tid, values or {})
+        plan = _plan_values(conn, m, tid, values or {}, owner="entity_type_id")
     changed = []
     for a, column, value in plan:
         current = _one(conn, f"""SELECT id, {column} AS v FROM core.attribute_values
-                                  WHERE entity_id = :e AND attribute_type_id = :a AND NOT is_deleted""", e=eid, a=a["id"])
+                                  WHERE {owner_col} = :e AND attribute_type_id = :a AND NOT is_deleted""", e=eid, a=a["id"])
         if value is None:
             if current:
                 _exec(conn, "UPDATE core.attribute_values SET is_deleted = true WHERE id = :i", i=current["id"])
@@ -191,7 +216,7 @@ def _set_values(conn, m: dict, eid: int, tid: int, values: dict[str, Any] | None
             _exec(conn, f"UPDATE core.attribute_values SET {column} = :v, rule_override = NULL WHERE id = :i",
                   v=value, i=current["id"])
         else:
-            _exec(conn, f"""INSERT INTO core.attribute_values (model_id, attribute_type_id, entity_id, {column})
+            _exec(conn, f"""INSERT INTO core.attribute_values (model_id, attribute_type_id, {owner_col}, {column})
                             VALUES (:m, :a, :e, :v)""", m=m["_id"], a=a["id"], e=eid, v=value)
         changed.append(a["code"])
     return changed
@@ -411,16 +436,45 @@ def add_relationship(conn, model: Any, data: dict, actor: str) -> dict:
     if _one(conn, """SELECT 1 AS x FROM core.relationships WHERE relationship_type_id = :r AND source_entity_id = :s
                       AND target_entity_id = :t AND NOT is_deleted""", r=rt["_id"], s=src, t=tgt):
         raise EditError("These two entities already have this relationship.", 409)
+    plan = _plan_values(conn, m, rt["_id"], data.get("values") or {}, owner="relationship_type_id",   # checked first (D563)
+                        allowed=allowed_id(conn, rt["_id"], src, tgt))
     rid = _exec(conn, """INSERT INTO core.relationships (guid, model_id, relationship_type_id, source_entity_id, target_entity_id, name)
                          VALUES (coalesce(CAST(:g AS uuid), gen_random_uuid()), :m, :r, :s, :t, :n) RETURNING guid""",
                 g=str(repo._as_guid(data["guid"])) if data.get("guid") else None,
                 m=m["_id"], r=rt["_id"], s=src, t=tgt, n=(data.get("name") or "").strip()).scalar_one()
+    if plan or data.get("carry_values_from"):
+        row = _one(conn, "SELECT id FROM core.relationships WHERE guid = :g", g=str(rid))
+        if data.get("carry_values_from"):   # its ends or type changed: the values come along (D564)
+            carry_values(conn, m, data["carry_values_from"], row["id"], rt["_id"])
+        if plan:
+            _set_values(conn, m, row["id"], rt["_id"], plan=plan, owner_col="relationship_id")
     out = {"id": str(rid), "relationship_type": rt["name"], "outside_metamodel": outside is not None}
     if outside is not None:
         out["metamodel_version"] = outside
         out["note"] = (f"The metamodel did not allow this; {rt['name']} between these types was added to it as "
                        f"version {outside}, flagged for a Model Admin to review (D49).")
     return out
+
+
+def carry_values(conn, m: dict, old: Any, new_id: int, rel_type_id: int) -> int:
+    """Copies a replaced relationship's values to the one replacing it (its ends or type changed). Values of
+    attributes its (new) type has are kept even when the new mapping does not have them: quality then lists them as
+    not belonging (D564), and nothing is lost. Values of attributes the new type does not have at all are left behind
+    with the old relationship (in its history)."""
+    guid = repo._as_guid(old)
+    if not guid:
+        return 0
+    return _exec(conn, """
+        INSERT INTO core.attribute_values (model_id, attribute_type_id, relationship_id, value_text, value_number,
+                                           value_date, value_bool, value_ref)
+        SELECT v.model_id, v.attribute_type_id, :n, v.value_text, v.value_number, v.value_date, v.value_bool, v.value_ref
+          FROM core.attribute_values v JOIN core.relationships r ON r.id = v.relationship_id
+         WHERE r.guid = :g AND r.model_id = :m AND NOT v.is_deleted
+           AND EXISTS (SELECT 1 FROM core.item_attributes ia WHERE ia.relationship_type_id = :t
+                        AND ia.attribute_type_id = v.attribute_type_id AND NOT ia.is_deleted)
+           AND NOT EXISTS (SELECT 1 FROM core.attribute_values x WHERE x.relationship_id = :n
+                            AND x.attribute_type_id = v.attribute_type_id AND NOT x.is_deleted)""",
+                 n=new_id, g=str(guid), m=m["_id"], t=rel_type_id).rowcount
 
 
 def delete_relationship(conn, model: Any, relationship: Any) -> dict:
@@ -432,6 +486,124 @@ def delete_relationship(conn, model: Any, relationship: Any) -> dict:
         raise EditError("No such relationship in this model.", 404)
     _exec(conn, "UPDATE core.relationships SET is_deleted = true WHERE id = :i", i=row["id"])
     return {"deleted": str(guid)}
+
+
+def relationship_attributes(conn, rel_type_id: int, allowed: int | None = None, every: bool = False) -> list[dict]:
+    """The attributes a relationship carries (D563, D564): its type's attributes for every mapping, plus those limited to
+    its mapping (`allowed`), where the mapping's own "required" wins. every=True: all the type's attributes, each with
+    the mappings it is limited to (empty: every mapping). code, name, data type, required, pick-list values."""
+    out = _rows(conn, f"""
+        SELECT at.code, at.name, at.data_type_code AS data_type, at.pick_list_id, ia.sort_order,
+               coalesce((SELECT x.is_required FROM core.item_attribute_mappings x WHERE x.item_attribute_id = ia.id
+                          AND NOT x.is_deleted AND x.allowed_relationship_id = :ar), ia.is_required) AS required,
+               ARRAY(SELECT st.name || ' - ' || tt.name FROM core.item_attribute_mappings x
+                       JOIN core.allowed_relationships a ON a.id = x.allowed_relationship_id
+                       JOIN core.entity_types st ON st.id = a.source_type_id JOIN core.entity_types tt ON tt.id = a.target_type_id
+                      WHERE x.item_attribute_id = ia.id AND NOT x.is_deleted ORDER BY 1) AS only_for
+          FROM core.item_attributes ia JOIN core.attribute_types at ON at.id = ia.attribute_type_id AND NOT at.is_deleted
+         WHERE ia.relationship_type_id = :r AND NOT ia.is_deleted {"" if every else "AND " + _FOR_MAPPING}
+         ORDER BY ia.sort_order, at.name""", r=rel_type_id, ar=allowed or 0)
+    for a in out:
+        a["only_for"] = list(a["only_for"] or [])
+        a["values"] = [r["value"] for r in _rows(conn, """SELECT value FROM core.pick_list_values WHERE pick_list_id = :p
+                                                           AND NOT is_deleted ORDER BY sort_order""", p=a["pick_list_id"])] \
+            if a["pick_list_id"] else []
+        a.pop("pick_list_id", None)
+        a.pop("sort_order", None)
+    return out
+
+
+def _value_text(v: dict) -> Any:
+    for k in ("value_text", "value_number", "value_date", "value_bool"):
+        if v.get(k) is not None:
+            x = v[k]
+            if isinstance(x, Decimal):
+                x = int(x) if x == x.to_integral_value() else float(x)
+            return x.isoformat() if isinstance(x, dt.date) else x
+    return v.get("ref_name")
+
+
+def relationship_values(conn, rel_ids: list[int]) -> dict[int, dict[str, Any]]:
+    """Each relationship's attribute values by attribute name, in the type's order (D563)."""
+    if not rel_ids:
+        return {}
+    rows = _rows(conn, """SELECT v.relationship_id AS rid, at.code, at.name, v.value_text, v.value_number, v.value_date, v.value_bool,
+                                 e.name AS ref_name
+                            FROM core.attribute_values v JOIN core.attribute_types at ON at.id = v.attribute_type_id
+                            JOIN core.relationships r ON r.id = v.relationship_id
+                            LEFT JOIN core.item_attributes ia ON ia.attribute_type_id = at.id
+                                 AND ia.relationship_type_id = r.relationship_type_id AND NOT ia.is_deleted
+                            LEFT JOIN core.entities e ON e.id = v.value_ref
+                           WHERE v.relationship_id = ANY (CAST(:ids AS bigint[])) AND NOT v.is_deleted
+                           ORDER BY ia.sort_order NULLS LAST, at.name""", ids=list(rel_ids))
+    out: dict[int, dict[str, Any]] = {}
+    for r in rows:
+        x = _value_text(r)
+        if x not in (None, ""):
+            out.setdefault(r["rid"], {})[r["name"]] = x
+    return out
+
+
+def relationship_detail(conn, model: Any, relationship: Any) -> dict:
+    """One relationship: name, type, ends, its attribute values, the attributes it may carry (its type's and its
+    mapping's, D564) and what is wrong with them."""
+    m = repo.get_model(conn, model)
+    guid = repo._as_guid(relationship)
+    r = _one(conn, """SELECT r.id, r.guid, r.name, r.relationship_type_id, r.source_entity_id, r.target_entity_id,
+                             rt.code AS type_code, rt.name AS relationship_type, rt.verb,
+                             s.guid AS source, s.name AS source_name, st.name AS source_type,
+                             t.guid AS target, t.name AS target_name, tt.name AS target_type
+                        FROM core.relationships r JOIN core.relationship_types rt ON rt.id = r.relationship_type_id
+                        JOIN core.entities s ON s.id = r.source_entity_id JOIN core.entity_types st ON st.id = s.entity_type_id
+                        JOIN core.entities t ON t.id = r.target_entity_id JOIN core.entity_types tt ON tt.id = t.entity_type_id
+                       WHERE r.guid = :g AND r.model_id = :m AND NOT r.is_deleted""", g=str(guid), m=m["_id"]) if guid else None
+    if not r:
+        raise EditError("No such relationship in this model.", 404)
+    ar = allowed_id(conn, r["relationship_type_id"], r["source_entity_id"], r["target_entity_id"])
+    out = {k: (str(v) if k in ("guid", "source", "target") else v) for k, v in r.items()
+           if k not in ("id", "relationship_type_id", "source_entity_id", "target_entity_id")}
+    out["id"] = out.pop("guid")
+    out["attributes"] = relationship_attributes(conn, r["relationship_type_id"], ar)
+    out["values"] = relationship_values(conn, [r["id"]]).get(r["id"], {})
+    out["findings"] = relationship_findings(conn, r["id"])
+    return out
+
+
+def update_relationship(conn, model: Any, relationship: Any, data: dict) -> dict:
+    """A relationship's name and attribute values (D563); its type and ends stay (a new type or ends is a new relationship)."""
+    m = _model(conn, model)
+    guid = repo._as_guid(relationship)
+    row = _one(conn, """SELECT id, relationship_type_id, name, source_entity_id, target_entity_id FROM core.relationships
+                         WHERE guid = :g AND model_id = :m AND NOT is_deleted""", g=str(guid), m=m["_id"]) if guid else None
+    if not row:
+        raise EditError("This relationship is no longer there.", 404)
+    plan = _plan_values(conn, m, row["relationship_type_id"], data.get("values") or {}, owner="relationship_type_id",
+                        allowed=allowed_id(conn, row["relationship_type_id"], row["source_entity_id"], row["target_entity_id"]))
+    if "name" in data and (data.get("name") or "").strip() != (row["name"] or ""):
+        _exec(conn, "UPDATE core.relationships SET name = :n WHERE id = :i", n=(data.get("name") or "").strip(), i=row["id"])
+    changed = _set_values(conn, m, row["id"], row["relationship_type_id"], plan=plan, owner_col="relationship_id")
+    return {"id": str(guid), "name": (data.get("name") if "name" in data else row["name"]) or "",
+            "values": relationship_values(conn, [row["id"]]).get(row["id"], {}), "changed": changed}
+
+
+def relationship_findings(conn, rel_id: int) -> list[dict]:
+    """What is wrong with a relationship's attribute values (D563, D564): a required attribute with no value, and a
+    value for an attribute that no longer belongs to it (its ends changed type, or the attribute was limited to other
+    mappings). The value is kept, never deleted."""
+    r = _one(conn, "SELECT relationship_type_id, source_entity_id, target_entity_id FROM core.relationships WHERE id = :i", i=rel_id)
+    if not r:
+        return []
+    ar = allowed_id(conn, r["relationship_type_id"], r["source_entity_id"], r["target_entity_id"])
+    attrs = relationship_attributes(conn, r["relationship_type_id"], ar)
+    have = {x["code"].lower(): x["name"] for x in _rows(conn, """SELECT at.code, at.name FROM core.attribute_values v
+                                                    JOIN core.attribute_types at ON at.id = v.attribute_type_id
+                                                   WHERE v.relationship_id = :i AND NOT v.is_deleted""", i=rel_id)}
+    known = {a["code"].lower() for a in attrs}
+    out = [{"kind": "required", "attribute": a["name"], "message": f"{a['name']} is required on this relationship"}
+           for a in attrs if a["required"] and a["code"].lower() not in have]
+    out += [{"kind": "not_belonging", "attribute": have[c],
+             "message": f"{have[c]} does not belong to this relationship any more (kept)"} for c in sorted(set(have) - known)]
+    return out
 
 
 # ---------------------------------------------------------------- roll back (REP: a new version, history kept)
@@ -590,7 +762,7 @@ def relationship_grid(conn, model: Any, relationship_type: Any = None, limit: in
         SELECT r.guid AS id, rt.name AS relationship_type, rt.guid AS relationship_type_id, rt.verb,
                s.guid AS source_id, s.display_id AS source_display_id, s.name AS source_name, st.name AS source_type,
                t.guid AS target_id, t.display_id AS target_display_id, t.name AS target_name, tt.name AS target_type,
-               r.name, r.row_version, {repo._ALLOWED_EXISTS} AS allowed
+               r.name, r.row_version, {repo._ALLOWED_EXISTS} AS allowed, r.id AS _rid, r.relationship_type_id AS _rtid
           FROM core.relationships r
           JOIN core.relationship_types rt ON rt.id = r.relationship_type_id
           JOIN core.entities s ON s.id = r.source_entity_id JOIN core.entity_types st ON st.id = s.entity_type_id
@@ -598,8 +770,14 @@ def relationship_grid(conn, model: Any, relationship_type: Any = None, limit: in
          WHERE r.model_id = :m AND NOT r.is_deleted AND NOT s.is_deleted AND NOT t.is_deleted
            {"AND r.relationship_type_id = :r" if rt else ""}
          ORDER BY rt.sort_order, s.name, t.name LIMIT :n""", m=m["_id"], r=rt["_id"] if rt else None, n=limit)
-    types = _rows(conn, """SELECT guid AS id, name, verb FROM core.relationship_types WHERE model_id = :m AND NOT is_deleted
+    types = _rows(conn, """SELECT id AS _id, guid AS id, name, verb FROM core.relationship_types WHERE model_id = :m AND NOT is_deleted
                             ORDER BY sort_order, name""", m=m["_id"])
+    vals = relationship_values(conn, [r["_rid"] for r in rows])
+    for r in rows:                             # each relationship's attribute values (D563)
+        r["values"] = vals.get(r.pop("_rid"), {})
+        r.pop("_rtid", None)
+    for t in types:
+        t["attributes"] = relationship_attributes(conn, t.pop("_id"), every=True)
     return {"rows": rows, "relationship_types": types}
 
 
@@ -632,11 +810,15 @@ def bulk_relationships(conn, model: Any, rows: list[dict], actor: str) -> dict:
                             new = add_relationship(conn, m["id"], {
                                 "relationship_type": r.get("relationship_type") or str(cur["type"]),
                                 "source": r.get("source") or str(cur["source"]), "target": r.get("target") or str(cur["target"]),
-                                "name": r.get("name", cur["name"]), "allow_outside": r.get("allow_outside")}, actor)
+                                "name": r.get("name", cur["name"]), "allow_outside": r.get("allow_outside"),
+                                "carry_values_from": r["id"], **({"values": r["values"]} if r.get("values") else {})}, actor)
                             delete_relationship(conn, m["id"], r["id"])
                             res = {"row": i, "ok": True, "id": new["id"], "replaced": True, "note": new.get("note")}
                         else:
-                            _exec(conn, "UPDATE core.relationships SET name = :n WHERE id = :i", n=(r.get("name") or "").strip(), i=cur["id"])
+                            upd = {"name": r.get("name", cur["name"])}
+                            if r.get("values"):
+                                upd["values"] = r["values"]
+                            update_relationship(conn, m["id"], r["id"], upd)
                             res = {"row": i, "ok": True, "id": r["id"]}
                 else:
                     new = add_relationship(conn, m["id"], r, actor)

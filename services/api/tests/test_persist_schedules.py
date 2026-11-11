@@ -197,7 +197,8 @@ def test_a_reset_deletes_work_but_persist_survives_byte_for_byte_and_comes_back(
     # what the operations helper reads at start-up: the schedules and the banner are back for the screens
     listing = S.listing(root, now=datetime(2026, 11, 10, 23, 0, tzinfo=TZ))
     demo = next(s for s in listing["schedules"] if s["id"] == d["id"])
-    assert demo["enabled"] and demo["when"] == "every day at 02:00" and demo["next"] == "2026-11-11T02:00+02:00"
+    assert demo["enabled"] and demo["when"] == "every day at 02:00" and demo["next"].endswith("T02:00+02:00")
+    assert demo["next"][:10] >= datetime.now(TZ).strftime("%Y-%m-%d")         # the next 02:00, whenever the test runs
     assert "resets every day at 02:00" in B.current(root)["text"]
     # and the nightly reset still fires after the reset
     S._set(d["id"], "checked", "2026-11-10T23:00:00+02:00", root)

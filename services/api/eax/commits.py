@@ -139,16 +139,22 @@ def snap_relationship(conn, m: dict, guid: Any) -> dict | None:
     g = repo._as_guid(guid)
     if not g:
         return None
-    r = _one(conn, """SELECT r.guid, r.name, r.is_deleted, rt.code AS type_code, rt.name AS relationship_type, rt.verb,
+    r = _one(conn, """SELECT r.id, r.guid, r.name, r.is_deleted, rt.code AS type_code, rt.name AS relationship_type, rt.verb,
                              s.guid AS source, s.name AS source_name, t.guid AS target, t.name AS target_name
                         FROM core.relationships r JOIN core.relationship_types rt ON rt.id = r.relationship_type_id
                         JOIN core.entities s ON s.id = r.source_entity_id JOIN core.entities t ON t.id = r.target_entity_id
                        WHERE r.guid = :g AND r.model_id = :m""", g=str(g), m=m["_id"])
     if not r:
         return None
+    vals = _rows(conn, """SELECT av.id, at.code, av.value_text, av.value_number, av.value_date, av.value_bool, av.value_ref,
+                                 e.guid AS ref_guid
+                            FROM core.attribute_values av JOIN core.attribute_types at ON at.id = av.attribute_type_id
+                            LEFT JOIN core.entities e ON e.id = av.value_ref
+                           WHERE av.relationship_id = :r AND NOT av.is_deleted ORDER BY at.code""", r=r["id"])
     return {"kind": "relationship", "guid": str(r["guid"]), "deleted": bool(r["is_deleted"]), "name": r["name"] or "",
             "type_code": r["type_code"], "relationship_type": r["relationship_type"], "verb": r["verb"],
-            "source": str(r["source"]), "source_name": r["source_name"], "target": str(r["target"]), "target_name": r["target_name"]}
+            "source": str(r["source"]), "source_name": r["source_name"], "target": str(r["target"]), "target_name": r["target_name"],
+            "values": {v["code"]: _canon(v) for v in vals if _canon(v) is not None}, "_value_ids": [v["id"] for v in vals]}
 
 
 def _snap(conn, m: dict, kind: str, guid: Any) -> dict | None:
@@ -176,8 +182,9 @@ def _touched(op: str, args: dict, after: dict | None) -> list[str]:
         return fields
     if op == "entity.status":
         return ["status"]
-    if op == "relationship.rename":
-        return ["name"]
+    if op == "relationship.rename":    # the name, and since D563 the relationship's attribute values
+        stored = {c.lower(): c for c in ((after or {}).get("values") or {})}
+        return (["name"] if "name" in args or not args.get("values") else []) + [f"value:{stored.get(str(c).lower(), c)}" for c in (args.get("values") or {})]
     return []
 
 
@@ -210,14 +217,9 @@ def _apply(conn, m: dict, op: str, args: dict, actor: str) -> dict:
         return ct.add_relationship(conn, mid, args["data"], actor)
     if op == "relationship.delete":
         return ct.delete_relationship(conn, mid, args["relationship"])
-    if op == "relationship.rename":
-        g = repo._as_guid(args["relationship"])
-        row = _one(conn, "SELECT id FROM core.relationships WHERE guid = :g AND model_id = :m AND NOT is_deleted",
-                   g=str(g), m=m["_id"]) if g else None
-        if not row:
-            raise EditError("This relationship is no longer there.", 404)
-        _exec(conn, "UPDATE core.relationships SET name = :n WHERE id = :i", n=(args.get("name") or "").strip(), i=row["id"])
-        return {"id": str(g), "name": args.get("name") or ""}
+    if op == "relationship.rename":    # its name and attribute values (D563); the type and ends stay
+        data = {k: args[k] for k in ("name", "values") if k in args}
+        return ct.update_relationship(conn, mid, args["relationship"], data)
     raise EditError(f"Unknown change {op!r}.")
 
 
@@ -247,8 +249,9 @@ def _label(conn, m: dict, op: str, args: dict, before: dict | None, after: dict 
         return f"Roll back '{name}' to an earlier version"
     if st.get("kind") == "relationship":
         rel = f"{st.get('source_name')} {st.get('verb') or st.get('relationship_type')} {st.get('target_name')}"
+        what = "Rename relationship" if "name" in args and not args.get("values") else "Change relationship"
         return {"relationship.create": f"Relate: {rel}", "relationship.delete": f"Remove relationship: {rel}",
-                "relationship.rename": f"Rename relationship: {rel}"}.get(op, op)
+                "relationship.rename": f"{what}: {rel}"}.get(op, op)
     return op
 
 
@@ -544,16 +547,20 @@ def record_relationship_rows(conn, model: Any, rows: list[dict], author: str) ->
                 items.append(("relationship.create", {"data": {
                     "relationship_type": r.get("relationship_type") or str(cur["type"]), "source": r.get("source") or str(cur["source"]),
                     "target": r.get("target") or str(cur["target"]), "name": r.get("name", cur["name"]),
-                    "allow_outside": r.get("allow_outside")}}))
+                    "allow_outside": r.get("allow_outside"), "carry_values_from": r["id"],
+                    **({"values": r["values"]} if r.get("values") else {})}}))
                 owner.append(i)
                 items.append(("relationship.delete", {"relationship": r["id"]}))
                 owner.append(i)
             else:
-                items.append(("relationship.rename", {"relationship": r["id"], "name": r.get("name") or ""}))
+                change = {"relationship": r["id"], "name": r.get("name") or ""}
+                if r.get("values"):  # relationship attributes (D563)
+                    change["values"] = r["values"]
+                items.append(("relationship.rename", change))
                 owner.append(i)
             continue
         items.append(("relationship.create", {"data": {k: r.get(k) for k in ("relationship_type", "source", "target", "name",
-                                                                              "allow_outside")}}))
+                                                                              "allow_outside", "values") if k != "values" or r.get(k)}}))
         owner.append(i)
     results = record_many(conn, m["id"], author, items)
     by_row: dict[int, dict] = {}

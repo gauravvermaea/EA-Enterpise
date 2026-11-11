@@ -50,8 +50,14 @@ class RelationshipIn(Schema):
     target = fields.String(required=True)
     relationship_type = fields.String(required=True)
     name = fields.String(load_default="")
+    values = fields.Dict(load_default=None, allow_none=True, metadata={"description": "Attribute values by code or name (D563)"})
     allow_outside = fields.Boolean(load_default=False, metadata={"description": "Add it although the metamodel does not "
                                                                                "allow it: the metamodel gets the mapping, flagged (D49)"})
+
+
+class RelationshipChangeIn(Schema):
+    name = fields.String(metadata={"description": "The label; the type and ends stay"})
+    values = fields.Dict(metadata={"description": "Attribute values by code or name; an empty value clears it (D563)"})
 
 
 class RollBackIn(Schema):
@@ -227,6 +233,28 @@ class Relationships(MethodView):
 
 @blp.route("/<uuid:model_id>/content/relationships/<string:relationship_id>")
 class Relationship(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth("model.read")
+    def get(self, model_id, relationship_id):
+        """A relationship's name, type, ends, attribute values, the attributes it may carry and what is wrong (D563)"""
+        with get_engine().connect() as conn:
+            try:
+                return ct.relationship_detail(conn, model_id, relationship_id)
+            except EditError as exc:
+                abort(exc.status, message=str(exc))
+
+    @blp.doc(security=SECURITY)
+    @blp.arguments(RelationshipChangeIn)
+    @blp.response(200, Free)
+    @require_auth("model.content")
+    def patch(self, data, model_id, relationship_id):
+        """Change a relationship's name and attribute values (D563); kept as an uncommitted change in a working model"""
+        args = {"relationship": relationship_id, **{k: data[k] for k in ("name", "values") if k in data}}
+        return _change(model_id, "relationship.rename", args,
+                       lambda c: ct.update_relationship(c, model_id, relationship_id, data), "relationship.update",
+                       {"relationship": relationship_id})
+
     @blp.doc(security=SECURITY)
     @blp.response(200, Free)
     @require_auth("model.content")

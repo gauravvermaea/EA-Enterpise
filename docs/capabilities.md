@@ -59,6 +59,8 @@ Built:
   stage, product lifecycle stage, business scenario, control, contract, measure), each marked as an extension (D345),
   in the ArchiMate 4 domains and colours, with the allowed relationships of the owner's ArchiMate 4 guide (D392, D393).
 - **Relationship multiplicity** on allowed relationships (1, `*`, 0..1, 1..*), checked by the data quality checks (D395).
+- **Relationship attributes** (D563, D564): defined per relationship type or per allowed relationship (e.g. Connection protocol and Port on Node - Association - Node only), edited as key : value on relationships and in drawn views, required ones checked by quality.
+- **Line labels** in drawn views: `name (Type) [key:value …]`; naming a line never hides its type (D565).
 - **The TOGAF 10 content metamodel**, and the TOGAF catalogues, matrices and diagrams given by views (D345).
 - **Your own metamodels**: domains, entity types, attributes, pick lists, allowed relationships and validation rules,
   edited in screens or as a whole document; a **lean metamodel** to start small.

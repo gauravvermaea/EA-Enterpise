@@ -20,6 +20,21 @@ models are only read. Runs can be repeated as often as you like: new ids, new fi
 lists (tick **Show self-test runs** to see them), from quality measures and from KPIs. Usage figures and backups still
 count them until they are purged.
 
+## The test runner
+
+Self-tests run in a container image of their own, the **test runner** (the API's code, Chromium for the browser tests
+and the security scanners; about **1.5 GB**). It is built once per version (D570):
+
+- On **System admin, Self-test**, when it is missing, press **Build the test runner** (5 to 15 minutes the first time;
+  it needs the internet). The page shows its steps (base image, Python packages, Chromium, scanners, the code) and the
+  log as it goes, then opens the Run tab, ready. If it fails, the reason is shown with **Retry**. You can leave the
+  page: the build goes on.
+- Or press **Start** anyway: it offers **Build, then run**, and the run starts by itself once the runner is built.
+- Or tick **Build it automatically after each start or update**: the operations helper builds it in the background
+  whenever the image for the running version is missing (after start-up, after an update, and every 15 minutes). The
+  setting is kept in `persist/settings.json` (`testrunner_auto_build`); off on a laptop and on for servers by default.
+- From the command line: `eax test --build` builds it only; `eax test` builds it first when it is missing.
+
 ## Running a test
 
 On **Run**, choose:
@@ -61,6 +76,7 @@ eax test --last              the last run's results
 eax test --report [run] [--xlsx]   save the report
 eax test --fixtures [run]    list fixtures
 eax test --clean <run|all> [--yes]   purge fixtures (asks you to type DELETE without --yes)
+eax test --build             only build the test runner image
 ```
 
 `eax test` shows progress as it goes and exits non-zero when anything failed, so CI can use it (`--ci`).

@@ -468,3 +468,10 @@ relationship type when a line is drawn or added, and a nesting's relationship. T
 ("aplication comp" finds Application Component); with nothing typed the whole list shows, grouped by domain in the
 stencil's order. ↑ ↓ move, Enter chooses, Esc closes the list (a second Esc reaches the pop-up). The Stencil dialog has a
 search over its groups and the types in them. The plugin is unchanged.
+
+## As built: relationship attributes and line labels (0.19.0, 11 Nov 2026; D563 to D565)
+- A selected line's **Properties** shows From, To, its status, its **Name** and one **key : value** row per attribute of its relationship type and allowed relationship (pick lists as drop-downs; required ones marked). **Save and commit** commits at once as the person (D413).
+- Line label: `name (Type) [key:value key:value]`, the name bold, the type italic and smaller, the values grey; no name: `(Type)`; more than 3 values: the first 3 and `+n`. Display only: the file's `label` keeps the name, so in-place editing (`getEditingValue`) starts from the plain name and renaming never touches the type.
+- Toolbar **Line labels: name and type / with attributes** (message `line-labels` to the plugin), remembered per person in the browser.
+- Plugin tests cover the format, escaping, `+n`, the plain-name edit and the toggle (141 pass).
+
