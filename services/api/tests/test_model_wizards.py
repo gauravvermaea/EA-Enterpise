@@ -66,11 +66,13 @@ def test_five_areas_and_screens():
     for a in ("System admin", "Model admin", "Project admin", "Architecture work", "Everything else"):
         assert a in areas
     app = (WEB / "App.jsx").read_text()
-    for r in ('"#/work"', '"#/more"', '"#/model-admin"', '"#/project-admin"', "<AreaMenu"):
+    for r in ('"#/work"', '"#/more"', '"#/model-admin"', '"#/project-admin"'):
         assert r in app
-    # every menu there was before the areas stays (owner, 7 Nov 2026, D289)
-    for r in ('"#/metamodel"', '"#/library"', '"#/compare"', '"#/compare/gaps"', '"#/change-log"', '"#/mcp"', '"#/admin"', '"/api/docs"', 'className="subnav"'):
-        assert r in app
+    # every menu there was before the areas stays (owner, 7 Nov 2026, D289): in the menu bar since the Classic screens
+    # went (R2.25, D606; tests/test_menu_reachable.py checks each address)
+    menu = (WEB / "menu.js").read_text()
+    for r in ('"#/metamodel', '"#/library"', '"#/compare"', '"#/compare/gaps"', '"#/change-log"', '"#/mcp"', '"#/admin', '"/api/docs"'):
+        assert r in menu, r
     mm = (WEB / "Metamodel.jsx").read_text()
     # the model page keeps every tab and the Actions menu (owner: power users keep what they had); a link to its wizards
     assert "Model wizards" in mm and "<ModelActions" in mm and "ADMIN_VIEWS" in mm and '["people", "People", null]' in mm

@@ -116,7 +116,7 @@ failing checks, locks), `EntityGraph.jsx`, `HierarchyMap.jsx`, `RelationMatrix.j
   `rpt.refresh_typed_views()` after the seed and every metamodel change), the standard reports
   `rpt.sr01..sr30` and `rpt.mo_*`, and `rpt.model_access` (who has which model, D138).
 - The setup service builds one Superset bundle per dashboard (`eax/setup/superset_reports.py`); the
-  `reports-init` service imports them, then `deploy/superset/eax_reports_init.py` adds the typed datasets,
+  `reports` service imports them in the background once its server has started (reports-content.sh, D600), then `deploy/superset/eax_reports_init.py` adds the typed datasets,
   the role *EA Explorer reports* and one model-access rule. Heatmaps are SQL datasets banded by thresholds
   chosen in the dashboard (`filter_values`, `rpt.heat_thresholds`, D141).
 - Each model's Reports tab and the MCP tool `get_report_catalogue` read `GET /api/v1/models/<id>/reports`.

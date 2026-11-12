@@ -150,7 +150,7 @@ def up(names: list[str], wait_everything: bool, no_throw: bool = False) -> int:
         hint = WORK / ".check-hint-shown"
         if not hint.exists():            # the first start: how to check it (D582)
             say("Check your installation: System admin > Self-test > Smoke test > Start (it prepares what it needs);")
-            say(f"  or {EAX} test --smoke; or from another machine {EAX} testbench --target https://<address> --i-own-this --smoke.")
+            say(f"  or {EAX} test (smoke) or {EAX} test full.")
             say("  Results: Self-test > History and the report. Steps: docs/deployment.md, \"Check your installation\".")
             try:
                 hint.touch()

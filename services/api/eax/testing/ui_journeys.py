@@ -39,7 +39,7 @@ def journeys(ids: dict[str, str], role: str = "") -> list[dict]:
         {"name": "a model: overview, grid and quality", "role": "model-admin",
          "steps": [{"route": f"#/metamodel/{m}", "expect": ids.get("model_name", "")}, {"route": f"#/metamodel/{m}/grid", "expect": ""},
                    {"route": f"#/metamodel/{m}/quality", "expect": "Quality"}]},
-        {"name": "the models list", "role": "architect", "steps": [{"route": "#/models", "expect": "Models"}]},
+        {"name": "the models list", "role": "architect", "steps": [{"route": "#/metamodel", "expect": "Models"}]},
         {"name": "System admin: health and machine access", "role": "super-admin",
          "steps": [{"route": "#/admin/health", "expect": "Health"}, {"route": "#/admin/machine-access", "expect": "Machine access"}]},
     ]
@@ -114,10 +114,13 @@ def run(ids: dict[str, str], ticket: str, folder: Path, record: Record, role: st
 
 
 def run_all(ids: dict[str, str], ticket: str, folder: Path, record: Record, role: str = "", smoke: bool = False,
-            journeys: list[str] | None = None, pages_only: bool = False) -> dict[str, int]:
+            journeys: list[str] | None = None, pages_only: bool = False, routes: list[str] | None = None,
+            names: set[str] | None = None) -> dict[str, int]:
     """The browser suite (D575, D576): the page sweep (every page, group, tab and sub-tab, as Super Admin) and the journeys
     that click, type and save (each as the roles allowed, and refused to one that is not), headless. Returns the counts
-    for the report's coverage summary."""
+    for the report's coverage summary. A repeat (R2.36) gives names (the "journey: …" results to run again) and routes
+    (the pages to open again, no crawl): only those run."""
+    repeat = names is not None
     from . import ui_flows, ui_pages
     try:
         from playwright.sync_api import sync_playwright
@@ -146,12 +149,13 @@ def run_all(ids: dict[str, str], ticket: str, folder: Path, record: Record, role
         def rec(name, outcome, detail="", ms=0, **kw):
             record(name, outcome, detail, ms, browser=version, **kw)
 
-        if not journeys:                                                  # the page sweep
+        if (not repeat and not journeys) or (repeat and routes):          # the page sweep (or the failed pages again)
             ctx, page, open_route = context(role if role else "super-admin", video=False)
             counts.update({f"pages_{k}" if k != "pages" else k: v
-                           for k, v in ui_pages.sweep(page, open_route, ids, rec, role=role or "super-admin").items()})
+                           for k, v in ui_pages.sweep(page, open_route, ids, rec, role=role or "super-admin",
+                                                      routes=list(routes) if repeat else None).items()})
             ctx.close()
-        if not pages_only:                                                # the journeys
+        if not pages_only and (not repeat or names):                      # the journeys
             def factory(as_role: str):
                 ctx, page, open_route = context(as_role)
 
@@ -169,6 +173,8 @@ def run_all(ids: dict[str, str], ticket: str, folder: Path, record: Record, role
                     return ""
                 return page, open_route, close
             js = ui_flows.journeys(ids, role=role, only=journeys, smoke=smoke)
+            if repeat:
+                js = [j for j in js if f"journey: {j['name']}" in names]
             jc = ui_flows.run(factory, js, rec)
             counts.update({f"journeys_{k}" if k != "journeys" else k: v for k, v in jc.items()})
         browser.close()

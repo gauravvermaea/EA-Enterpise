@@ -1,6 +1,6 @@
 """The SQL window: run queries against the installation's own PostgreSQL with a database login.
 
-Used by POST /api/v1/sql/query and the web screen #/sql. Rules:
+Used by POST /api/v1/sql/query and the web screen #/admin/sql. Rules:
   * Turned on with EAX_SQL_CONSOLE_ENABLED (default: on for laptops, off for servers).
   * The caller must be signed in with the Super Admin or IT Admin role AND give a PostgreSQL user and password;
     the database's own permissions then decide what that login may see and do.

@@ -45,7 +45,7 @@ def test_only_the_runs_own_models_and_project_are_opened():
     assert ui_pages.in_scope(f"#/metamodel/{m}/quality", IDS)
     assert ui_pages.in_scope("#/admin/banner", IDS)
     assert not ui_pages.in_scope(f"#/metamodel/{other}", IDS)
-    assert not ui_pages.in_scope("#/sql", IDS) and not ui_pages.in_scope("#/break-glass", IDS)
+    assert ui_pages.in_scope("#/admin/sql", IDS) and not ui_pages.in_scope("#/break-glass", IDS)
     assert not ui_pages.in_scope("https://example.org/#/x", IDS)
     assert ui_pages.norm("#/admin/") == "#/admin" and ui_pages.norm("") == "#/"
 
@@ -84,7 +84,8 @@ def test_journeys_are_well_formed():
         kept = {s["remember"] for s in j["steps"] if "remember" in s}
         used = set(re.findall(r"\{\$([a-z_]+)\}", json.dumps(j["steps"])))
         assert used <= kept, (j["name"], used - kept)
-    assert sum(1 for j in ui_flows.JOURNEYS if j["smoke"]) == 3, "the smoke test runs three key journeys"
+    assert sum(1 for j in ui_flows.JOURNEYS if j["smoke"]) == 5, ("the smoke test runs five key journeys (the menu bar since "
+                                                                  "R2.0.1, the libraries for everyone since 12 Nov 2026)")
 
 
 def test_the_browser_side_knows_the_same_step_kinds():
@@ -112,9 +113,9 @@ def test_journeys_expand_per_role_with_a_refusal():
     assert not [x for j in js for x in strings(j) if re.search(r"\{[a-z_]+\}", x)], "every placeholder is filled"
 
 
-def test_smoke_runs_the_three_key_journeys_once_and_watch_leaves_out_the_headless_ones():
-    smoke = ui_flows.journeys(IDS, smoke=True)
-    assert len(smoke) == 3 and not any(j.get("refusal") for j in smoke)
+def test_smoke_runs_the_five_key_journeys_once_and_watch_leaves_out_the_headless_ones():
+    smoke = ui_flows.journeys(IDS, smoke=True)   # content, quality, iteration, the menu bar (R2.0.1), the libraries
+    assert len(smoke) == 5 and not any(j.get("refusal") for j in smoke)
     watched = ui_flows.journeys(IDS, watch=True)
     assert not any(j.get("headless_only") for j in watched)
     assert ui_flows.skipped_in_browser()
@@ -224,8 +225,9 @@ def test_a_remembered_value_fills_later_steps():
 def test_one_role_runs_what_it_may_and_is_refused_the_rest():
     js = ui_flows.journeys(IDS, role="report-viewer")
     assert js and all(j["role"] == "report-viewer" for j in js)
-    assert all(j.get("refusal") for j in js if not j["name"].startswith("help"))
+    assert all(j.get("refusal") for j in js if not j["name"].startswith(("help", "the libraries")))
     assert any(j["name"].startswith("help") and j["steps"] for j in js)
+    assert any(j["name"].startswith("the libraries") and j["steps"] for j in js)   # for everyone
 
 
 def test_a_journey_is_chosen_by_part_of_its_name_and_needs_a_project_when_it_names_one():
@@ -316,11 +318,13 @@ def test_coverage_counts_pages_journeys_and_writes_by_area():
 # ---------------------------------------------------------------- the command line a run equals (D578)
 RUNS = [
     {"level": "smoke", "suites": []},
-    {"level": "detailed", "suites": ["api", "ui", "db", "security"]},
+    {"level": "detailed", "suites": ["api", "ui", "db", "security", "backup"]},
     {"level": "detailed", "suites": ["api"], "role": "architect"},
     {"level": "detailed", "suites": ["ui"], "journeys": ["drawn view"], "role": "architect"},
     {"level": "detailed", "suites": ["ui"], "pages_only": True},
     {"level": "detailed", "suites": ["ui"], "watch": True, "area": "models"},
+    {"level": "detailed", "suites": ["ui"], "repeat_of": 12, "repeat_warnings": True},     # a repeat (R2.36)
+    {"level": "detailed", "suites": ["backup"]},                                         # eax test backup (R2.45)
 ]
 
 
@@ -346,20 +350,22 @@ def test_the_page_builds_the_same_command_line_as_the_server():
     assert got == want
 
 
-def test_the_from_the_command_line_section_lists_every_option_of_help_txt():
+def test_eax_test_has_two_choices_and_clean():
+    """R2.0.1 (D592, D593): eax test shows smoke, full and clean; R2.36 (D605) adds failed. The older options still work
+    for scripts and CI."""
     text = (ROOT / "eaxcli" / "help.txt").read_text(encoding="utf-8")
     entry = store.test_entry(text)
-    flags = [o["flag"].split()[0] for o in entry["options"]]
-    syntax_flags = set(re.findall(r"--[a-z-]+", entry["syntax"]))
-    assert set(flags) == syntax_flags - {"--yes", "--confirm"}, (sorted(set(flags)), sorted(syntax_flags))
-    for must in ("--smoke", "--detailed", "--build", "--status", "--last", "--report", "--fixtures", "--clean",
-                 "--reset-survival", "--suite", "--role", "--area", "--journey", "--pages-only"):
-        assert must in flags, must
-    assert all(o["what"] for o in entry["options"])
-    assert entry["examples"] and all(x.startswith("{eax} test") for x in entry["examples"])
-    named = re.search(r"--journey J\s+(.*?)Means", text, re.S).group(1)
-    for word in re.findall(r"(content|duplicates|iteration|help|admin|drawn view)", named):
-        assert ui_flows.journeys(IDS, only=[word]), word
+    assert entry["syntax"].startswith("test [smoke|full|backup|failed")
+    names = [o["flag"].split()[0] for o in entry["options"]]
+    assert names == ["smoke", "full", "backup", "failed", "delete", "clean"], names
+    assert entry["examples"] == ["{eax} test", "{eax} test full", "{eax} test backup", "{eax} test failed",
+                                 "{eax} test failed 12 --warnings", "{eax} test delete --older-than 30",
+                                 "{eax} test clean"]
+    ops = (ROOT / "services" / "ops" / "testruns.py").read_text(encoding="utf-8")
+    assert 'if "full" in args:' in ops and '+ ["--detailed"]' in ops
+    for f, needle in (("eax.ps1", '$RestArgs[0] -eq "clean"'), ("eax.sh", '[ "${1:-}" = "clean" ]'),
+                      ("eaxcli/main.py", 'command == "test" and rest[:1] == ["clean"]')):
+        assert needle in (ROOT / f).read_text(encoding="utf-8"), f
 
 
 # ---------------------------------------------------------------- the migration (0049)
@@ -368,3 +374,16 @@ def test_migration_0049_follows_0048():
     assert 'down_revision = "0048_project_iterations"' in v
     sql = (ROOT / "services" / "api" / "migrations" / "sql" / "0049_selftest_coverage.sql").read_text(encoding="utf-8")
     assert "journeys" in sql and "pages_only" in sql and "ADD COLUMN IF NOT EXISTS" in sql
+
+
+def test_a_write_with_a_body_runs(monkeypatch):
+    """R2.0.1 (the laptop's full run): every write with a JSON body was skipped as "an earlier write did not make what
+    this one needs", because the body's own braces were taken for a {name} not filled. Only {name} counts now."""
+    calls = []
+    monkeypatch.setattr(api_writes, "call", lambda base, m, path, tok, body=None: (calls.append(path) or (201, {"id": "x"})))
+    monkeypatch.setattr(api_writes, "wait_for", lambda *a, **k: ("passed", ""))
+    got = []
+    api_writes.run("http://api", {"model-admin": "t"}, IDS, lambda name, outcome, *a, **k: got.append((name, outcome)))
+    assert ("write content: create an entity", "passed") in got
+    assert calls and calls[0].endswith("/content/entities")
+    assert api_writes.judge(404, {200}, True, {404})[0] == "passed" and api_writes.judge(404, {200}, True)[0] == "failed"

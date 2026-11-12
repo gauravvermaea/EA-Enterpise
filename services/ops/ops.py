@@ -154,6 +154,39 @@ def containers() -> list[dict]:
     return sorted(rows, key=lambda r: (ORDER.index(r["service"]) if r["service"] in ORDER else 50, r["service"], r["number"]))
 
 
+# a service Compose creates and starts only once a one-shot set-up has finished (depends_on
+# service_completed_successfully): if the `eax up` that was waiting for it ends first (its window closed, the computer
+# slept), the service stays "Created" for good (R2.23: Reports "reports: Created" after a clean restart, up only after
+# another down and up). This helper starts it then.
+AFTER_SETUP = {"reports": ("reports-init", "reports")}
+
+
+def created_after_setup(rows: list[dict], on: dict[str, bool]) -> list[str]:
+    """The containers to start: Created, switched on, and their one-shot set-up finished with exit code 0."""
+    by = {r["service"]: r for r in rows}
+    out = []
+    for key, (setup, svc) in AFTER_SETUP.items():
+        s, c = by.get(setup), by.get(svc)
+        if (on.get(key, True) and s and c and (c.get("state") or "").lower() == "created"
+                and (s.get("state") or "").lower() == "exited" and "exited (0)" in (s.get("status") or "").lower()):
+            out.append(c["name"])
+    return out
+
+
+def start_after_setup_loop(pause: float = 30) -> None:
+    """Every 30 seconds: start what is waiting for a finished set-up (AFTER_SETUP)."""
+    time.sleep(60)
+    while True:
+        try:
+            if not state.get("restarting") and not switching()["busy"]:
+                for name in created_after_setup(containers(), switches()):
+                    print(f"ops: starting {name}: its set-up has finished and nothing started it (R2.23)", flush=True)
+                    docker("start", name, timeout=120)
+        except Exception as exc:  # noqa: BLE001 - Docker busy, the config file being written: next time
+            print(f"ops: start after set-up skipped ({exc})", flush=True)
+        time.sleep(pause)
+
+
 def _restart(services: list[str] | None) -> None:
     state.update(restarting=True, started=time.time(), finished=None, log=[])
     try:
@@ -665,6 +698,29 @@ def _volume_sizes() -> dict:
     return _disk_cache["data"]
 
 
+_host_cpus_cache: dict = {"n": None}
+
+
+def host_cpus() -> int | None:
+    """How many CPUs the Docker host has (docker info NCPU), read once."""
+    if _host_cpus_cache["n"] is None:
+        try:
+            _host_cpus_cache["n"] = int(docker("info", "--format", "{{.NCPU}}", timeout=30).strip() or 0) or None
+        except Exception:  # noqa: BLE001 - unknown: CPU stays per core
+            return None
+    return _host_cpus_cache["n"]
+
+
+def cpu_of_host(per_core: float | None, cpus: int | None) -> tuple[float | None, float | None]:
+    """Docker's CPU % is a share of ONE core (250% = two and a half cores busy), so added up over the containers it ran
+    past 100% (R2.21, owner, 11 Nov 2026: "Total CPU > 100%"). Returns (the share of the whole host, 0 to 100; the
+    cores in use)."""
+    if per_core is None:
+        return None, None
+    cores = round(per_core / 100, 2)
+    return (round(per_core / cpus, 1) if cpus else None), cores
+
+
 def stats(fresh: bool = False) -> dict:
     """What each container of this installation uses now (docker stats, inspect and ps -s)."""
     if not fresh and _stats_cache["data"] and time.time() - _stats_cache["at"] < 5:
@@ -685,7 +741,9 @@ def stats(fresh: bool = False) -> dict:
             if not r:
                 continue
             used, _, limit = (st.get("MemUsage") or "").partition("/")
-            r.update(cpu_percent=_num(st.get("CPUPerc")), memory_bytes=_size(used), memory_limit_bytes=_size(limit),
+            share, cores = cpu_of_host(_num(st.get("CPUPerc")), host_cpus())
+            r.update(cpu_percent=share if share is not None else _num(st.get("CPUPerc")), cpu_cores=cores,
+                     cpu_per_core=_num(st.get("CPUPerc")), memory_bytes=_size(used), memory_limit_bytes=_size(limit),
                      memory_percent=_num(st.get("MemPerc")), net_io=st.get("NetIO", ""), block_io=st.get("BlockIO", ""),
                      pids=int(_num(st.get("PIDs")) or 0))
     # the whole inspect as JSON, read in Python: a Go template fails on keys a container lacks (no health check, a
@@ -719,6 +777,7 @@ def stats(fresh: bool = False) -> dict:
     except Exception as exc:  # noqa: BLE001
         fs, _ = [], problems.append(f"file systems: {exc}")
     out = {"containers": list(rows.values()), "at": time.time(), "volumes_at": _disk_cache["at"], "problems": problems,
+           "host_cpus": host_cpus(),
            "filesystems": fs, "docker_disk": _disk_cache.get("docker", [])}
     _stats_cache.update(at=time.time(), data=out)
     return out
@@ -767,7 +826,8 @@ def container_detail(service: str) -> dict:
         "networks": [{"name": k, "ip": v.get("IPAddress"), "aliases": v.get("Aliases") or []} for k, v in nets.items()],
         "environment": sorted(cfg.get("Env") or []),   # clear text, as the config file (D200)
         "labels": {k: v for k, v in sorted((cfg.get("Labels") or {}).items()) if k.startswith("com.docker.compose")},
-        "now": {k: now.get(k) for k in ("cpu_percent", "memory_bytes", "memory_limit_bytes", "memory_percent", "net_io",
+        "host_cpus": host_cpus(),
+        "now": {k: now.get(k) for k in ("cpu_percent", "cpu_cores", "memory_bytes", "memory_limit_bytes", "memory_percent", "net_io",
                                          "block_io", "pids", "layer_bytes", "volume_bytes")},
         "console": console_on(),
     }
@@ -1396,6 +1456,37 @@ def _infra_folder(name: str) -> str:
         if os.path.isfile(os.path.join(folder, "manifest.json")):
             return folder
     raise FileNotFoundError(f"No backup {name}.")
+
+
+def parse_checks(out: str) -> list[dict]:
+    """verify.sh's lines "CHECK<TAB>name<TAB>ok|failed<TAB>detail" (R2.45)."""
+    got = []
+    for line in out.splitlines():
+        bits = line.split("\t")
+        if len(bits) >= 4 and bits[0] == "CHECK":
+            got.append({"name": bits[1], "ok": bits[2] == "ok", "detail": bits[3].strip()})
+    return got
+
+
+def verify_backup(name: str) -> dict:
+    """Checks an infrastructure backup can be restored, touching nothing live (R2.45): its checksums, every file set
+    readable, every database restored into a scratch copy and counted, then dropped (services/backup/verify.sh)."""
+    folder = _infra_folder(name)
+    rel = os.path.relpath(folder, BACKUPS).replace(os.sep, "/")
+    c = _container("backup")
+    if not c or c["state"] != "running":
+        raise RuntimeError("The backup container is not running: switch Backups on in Administration > Services.")
+    if not _block.acquire(timeout=5):
+        raise RuntimeError(f"Busy: {backup_state['what'] or 'another backup or restore'}. Try again when it is done.")
+    try:
+        r = subprocess.run(["docker", "exec", c["id"], "verify.sh", rel], capture_output=True, text=True, timeout=3 * 3600)
+    finally:
+        _block.release()
+    checks = parse_checks(r.stdout)
+    if not checks:
+        checks = [{"name": "the trial restore", "ok": False,
+                   "detail": ((r.stderr or r.stdout).strip().splitlines() or ["verify.sh said nothing"])[-1][:300]}]
+    return {"name": name, "ok": all(x["ok"] for x in checks), "checks": checks}
 
 
 def pin_backup(name: str, pinned: bool) -> dict:
@@ -2037,6 +2128,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):  # noqa: N802
         if not self._ok():
             return None
+        if self.path == "/tests/results/delete":       # test runs' folders (R2.43)
+            return self._send(200, testruns.delete_results([str(f) for f in self._body().get("folders") or []]))
         if self.path in ("/tests", "/tests/stop", "/tests/build", "/tests/settings", "/scaling"):   # self-test, scaling
             b = self._body()
             try:
@@ -2045,7 +2138,12 @@ class Handler(BaseHTTPRequestHandler):
                 if self.path == "/tests/build":
                     return self._send(202, testruns.build(b))
                 if self.path == "/tests/settings":
-                    return self._send(200, testruns.set_auto_build(bool(b.get("auto_build")), str(b.get("by") or "")))
+                    out = {}
+                    if "keep_days" in b:
+                        out.update(testruns.set_keep_days(int(b.get("keep_days") or 0), str(b.get("by") or "")))
+                    if "auto_build" in b:
+                        out.update(testruns.set_auto_build(bool(b.get("auto_build")), str(b.get("by") or "")))
+                    return self._send(200, out)
                 if self.path == "/tests/stop":
                     return self._send(200, testruns.stop(b))
                 return self._send(200, scaling.save(b.get("settings") or {}, str(b.get("by") or "console")))
@@ -2110,6 +2208,14 @@ class Handler(BaseHTTPRequestHandler):
             except FileNotFoundError as exc:
                 return self._send(404, {"message": str(exc)})
             except (RuntimeError, ValueError) as exc:
+                return self._send(409, {"message": str(exc)})
+        m = re.match(r"^/backups/([A-Za-z0-9._-]+)/verify$", self.path)
+        if m:                                       # a trial restore into scratch copies (R2.45)
+            try:
+                return self._send(200, verify_backup(m.group(1)))
+            except (FileNotFoundError, ValueError) as exc:
+                return self._send(404, {"message": str(exc)})
+            except (RuntimeError, subprocess.TimeoutExpired) as exc:
                 return self._send(409, {"message": str(exc)})
         m = re.match(r"^/backups/([A-Za-z0-9._-]+)/pin$", self.path)
         if m:
@@ -2450,9 +2556,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # updates.py be
 import updates  # noqa: E402 - updating to a new release (phase 36, D417)
 
 updates.hooks.update(read_config=_read_config, write_config=_write, copy_config=copy_config, docker=docker)
+import commandcentre  # noqa: E402 - eax commands from a web page: the Command centre and the Console (D554)
 import scaling  # noqa: E402 - scaling the API and job servers by rules (phase 36.3, D526)
 import testruns  # noqa: E402 - test runs (phase 36.1, D367)
-import commandcentre  # noqa: E402 - eax commands from a web page: the Command centre and the Console (D554)
 
 commandcentre.hooks.update(docker=docker, me=updates._me, read_config=_read_config, tickets=_tickets, tlock=_tlock,
                            idle_minutes=idle_minutes)
@@ -2489,6 +2595,7 @@ if __name__ == "__main__":
     threading.Thread(target=commandcentre.scheduler, daemon=True).start()   # scheduled eax commands (D559)
     scaling.start()                       # the scaling rules, looked at every minute (D526)
     threading.Thread(target=testruns.auto_build_loop, daemon=True).start()   # the test runner built when missing (D570)
+    threading.Thread(target=start_after_setup_loop, daemon=True).start()     # Reports after its set-up (R2.23)
     terminals = ThreadingHTTPServer(("0.0.0.0", TERMINAL_PORT), TerminalHandler)
     terminals.daemon_threads = True
     threading.Thread(target=terminals.serve_forever, daemon=True).start()

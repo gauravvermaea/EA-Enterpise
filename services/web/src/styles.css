@@ -2471,3 +2471,87 @@ label.block input, label.block textarea { display: block; width: 100%; margin-to
 .adm-lock { font-size: 13px; }
 .phase-tabs .tab.phase-off { color: #7b838c; }
 .phase-frozen-note { margin: 6px 0; }
+
+/* ---------------------------------------------------------------- the top menu bar (R2.0, D586 to D590) */
+/* the nine areas on a row of their own under the brand, search and the person's tools; drop-downs with sub-menus */
+.topbar.with-menu nav.topmenu { flex: 1 1 auto; order: 10; min-width: 0; display: block; }
+/* row 2 (D591): the main areas on the left, then the toggle, my menu, ? and what is still starting on the right */
+.topbar.with-menu .tm-break { order: 9; flex: 1 1 100%; height: 0; border-top: 1px solid var(--line); margin-top: 2px; }
+.topbar.with-menu .user { order: 11; }
+.topmenu ul { list-style: none; margin: 0; padding: 0; }
+.topmenu .tm-bar { display: flex; flex-wrap: wrap; gap: 2px 4px; }
+.topmenu .tm-area { position: relative; }
+.topmenu .tm-top { background: none; border: 0; border-radius: 6px; padding: 7px 12px; font: inherit; font-size: 15px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.topmenu .tm-top:hover, .topmenu .tm-area.open > .tm-top { background: var(--accent-soft); }
+.topmenu .tm-area.on > .tm-top { box-shadow: inset 0 -2px 0 var(--accent); font-weight: 600; }
+.topmenu .tm-drop { position: absolute; top: 100%; left: 0; z-index: 60; min-width: 240px; background: var(--card, #fff);
+  border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.14); padding: 4px; }
+.topmenu .tm-drop .tm-drop { top: -5px; left: 100%; margin-left: 2px; }
+.topmenu .tm-sub { position: relative; }
+.topmenu .tm-item { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 7px 12px; border-radius: 5px;
+  color: var(--ink); text-decoration: none; white-space: nowrap; font-size: 14px; }
+.topmenu .tm-item:hover, .topmenu .tm-item:focus, .topmenu .tm-sub.open > .tm-item { background: var(--accent-soft); outline: none; }
+.topmenu .tm-arrow { color: var(--quiet); font-size: 16px; line-height: 1; }
+/* the right-hand menus (?, the person's own) open leftwards, sub-menus too */
+.topmenu.tm-right .tm-drop { left: auto; right: 0; }
+.topmenu.tm-right .tm-drop .tm-drop { left: auto; right: 100%; margin-left: 0; margin-right: 2px; }
+/* the left and right menus sit in the top row; only the main areas take a row of their own (D591) */
+.topbar.with-menu nav.topmenu.tm-left, .topbar.with-menu nav.topmenu.tm-right { flex: none; order: 0; border: 0; padding: 0; margin: 0; }
+.topmenu.tm-left .tm-top { border: 1px solid var(--line); border-radius: 16px; padding: 4px 12px; font-size: 13px; }
+.tm-site-dot { color: #16a34a; font-size: 10px; vertical-align: 1px; }
+.topmenu .tm-top-help { width: 32px; height: 32px; padding: 0; border-radius: 50%; border: 1px solid var(--line); font-weight: 700; }
+.tm-me { display: inline-flex; flex-direction: column; align-items: flex-end; line-height: 1.15; }
+.tm-me-name::after { content: " ▾"; color: var(--quiet); font-size: 11px; }
+.topmenu.tm-right .tm-bar { flex-wrap: nowrap; align-items: center; gap: 6px; }
+/* Last model and Last project side by side (owner, 11 Nov 2026) */
+.topbar .switchers { display: flex; flex-direction: row; flex-wrap: nowrap; gap: 8px; align-items: center; }
+.menu-toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.menu-toggle button { border: 0; border-radius: 0; padding: 4px 10px; font-size: 13px; background: var(--card, #fff); color: var(--quiet); }
+.menu-toggle button.on { background: var(--accent); color: #fff; }
+.farm-page .card { padding: 12px 18px; margin: 14px 0; }
+.top-find { display: inline-flex; align-items: center; gap: 8px; min-width: 260px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--card, #fff); color: var(--quiet); font: inherit; font-size: 14px; cursor: text; text-align: left; }
+.top-find kbd { margin-left: auto; border: 1px solid var(--line); border-radius: 4px; padding: 0 6px; font-size: 12px; }
+/* the Self-test's two choices (R2.0.1, D592) */
+.self-test-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin: 10px 0; }
+.self-test-choice { padding: 14px 18px; display: flex; flex-direction: column; gap: 6px; }
+.self-test-choice h3 { margin: 0; }
+.self-test-choice button { align-self: flex-start; margin-top: 4px; }
+
+/* the self-test's functional health and its ring (R2.35) */
+.test-health { display: flex; gap: 16px; align-items: center; margin: 10px 0; }
+.test-health p { margin: 2px 0; }
+.test-repeat { display: inline-flex; align-items: center; gap: 8px; }
+.test-repeat-panel { border: 1px solid var(--line, #d9dde3); border-radius: 8px; padding: 8px 12px; margin: 10px 0; }
+.test-repeat-panel p { margin: 2px 0 8px; }
+.test-legend span { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; }
+.test-legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+
+/* architecture principles as TOGAF cards, grouped by area (R2.48, D607) */
+.principle-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; margin: 8px 0 16px; }
+.principle-card { border: 1px solid var(--line, #d9dde3); border-left: 4px solid #7a8699; border-radius: 8px; padding: 10px 12px;
+  background: var(--card, #fff); display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.principle-card.from-enforced { border-left-color: #b42318; }
+.principle-card.from-optional { border-left-color: #d4a72c; }
+.principle-card.from-own { border-left-color: #2e7d4f; }
+.principle-card.from-library { border-left-color: #3b5bab; }
+.principle-card.from-inherited { border-left-color: #6b4fa0; }
+.principle-card.editing { border-left-color: var(--accent, #3b5bab); grid-column: 1 / -1; }
+.principle-card header h4 { margin: 4px 0 2px; font-size: 15px; }
+.principle-card h5 { margin: 0 0 2px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--quiet, #5d6470); }
+.principle-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.principle-from.enforced { background: #fde7e6; } .principle-from.optional { background: #fff4d6; }
+.principle-from.own { background: #e3f3e8; } .principle-from.library { background: #e6ecfa; } .principle-from.inherited { background: #efe9f7; }
+.principle-statement { font-size: 14px; }
+.principle-part summary { cursor: pointer; font-size: 12px; font-weight: 600; color: var(--quiet, #5d6470); }
+.principle-part > div { font-size: 13px; margin-top: 2px; }
+.principle-links { margin: 0; }
+.principle-card footer { margin-top: auto; padding-top: 6px; border-top: 1px dashed var(--line, #d9dde3); }
+@media (prefers-color-scheme: dark) {
+  .principle-from.enforced, .principle-from.optional, .principle-from.own, .principle-from.library, .principle-from.inherited { background: transparent; }
+}
+
+/* checks left while a self-test runs (R2.40) */
+.test-progress { margin: 8px 0; }
+.test-progress-bar { height: 8px; border-radius: 4px; background: var(--line, #d9dde3); overflow: hidden; max-width: 520px; }
+.test-progress-bar > span { display: block; height: 100%; background: var(--accent, #3b5bab); }

@@ -183,6 +183,10 @@ def _need(conn, p: dict, user, what: str) -> set[str]:
             from . import project_bases as pb
             pb.check_change(p, user)
             return roles | {"super-admin"}
+    if p.get("is_library") and what == "read" and not roles and (user.roles or ()):
+        # a library project holds reference material for every project: anyone with a role reads it (owner, 12 Nov
+        # 2026: "Model library and Project library should be available to all users")
+        return roles | {"reader"}
     if _super(user):
         if what != "read" and p.get("status") in ("finishing", "frozen", "merged", "closed"):
             raise EditError(f"{p['name']} is {p['status']}: it is read only.", 409)
@@ -277,8 +281,8 @@ def listing(conn, user) -> list[dict]:
                                      AND d.archived_at IS NULL AND d.deleted_at IS NULL) AS documents
                             FROM proj.projects p LEFT JOIN proj.projects pp ON pp.id = p.parent_id
                            WHERE p.base_kind = '' ORDER BY p.name""", u=user.username)
-    if not _super(user):
-        rows = [r for r in rows if r["my_roles"]]
+    if not _super(user):                     # their own projects, and the library projects for anyone with a role
+        rows = [r for r in rows if r["my_roles"] or (r["is_library"] and (user.roles or ()))]
     done = completion(conn, [r["pk"] for r in rows])
     for r in rows:
         r["my_roles"] = sorted(r["my_roles"] or [])

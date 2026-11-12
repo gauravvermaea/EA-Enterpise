@@ -1,22 +1,21 @@
-# Finding your way: navigation styles, actions, right-click and quick jump
+# Finding your way: the menu bar, actions, right-click and Find
 
 Release 0.18.0 (D478–D481, owner 10 Nov 2026). Model pages had 21 tabs and project pages 26 in one row; now each person
 chooses how they are shown. No tab was added or taken away, and every `#/…` link works in every style.
 
-## Choosing a style
-Beside your name in the top bar (▦) or on **My profile**: **Grouped**, **Menu** or **Classic**. It is kept in your
-browser, per person.
+## The menu bar and the menu style (R2.0, D586–D591)
+Since R2.0 the top bar is two rows: the site picker (● Local), EA Explorer, Find, the bell, Last model and Last
+project; then **Architecture Work, Model Admin, Project Admin, Repository & Content Framework, System Admin**, each a drop-down with
+sub-menus, and on the right your own menu (your name: your work, your profile, Sign out)
+and **?** (help and documentation). Wizards in Model, Project and System Admin open their wizards page when clicked, or
+one wizard from the sub-menu. What you may not use is not shown. Where everything is: [r2-0-menu.md](r2-0-menu.md).
 
-| Style | What you see |
-|---|---|
-| **Grouped** (default) | A breadcrumb, then about six **groups**, then the group's **tabs**, then the tab's own **sub-tabs** (e.g. Views › Custom views \| Standard views). A group opens on the tab you last used in it. Counts (Sign-off, Key questions, Changes) show on the group too. |
-| **Menu** | A menu down the left: groups and their tabs, the one shown highlighted. « folds it to icons, » opens it. Narrow screens put it above the page. |
-| **Classic** | Every tab in one row, as before. |
+Each page's tabs are **grouped**: a breadcrumb, then about six **groups**, then the group's **tabs**, then the tab's own
+**sub-tabs** (e.g. Views › Standard views | Custom views). A group opens on the tab you last used in it. Counts (Sign-off,
+Key questions, Changes) show on the group too. The Classic style (the menus of 1.0 and every tab in one row) is gone: its
+button first (D603), then its screens (owner, 12 Nov 2026, R2.25, D606); every address it had is in the menu bar.
 
-On **first sign-in**, a person who has not chosen yet is asked once, before the page: the three styles side by side,
-each with a small sketch and one line, Grouped marked *Recommended*. Choosing one saves it; **Esc** or **Skip** keeps
-Grouped and does not ask again. Automated browsers (Playwright and the tests, `navigator.webdriver`) never see it;
-add `?welcome=1` to the address (before the `#`) to show it on purpose, e.g. for a screenshot.
+The left-menu page-tab style and the first sign-in question of 0.18.0 are gone (D589).
 
 ## The groups
 **Model page**
@@ -67,10 +66,15 @@ sits (tree), Add to a view…, Compare with earlier versions, Delete…. Edit an
 change the model, and the server checks again. Shift + right-click gives the browser's own menu; text boxes and the
 drawing keep theirs.
 
-## Quick jump (Ctrl+K)
-Ctrl+K (⌘K on a Mac), or ⌘K beside your name: type to go to a tab or action of the page you are on, a part of EA
-Explorer, a model or a project. Near spellings work ("fynbos comm" finds Fynbos Commercial). ↑ ↓ choose, Enter goes,
-Esc closes.
+## Find: / or Ctrl+K (D481, D590)
+**/** anywhere outside a text box or a grid, **Ctrl+K** (⌘K on a Mac), or **Find a function or
+content** at the top: type to find
+- a **function**: every menu item you may use, shown with where it is in the menu (e.g. *Backups · System Admin ›
+  Backups and restores*); the tabs and actions of the page you are on; the on-screen help's pages, found by what they do;
+- **content**: models, projects, and entities as you type (from search), with their type and model;
+- the last line, **Search everything** for the words.
+
+Near spellings work ("fynbos comm" finds Fynbos Commercial). ↑ ↓ choose, Enter goes, Esc closes.
 
 ## Screens that are tabs (0.19.0, D542)
 A screen used to be reachable only through ⋯ Actions or a tile is a tab of its own, in every style:

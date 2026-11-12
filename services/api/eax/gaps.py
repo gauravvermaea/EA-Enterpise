@@ -185,7 +185,7 @@ def _store_items(conn, analysis_id: int, result: dict, user) -> None:
 def _new_run(conn, analysis_id: int, user) -> int:
     """Keeps this result of the analysis as its next numbered run."""
     a = _one(conn, "SELECT baseline, target FROM core.gap_analyses WHERE id = :i", i=analysis_id)
-    items = _rows(conn, """SELECT match_key AS key, entity_type, entity_type_name, domain AS domain, name, status, resolution, note, changes
+    items = _rows(conn, """SELECT match_key AS key, entity_type, entity_type_name, layer AS domain, name, status, resolution, note, changes
                              FROM core.gap_items WHERE analysis_id = :a AND NOT gone ORDER BY id""", a=analysis_id)
     for i in items:
         i["changes"] = cm._json(i["changes"])

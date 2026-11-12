@@ -23,7 +23,8 @@ from sqlalchemy import text
 from . import health as hc
 
 STARTED = time.time()            # when this API server started
-GRACE_SECONDS = 15 * 60          # without the operations helper: starting for this long, then down
+GRACE_SECONDS = 15 * 60
+STALE_MINUTES = 30               # loading with no step for this long: its process was stopped (R2.39)          # without the operations helper: starting for this long, then down
 KEEP_SECONDS = 8
 ONE_SHOT = {"reports-init", "setup"}
 PARTS = [  # key, name, what it is, its check, its containers (in start order)
@@ -68,13 +69,19 @@ def _containers() -> list[dict] | None:
 
 def _later(conn) -> dict | None:
     try:
-        r = conn.execute(text("""SELECT part, name, state, done, total, detail, started_at, finished_at
-                                   FROM core.startup_parts WHERE part = 'later'""")).mappings().first()
+        r = conn.execute(text("""SELECT part, name, state, done, total, detail, started_at, finished_at,
+                                        updated_at < now() - make_interval(mins => :m) AS stale
+                                   FROM core.startup_parts WHERE part = 'later'"""), {"m": STALE_MINUTES}).mappings().first()
     except Exception:  # noqa: BLE001 - before the migration
         return None
     if not r:
         return None
     state = {"waiting": "starting", "skipped": "up"}.get(r["state"], r["state"])
+    if state == "starting" and r.get("stale"):        # its process was stopped (R2.39: out of memory): say so
+        return {"key": "later", "name": r["name"], "product": "after the start", "status": "down",
+                "detail": f"stopped at {r['done']} of {r['total']} (nothing for {STALE_MINUTES} minutes); the next start "
+                          "carries on from there", "done": r["done"], "total": r["total"],
+                "started_at": r["started_at"].isoformat() if r["started_at"] else None, "finished_at": None}
     loading = f"loading ({r['done']} of {r['total']})" if state == "starting" else ""
     return {"key": "later", "name": r["name"], "product": "after the start", "status": state,
             "detail": loading or r["detail"], "done": r["done"], "total": r["total"],
@@ -137,8 +144,26 @@ def status(conn, fresh: bool = False) -> dict:
 
 
 def _packs(conn) -> dict | None:
-    """The industry packs shipped with this version going into Documents (D584): "loading n of N", then up.
-    None when no packs are shipped or the table is not there yet."""
+    """The industry packs shipped with this version going into Documents (D584): "loading n of N", then up. From the
+    loader's own row (core.startup_parts 'packs', written file by file, R2.23); before a loader has run, from the files
+    not in Documents yet. None when no packs are shipped or the table is not there yet."""
+    try:
+        r = conn.execute(text("""SELECT state, done, total, detail, updated_at < now() - make_interval(mins => :m) AS stale
+                                   FROM core.startup_parts WHERE part = 'packs'"""), {"m": STALE_MINUTES}).mappings().first()
+    except Exception:  # noqa: BLE001 - before the migration
+        r = None
+    if r:
+        state = {"waiting": "starting", "skipped": "up"}.get(r["state"], r["state"])
+        if state == "starting" and r.get("stale") and r["total"]:   # its loader was stopped: the job carries on
+            return {"key": "packs", "name": "Industry packs", "product": "into Documents", "status": "down",
+                    "detail": f"stopped at {r['done']} of {r['total']}; tried again within 10 minutes",
+                    "done": r["done"], "total": r["total"]}
+        if state == "starting" and r["total"]:
+            detail = f"loading ({r['done']} of {r['total']})"
+        else:
+            detail = r["detail"] or state
+        return {"key": "packs", "name": "Industry packs", "product": "into Documents", "status": state, "detail": detail,
+                "done": r["done"], "total": r["total"]}
     try:
         from . import industry_packs as IP
         if not IP.PACKS_DIR.is_dir():

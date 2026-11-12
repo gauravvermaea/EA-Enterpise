@@ -18,7 +18,7 @@ LIMIT = 50 * 1024 * 1024
 
 @pytest.fixture(autouse=True)
 def _repo_docs(monkeypatch):
-    monkeypatch.setenv("EAX_DOCS_DIR", str(REPO))
+    monkeypatch.setenv("EAX_SHIPPED_DOCS", str(REPO))
 
 
 def test_the_list_has_every_shipped_document_grouped():
@@ -124,10 +124,10 @@ def test_documents_stay_current_with_the_version():
     cap = (REPO / "docs/capabilities.md").read_text(encoding="utf-8")
     assert f"(version {__version__})" in cap.splitlines()[0], "capabilities.md's title names the running version"
     areas = re.findall(r'name: "([^"]+)"', (REPO / "services/web/src/Areas.jsx").read_text(encoding="utf-8"))
-    app = (REPO / "services/web/src/App.jsx").read_text(encoding="utf-8")
-    subnav = app[app.index('className="subnav"'):]
-    subnav = subnav[:subnav.index("</nav>")]
-    screens = set(areas) | {s.strip() for s in re.findall(r">([A-Z][A-Za-z ]+?)(?: ↗)?</a>", subnav)} | {"Documentation"}
+    # the main screens of the old second row (Classic went in R2.25, D606), as it had them
+    classic_row = ["Start", "Models", "Projects", "Repository", "Library", "Enterprise library", "Reference library", "Compare",
+                   "Gap analysis", "Common analysis", "Change log", "MCP", "Administration"]
+    screens = set(areas) | set(classic_row) | {"Documentation"}
     missing = [s for s in sorted(screens) if s.lower() not in cap.lower()]
     assert not missing, f"capabilities.md does not mention: {missing}"
     assert (REPO / "releases" / f"{__version__}.md").exists(), f"releases/{__version__}.md is missing"

@@ -587,12 +587,18 @@ def merge(conn, rid: Any, user) -> dict:
     made = {cg: pg for cg, pg in new_guid.items()
             if _one(conn, "SELECT 1 AS x FROM core.entities WHERE guid = CAST(:g AS uuid) AND NOT is_deleted", g=pg)}
     if made:
+        # bookkeeping on the child (its new entities' counterparts), done for the person merging: the parent's reviewer
+        # often has no role on the child, and the permission check refused it, so the merge failed at its very end
+        # (found by the self-test, R2.0.1). Only origin_guid of exactly these entities is set, as the system.
+        prev = conn.execute(text("SELECT current_setting('eax.user_roles', true)")).scalar() or ""
         _bypass(conn, True)
+        conn.execute(text("SELECT set_config('eax.user_roles', '', true)"))
         try:
             for cg, pg in made.items():
                 conn.execute(text("UPDATE core.entities SET origin_guid = CAST(:p AS uuid) WHERE guid = CAST(:c AS uuid) AND model_id = :m"),
                              {"p": pg, "c": cg, "m": child["_id"]})
         finally:
+            conn.execute(text("SELECT set_config('eax.user_roles', :v, true)"), {"v": prev})
             _bypass(conn, False)
     rej = [c for c in changes if not _accepted(c, d)]
     report = {"child": p["child"], "parent": p["parent"], "number": r["number"], "sent_by": r["sent_by"], "sent_at": str(r["sent_at"]),

@@ -276,7 +276,7 @@ function Invoke-Up([string[]]$Names, [switch]$NoThrow) {
         $hint = Join-Path $WorkDir ".check-hint-shown"
         if (-not (Test-Path $hint)) {   # the first start: how to check it (D582)
             Write-Log "Check your installation: System admin > Self-test > Smoke test > Start (it prepares what it needs);"
-            Write-Log "  or .\eax test --smoke; or from another machine .\eax testbench --target https://<address> --i-own-this --smoke."
+            Write-Log "  or .\eax test (smoke) or .\eax test full."
             Write-Log "  Results: Self-test > History and the report. Steps: docs\deployment.md, 'Check your installation'."
             New-Item -ItemType File -Path $hint -Force -ErrorAction SilentlyContinue | Out-Null
         }
@@ -839,7 +839,7 @@ if ($Command -eq "console") {
     try { Invoke-Console $RestArgs; exit 0 }
     catch { Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red; exit 1 }
 }
-if (($Command -in @("deploy", "secrets", "packs", "schedule", "testbench")) -or ($Command -eq "test" -and $RestArgs -contains "--reset-survival")) {   # packs (D546); schedule (D559); test --reset-survival (D561); testbench (D579)
+if (($Command -in @("deploy", "secrets", "packs", "schedule")) -or ($Command -eq "test" -and $RestArgs -contains "--reset-survival")) {   # packs (D546); schedule (D559); test --reset-survival (D561)
     # phase 36 (D498, D504): one Python program for every form (D500); eaxpy.ps1 fetches uv and Python into work\tools
     & (Join-Path $PSScriptRoot "eaxpy.ps1") $Command @RestArgs
     exit $LASTEXITCODE
@@ -860,7 +860,7 @@ if ((Test-Path "eaexplorer.env") -and -not (Test-Path $EnvFile)) {
 }
 $failed = $false
 try {
-    if ($Command -in @("check", "up", "start-later", "debug", "status", "logs", "down", "backup", "backups", "restore", "restores", "restore-log",
+    if ($Command -in @("check", "up", "start-later", "debug", "status", "logs", "down", "backup", "backups", "restore", "restores", "restore-log", "databases",
                        "delete-backup", "delete-restore", "app-backup", "restore-model", "restore-app", "stop-backup", "services", "service", "import", "update", "rollback", "test", "standby")) { Assert-Docker }
     switch ($Command) {
         "init" {
@@ -927,6 +927,7 @@ try {
                     Start-BackupHelpers
                     Invoke-Interactive @("ops", "python3", "/app/ops.py", "restore") ($RestArgs + @("--version", (Get-Version))) }
         "restores" { Start-BackupHelpers; Invoke-Interactive @("ops", "python3", "/app/ops.py", "restores") @() }
+        "databases" { Invoke-Interactive @("api", "python", "-m", "eax.databases") $RestArgs }   # where each database lives (R2.50)
         "restore-log" { Start-BackupHelpers; Invoke-Interactive @("ops", "python3", "/app/ops.py", "restore-log") $RestArgs }
         "delete-backup" { Start-BackupHelpers; Invoke-Interactive @("ops", "python3", "/app/ops.py", "delete-backup") $RestArgs }
         "delete-restore" { Start-BackupHelpers; Invoke-Interactive @("ops", "python3", "/app/ops.py", "delete-restore") $RestArgs }
@@ -939,7 +940,11 @@ try {
                      # through the operations helper (it builds the test runner first)
             $read = @{ "--status" = "status"; "--last" = "last"; "--report" = "report"; "--fixtures" = "fixtures"; "--clean" = "clean" }
             $which = @($RestArgs | Where-Object { $read.ContainsKey($_) })
-            if ($RestArgs -contains "--build") {      # only build the runner image (D570; the Self-test page's button)
+            if ($RestArgs.Count -gt 0 -and $RestArgs[0] -eq "clean") {   # delete every test run's data, for good (R2.0.1, D593)
+                Invoke-Interactive @("api", "python", "-m", "eax.testing.cli", "clean", "all") @($RestArgs | Select-Object -Skip 1)
+            } elseif ($RestArgs.Count -gt 0 -and $RestArgs[0] -eq "delete") {   # delete test results for good (R2.43)
+                Invoke-Interactive @("api", "python", "-m", "eax.testing.cli", "delete") @($RestArgs | Select-Object -Skip 1)
+            } elseif ($RestArgs -contains "--build") {      # only build the runner image (D570; the Self-test page's button)
                 Write-Host "Building the test runner (about 1.5 GB, 5 to 15 minutes the first time): base image, Python packages, Chromium, scanners."
                 Invoke-Compose @("--profile", "test", "build", "testrunner") | Out-Null
                 Write-Host "The test runner is built."

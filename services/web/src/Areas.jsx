@@ -8,16 +8,16 @@
 import PinButton from "./PinButton";
 import { lazy, Suspense, useState } from "react";
 import ProjectTree, { flatten } from "./ProjectTree";
-import { can, myInfo, needsRole, partOn, roles } from "./auth";
+import { can, myInfo, needsRole, partOn } from "./auth";
 import { useApi } from "./ModelViews";
 import { fmtDateTime } from "./fmt";
 import { isRetiredModel, isRetiredProject, KindMark, ShowRetired, useShowRetired } from "./ModelMarks";
 
 const ModelTree = lazy(() => import("./ModelTree"));
 
-const anyModelAdmin = () => (myInfo()?.models || []).some((m) => (m.permissions || []).includes("model.lock"));
-export const mayModelAdmin = () => anyModelAdmin() || can("models.create") || can("library.curate") || can("models.delete");
-export const mayProjectAdmin = () => roles().length > 0 || can("library.curate");
+// who may use Model admin and Project admin: one definition, with the top menu's (menu.js, D586)
+import { mayModelAdmin, mayProjectAdmin } from "./menu";
+export { mayModelAdmin, mayProjectAdmin };
 
 export const AREAS = [
   { key: "system", name: "System admin", href: "#/admin", icon: "⚙",
@@ -58,13 +58,6 @@ export function areaOf(route) {
 
 // the areas of the parts switched on (D329): a part switched off is not shown at all
 const shown = () => AREAS.filter((a) => !a.part || partOn(a.part));
-
-export function AreaMenu({ route }) {
-  const on = areaOf(route);
-  return shown().map((a) => (a.ok()
-    ? <a key={a.key} href={a.href} className={on === a.key ? "on" : ""} aria-current={on === a.key ? "page" : undefined}>{a.short || a.name}</a>
-    : <span key={a.key} className="nav-off" title={a.why ? a.why() : ""}>{a.short || a.name}</span>));
-}
 
 export function AreaTiles() {
   return (

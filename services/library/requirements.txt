@@ -3,4 +3,4 @@ Flask>=3.1,<3.2
 psycopg[binary]>=3.2,<3.3
 gunicorn>=22,<24
 # the text inside uploaded PDFs, for search
-pypdf>=4.3,<6
+pypdf>=6.21.4,<7     # the advisories pip-audit found in 5.9.0 (R2.24)

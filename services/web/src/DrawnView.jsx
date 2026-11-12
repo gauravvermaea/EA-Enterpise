@@ -925,6 +925,81 @@ export function DrawnViewPage({ model, m, view, full = false }) {
 
 const nameOf = (entities, id) => (entities || []).find((e) => e.id === id)?.name || id;
 
+// the objects a picture shows (each bound to an entity of the model by ea_id), read from its draw.io file
+export function objectsOn(xml) {
+  const out = new Map();
+  try {
+    const doc = new DOMParser().parseFromString(String(xml || ""), "text/xml");
+    doc.querySelectorAll("[ea_id]").forEach((n) => {
+      const id = n.getAttribute("ea_id");
+      if (!id || out.has(id)) return;
+      const label = n.getAttribute("label") ?? n.getAttribute("value") ?? "";
+      const name = String(label).replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").split(" : ")[0].trim() || id;
+      out.set(id, { id, name, type: n.getAttribute("ea_type") || "" });
+    });
+  } catch { /* not a drawing: nothing on it */ }
+  return [...out.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+const PICTURE_TABS = [["objects", "Objects on this picture"], ["props", "Properties"], ["rels", "Relationships"], ["allowed", "Allowed relationships"]];
+
+// R2.7 (owner, 11 Nov 2026; "Read-only panels", 12 Nov 2026): a picture opened in draw.io (D585) gets the drawn view's
+// panels to find and inspect what is on it, read only: the objects on it (choose one to select it on the picture), and
+// the selected object's properties, relationships and allowed relationships. Nothing here changes the model; Save as a
+// drawn view to work on it.
+export function PicturePanels({ model, setup, xml, selected, post }) {
+  const [tab, setTab] = useState("objects");
+  const [details, setDetails] = useState({});
+  const [q, setQ] = useState("");
+  const objects = useMemo(() => objectsOn(xml), [xml]);
+  useEffect(() => { if (selected?.cell) setTab((t) => (t === "objects" ? "props" : t)); }, [selected?.cell]);
+  const typeName = (code) => setup?.types?.[code]?.name || code;
+  const shown = objects.filter((o) => !q.trim() || `${o.name} ${typeName(o.type)}`.toLowerCase().includes(q.trim().toLowerCase()));
+  const select = (id) => post({ eax: "select", entity: id });
+  return (
+    <section className="drawn-bottom picture-panels" style={{ height: 260 }} aria-label="Objects on the picture and their properties">
+      <div className="drawn-tabs" role="tablist">
+        {PICTURE_TABS.map(([k, l]) => (
+          <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "on" : undefined} onClick={() => setTab(k)}>
+            {k === "objects" ? `${l} (${objects.length})` : l}</button>))}
+        <span className="er-spacer" />
+        <span className="small quiet">read only</span>
+      </div>
+      <div className="drawn-tabbody">
+        {tab === "objects" && (
+          <div className="drawn-find">
+            <div>
+              <input type="search" placeholder="Find on this picture: name or type" aria-label="Find on this picture" value={q} onChange={(e) => setQ(e.target.value)} />
+              <p className="small quiet">Choose one to select it on the picture and see its properties.</p>
+            </div>
+            <ul className="drawn-results">
+              {shown.map((o) => {
+                const t = setup?.types?.[o.type];
+                return (
+                  <li key={o.id} style={t ? { borderLeftColor: `#${t.colour}` } : undefined}>
+                    {t && <span className="drawn-swatch" style={{ background: `#${t.colour}` }} />}
+                    <span className="drawn-name">{o.name}<span className="small quiet"> {typeName(o.type)}</span></span>
+                    <button className="linkish small" onClick={() => select(o.id)}>Show</button>
+                  </li>);
+              })}
+              {!objects.length && <li className="quiet small">Nothing on this picture is an entity of the model.</li>}
+              {objects.length > 0 && !shown.length && <li className="quiet small">Nothing matches.</li>}
+            </ul>
+          </div>)}
+        {tab === "props" && <div className="drawn-propsbody">
+          {selected ? <Properties model={model} sel={selected} setup={setup} entities={objects} readOnly details={details}
+            setDetails={setDetails} onView={objects.map((o) => o.id)} onChoose={() => {}} onSelectEntity={select} onTab={setTab}
+            committer={false} onType={() => {}} onEdit={() => {}} onCreate={() => {}} onSaveLine={() => {}} />
+            : <p className="small quiet">Select an object or a line on the picture, or choose one under Objects on this picture.</p>}
+        </div>}
+        {tab === "rels" && <RelatedTab model={model} sel={selected} details={details} setDetails={setDetails} readOnly xml={xml}
+          onAdd={() => {}} onSelectEntity={select} />}
+        {tab === "allowed" && <AllowedTab sel={selected} setup={setup} readOnly onAdd={() => {}} />}
+      </div>
+    </section>
+  );
+}
+
 // the properties panel (D411): everything about what is selected, right here. An entity: every attribute of its type (in
 // the type's order, an empty one as —) and every relationship, by type and direction. A line: its type, both ends,
 // committed or pending. A placeholder: the model's entities of its type to choose from; a realised object may be

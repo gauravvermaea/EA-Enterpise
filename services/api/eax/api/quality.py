@@ -88,6 +88,15 @@ class Quality(MethodView):
         return _read(lambda c: {**q.dashboard(c, model_id, fresh=fresh), "may_manage": q.is_model_admin(c, g.user, repo.get_model(c, model_id))})
 
 
+def _measured(model_id) -> dict:
+    """The quality to put in a PDF or workbook: the latest kept measurement, or one taken now when the model has never been
+    measured (a new model, a self-test fixture), instead of failing for want of one (R2.0.1)."""
+    data = _read(lambda c: q.dashboard(c, model_id))
+    if "summary" not in data:
+        data = _read(lambda c: q.dashboard(c, model_id, fresh=True))
+    return data
+
+
 @blp.route("/models/<uuid:model_id>/quality/pdf")
 class QualityPdf(MethodView):
     @blp.doc(security=SECURITY)
@@ -97,7 +106,7 @@ class QualityPdf(MethodView):
         entities of that drill-down"""
         from .. import quality_pdf
         drill, value = request.args.get("drill", ""), request.args.get("value", "")
-        data = _read(lambda c: q.dashboard(c, model_id))
+        data = _measured(model_id)
         name = "".join(ch if ch.isalnum() else "-" for ch in data["model"]["name"]).strip("-")
         return _pdf(quality_pdf.model_pdf(data, drill, value, g.user.username),
                     f"{name}-data-quality{'-' + drill if drill else ''}.pdf")
@@ -112,7 +121,7 @@ class QualityXlsx(MethodView):
         open to their entities, each entity to its findings); with ?drill=...&value=..., only that drill-down's entities"""
         from .. import quality_xlsx
         drill, value = request.args.get("drill", ""), request.args.get("value", "")
-        data = _read(lambda c: q.dashboard(c, model_id))
+        data = _measured(model_id)
         name = "".join(ch if ch.isalnum() else "-" for ch in data["model"]["name"]).strip("-")
         return _file(quality_xlsx.model_xlsx(data, request.host_url, drill, value, g.user.username),
                      f"{name}-data-quality{'-' + drill if drill else ''}.xlsx", XLSX)

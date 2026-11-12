@@ -27,6 +27,8 @@ def _shots(conn, run_id: int) -> dict[int, bytes]:
 
 def options_line(run: dict[str, Any]) -> str:
     bits = [", ".join(run["suites"]), run.get("mode") or "full"]
+    if run.get("repeat_of"):
+        bits.append(f"the failed checks of self-test {run['repeat_of']} again" + (" (and its warnings)" if run.get("repeat_warnings") else ""))
     if run.get("role"):
         bits.append(f"role {run['role']}")
     if run.get("area"):
@@ -88,6 +90,26 @@ def coverage(results: list[dict[str, Any]]) -> list[tuple[str, int, int]]:
     return out
 
 
+NOW_COLOUR = {**COLOUR, "not repeated": "#5d6470"}
+
+
+def repeat_html(rp: dict[str, Any] | None) -> str:
+    """A repeat's section (R2.36): which run it repeats and each check's outcome then and now."""
+    if not rp:
+        return ""
+    e = html.escape
+    rows = "".join(f"<tr><td>{e(c['suite'])}</td><td>{e(c['name'])}</td>"
+                   f"<td style='color:{COLOUR.get(c['then'], '#5d6470')};font-weight:600'>{e(c['then'])}</td>"
+                   f"<td style='color:{NOW_COLOUR.get(c['now'], '#5d6470')};font-weight:600'>{e(c['now'])}</td></tr>"
+                   for c in rp["checks"])
+    verdict = ("Every repeated check passes now: self-test {of} is marked as followed up." if rp["all_passed"] else
+               "{fixed} of {n} now pass; {still} still fail or were not repeated.").format(
+        of=rp["of"], fixed=rp["fixed"], n=len(rp["checks"]), still=rp["still"])
+    return (f"<h2>Repeat of self-test {rp['of']}</h2><p>The checks that failed in self-test {rp['of']}"
+            f"{' (and its warnings)' if rp['with_warnings'] else ''}, run again in fresh fixtures. {e(verdict)}</p>"
+            f"<table><thead><tr><th>Suite</th><th>Check</th><th>Then</th><th>Now</th></tr></thead><tbody>{rows}</tbody></table>")
+
+
 def to_html(conn, run_id: int) -> str:
     d = store.run_detail(conn, run_id)
     if not d:
@@ -95,6 +117,23 @@ def to_html(conn, run_id: int) -> str:
     run, results, t = d["run"], d["results"], d["tally"]
     shots = _shots(conn, run_id)
     e = html.escape
+    from . import health as H
+    hs = d["health"]
+    suite_names = {"smoke": "Smoke", "api": "API", "ui": "Pages and journeys", "db": "Database", "security": "Security"}
+    rings = "".join(
+        f"<figure class='ring'>{H.ring_svg([('critical failed' if H.importance(s, '') == 'critical' else 'non-critical failed', n['failed']), ('warning', n['warning']), ('skipped', n['skipped']), ('passed', n['passed'])], 110, suite_names.get(s, s))}"
+        f"<figcaption>{e(suite_names.get(s, s))}</figcaption></figure>" for s, n in hs["suites"].items())
+    legend = "".join(f"<span><i style='background:{c}'></i>{e(k)}</span>" for k, c in H.COLOURS.items())
+    health_block = (
+        f"<section class='health' style='border-color:{H.HEALTH_COLOUR[hs['health']]}'>"
+        f"<div class='overall'>{H.ring_svg(H.ring_parts(hs), 160, 'Every check')}</div>"
+        f"<div><p class='hl' style='color:{H.HEALTH_COLOUR[hs['health']]}'>Functional health: {e(hs['health'])}</p>"
+        f"<p>{e(hs['reason'])}</p>"
+        f"<p class='q'>Critical: {hs['critical']['passed']} passed, {hs['critical']['failed']} failed, {hs['critical']['warning']} warnings, "
+        f"{hs['critical']['skipped']} skipped · Non-critical: {hs['non_critical']['passed']} passed, {hs['non_critical']['failed']} failed, "
+        f"{hs['non_critical']['warning']} warnings · Security (never counted against the health): {hs['security']['failed']} failed, "
+        f"{hs['security']['warning']} warnings</p><div class='legend'>{legend}</div></div></section>"
+        f"<div class='rings'>{rings}</div>")
     rows = []
     for r in results:
         extra = ""
@@ -116,12 +155,18 @@ body {{ font: 14px/1.45 system-ui, sans-serif; background:var(--bg); color:var(-
 table {{ border-collapse: collapse; width: 100%; }} td, th {{ border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }}
 .q {{ color: var(--q); font-size: 12px; }} .d {{ white-space: pre-wrap; word-break: break-word; }} pre {{ white-space: pre-wrap; font-size: 12px; }}
 img {{ max-width: 100%; border: 1px solid var(--line); }} .k {{ display:inline-block; margin-right:18px; }} .k b {{ font-size: 22px; display:block; }}
+.health {{ display:flex; gap:20px; align-items:center; border:2px solid; border-radius:10px; padding:12px 16px; margin:12px 0; }}
+.health .hl {{ font-size:20px; font-weight:700; margin:0 0 4px; }} .rings {{ display:flex; flex-wrap:wrap; gap:16px; }}
+.ring {{ margin:0; text-align:center; }} .ring figcaption {{ font-size:12px; color:var(--q); }}
+.legend span {{ display:inline-flex; align-items:center; gap:4px; margin-right:12px; font-size:12px; }} .legend i {{ width:10px; height:10px; display:inline-block; border-radius:2px; }}
 </style></head><body>
 <h1>EA Explorer self-test {run_id}: {e(STATE.get(run['state'], run['state']))}</h1>
 <p>{e(options_line(run))}<br><span class="q">Started by {e(run['started_by'])} ({e(run['trigger'])}) {run['started_at'] or run['queued_at']}, finished {run['finished_at'] or '-'} · version {e(run['version'] or '?')} · in the run's own fixtures</span></p>
 <p><span class="k"><b>{t['passed']}</b>passed</span><span class="k"><b style="color:{COLOUR['failed']}">{t['failed']}</b>failed</span>
 <span class="k"><b>{t['warning']}</b>warnings</span><span class="k"><b>{t['skipped']}</b>skipped</span></p>
 <p>{e(run['message'] or '')}</p>
+{health_block}
+{repeat_html(d.get("repeat"))}
 <p class="q">The same run from the command line: <code>{e(store.command_line(run))}</code></p>
 <h2>Coverage</h2>
 <table class="cov"><thead><tr><th>What</th><th>Passed</th><th>Out of</th></tr></thead><tbody>
@@ -147,7 +192,9 @@ def to_xlsx(conn, run_id: int) -> bytes:
                 ("What ran", options_line(run)), ("Started by", f"{run['started_by']} ({run['trigger']})"),
                 ("Started", str(run["started_at"] or run["queued_at"])), ("Finished", str(run["finished_at"] or "")),
                 ("Version", run["version"]), ("Passed", t["passed"]), ("Failed", t["failed"]), ("Warnings", t["warning"]),
-                ("Skipped", t["skipped"]), ("Message", run["message"]),
+                ("Skipped", t["skipped"]), ("Functional health", d["health"]["health"]), ("Why", d["health"]["reason"]),
+                ("Critical failed", d["health"]["critical"]["failed"]), ("Non-critical failed", d["health"]["non_critical"]["failed"]),
+                ("Message", run["message"]),
                 ("Where", "This installation, inside the run's own fixtures (self_test_<id>_<n>): nothing else is changed"),
                 ("Command line", store.command_line(run))]:
         ws.append(list(row))
@@ -159,19 +206,34 @@ def to_xlsx(conn, run_id: int) -> bytes:
         ws.append([w, p, n])
     ws.column_dimensions["A"].width, ws.column_dimensions["B"].width = 18, 90
     rs = wb.create_sheet("Results")
-    head = ["Suite", "Check", "Outcome", "Details", "Request", "Response", "Browser", "Video", "Took (ms)"]
+    from . import health as H
+    head = ["Suite", "Check", "Outcome", "Details", "Request", "Response", "Browser", "Video", "Took (ms)", "Importance"]
     rs.append(head)
     for c in rs[1]:
         c.font = Font(bold=True)
     fills = {"failed": "FDE7E6", "warning": "FFF4D6"}
     for r in results:
         rs.append([r["suite"], r["name"], r["outcome"], r["detail"][:32000], r["request"], r["response"][:32000], r["browser"],
-                   r["video"], r["duration_ms"]])
+                   r["video"], r["duration_ms"], H.importance(r["suite"], r["name"])])
         if r["outcome"] in fills:
             rs.cell(rs.max_row, 3).fill = PatternFill("solid", fgColor=fills[r["outcome"]])
-    for col, w in zip("ABCDEFGHI", (10, 60, 10, 70, 40, 50, 24, 30, 10), strict=True):
+    for col, w in zip("ABCDEFGHIJ", (10, 60, 10, 70, 40, 50, 24, 30, 10, 14), strict=True):
         rs.column_dimensions[col].width = w
     rs.freeze_panes = "A2"
+    rp = d.get("repeat")
+    if rp:                                             # a repeat: each check then and now (R2.36)
+        ps = wb.create_sheet("Then and now")
+        ps.append([f"Repeat of self-test {rp['of']}", f"{rp['fixed']} of {len(rp['checks'])} now pass"
+                   + (" (followed up)" if rp["all_passed"] else "")])
+        ps.append(["Suite", "Check", "Then", "Now"])
+        for c in ps[2]:
+            c.font = Font(bold=True)
+        for c in rp["checks"]:
+            ps.append([c["suite"], c["name"], c["then"], c["now"]])
+            if c["now"] != "passed":
+                ps.cell(ps.max_row, 4).fill = PatternFill("solid", fgColor=fills.get(c["now"], "EEEEEE"))
+        for col, w in zip("ABCD", (10, 80, 10, 14), strict=True):
+            ps.column_dimensions[col].width = w
     out = io.BytesIO()
     wb.save(out)
     return out.getvalue()

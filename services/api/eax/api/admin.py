@@ -68,6 +68,18 @@ class PublicSettings(MethodView):
         return out
 
 
+@blp.route("/admin/databases")
+class Databases(MethodView):
+    @blp.doc(security=[{"bearerAuth": []}])
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def get(self):
+        """Every database EA Explorer uses (R2.50, D611): what it holds, its setting, where it lives (the shared server or
+        its own) and, for EA Explorer's own, whether it answers. Passwords are never shown"""
+        from .. import databases as dbs
+        return {"databases": dbs.status(), "guide": "docs/databases.md"}
+
+
 @blp.route("/admin/first-run")
 class FirstRun(MethodView):
     @blp.doc(security=SECURITY)

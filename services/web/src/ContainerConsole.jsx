@@ -140,7 +140,7 @@ function Summary({ onPick }) {
                     <td><span className={`rag ${lv}`}>{txt}</span></td>
                     <td className={up ? "" : "quiet"}>{c.state}{!up && c.exit_code ? ` (exit ${c.exit_code})` : ""}{c.oom_killed ? <span className="bad-text"> · out of memory</span> : null}</td>
                     <td className={c.health === "healthy" ? "ok-text" : c.health === "unhealthy" ? "bad-text" : "quiet"}>{up && c.health !== "none" ? c.health : ""}</td>
-                    <td className="num">{up && c.cpu_percent != null ? `${c.cpu_percent.toFixed(1)}%` : ""}</td>
+                    <td className="num" title={c.cpu_cores != null ? `${c.cpu_cores} of ${h.host_cpus || "?"} cores` : ""}>{up && c.cpu_percent != null ? `${c.cpu_percent.toFixed(1)}%` : ""}</td>
                     <td className="num">{up ? mb(c.memory_bytes) : ""}</td>
                     <td className={`num${c.memory_percent > 90 ? " warn-text" : ""}`}>{up && c.memory_percent != null ? `${c.memory_percent.toFixed(1)}%` : ""}</td>
                     <td className="num">{up ? c.pids ?? "" : ""}</td>
@@ -156,7 +156,7 @@ function Summary({ onPick }) {
               <tr>
                 <th>Total</th>
                 <th colSpan="4">{run.length} of {cs.length} running</th>
-                <th className="num">{sum("cpu_percent").toFixed(1)}%</th>
+                <th className="num" title={h.host_cpus ? `${sum("cpu_cores").toFixed(2)} of ${h.host_cpus} cores in use` : ""}>{sum("cpu_percent").toFixed(1)}%{h.host_cpus ? <div className="small quiet">{sum("cpu_cores").toFixed(1)} of {h.host_cpus} cores</div> : null}</th>
                 <th className="num">{mb(sum("memory_bytes"))}</th>
                 <th className="num">{limit ? `${((sum("memory_bytes") / limit) * 100).toFixed(1)}%` : ""}</th>
                 <th className="num">{sum("pids")}</th>
@@ -169,7 +169,8 @@ function Summary({ onPick }) {
           </table>
         </div>
       )}
-      <p className="quiet small">CPU is per core: 100% is one core busy, so the total can pass 100% on a machine with several cores. The
+      <p className="quiet small">CPU is a share of the whole machine{h?.host_cpus ? ` (${h.host_cpus} cores)` : ""}: 100% is every core busy, so the total stays
+        between 0% and 100%; hover a figure for the cores in use (R2.21). The
         memory total is set against the largest limit, the machine's memory when no container has a limit of its own. Disk counts
         the running and stopped containers; a volume shared by two containers is counted twice.</p>
     </div>
@@ -223,7 +224,7 @@ function Properties({ d }) {
             <td><pre className="ct-pre">{x.output}</pre></td></tr>)}</tbody></table>
       )}
       <h4>Now</h4>
-      <Rows rows={[["CPU", n.cpu_percent == null ? "" : `${n.cpu_percent.toFixed(1)}%`],
+      <Rows rows={[["CPU", n.cpu_percent == null ? "" : `${n.cpu_percent.toFixed(1)}% of the machine${n.cpu_cores != null ? ` (${n.cpu_cores} of ${d.host_cpus || "?"} cores)` : ""}`],
         ["Memory", n.memory_bytes == null ? "" : `${mb(n.memory_bytes)} of ${mb(n.memory_limit_bytes)} (${(n.memory_percent || 0).toFixed(1)}%)`],
         ["Processes", n.pids == null ? "" : String(n.pids)], ["Network in / out", n.net_io], ["Disk read / written", n.block_io],
         ["Disk: its own layer", mb(n.layer_bytes)], ["Disk: its volumes", n.volume_bytes ? mb(n.volume_bytes) : ""]]} />

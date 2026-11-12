@@ -482,7 +482,7 @@ def laptop_steps(a: dict) -> list[Step]:
 def check_hint(address: str = "https://localhost") -> list[str]:
     """The three lines shown when a deployment is done (and on the first start): how to check the installation."""
     return ["    Check your installation: System admin > Self-test > Smoke test > Start (it prepares what it needs);",
-            f"      or {EAX} test --smoke here; or from another machine {EAX} testbench --target {address} --i-own-this --smoke.",
+            f"      or {EAX} test (smoke) or {EAX} test full there.",
             "      Results: Self-test > History (and the report). Steps: docs/deployment.md, \"Check your installation\"."]
 
 

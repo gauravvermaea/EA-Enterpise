@@ -4,9 +4,11 @@ services:
   api:
     # Everything goes through nginx (D107): https://localhost/api/docs and https://localhost/mcp, and on
     # this laptop also http://localhost/api/docs and http://localhost/mcp (EAX_HTTP_API_MCP).
+    # 2 GB (was 768 MB): the API servers, the job runner and the start-up work share it; at 768 MB it ran out while the
+    # sample data and the industry packs loaded (R2.39, owner, 12 Nov 2026: "memory optimization of api asap or increase")
     deploy:
       resources:
-        limits: { memory: 768m }
+        limits: { memory: 2g }
   reports:
     deploy:
       resources:

@@ -27,20 +27,22 @@ from concurrent.futures import ThreadPoolExecutor
 
 NO_GLOBAL_ROLE = "no-role"          # the run's account with no global role and no role on any model
 # reads too heavy or not meant for an automated reader (whole-estate files, live logs, terminals, the SQL window): skipped
-HEAVY = re.compile(r"/(backups?|restores?|export|download|package|packages|terminal|logs|sql|stats|files)(/|$)|\.(zip|xlsx|pdf|docx)$")
+HEAVY = re.compile(r"/(backups?|restores?|export|download|package|packages|terminal|logs|sql|stats|files|repo-zip)(/|$)|\.(zip|xlsx|pdf|docx)$")
 CONTENT = re.compile(r"/(entities|relationships|history|grid|content|changes|commits|data-entry|hierarchy|export)\b")
 WRITE = ("post", "put", "patch", "delete")
 
 
-def call(base: str, method: str, path: str, token: str | None = None, timeout: int = 30) -> tuple[int, str]:
-    """The HTTP status of one call and the start of its answer (a writing call sends an empty JSON body)."""
+def call(base: str, method: str, path: str, token: str | None = None, timeout: int = 60,
+         size: int | None = 1500) -> tuple[int, str]:
+    """The HTTP status of one call and the start of its answer, its first `size` bytes (None: the whole answer); a
+    writing call sends an empty JSON body."""
     data = b"{}" if method.upper() in ("POST", "PUT", "PATCH") else None
     req = urllib.request.Request(base + path, data=data, method=method.upper(),
                                  headers={"Content-Type": "application/json", "Accept": "application/json",
                                           **({"Authorization": f"Bearer {token}"} if token else {})})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
-            return r.status, r.read(1500).decode("utf-8", "replace")
+            return r.status, r.read(size if size else -1).decode("utf-8", "replace")
     except urllib.error.HTTPError as exc:
         try:
             body = exc.read(1500).decode("utf-8", "replace")
@@ -98,7 +100,17 @@ def judge_anonymous(status: int, public: bool) -> tuple[str, str]:
     return "passed", f"refused: {status}"
 
 
-def judge_role(status: int) -> tuple[str, str]:
+# endpoints that take their own key instead of a person's token: a 401 or 400 with a valid token is right there (R2.0.1)
+OWN_KEY = {
+    "/api/v1/admin/scaling/load": "the operations helper's X-Ops-Token",
+    "/api/v1/selftest/session": "a running self-test's ticket",
+    "/api/v1/testbench/runs/{run_id}/session": "a test bench run's ticket",
+}
+
+
+def judge_role(status: int, own_key: str = "") -> tuple[str, str]:
+    if own_key and status in (400, 401, 403):
+        return "passed", f"refused: {status} (it takes {own_key}, not a token)"
     if status in (502, 503, 504):
         return "warning", f"{status}: needs a service the test API is kept away from"
     if status == 599:
@@ -122,9 +134,12 @@ Record = Callable[..., None]
 
 
 def run(base: str, spec: dict, tokens: dict[str, str], ids: dict[str, str], other_model: str | None, record: Record,
-        workers: int = 16, area: str = "") -> dict[str, int]:
+        workers: int = 6, area: str = "", only: set[str] | None = None) -> dict[str, int]:
     """Runs the matrix against base (the test API) and records each check with record(name, outcome, detail, ms,
-    request=..., response=...); a failed check keeps what was asked and what came back. area: one API area only."""
+    request=..., response=...); a failed check keeps what was asked and what came back. area: one API area only;
+    only: these checks by name only (a repeat of the failed ones, R2.36).
+    Six calls at a time, each given 60 seconds (R2.0.1): more at once queued behind the API's workers and database
+    connections on a laptop and timed out as "no answer" though every endpoint answers in well under a second alone."""
     eps = [e for e in endpoints(spec) if in_area(e["path"], area)]
     counts = {"endpoints": len(eps), "checks": 0}
     jobs: list[tuple[str, Callable[[], tuple]]] = []
@@ -145,11 +160,13 @@ def run(base: str, spec: dict, tokens: dict[str, str], ids: dict[str, str], othe
             return outcome, detail, _ask(m, p, None), _answer(status, body)
         jobs.append((f"{label}: without a token", anon))
         if ep["method"] == "get":
-            def roles(p=path):
+            key = OWN_KEY.get(ep["path"], "")
+
+            def roles(p=path, key=key):
                 bad, seen, asked, answered = [], [], "", ""
                 for user, token in tokens.items():
                     status, body = call(base, "get", p, token)
-                    outcome, detail = judge_role(status)
+                    outcome, detail = judge_role(status, key)
                     seen.append(f"{user.removeprefix('user_')} {detail.split(':')[-1].strip()}")
                     if outcome != "passed":
                         bad.append((outcome, f"{user}: {detail}"))
@@ -201,6 +218,8 @@ def run(base: str, spec: dict, tokens: dict[str, str], ids: dict[str, str], othe
             req, resp = "", ""
         return name, outcome, detail, int((time.time() - t0) * 1000), req, resp
 
+    if only is not None:                                   # a repeat (R2.36): the failed checks only
+        jobs = [j for j in jobs if j[0] in only]
     with ThreadPoolExecutor(max_workers=workers) as pool:
         for name, outcome, detail, ms, req, resp in pool.map(go, jobs):
             record(name, outcome, detail, ms, request=req, response=resp)

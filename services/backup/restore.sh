@@ -43,15 +43,15 @@ dest_of() { case "$1" in documents) echo "${EAX_BACKUP_DOCS:-/mayan}";; tls) ech
   exports) echo "${EAX_BACKUP_EXPORTS:-/exports}";; persist) echo "${EAX_BACKUP_PERSIST:-/persist}";; *) echo "";; esac; }
 ALL_SETS="documents tls reports imports exports persist"
 MAIN="$PGHOST $PGPORT"
-# the server a database lives on now ("host port"): the library's and the views' may have their own (D410)
+# the server a database lives on now ("host port"): its own when its setting says so (D410, R2.50: servers.sh)
+. /usr/local/bin/servers.sh
+OWN=$(own_servers)
 server_of() {
-  if [ "$1" = "${EAX_LIBRARY_DB_NAME:-eaxlibrary}" ] || [ "$1" = "${EAX_LIBRARY_DB_NAME:-eaxlibrary}__restoring" ]; then
-    echo "${EAX_LIBRARY_DB_HOST:-$PGHOST} ${EAX_LIBRARY_DB_PORT:-$PGPORT}"
-  elif [ "$1" = "${EAX_VIEWS_DB_NAME:-eaxviews}" ] || [ "$1" = "${EAX_VIEWS_DB_NAME:-eaxviews}__restoring" ]; then
-    echo "${EAX_VIEWS_DB_HOST:-$PGHOST} ${EAX_VIEWS_DB_PORT:-$PGPORT}"
-  else echo "$MAIN"; fi
+  _n=${1%__restoring}; _n=${_n%__before}; _n=${_n%_restore_test}
+  _hp=$(echo "$OWN" | awk -v n="$_n" '$1 == n { print $2 " " $3; exit }')
+  if [ -n "$_hp" ]; then echo "$_hp"; else echo "$MAIN"; fi
 }
-SERVERS=$(for N in "${EAX_LIBRARY_DB_NAME:-eaxlibrary}" "${EAX_VIEWS_DB_NAME:-eaxviews}"; do server_of "$N"; done; echo "$MAIN")
+SERVERS=$( (echo "$OWN" | awk 'NF == 3 { print $2 " " $3 }'; echo "$MAIN") )
 SERVERS=$(echo "$SERVERS" | sort -u | tr ' ' ':')
 # runs a command against the server of database $1
 at() { _hp=$(server_of "$1"); shift; ( PGHOST=${_hp% *}; PGPORT=${_hp#* }; export PGHOST PGPORT; "$@" ); }

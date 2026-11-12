@@ -68,13 +68,15 @@ def test_levels_and_suites_as_eax_test():
 def test_the_bench_takes_every_option_of_eax_test():
     help_txt = (REPO / "eaxcli" / "help.txt").read_text(encoding="utf-8")
     line = next(x for x in help_txt.splitlines() if x.startswith("### test "))
-    test_opts = set(__import__("re").findall(r"--[a-z-]+", line)) - {"--build"}   # building the runner image is inside only
+    # building the runner image is inside only; so is repeating a run's failed checks (R2.36: failed [run] --warnings)
+    test_opts = set(__import__("re").findall(r"--[a-z-]+", line)) - {"--build", "--warnings", "--older-than"}   # delete: inside only (R2.43)
     bench_opts = {o for a in cli.parser()._subparsers._group_actions[0].choices["run"]._actions for o in a.option_strings}
     assert test_opts <= bench_opts, test_opts - bench_opts
 
 
 def test_suites_are_the_self_tests():
-    assert set(SUITES) == set(INSIDE_SUITES)
+    # but the backup checks (R2.45): they need the installation's own backup container, so they run inside only
+    assert set(SUITES) == set(INSIDE_SUITES) - {"backup"}
 
 
 def _calls(fn: ast.FunctionDef, modules: set[str]) -> set[str]:

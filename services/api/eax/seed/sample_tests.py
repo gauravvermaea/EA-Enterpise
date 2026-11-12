@@ -7,7 +7,10 @@ is there yet). Between them they show every state:
   * detailed tests that failed, by `eax test`: an API check with a server error (what was asked and what came back), a
     browser journey that failed with its screenshot (headless) and one watched in a browser, a ZAP warning and a skipped
     check; its fixtures already removed (the report stays, marked so);
-  * a run that could not start (the runner image was not built), with the reason.
+  * a run that could not start (the runner image was not built), with the reason;
+  * two repeats (R2.36, D605): the failed ones of the detailed test again (the API check passes now, the journey still
+    fails: then and now), and that repeat's failure again (it passes: the first repeat is followed up). The detailed
+    test itself is not followed up, so its Run the failed ones again shows.
 """
 
 from __future__ import annotations
@@ -102,4 +105,26 @@ def run() -> list[str]:
                         message="Could not start: The test runner image eaexplorer/testrunner is not built yet: run eax test once on this server.")
         conn.execute(text("UPDATE core.test_runs SET queued_at = now() - interval '2 days', finished_at = now() - interval '2 days' "
                           "WHERE id = :id"), {"id": err})
-    return [f"sample self-test runs: {ok} passed (its fixtures kept), {bad} failed (fixtures removed), {err} could not start"]
+        r1 = store.create_run(conn, "user_it_admin", "web", ["api", "ui"], "20261110T081000Z-run4", version, "detailed",
+                              repeat_of=bad)
+        store.set_state(conn, r1, state="running")
+        store.add_result(conn, r1, "api", "GET /api/v1/models/{model_id}/kpis: every test role", "passed",
+                         "every role answered (a sample: fixed since)", 180)
+        store.add_result(conn, r1, "ui", "journey: a project and its tasks", "failed",
+                         "Timeout 30000ms exceeded waiting for text=Tasks (a sample failure, still there)", 40500, _png(), "",
+                         browser="Chromium 130 (headless, on the server)")
+        store.finish(conn, r1)
+        r2 = store.create_run(conn, "eax test", "eax", ["ui"], "20261110T093000Z-run5", version, "detailed", repeat_of=r1)
+        store.set_state(conn, r2, state="running")
+        store.add_result(conn, r2, "ui", "journey: a project and its tasks", "passed", "4 page(s) as architect", 21000,
+                         browser="Chromium 130 (headless, on the server)")
+        store.finish(conn, r2)
+        from ..testing import repeat
+        repeat.mark_followed_up(conn, r2)
+        for rid, hours in ((r1, 20), (r2, 18)):
+            conn.execute(text("""UPDATE core.test_runs SET queued_at = now() - make_interval(hours => :h),
+                                 started_at = now() - make_interval(hours => :h),
+                                 finished_at = now() - make_interval(hours => :h) + interval '3 minutes' WHERE id = :id"""),
+                         {"h": hours, "id": rid})
+    return [f"sample self-test runs: {ok} passed (its fixtures kept), {bad} failed (fixtures removed), {err} could not start, "
+            f"{r1} and {r2} repeat failed checks ({r1} followed up by {r2})"]

@@ -6,6 +6,9 @@ helper starts it for System admin > Self-test and `eax test`; CI runs `eax test`
         makes the run's fixtures (self_test_<id>_1, _2, _3 and its test accounts), runs the checks against the live API
         and the front door inside them, and writes the report. Prints RUN_ID=<n> first. With the security suite the run
         stays open ("waiting for the ZAP and Trivy scans") until `collect`.
+  python -m eax.testing run --repeat N [--warnings] [--run-id N] ...
+        a repeat (R2.36, D605): only the checks that failed in run N (0: the newest finished run), and those with
+        warnings with --warnings; fresh fixtures as always. Prints "nothing to repeat" and makes no run when none failed.
   python -m eax.testing collect --run-id N [--error TEXT | --stopped BY]
         reads the ZAP and Trivy reports the operations helper left in the run's folder and closes the run.
 
@@ -26,7 +29,17 @@ from pathlib import Path
 
 from sqlalchemy import text
 
-from . import api_matrix, api_writes, db_checks, fixtures, report, security, store, ui_journeys
+from . import (
+    api_matrix,
+    api_writes,
+    db_checks,
+    fixtures,
+    repeat,
+    report,
+    security,
+    store,
+    ui_journeys,
+)
 
 RESULTS = Path(os.environ.get("EAX_TEST_RESULTS", "/results"))
 API = os.environ.get("EAX_TEST_API_URL", "http://api:8000")
@@ -49,8 +62,23 @@ class Run:
         self.dir = RESULTS / folder
         self.dir.mkdir(parents=True, exist_ok=True)
         self.counts: dict[str, int] = {}
+        self.only: set[tuple[str, str]] | None = None    # a repeat (R2.36): the checks to record, by suite and canon name
+        self.ids: dict[str, str] = {}                     # this run's fixture ids (for the canon names)
+        self.left_out = 0
+
+    def where(self) -> str:
+        """How far the run is, for the command line (R2.40): "[120 of about 900, 780 left]"."""
+        with self.engine.connect() as conn:
+            run = store.run_row(conn, self.id)
+            done = conn.execute(text("SELECT count(*) FROM core.test_results WHERE run_id = :id"), {"id": self.id}).scalar() or 0
+            p = store.progress(conn, run, int(done)) if run else {"total": None, "done": done}
+        return f"[{p['done']} of about {p['total']}, {p['left']} left]" if p.get("total") else f"[{p['done']} so far]"
 
     def log(self, msg: str) -> None:
+        try:
+            msg = f"{msg}  {self.where()}"
+        except Exception:  # noqa: BLE001 - only a hint
+            pass
         line = f"{datetime.now(UTC).strftime('%H:%M:%S')} {msg}"
         print(line, flush=True)
         with open(self.dir / "run.log", "a", encoding="utf-8") as f:
@@ -64,6 +92,9 @@ class Run:
     def recorder(self, suite: str):
         def record(name: str, outcome: str, detail: str = "", ms: int = 0, screenshot: bytes | None = None, video: str = "",
                    request: str = "", response: str = "", browser: str = "") -> None:
+            if self.only is not None and (suite, repeat.canon(name, self.ids)) not in self.only:
+                self.left_out += 1                # run because a repeated check needs it, not itself repeated
+                return
             with self.engine.begin() as conn:
                 store.add_result(conn, self.id, suite, name, outcome, detail, ms, screenshot, video, request, response, browser)
             print(f"  {outcome.upper():<8}{suite:<9}{name}" + (f": {detail[:160]}" if outcome in ("failed", "warning") else ""),
@@ -71,8 +102,10 @@ class Run:
         return record
 
 
-def smoke(r: Run, spec: dict, tokens: dict[str, str], ids: dict[str, str], ticket: str) -> None:
-    """A few minutes: every test role can sign in, every main area answers, the key journeys work once."""
+def smoke(r: Run, spec: dict, tokens: dict[str, str], ids: dict[str, str], ticket: str, rp: dict | None = None) -> None:
+    """A few minutes: every test role can sign in, every main area answers, the key journeys work once. rp: a repeat's
+    plan (R2.36): the API checks run again (seconds; only the failed ones are recorded), and only the failed pages and
+    journeys open."""
     rec = r.recorder("smoke")
     for role, token in tokens.items():
         t0 = time.time()
@@ -100,15 +133,26 @@ def smoke(r: Run, spec: dict, tokens: dict[str, str], ids: dict[str, str], ticke
     command_centre(rec, tokens)
     banner_and_schedules(rec, tokens)
     iterations(rec, tokens, ids)
+    if rp is not None:
+        routes = [x for x in (repeat.fill(rt, ids) for rt in rp["routes"]) if x]
+        if routes or rp["journeys"]:
+            r.log("the failed pages and journeys again, in a headless browser")
+            r.counts.update(ui_journeys.run_all(ids, ticket, r.dir, r.recorder("ui"), smoke=True, routes=routes,
+                                                names=set(rp["journeys"])))
+        return
     r.log("every page opens (as Super Admin) and the key journeys, in a headless browser")
     r.counts.update(ui_journeys.run_all(ids, ticket, r.dir, r.recorder("ui"), smoke=True))
 
 
-def _admin_journey(journeys: list[str] | None, role: str, pages_only: bool) -> bool:
-    """Whether this run's journeys change the installation's banner and schedules (the admin journey)."""
+def _admin_journey(journeys: list[str] | None, role: str, pages_only: bool, names: set[str] | None = None) -> bool:
+    """Whether this run's journeys change the installation's banner and schedules (the admin journey). names: a
+    repeat's journeys (R2.36)."""
     from . import ui_flows
     if pages_only:
         return False
+    if names is not None:
+        return any(j.get("guard") == "admin" and any(n.startswith(f"journey: {j['name']}") for n in names)
+                   for j in ui_flows.JOURNEYS)
     for j in ui_flows.JOURNEYS:
         if j.get("guard") == "admin" and (not journeys or any(o.lower() in j["name"].lower() for o in journeys)) \
                 and ui_flows.role_plan(j, role):
@@ -190,7 +234,7 @@ def command_centre(rec, tokens: dict[str, str]) -> None:
     other = next((t for k, t in tokens.items() if k not in ("super-admin", "it-admin")), None)
     if admin:
         t0 = time.time()
-        s, body = api_matrix.call(API, "get", "/api/v1/admin/commands", admin)
+        s, body = api_matrix.call(API, "get", "/api/v1/admin/commands", admin, size=None)   # the whole list
         ok = s == 200 and '"status"' in body and '"cleanup"' in body
         rec("command centre: every eax command is listed", "passed" if ok else "warning" if s in (502, 503, 504) else "failed",
             f"{s}", int((time.time() - t0) * 1000), request="" if ok else "GET /api/v1/admin/commands",
@@ -221,7 +265,7 @@ def banner_and_schedules(rec, tokens: dict[str, str]) -> None:
                 request="" if ok else "GET /api/v1/banner", response="" if ok else f"{s}\n{body}")
     if admin:
         t0 = time.time()
-        s, body = api_matrix.call(API, "get", "/api/v1/admin/commands/schedules", admin)
+        s, body = api_matrix.call(API, "get", "/api/v1/admin/commands/schedules", admin, size=None)
         ok = s == 200 and '"schedules"' in body
         warn = ok and '"warning": ""' not in body and '"warning":""' not in body
         rec("schedules: listed from persist/schedules.json", "warning" if warn or s in (502, 503, 504) else "passed" if ok else "failed",
@@ -259,8 +303,8 @@ def documentation(rec, tokens: dict[str, str]) -> None:
                        ("a document opens (capabilities)", "/api/v1/documentation/capabilities"),
                        ("the documentation search answers", "/api/v1/documentation/search?q=backup")):
         t0 = time.time()
-        s, body = api_matrix.call(API, "get", path, user)
-        ok = s == 200 and ("version" in body or "results" in body)
+        s, body = api_matrix.call(API, "get", path, user, size=None)
+        ok = s == 200 and any(k in body for k in ('"documents"', '"results"', '"html"', '"key"', '"version"'))
         rec(f"documentation: {what}", "passed" if ok else "failed", f"{s}", int((time.time() - t0) * 1000),
             request="" if ok else f"GET {path}", response="" if ok else f"{s}\n{body}")
     lib = os.environ.get("EAX_TEST_LIBRARY_URL", "http://library:8100")
@@ -284,15 +328,83 @@ def documentation(rec, tokens: dict[str, str]) -> None:
         int((time.time() - t0) * 1000), request="" if ok else "GET /api/library/v1/libraries/org", response="" if ok else f"{s}\n{body}")
 
 
+def _backup_suite(r: Run, tokens: dict[str, str], ids: dict[str, str], run_id: int) -> None:
+    """The backup checks (backups_check.py, R2.45), as the run's Super Admin; the restored model is the run's fixture."""
+    from . import backups_check
+
+    def add_fixture(kind: str, ident: str, name: str) -> None:
+        with r.engine.begin() as conn:
+            store.add_fixture(conn, run_id, kind, ident, name)
+    r.log("backups: an infrastructure and an application backup, a trial restore of each (nothing live is touched)")
+    backups_check.run(API, tokens.get("super-admin", ""), ids, r.recorder("backup"), r.log, r.engine, run_id, add_fixture)
+
+
+def _repeat_detailed(r: Run, p: dict, spec: dict, tokens: dict[str, str], test_tokens: dict[str, str], ids: dict[str, str],
+                     ticket: str, role: str, area: str) -> bool:
+    """A detailed repeat (R2.36): each suite only as far as its failed checks need. Returns whether ZAP or Trivy run
+    next (scans.json in the run's folder says which)."""
+    import json as _json
+    if p["db"]:
+        r.log("database checks again (read only)")
+        with r.engine.connect() as conn:
+            db_checks.run(conn, _version(), r.recorder("db"))
+    if p["api"]:
+        r.log(f"API: the {len(p['api'])} failed endpoint check(s) again")
+        api_matrix.run(API, spec, test_tokens, ids, ids.get("other_model"), r.recorder("api"), area=area, only=set(p["api"]))
+    if p["writes"]:
+        r.log(f"API writes: up to the last failed one ({len(p['writes'])} to repeat)")
+        api_writes.run(API, test_tokens, ids, r.recorder("api"), area=area, only=set(p["writes"]))
+    routes = [x for x in (repeat.fill(rt, ids) for rt in p["routes"]) if x]
+    if routes or p["journeys"]:
+        names = set(p["journeys"])
+        guarded = _admin_journey(None, role, False, names)
+        before = _admin_guard(tokens, "before", r.log) if guarded else None
+        try:
+            r.log(f"browser: {len(routes)} page(s) and {len(names)} journey(s) again (Chromium, headless)")
+            r.counts.update(ui_journeys.run_all(ids, ticket, r.dir, r.recorder("ui"), role=role, routes=routes, names=names))
+        finally:
+            if guarded:
+                _admin_guard(tokens, before, r.log, sid=ids.get("sid", ""))
+    if p["front_door"]:
+        r.log("security: headers and cookies at the front door, Python dependencies")
+        rec = r.recorder("security")
+        security.front_door(rec)
+        security.python_dependencies(rec)
+    if "backup" in p["suites"]:                     # the backup checks run as one (each needs the one before)
+        _backup_suite(r, tokens, ids, r.id)
+    sc = repeat.scans(p)
+    if sc["zap"] or sc["images"]:
+        (r.dir / repeat.SCANS).write_text(_json.dumps(sc), encoding="utf-8")
+        return True
+    return False
+
+
 def cmd_run(args) -> int:
     from ..db import get_engine
     engine = get_engine()
     level, role, area = store.clean_options(args.level, args.role, args.area)
     suites = store.clean_suites(args.suites)
     folder = args.folder or datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    rep_of, rep_warn = None, bool(args.warnings)
     with engine.begin() as conn:
+        if args.run_id:                             # recorded by the Self-test page: a repeat says so in its row
+            got = conn.execute(text("SELECT repeat_of, repeat_warnings FROM core.test_runs WHERE id = :id"),
+                               {"id": args.run_id}).first()
+            if got and got[0]:
+                rep_of, rep_warn = int(got[0]), bool(got[1])
+        if args.repeat is not None and not rep_of:  # `eax test failed [N]`: what it repeats, before any run is made
+            try:
+                o = store.repeat_options(conn, args.repeat or None, rep_warn)
+            except ValueError as exc:
+                print(str(exc), flush=True)
+                if args.run_id:
+                    store.set_state(conn, args.run_id, state="error", message=str(exc))
+                return 0 if "nothing to repeat" in str(exc) else 2
+            rep_of, level, role, area, suites = o["of"], o["level"], o["role"], o["area"], o["suites"]
+            print(f"Repeating the {o['checks']} failed check(s) of self-test {rep_of}"
+                  + (" (and its warnings)" if rep_warn else "") + ".", flush=True)
         run_id = args.run_id or store.create_run(conn, args.by or "eax test", args.trigger, suites, folder, _version(), level,
-                                                 role, area, args.watch)
+                                                 role, area, args.watch, repeat_of=rep_of, repeat_warnings=rep_warn)
         store.set_state(conn, run_id, state="running", folder=folder, version=_version())
         run = dict(conn.execute(text("SELECT id, run_guid::text AS run_guid, started_by FROM core.test_runs WHERE id = :id"),
                                 {"id": run_id}).mappings().first())
@@ -302,12 +414,22 @@ def cmd_run(args) -> int:
     error, stopped, keep_open = "", "", False
     try:
         r.log(f"self-test {run_id} ({store.short(run['run_guid'])}): {level}"
+              + (f", the failed checks of run {rep_of} again" + (" (and its warnings)" if rep_warn else "") if rep_of else "")
               + ("" if level == "smoke" else f", {', '.join(suites)}") + (f", role {role}" if role else "")
               + (f", area {area}" if area else "") + (", watched in a browser" if args.watch else ""))
         roles = ["super-admin"] + ([role] if role and role != "super-admin" else [] if role else store.TEST_ROLES[1:])
+        fixtures.clean_leftovers(engine, run_id, by, r.log)   # earlier runs' test data goes first (D593)
         with engine.begin() as conn:
             tokens = fixtures.accounts(conn, run, by, roles, r.log)
         ids = fixtures.models_and_project(engine, run, by, roles, r.log)
+        with engine.begin() as conn:
+            store.set_fixture_ids(conn, run_id, ids)
+        p = None
+        if rep_of:                                   # only the failed checks are recorded from here (R2.36)
+            with engine.connect() as conn:
+                p = repeat.plan(repeat.wanted(conn, rep_of, rep_warn), repeat.fixture_ids(conn, rep_of))
+            r.only, r.ids = p["keys"], ids
+            r.log(f"repeating {len(p['keys'])} check(s) of run {rep_of}: {', '.join(p['suites'])}")
         test_tokens = {k: v for k, v in tokens.items() if not role or k == role}
         ticket = secrets.token_urlsafe(24)
         from . import ui_flows, ui_pages
@@ -321,8 +443,10 @@ def cmd_run(args) -> int:
                 "journeys": [] if args.pages_only else ui_flows.journeys(ids, role=role, only=journeys, watch=True)})
         spec = api_matrix.fetch_spec(API)
         if level == "smoke":
-            r.log("smoke test: sign-in, every area, the key journeys")
-            smoke(r, spec, test_tokens, ids, ticket)
+            r.log("smoke test: sign-in, every area, the key journeys" if not p else "smoke test: the failed checks again")
+            smoke(r, spec, test_tokens, ids, ticket, p)
+        elif p is not None:
+            keep_open = _repeat_detailed(r, p, spec, tokens, test_tokens, ids, ticket, role, area)
         else:
             if "db" in suites:
                 r.log("database checks (read only)")
@@ -358,6 +482,8 @@ def cmd_run(args) -> int:
                 security.front_door(rec)
                 security.python_dependencies(rec)
                 keep_open = True
+            if "backup" in suites:                    # the last: backups and trial restores (R2.45)
+                _backup_suite(r, tokens, ids, run_id)
     except Stopped as exc:
         stopped = str(exc)
     except Exception as exc:  # noqa: BLE001 - the run itself broke: kept as an error with the reason
@@ -369,7 +495,8 @@ def cmd_run(args) -> int:
     if keep_open and not (error or stopped):
         with engine.begin() as conn:
             store.set_state(conn, run_id, step="waiting for the ZAP baseline scan and the Trivy image scans")
-        return 0                  # the operations helper runs ZAP and Trivy, then `collect` closes the run
+        print("SCANS_NEXT", flush=True)  # the operations helper runs ZAP and Trivy (scans.json), then `collect` closes the run
+        return 0
     return _close(engine, r, error, stopped)
 
 
@@ -388,15 +515,64 @@ def _close_access(engine, run_id: int, by: str) -> None:
         conn.execute(text("UPDATE core.test_runs SET browser = jsonb_build_object('done', true) WHERE id = :id"), {"id": run_id})
 
 
+SUITE_NAMES = {"smoke": "Smoke", "api": "API", "ui": "Pages and journeys", "db": "Database", "security": "Security"}
+
+
+def summary_text(d: dict) -> str:
+    """What a run found, for the command line (owner, 12 Nov 2026: "when test have executed from command line, they
+    should give a summary of what passed what failed"): the counts per suite, the functional health and why, and every
+    failure by name (critical first), each with its reason."""
+    from . import health
+    hs, results = d["health"], d["results"]
+    lines = ["", "=" * 78, f"Self-test {d['run']['id']}: summary", "-" * 78,
+             f"{'Suite':<22}{'passed':>8}{'failed':>8}{'warnings':>10}{'skipped':>9}"]
+    for suite, n in hs["suites"].items():
+        lines.append(f"{SUITE_NAMES.get(suite, suite):<22}{n['passed']:>8}{n['failed']:>8}{n['warning']:>10}{n['skipped']:>9}")
+    t = d["tally"]
+    lines += [f"{'All':<22}{t['passed']:>8}{t['failed']:>8}{t['warning']:>10}{t['skipped']:>9}", "-" * 78,
+              f"Functional health: {hs['health']}: {hs['reason']}",
+              f"  critical {hs['critical']['failed']} failed of {sum(hs['critical'].values())}, non-critical "
+              f"{hs['non_critical']['failed']} failed of {sum(hs['non_critical'].values())}; security "
+              f"{hs['security']['failed']} failed, {hs['security']['warning']} warnings (not counted in the health)"]
+    failed = [x for x in results if x["outcome"] == "failed"]
+    if failed:
+        failed.sort(key=lambda x: health.importance(x["suite"], x["name"]) != "critical")
+        lines += ["-" * 78, f"Failed ({len(failed)}):"]
+        for x in failed:
+            imp = "CRITICAL" if health.importance(x["suite"], x["name"]) == "critical" else "        "
+            lines.append(f"  {imp} {x['suite']:<9} {x['name'][:90]}")
+            if x.get("detail"):
+                lines.append(f"           {' ' * 9} {str(x['detail']).splitlines()[0][:110]}")
+    warned = [x for x in results if x["outcome"] == "warning"]
+    if warned:
+        lines += [f"Warnings ({len(warned)}): " + "; ".join(x["name"][:60] for x in warned[:8]) + ("…" if len(warned) > 8 else "")]
+    rp = d.get("repeat")
+    if rp:                                           # a repeat: each check then and now (R2.36)
+        lines += ["-" * 78, f"Repeat of self-test {rp['of']}: {rp['fixed']} of {len(rp['checks'])} now pass"
+                  + (" (the earlier run is followed up)" if rp["all_passed"] else ""),
+                  f"  {'then':<9}{'now':<14}check"]
+        for c in rp["checks"]:
+            lines.append(f"  {c['then']:<9}{c['now']:<14}{c['suite']:<9} {c['name'][:80]}")
+    lines.append("=" * 78)
+    return "\n".join(lines)
+
+
 def _close(engine, r: Run, error: str = "", stopped: str = "") -> int:
     with engine.begin() as conn:
         state = store.finish(conn, r.id, error, stopped)
+        if not (error or stopped) and repeat.mark_followed_up(conn, r.id):
+            print("Every repeated check passes now: the earlier run is marked as followed up.", flush=True)
     try:
         with engine.connect() as conn:
             (r.dir / "report.html").write_text(report.to_html(conn, r.id), encoding="utf-8")
             (r.dir / "report.xlsx").write_bytes(report.to_xlsx(conn, r.id))
     except Exception as exc:  # noqa: BLE001 - the results are in the database whatever happens to the files
         print(f"the report files could not be written: {exc}", flush=True)
+    try:                                             # the summary at the end (owner, 12 Nov 2026: R2.35, D604)
+        with engine.connect() as conn:
+            print(summary_text(store.run_detail(conn, r.id)), flush=True)
+    except Exception:  # noqa: BLE001 - the report files and the page have it all
+        pass
     print(f"self-test {r.id} {state}: work/tests/{r.folder}/report.html", flush=True)
     return 0 if state == "passed" else 1
 
@@ -415,6 +591,12 @@ def cmd_collect(args) -> int:
     r = Run.__new__(Run)
     r.engine, r.id, r.folder, r.dir = engine, args.run_id, row[0], RESULTS / row[0]
     r.dir.mkdir(parents=True, exist_ok=True)
+    r.only, r.ids, r.left_out, r.counts = None, {}, 0, {}
+    with engine.connect() as conn:                   # a repeat records only the scans that failed before (R2.36)
+        rp = conn.execute(text("SELECT repeat_of, repeat_warnings FROM core.test_runs WHERE id = :id"), {"id": args.run_id}).first()
+        if rp and rp[0]:
+            r.only = repeat.plan(repeat.wanted(conn, int(rp[0]), bool(rp[1])), repeat.fixture_ids(conn, int(rp[0])))["keys"]
+            r.ids = repeat.fixture_ids(conn, args.run_id)
     if not (args.error or args.stopped):
         rec = r.recorder("security")
         security.read_zap(r.dir / "zap.json", rec)
@@ -438,6 +620,8 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("--trigger", default="eax", choices=["web", "eax", "ci"])
     a.add_argument("--by", default="")
     a.add_argument("--folder", default="")
+    a.add_argument("--repeat", type=int, default=None, help="repeat run N's failed checks (0: the newest finished run)")
+    a.add_argument("--warnings", action="store_true", help="with --repeat: its warnings too")
     c = sub.add_parser("collect")
     c.add_argument("--run-id", type=int, required=True)
     c.add_argument("--error", default="")

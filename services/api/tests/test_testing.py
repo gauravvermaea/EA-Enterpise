@@ -35,9 +35,9 @@ def test_migration_adds_rows_only():
 # ---------------------------------------------------------------- suites
 def test_suites_are_checked():
     from eax.testing import store
-    assert store.clean_suites(None) == ["api", "ui", "db", "security"]
+    assert store.clean_suites(None) == ["api", "ui", "db", "security", "backup"]
     assert store.clean_suites("db, api") == ["api", "db"]
-    assert store.clean_suites(["all"]) == ["api", "ui", "db", "security"]
+    assert store.clean_suites(["all"]) == ["api", "ui", "db", "security", "backup"]
     with pytest.raises(ValueError):
         store.clean_suites(["api", "load"])
     assert store.clean_options("detailed", "user_architect", "models") == ("detailed", "architect", "models")
@@ -46,7 +46,7 @@ def test_suites_are_checked():
             store.clean_options(*bad)
     assert store.estimate_minutes("smoke", [])[1] <= 5 and store.short("c08f9f97-2965-4a0b-8c1d-000000000000") == "c08f9f972965"
     t = _ops_module("testruns")
-    assert t.suites_of("security") == ["security"] and t.suites_of([]) == ["api", "ui", "db", "security"]
+    assert t.suites_of("security") == ["security"] and t.suites_of([]) == ["api", "ui", "db", "security", "backup"]
     with pytest.raises(ValueError):
         t.suites_of(["nope"])
 
@@ -117,8 +117,9 @@ def test_the_matrix_finds_what_is_wrong(monkeypatch):
 
 
 # ---------------------------------------------------------------- security
-def test_headers_and_cookies():
+def test_headers_and_cookies(monkeypatch):
     from eax.testing import security as s
+    monkeypatch.setenv("EAX_DEPLOYMENT", "server")
     got = []
     rec = lambda name, outcome, detail, ms: got.append((name, outcome))  # noqa: E731
     s.check_headers({"x-content-type-options": "nosniff", "referrer-policy": "strict-origin-when-cross-origin",
@@ -127,6 +128,10 @@ def test_headers_and_cookies():
     assert d["front door: header x-content-type-options"] == "passed"
     assert d["front door: header strict-transport-security"] == "warning"
     assert d["front door: server version hidden"] == "warning"
+    got.clear()
+    monkeypatch.setenv("EAX_DEPLOYMENT", "laptop")      # HSTS is off on a laptop by design (D107)
+    s.check_headers({"x-content-type-options": "nosniff"}, "front door", rec)
+    assert dict(got)["front door: header strict-transport-security"] == "passed"
     got.clear()
     s.check_cookies(["AUTH_SESSION_ID=a; Path=/; Secure; HttpOnly; SameSite=None", "X=1; Path=/"], "sign-in", rec)
     d = dict(got)
@@ -265,7 +270,8 @@ def test_commands_and_screens_are_wired():
     web = REPO / "services" / "web" / "src"
     assert '["scaling", "Scaling"' in (web / "Admin.jsx").read_text() and '["self-test", "Self-test"' in (web / "Admin.jsx").read_text()
     assert "<LastSelfTest />" in (web / "Heartbeat.jsx").read_text()
-    assert "Watch it in this browser" in (web / "TestRuns.jsx").read_text() and "Type DELETE" in (web / "TestRuns.jsx").read_text()
+    tr = (web / "TestRuns.jsx").read_text()      # two choices only (R2.0.1, D592), and the test data deleted (D593)
+    assert '["smoke", "Smoke test"' in tr and '["full", "Full test"' in tr and "Type DELETE" in tr and "Delete all test data" in tr
     assert "sample_tests" in (API / "eax/seed/later.py").read_text()
 
 
@@ -287,7 +293,8 @@ def test_build_command_in_every_form():
     ps = (REPO / "eax.ps1").read_text()
     assert '$RestArgs -contains "--build"' in ps
     helptext = (REPO / "eaxcli/help.txt").read_text()
-    assert "[--build]" in helptext and "  --build " in helptext and "$ {eax} test --build" in helptext
+    # --build still works for scripts but is no longer shown (R2.0.1, D592): the help shows smoke, full and clean
+    assert "### test [smoke|full|backup|failed [run] [--warnings]|delete <run|all> [--older-than DAYS]|clean]" in helptext and "$ {eax} test full" in helptext and "$ {eax} test clean" in helptext
     sys.path.insert(0, str(REPO))
     from eaxcli import commands as C
     assert C.check_argv(["test", "--build"]) == ["test", "--build"]
@@ -341,3 +348,33 @@ def test_build_is_wired_through_the_helper_and_the_api():
     # nothing to build by hand (D584): a run from the page always prepares the runner first; no "Build, then run" choice
     assert 'data.get("build_first", True) is not False' in api and "build_first: notBuilt" not in web and "Build, then run" not in web
 
+
+
+def test_the_runner_gets_the_test_data_when_the_helper_starts_it():
+    """R2.0.1: a run started by the operations helper (the page and eax test) had no test data folder, and the journeys'
+    file lookup broke the whole run ("ERROR: 4"); the helper now mounts testbench/data at /testdata, and a missing folder
+    only makes the upload steps say so."""
+    ops = (REPO / "services/ops/testruns.py").read_text()
+    assert '"EAX_TEST_DATA=/testdata"' in ops and '{test_data_folder(work)}:/testdata:ro' in ops
+    # beside work/, in the host's own spelling (the laptop's full run: a Windows source C:\\...\\work had become
+    # "...\\work/testbench/data", an empty folder)
+    src = (REPO / "services/ops/testruns.py").read_text()
+    ns: dict = {"re": __import__("re")}
+    start = src.index("def test_data_folder(")
+    exec(src[start:src.index("\ndef ", start + 10)], ns)   # noqa: S102 - the one function, from the repository
+    f = ns["test_data_folder"]
+    assert f(r"C:\Users\me\EA\work") == r"C:\Users\me\EA\testbench\data"
+    assert f("/srv/eax/work/") == "/srv/eax/testbench/data"
+    assert f("/run/desktop/mnt/host/c/Users/me/EA/work") == "/run/desktop/mnt/host/c/Users/me/EA/testbench/data"
+    from eax.testing import ui_flows
+    assert ui_flows._with_data({"upload": "input", "data": "no/such/file.xlsx"}) == {"upload": "input", "data": "no/such/file.xlsx"}
+
+
+def test_a_run_does_not_depend_on_the_sample_data():
+    """Owner, 12 Nov 2026: "Smoke test should not depend upon sample data ... Neither is critical for function of the
+    app": a run makes its own models, project and accounts, and neither waits for nor checks the sample data or the
+    industry packs (the work after the start, core.startup_parts)."""
+    here = Path(__file__).resolve().parents[1] / "eax" / "testing"
+    for f in here.glob("*.py"):
+        src = f.read_text(encoding="utf-8")
+        assert "startup_parts" not in src and "wait_for_startup" not in src, f.name

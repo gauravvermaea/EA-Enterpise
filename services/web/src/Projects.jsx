@@ -38,12 +38,16 @@ import { ComplianceWizard } from "./GuidedWizards";
 import { CanvasTab } from "./Canvas";
 import { ProjectBusinessArtifacts } from "./BusinessArchitecture";
 import { ProjectLibraryTab } from "./Libraries";
+import { PrinciplesTab } from "./Principles";
+
+export { PrinciplesTab };
 import { ViewEvidenceList } from "./DrawnView";
 import { isRetiredProject, liveProjects, ShowRetired, useShowRetired } from "./ModelMarks";
 import { KeyQuestionsPanel, KeyQuestionsStep, makePlaceholderFiles, newKey, QuestionMapping } from "./KeyQuestions";
 import { TemplateBrowserDialog } from "./TemplateBrowser";
 import { ProjectBackupPanel, ProjectCompare, ProjectGaps, ProjectReports, RestoreProjectFile, ViewsByPhase } from "./ProjectTabs";
 import PageNav from "./PageNav";
+import { PROJECT_WIZARDS, wizardAsked } from "./wizardLists";
 
 const ROLE_NAMES = { "project-admin": "Project Admin", "lead-architect": "Lead Architect", architect: "Architect",
   "model-admin": "Model Admin", "model-sub-admin": "Model Sub Admin", stakeholder: "Stakeholder" };
@@ -99,19 +103,6 @@ export function ProjectAdmin({ route }) {
   );
 }
 
-// Project admin > Wizards (owner, 7 Nov 2026): every project admin workflow as a wizard. The one-time template library
-// set-up first (projects need it), then a new project of each kind (the project templates) or blank, then the wizards
-// that run on a project you choose.
-const PROJECT_WIZARDS = [
-  { k: "edit", title: "✎ Edit a project", text: "The set-up wizard again on a running project: models, scope, goals and outcomes, sponsor, notes, libraries, views, steps, deliverables, people and sign-off", to: (id) => `#/projects/${id}/edit`, runs: true },
-  { k: "finish", title: "Finish a project", text: "Freeze it, or merge it into another project; each of its models kept, merged into its parent, merged and frozen, or frozen", to: (id) => `#/project-admin/${id}?finish=1`, runs: true },
-  { k: "derive", title: "Derive a new project", text: "A new project filled in from one you choose: scope, goals, steps, deliverables, views, libraries; its models referred to or derived from", to: (id) => `#/projects/new?parent=${id}` },
-  { k: "library", title: "Make a project a library project", text: "Offer its reference material to every new project, or stop offering it (Super Admins)", to: (id) => `#/project-admin/${id}?library=1`, sup: true },
-  { k: "as-template", title: "Save a project as a template", text: "Its decisions as a new kind of project in the gallery (Super Admins)", to: (id) => `#/project-admin/${id}?template=1`, sup: true },
-  { k: "compliance", title: "Architecture compliance review", text: "Review a solution against the project's principles and standards: a verdict and note for each, the result and any dispensations in its governance log", to: (id) => `#/project-admin/${id}?compliance=1` },
-  { k: "repo", title: "Build a project's repository now", text: "Make its folders and copy its templates in Documents again (missing ones only); see why it is not built", to: (id) => `#/project-admin/${id}`, runs: true },
-];
-
 // the organisation-wide architecture charter (owner, 8 Nov 2026, D319): in the Organisation base, filled in from the seed,
 // a draft until a Super Admin approves it; each project keeps its own charter page, started from it
 // Project admin › Principles (D327): the organisation's principles, kept in the Organisation base by Super Admins
@@ -148,8 +139,9 @@ function OrgCharterCard() {
 function ProjectWizards() {
   const { data: lib, error } = useApi("/api/v1/projects/library");
   const { data: list } = useApi("/api/v1/projects");
-  const [pick, setPick] = useState(null);
-  const [restoreFile, setRestoreFile] = useState(false);
+  // a wizard asked for in the address (the top menu's Project Admin › Wizards › …, D586) opens at once
+  const [pick, setPick] = useState(() => PROJECT_WIZARDS.find((w) => w.k === wizardAsked()) || null);
+  const [restoreFile, setRestoreFile] = useState(() => wizardAsked() === "restore-file");
   if (error) return <p className="status bad">{error}</p>;
   if (!lib) return <p className="quiet">Loading...</p>;
   const done = lib.setup.done;
@@ -1851,9 +1843,10 @@ const TABS = [["home", "Home"], ["phases", "Phases"], ["report", "Project report
 // the project page's groups (D478), the same in the Grouped and Menu styles
 const PROJECT_GROUPS = [
   ["overview", "Overview", "⌂", ["home", "report", "tasks", "calendar", "signoff"]],
-  ["plan", "Plan", "◷", ["phases", "charter", "base", "content"]],
+  ["plan", "Plan", "◷", ["phases", "charter", "base"]],
   ["business", "Business", "◎", ["organisation", "stakeholders", "questions", "canvas", "business"]],
-  ["architecture", "Architecture", "◫", ["models", "archrepo", "views", "reports", "quality", "analysis", "scenarios"]],
+  // the project's repository and its content framework side by side (owner, 11 Nov 2026, R2.0: "arch repo and content f/w will be top level and in project both")
+  ["architecture", "Architecture", "◫", ["archrepo", "content", "models", "views", "reports", "quality", "analysis", "scenarios"]],
   ["governance", "Governance", "⚖", ["principles", "standards", "governance"]],
   ["documents", "Documents", "▤", ["library", "otherdocs", "sheets"]],
 ];
@@ -3385,142 +3378,22 @@ function FinishDialog({ p, onClose }) {
   );
 }
 
-// the project's principles by area (owner, 8 Nov 2026): a grid per area with the statement, rationale and implications;
-// anyone who contributes adds principles of the project's own at any time (the name plain, the rest rich text)
-const richOrPlain = (v) => (/^\s*</.test(v || "") ? <div className="rich-view" dangerouslySetInnerHTML={{ __html: v }} />
-  : <div style={{ whiteSpace: "pre-line" }}>{v}</div>);
-
-// A project's principles (owner, 8 Nov 2026, D327): a grid by area (Business, Security, Data...), each principle with its
-// statement, rationale and implications; one that refines a higher-level principle is nested under it. The
-// organisation's set lives in the Organisation base: enforced ones (🔒) are in every project and cannot be taken out;
-// optional ones come too and a project may take them out; a project adds its own. In a base, a Super Admin sets each
-// principle enforced or optional and adds areas.
-export function PrinciplesTab({ p }) {
-  const [dlg, setDlg] = useState(null);
-  const [msg, setMsg] = useState("");
-  const [shut, setShut] = useState(() => new Set());
-  const can = p.may_contribute && !p.frozen;
-  const isBase = !!p.base_kind;
-  const all = p.principles;
-  const byKey = {};
-  for (const r of all) { if (r.guid) byKey[r.guid] = r; if (r.origin_guid) byKey[r.origin_guid] = r; }
-  const parentOf = (r) => (r.refines && byKey[r.refines] && byKey[r.refines] !== r ? byKey[r.refines] : null);
-  const areas = [...new Set([...(p.principle_area_list || []), ...all.map((r) => r.area || "")])].filter((a) => a !== undefined);
-  const ordered = areas.sort((x, y) => (x || "~").localeCompare(y || "~"));
-  async function call(url, opts) {
-    try { const out = await apiFetch(url, opts); setMsg(out.message); refreshAll(); } catch (e) { setMsg(e.message); }
-  }
-  function remove(r) {
-    // eslint-disable-next-line no-alert
-    if (!window.confirm(`Take the principle ${r.name} out of the ${isBase ? "base" : "project"}?`)) return;
-    call(`/api/v1/projects/${p.id}/principles/${r.id}`, { method: "DELETE" });
-  }
-  const addArea = () => {
-    // eslint-disable-next-line no-alert
-    const n = window.prompt("The new area's name (e.g. Business, Security, Data, AI)");
-    if (n && n.trim()) call(`/api/v1/projects/${p.id}/principle-areas`, { method: "POST", body: JSON.stringify({ name: n }) });
-  };
-  const from = (r) => (isBase ? (r.mandatory ? "🔒 enforced in every project below" : "optional below")
-    : r.from_base && r.mandatory ? "🔒 enforced by the organisation" : r.from_base ? "optional, from the organisation"
-      : r.inherited_from ? `inherited from ${r.inherited_from}` : r.library_id ? "library" : `the project's own (${r.created_by})`);
-  const locked = (r) => r.inherited_from || (!isBase && r.from_base && r.mandatory);
-  const row = (r, depth) => {
-    const kids = all.filter((k) => parentOf(k) === r && (k.area || "") === (r.area || ""));
-    const open = !shut.has(r.id);
-    return [
-      <tr key={r.id} className={depth ? "principle-child" : ""}>
-        <td style={{ paddingLeft: 8 + depth * 22 }}>
-          {kids.length > 0 && <button className="linkish small" aria-expanded={open} onClick={() => { const n = new Set(shut); if (open) n.add(r.id); else n.delete(r.id); setShut(n); }}>{open ? "▾" : "▸"}</button>}
-          {depth > 0 && <span className="quiet">↳ </span>}<b>{r.name}</b>{r.code && <div className="small quiet">{r.code}</div>}
-          {parentOf(r) && (parentOf(r).area || "") !== (r.area || "") && <div className="small quiet">refines {parentOf(r).name} ({parentOf(r).area || "Other"})</div>}</td>
-        <td className="small">{richOrPlain(r.statement)}</td><td className="small">{richOrPlain(r.rationale)}</td>
-        <td className="small">{richOrPlain(r.implications)}</td>
-        <td className="small">{from(r)}</td>
-        {can && <td className="small nowrap">{!locked(r) && <>
-          <button className="linkish" onClick={() => setDlg(r)}>Change</button>{" · "}
-          {isBase && p.is_super && <><button className="linkish" onClick={() => call(`/api/v1/projects/${p.id}/principles/${r.id}`, { method: "PUT", body: JSON.stringify({ mandatory: !r.mandatory }) })}>
-            {r.mandatory ? "Make optional" : "Enforce"}</button>{" · "}</>}
-          <button className="linkish" onClick={() => remove(r)}>Take out</button></>}
-          {can && <>{!locked(r) && " · "}<button className="linkish" onClick={() => setDlg({ area: r.area, refines: r.guid })}>＋ Refine it</button></>}</td>}
-      </tr>,
-      ...(open ? kids.flatMap((k) => row(k, depth + 1)) : []),
-    ];
-  };
-  return (
-    <div>
-      <p className="quiet">{isBase
-        ? "The organisation's principles, by area. Enforced ones (🔒) are in every project below and cannot be taken out there; optional ones come to every new project, which may take them out. A principle may refine a higher-level one: it is shown under it."
-        : "The principles this project works to, by area. Those the organisation enforces are locked (🔒; ask for a dispensation in the governance log); optional ones from the organisation may be taken out; the project adds its own, and may refine any of them."}</p>
-      {msg && <p className="small status">{msg}</p>}
-      {can && <div className="row-gap"><button className="primary" onClick={() => setDlg({})}>＋ Add a principle</button>
-        <button onClick={addArea}>＋ Add an area</button></div>}
-      {!all.length && !ordered.length && <p className="quiet">No principles yet.</p>}
-      {ordered.map((area) => {
-        const here = all.filter((r) => (r.area || "") === area);
-        const tops = here.filter((r) => !parentOf(r) || (parentOf(r).area || "") !== area);
-        return (
-          <section key={area || "~"} className="principle-area">
-            <h3>{area || "Other"} <span className="small quiet">{here.length}</span>
-              {can && <button className="linkish small" onClick={() => setDlg({ area })}>＋ add here</button>}
-              {can && !here.length && area && <button className="linkish small" onClick={() => call(`/api/v1/projects/${p.id}/principle-areas`, { method: "POST", body: JSON.stringify({ name: area, remove: true }) })}>remove the area</button>}</h3>
-            {here.length ? <table className="grid-table principle-grid">
-              <thead><tr><th>Principle</th><th>Statement</th><th>Rationale</th><th>Implications</th><th>{isBase ? "Below" : "From"}</th>{can && <th />}</tr></thead>
-              <tbody>{tops.flatMap((r) => row(r, 0))}</tbody>
-            </table> : <p className="small quiet">No principles in this area yet.</p>}
-          </section>
-        );
-      })}
-      {dlg && <PrincipleDialog p={p} r={dlg} onClose={(m) => { setDlg(null); if (m) setMsg(m); }} />}
-    </div>
-  );
-}
-
-function PrincipleDialog({ p, r, onClose }) {
-  const lib = !!r.library_id;
-  const [f, setF] = useState({ name: r.name || "", area: r.area || "", code: r.code || "", statement: r.statement || "", rationale: r.rationale || "",
-    implications: r.implications || "", refines: r.refines || "", ...(p.base_kind && !r.id ? { mandatory: true } : {}) });
-  const others = p.principles.filter((x) => x.id !== r.id);
-  const [err, setErr] = useState("");
-  const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
-  const asHtml = (v) => (/^\s*</.test(v) ? v : v ? `<p>${v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/\n/g, "<br>")}</p>` : "");
-  async function save() {
-    setErr("");
-    try {
-      const out = await apiFetch(r.id ? `/api/v1/projects/${p.id}/principles/${r.id}` : `/api/v1/projects/${p.id}/principles`,
-        { method: r.id ? "PUT" : "POST", body: JSON.stringify(lib ? { area: f.area, refines: f.refines } : f) });
-      refreshAll(); onClose(out.message);
-    } catch (e) { setErr(e.message); }
-  }
-  return (
-    <Modal title={r.id ? `Change ${r.name}` : r.refines ? "A principle that refines another" : "Add a principle"} onClose={() => onClose()} wide
-      actions={<><button onClick={() => onClose()}>Cancel</button><button className="primary" disabled={!f.name.trim()} onClick={save}>Save</button></>}>
-      <div className="ed-form">
-        {lib && <p className="small quiet">A principle from the library keeps its words: only its area can be changed here.</p>}
-        <Field label="Area" hint="(e.g. Business, Data, Application, Technology, Security)">
-          <input list="principle-areas" value={f.area} onChange={(e) => set("area", e.target.value)} />
-          <datalist id="principle-areas">{(p.principle_areas || []).map((a) => <option key={a} value={a} />)}</datalist></Field>
-        <Field label="Name"><input value={f.name} disabled={lib} onChange={(e) => set("name", e.target.value)} autoFocus /></Field>
-        <Field label="Refines" hint="(optional: the higher-level principle this one makes more specific)">
-          <select value={f.refines} onChange={(e) => set("refines", e.target.value)}>
-            <option value="">nothing: a top-level principle</option>
-            {others.map((x) => <option key={x.id} value={x.origin_guid || x.guid}>{x.area ? `${x.area}: ` : ""}{x.name}</option>)}</select></Field>
-        {p.base_kind && !r.id && <label className="small"><input type="checkbox" checked={!!f.mandatory} onChange={(e) => set("mandatory", e.target.checked)} /> Enforced in every
-          project below (otherwise optional: a project may take it out)</label>}
-        <Field label="Code" hint="(optional)"><input value={f.code} disabled={lib} onChange={(e) => set("code", e.target.value)} /></Field>
-        {lib ? <>{richOrPlain(f.statement)}</> : <>
-          <Field label="Statement"><RichText value={asHtml(f.statement)} onChange={(v) => set("statement", v)} placeholder="What the principle says" /></Field>
-          <Field label="Rationale"><RichText value={asHtml(f.rationale)} onChange={(v) => set("rationale", v)} placeholder="Why it matters" /></Field>
-          <Field label="Implications"><RichText value={asHtml(f.implications)} onChange={(v) => set("implications", v)} placeholder="What it means in practice" /></Field>
-        </>}
-        {err && <p className="status bad">{err}</p>}
-      </div>
-    </Modal>
-  );
-}
+// a project's principles: Principles.jsx (R2.48, D607)
 
 // ---------------------------------------------------------------- Administration > Project library (Super Admins)
 // the project library (owner, 8 Nov 2026), as library models are for models: projects a Super Admin marks as library
 // projects; their reference material is offered to every new project (New project › Reference)
+// the Project library on its own page, for everyone (owner, 12 Nov 2026: "Model library and Project library should be
+// available to all users"): the library projects, read by anyone with a role; a Super Admin also manages them here
+export function ProjectLibraryPage() {
+  return (
+    <div className="page">
+      <h1>Project library</h1>
+      <LibraryProjects />
+    </div>
+  );
+}
+
 function LibraryProjects() {
   const { data, error } = useApi("/api/v1/projects");
   const [msg, setMsg] = useState("");

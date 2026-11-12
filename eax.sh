@@ -396,7 +396,7 @@ up_services() {
     echo "Still starting in the background: Reports, Documents, Diagrams and the sample data; the screens show each in red, amber or green (down, starting, up)."
     if [ ! -f "$WORK_DIR/.check-hint-shown" ]; then   # the first start: how to check it (D582)
       echo "Check your installation: System admin > Self-test > Smoke test > Start (it prepares what it needs);"
-      echo "  or ./eax.sh test --smoke; or from another machine ./eax.sh testbench --target https://<address> --i-own-this --smoke."
+      echo "  or ./eax.sh test (smoke) or ./eax.sh test full."
       echo "  Results: Self-test > History and the report. Steps: docs/deployment.md, \"Check your installation\"."
       : > "$WORK_DIR/.check-hint-shown" 2>/dev/null || true
     fi
@@ -671,7 +671,7 @@ if [ "$CMD" = "test" ]; then case " $* " in *" --reset-survival "*) exec "$BASH"
 case "$CMD" in
   help|-h|--help|/\?) show_help "${2:-}" "${3:-}"; exit $? ;;
   document)       shift; document "$@"; exit 0 ;;
-  deploy|secrets|packs|schedule|testbench)   # packs (D546); schedule: scheduled commands (D559); testbench: the outside test bench (D579)
+  deploy|secrets|packs|schedule)   # packs (D546); schedule: scheduled commands (D559)
     # phase 36 (D498, D504): one Python program for every form (D500): eaxpy.sh fetches uv and Python into work/tools
     exec "$BASH" ./eaxpy.sh "$@" ;;
   restart)
@@ -776,6 +776,7 @@ case "$CMD" in
            shift; VER=$(sed -n 's/^version = "\(.*\)"/\1/p' services/api/version.toml)
            backup_helpers; compose exec ops python3 /app/ops.py restore "$@" --version "$VER" ;;
   restores) backup_helpers; compose exec ops python3 /app/ops.py restores ;;
+  databases) compose exec api python -m eax.databases "$@" ;;              # where each database lives (R2.50)
   restore-log|delete-backup|delete-restore) C="$1"; shift; backup_helpers; compose exec ops python3 /app/ops.py "$C" "$@" ;;
   app-backup) shift; compose exec api python -m eax.backups_cli backup "$@" ;;
   import) shift; compose exec api python -m eax.deliveries_cli "$@" ;;
@@ -787,6 +788,12 @@ case "$CMD" in
           echo "Building the test runner (about 1.5 GB, 5 to 15 minutes the first time): base image, Python packages, Chromium, scanners."
           compose --profile test build testrunner && echo "The test runner is built."; exit $? ;;
         esac
+        if [ "${1:-}" = "clean" ]; then shift                                 # delete every test run's data (R2.0.1, D593)
+          compose exec api python -m eax.testing.cli clean all "$@"; exit $?
+        fi
+        if [ "${1:-}" = "delete" ]; then shift                                # delete test results for good (R2.43)
+          compose exec api python -m eax.testing.cli delete "$@"; exit $?
+        fi
         READ=""
         for a in "$@"; do case "$a" in --status|--last|--report|--fixtures|--clean) READ="${a#--}" ;; esac; done
         if [ -n "$READ" ]; then

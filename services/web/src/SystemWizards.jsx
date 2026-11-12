@@ -12,6 +12,7 @@ import { RestoreAll, RestoreInfra, RestoreModel, when } from "./Backups";
 import { trackTask } from "./tasks";
 import { FirstRunPanel } from "./GuidedWizards";
 import { liveModels } from "./ModelMarks";
+import { SYSTEM_WIZARDS, wizardAsked } from "./wizardLists";
 
 const post = (path, body) => apiFetch(path, { method: "POST", body: JSON.stringify(body || {}) });
 
@@ -25,7 +26,8 @@ function Card({ title, text, ok, why, onClick, href }) {
 }
 
 export default function SystemWizards() {
-  const [open, setOpen] = useState(null);
+  // a wizard asked for in the address (the top menu's System Admin › Wizards › …, D586) opens at once
+  const [open, setOpen] = useState(() => (SYSTEM_WIZARDS.some((w) => w.k === wizardAsked()) ? wizardAsked() : null));
   const ops = can("system.operate");
   const users = can("users.read");
   const sup = roles().includes("super-admin");

@@ -3,6 +3,28 @@
 How EA Explorer is tested, all of it: the code's own tests, the **self-test** inside a running installation, and the
 **test bench** outside it. Decisions D522 to D525, D529, D575 to D582.
 
+## Testing, simply (R2.0.1, D592, D593)
+
+Two choices, from the screen or the command line, nothing else to pick:
+
+| | From the screen | From the command line | What it tests |
+| --- | --- | --- | --- |
+| **Smoke test** | System Admin › Tools › Self-test › **Start the smoke test** | `eax test` | every role signs in, every main area answers, every page opens, the key journeys work once (a few minutes) |
+| **Full test** | System Admin › Tools › Self-test › **Start the full test** | `eax test full` | every API endpoint as every role (allowed and refused), the database, security, then every page and every journey in a headless browser |
+| **Delete test results** | Self-test › History › a run's Delete, or Delete all test results... (and Keep test results N days) | `eax test delete 12`, `eax test delete all`, `eax test delete --older-than 30` | each run's test data, results and screenshots, report, log and videos, for good; old runs also go by themselves after the days set (default 30) (D610) |
+| **The backup checks** | Self-test › Detailed › Backups (the last part of Full) | `eax test backup` | an infrastructure and an application backup, each restored into a scratch copy and counted, then removed; nothing live is touched (D608). Until they pass, the Backups page shows the commands instead of its buttons |
+| **Run the failed ones again** | Self-test › History (or a run's results) › **Run the failed ones again** (tick *and the warnings* for those too) | `eax test failed` (the last finished run) or `eax test failed 12 --warnings` | only the checks that failed in that run, as the same roles, in fresh test data; the report shows each check then and now, and the earlier run is marked followed up when all pass (D605). A full run is still what counts for a release |
+| **Delete the test data** | Self-test › Test data › **Delete all test data** (or choose items) | `eax test clean` | removes every run's test data for good (type DELETE); the reports stay |
+
+Each run ends with a **functional health** (Healthy, Degraded or Not healthy, from its critical and non-critical checks), a ring chart in the report and on the page, and a summary at the end of `eax test`: counts per suite and every failure by name (D604). Each run: does not depend on the sample data or the industry packs, so it can start as soon as EA Explorer is up (D595); removes the test data earlier runs left (a run stopped by an error is closed first); starts a **test container**
+of its own; makes the models, project and test accounts it needs (`self_test_<id>_<n>`); tests only inside them; writes
+the report (History, and `work/tests/<run>/report.html`); and removes the container. Nothing else changes. Runs started
+on the screen and from the command line are the same and show in the same History.
+
+What only the command line does: `eax test --reset-survival --confirm <name>` (a real reset that deletes all data, to
+check settings survive it) and the older detailed options (`--suite`, `--role`, `--area`, `--journey`, `--pages-only`),
+kept for scripts and CI but no longer shown.
+
 ## Every kind of test
 
 | What | What it covers | How to run it | Who runs it | Where the results go |
@@ -12,7 +34,7 @@ How EA Explorer is tested, all of it: the code's own tests, the **self-test** in
 | **Help catalogue and documentation tests** (`test_help_catalogue.py`, `test_documentation.py`, `test_eax_help.py`) | every page, tab, field and button has on-screen help; every document is in Documentation; the eax help is the same in all four forms | with pytest; `python3 tools/help_inventory.py --missing` lists what has no help | developers; CI | the terminal |
 | **Self-test, from the browser** | the running installation from inside: smoke or detailed (API, UI, database, security), every page, journeys | System admin › Self-test | Super Admins, IT Admins | Self-test › History, the HTML and Excel report, MCP `test_results` |
 | **Self-test, from the command line** | the same | `eax test`, `eax test --detailed` … (below) | admins; CI | the same, and the exit code |
-| **Test bench** ([testbench.md](testbench.md)) | the same checks from another machine, as people reach it, in Chromium, Firefox, WebKit and Edge | `eax testbench --target https://<host> --i-own-this` | admins, testers; CI | `testbench/reports/<time>`: report.html, report.json, junit.xml; also Self-test › History |
+| **Test bench, CI only since R2.0.1** ([testbench.md](testbench.md)) | the same checks from another machine, as people reach it, in Chromium, Firefox, WebKit and Edge | `eax testbench --target https://<host> --i-own-this` | admins, testers; CI | `testbench/reports/<time>`: report.html, report.json, junit.xml; also Self-test › History |
 | **Install test** | the deploy wizard installs a working EA Explorer | `eax testbench install --answers <file> …` | CI nightly; before a release | the test bench's report |
 | **Upgrade test** | an update keeps the data, moves the version and the database migration | `eax testbench upgrade --from <tag> --to <tag> …` | CI nightly (from the previous tag); before a release | the test bench's report |
 | **Cross-browser** | every page and journey in each browser | `eax testbench … --browsers all` | CI nightly; testers | the test bench's report, by browser |
@@ -172,3 +194,5 @@ cleanup code path, then init, then reading `persist/` as the operations helper d
 The test bench runs these same checks (the same code, the same names and filters) from another machine, in any
 browser, and adds install, upgrade and load tests: [testbench.md](testbench.md). Its data files (`testbench/data`) are
 the self-test's too: the test runner reads them at `/testdata`.
+
+While a test runs (D609, D610): normal users wait ("Environment test in progress"), admins see only the Self-test page, and the page and the command line show how many checks are left.

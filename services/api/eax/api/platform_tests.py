@@ -6,9 +6,12 @@ System admin > Scaling. Super Admins and IT Admins (system.operate) only; nobody
                                                         (build_first, default true: the runner is prepared first, then the run; D570, D584)
   POST /api/v1/admin/tests/build                        build the test runner (eax test --build, in the operations helper)
   GET  /api/v1/admin/tests/build/<id>?from=             the build: its record, its log from byte `from`, its steps
-  PUT  /api/v1/admin/tests/settings                     {auto_build}: build it automatically after each start or update
+  PUT  /api/v1/admin/tests/settings                     {auto_build, keep_days}: build it automatically after each start or
+                                                        update; keep test results N days (R2.43)
+  POST /api/v1/admin/tests/delete                       {runs | "all", older_than_days}: delete test results for good (R2.43)
   GET  /api/v1/admin/tests/<run>                        a run, its results (?outcome=, ?suite=), files and fixtures; while it
                                                         waits for a watching browser also its ticket and journeys
+  POST /api/v1/admin/tests/<run>/repeat                 {warnings}: run its failed checks again (R2.36)
   POST /api/v1/admin/tests/<run>/stop                   stop it
   POST /api/v1/admin/tests/<run>/browser                {results: [...], done}: journeys watched in this browser
   GET  /api/v1/admin/tests/<run>/report?format=html|xlsx  its report
@@ -35,7 +38,7 @@ from sqlalchemy import text
 from .. import audit
 from ..auth import require_auth
 from ..db import get_engine
-from ..testing import report, store
+from ..testing import SUITES, report, store
 from .admin import _ops, _ops_raw
 from .models import Free, FreeIn
 
@@ -76,8 +79,8 @@ class Tests(MethodView):
                 "commands": _test_commands(),
                 "roles": store.TEST_ROLES, "areas": [{"code": c, "label": lbl} for c, lbl, _ in AREAS],
                 "estimates": {"smoke": store.estimate_minutes("smoke", []),
-                              **{s: store.estimate_minutes("detailed", [s]) for s in ("api", "ui", "db", "security")},
-                              "detailed_all": store.estimate_minutes("detailed", ["api", "ui", "db", "security"])}}
+                              **{s: store.estimate_minutes("detailed", [s]) for s in SUITES},
+                              "detailed_all": store.estimate_minutes("detailed", list(SUITES))}}
 
     @blp.doc(security=SECURITY)
     @blp.arguments(FreeIn)
@@ -172,17 +175,56 @@ class TestRunnerSettings(MethodView):
     @blp.response(200, Free)
     @require_auth("system.operate")
     def put(self, data):
-        """{auto_build: true|false}: build the test runner automatically after each start or update when its image is
-        missing (kept in persist/settings.json; default off on a laptop, on for servers)"""
-        on = bool((data or {}).get("auto_build"))
+        """{auto_build: true|false, keep_days: N}: build the test runner automatically after each start or update when
+        its image is missing; keep test results N days, 0 always (R2.43) (both in persist/settings.json)"""
+        data = data or {}
+        body = {"by": g.user.username}
+        if "auto_build" in data:
+            body["auto_build"] = bool(data.get("auto_build"))
+        if "keep_days" in data:
+            try:
+                body["keep_days"] = int(data.get("keep_days"))
+            except (TypeError, ValueError):
+                abort(400, message="keep_days is a number of days (0 keeps test results always).")
         try:
-            out = _ops_raw("POST", "/tests/settings", {"auto_build": on, "by": g.user.username}, timeout=20)
+            out = _ops_raw("POST", "/tests/settings", body, timeout=20)
         except Exception as exc:  # noqa: BLE001
             abort(503, message=f"The setting could not be saved: {_ops_message(exc)}")
         with get_engine().begin() as conn:
-            audit.record(conn, actor=g.user.username, action="selftest.auto_build", object_type="test_runner",
-                         object_id="settings", details={"auto_build": on})
+            audit.record(conn, actor=g.user.username, action="selftest.settings", object_type="test_runner",
+                         object_id="settings", details={k: v for k, v in body.items() if k != "by"})
         return out
+
+
+@blp.route("/tests/delete")
+class TestDelete(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def post(self, data):
+        """Delete test results for good (R2.43) {runs: [ids] | "all", older_than_days}: each run's test data, its results
+        and screenshots, its reports, logs and videos in work/tests. A run still going is left"""
+        from ..testing import cleanup
+        data = data or {}
+        runs = data.get("runs")
+        try:
+            with get_engine().connect() as conn:
+                if runs == "all" or data.get("older_than_days"):
+                    ids = [r["id"] for r in cleanup.pick(conn, "all" if runs == "all" else "",
+                                                         int(data["older_than_days"]) if data.get("older_than_days") else None)]
+                else:
+                    ids = [int(x) for x in (runs or [])]
+        except (TypeError, ValueError) as exc:
+            abort(400, message=str(exc))
+        if not ids:
+            return {"runs": 0, "message": "No finished test runs to delete for that."}
+        out = cleanup.delete(get_engine(), ids, g.user.username,
+                             lambda folders: _ops_raw("POST", "/tests/results/delete", {"folders": folders}, timeout=120))
+        with get_engine().begin() as conn:
+            audit.record(conn, actor=g.user.username, action="selftest.delete", object_type="test_run",
+                         object_id=",".join(map(str, ids))[:200], details={k: v for k, v in out.items() if k != "notes"})
+        return {**out, "message": cleanup.message(out)}
 
 
 @blp.route("/tests/<int:run_id>")
@@ -207,6 +249,45 @@ class TestRun(MethodView):
         folder = WORK_TESTS / d["run"]["folder"] if d["run"]["folder"] else None
         d["files"] = sorted(str(p.relative_to(folder)) for p in folder.rglob("*") if p.is_file()) if folder and folder.is_dir() else []
         return d
+
+
+@blp.route("/tests/<int:run_id>/repeat")
+class TestRepeat(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(202, Free)
+    @require_auth("system.operate")
+    def post(self, data, run_id):
+        """Runs the failed ones again (R2.36, D605) {warnings: false}: a new run of only the checks that failed in this
+        run (and its warnings, if asked), as the same roles, in fresh fixtures; its report shows each check then and now"""
+        data = data or {}
+        warnings = bool(data.get("warnings"))
+        with get_engine().begin() as conn:
+            busy = conn.execute(text("SELECT id FROM core.test_runs WHERE state IN ('queued', 'running') "
+                                     "AND queued_at > now() - interval '3 hours' ORDER BY id DESC LIMIT 1")).scalar()
+            if busy:
+                abort(409, message=f"Self-test {busy} is going on: stop it or wait for it to finish.")
+            try:
+                o = store.repeat_options(conn, run_id, warnings)
+            except ValueError as exc:
+                abort(404 if "No self-test" in str(exc) else 409, message=str(exc))
+            new_id = store.create_run(conn, g.user.username, "web", o["suites"], level=o["level"], role=o["role"],
+                                      area=o["area"], repeat_of=run_id, repeat_warnings=warnings)
+            audit.record(conn, actor=g.user.username, action="selftest.started", object_type="test_run", object_id=str(new_id),
+                         details={"repeat_of": run_id, "warnings": warnings, "checks": o["checks"]})
+        body = {"run_id": new_id, "level": o["level"], "suites": o["suites"], "role": o["role"], "area": o["area"],
+                "repeat": run_id, "warnings": warnings, "by": g.user.username}
+        try:
+            _ops_raw("POST", "/tests/build", {"by": g.user.username, "then": body}, timeout=60)
+            with get_engine().begin() as conn:
+                store.set_state(conn, new_id, step="Preparing the test runner (seconds when it is current), then the failed checks again")
+        except Exception as exc:  # noqa: BLE001 - the run is closed with the reason
+            msg = _ops_message(exc)
+            with get_engine().begin() as conn:
+                store.set_state(conn, new_id, state="error", message=f"Could not start: {msg}")
+            abort(503, message=f"The self-test could not start: {msg}")
+        return {"run_id": new_id, "checks": o["checks"],
+                "message": f"Running the {o['checks']} failed check(s) of self-test {run_id} again."}
 
 
 @blp.route("/tests/<int:run_id>/stop")

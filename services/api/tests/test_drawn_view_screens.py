@@ -65,7 +65,7 @@ def test_views_sub_tabs_names_commit_and_stencil_size():
     """D412: the Views tab's sub-tabs, names on lines, Commit next to Save, the stencil size; type drop-downs searchable (D540)."""
     v = _src("Views.jsx")
     for x in ('["custom", "Custom views"]', '["standard", "Standard views"]', 'OLD_TABS = { drawn: "custom", own: "custom" }',
-              'customCount ? "custom" : "standard"', 'views/${vp.own ? "custom" : "standard"}', "DrawnViewsSection model={model} m={m} generated="):
+              'const tab = asked || "standard";', 'views/${vp.own ? "custom" : "standard"}', "DrawnViewsSection model={model} m={m} generated="):
         assert x in v, x
     s = _src("DrawnView.jsx")
     for x in ("views/custom", "<th>Kind</th>", ">Drawn</span>", ">Generated</span>", "typeGroups(setup)", "typeOptions(setup)", "<SearchSelect",
@@ -150,7 +150,7 @@ def test_type_dropdowns_search_and_duplicates_tab():
     for x in ("export function Duplicates", "Find duplicates", "No likely duplicates found.", "/duplicates/xlsx?"):
         assert x in q, x
     m = _src("Metamodel.jsx")
-    for x in ('["duplicates", "Duplicates", null]', '["designer", "Report designer", null]', '["odata", "Power BI and Excel", null]',
+    for x in ('["duplicates", "Duplicates", null]', '["designer", "Report designer", null]', '["odata", "OData", null]',
               '["merge-requests", "Merge requests", null]', 'v === "quality" && itemId === "duplicates" ? "duplicates"',
               'v === "reports" && itemId === "designer" ? "designer"'):
         assert x in m, x

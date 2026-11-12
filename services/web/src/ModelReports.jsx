@@ -58,7 +58,7 @@ function ReportList({ model, m }) {
           <span className="report-code">New</span><strong>Report designer</strong>
           <span className="quiet">Build your own report's data, then make the chart in the reporting tool.</span></a>
         <a className="report-card" href={`#/metamodel/${model}/odata`} title="The address for Power BI and Excel">
-          <span className="report-code">OData</span><strong>Power BI and Excel</strong>
+          <span className="report-code">OData</span><strong>OData feed (Power BI, Excel)</strong>
           <span className="quiet">The model's OData feed: every entity type as a table, signed in as you.</span></a>
         <a className="report-card" href={`#/metamodel/${model}/kpis`}>
           <span className="report-code">KPIs</span><strong>KPI trends</strong>

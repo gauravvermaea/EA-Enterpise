@@ -24,7 +24,7 @@ export function ODataPanel({ url }) {
   );
 }
 
-// the model's OData feed as its own tab (owner, 10 Nov 2026, D542): Reports > Power BI and Excel
+// the model's OData feed as its own tab (owner, 10 Nov 2026, D542): Reports > OData (named so 12 Nov 2026, D603)
 export function ODataTab({ model }) {
   const { data, error } = useApi(`/api/v1/models/${model}/report-designer`);
   if (error) return <p className="status bad">{error}</p>;

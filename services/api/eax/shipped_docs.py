@@ -27,8 +27,10 @@ GROUPS = ["Getting started", "Using EA Explorer", "Administration and operations
 
 
 def root() -> Path:
-    """Where the shipped documents are: EAX_DOCS_DIR (the container's /data/docs), else the repository itself."""
-    env = os.environ.get("EAX_DOCS_DIR")
+    """Where the shipped documents are: EAX_SHIPPED_DOCS, else the container's /data/docs, else the repository itself."""
+    # EAX_SHIPPED_DOCS, not EAX_DOCS_DIR: that one is the document store's volume in eaexplorer.env ("eax-docs",
+    # /srv/eax/documents), which every container gets, so the shipped documents were looked for there (R2.0.1)
+    env = os.environ.get("EAX_SHIPPED_DOCS")
     if env:
         return Path(env)
     if Path("/data/docs").is_dir():

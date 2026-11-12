@@ -2,27 +2,9 @@
 // (for quick jump, Ctrl+K) and one registry of the actions each tab offers (the "⋯ Actions" menu).
 import { can, canOn, myInfo } from "./auth";
 
-// ---------------------------------------------------------------- the person's navigation style (kept in this browser)
-export const NAV_STYLES = [
-  ["grouped", "Grouped", "Groups, then tabs, then sub-tabs"],
-  ["menu", "Menu", "A menu down the left of the page"],
-  ["classic", "Classic", "Every tab in one row, as before"],
-];
+// ---------------------------------------------------------------- page tabs: grouped (groups, then tabs, then sub-tabs)
+// the only style since the Classic screens went (owner, 12 Nov 2026, R2.25, D606)
 const who = () => (myInfo() || {}).username || "anyone";
-const styleKey = () => `eax.navStyle.${who()}`;
-
-export function readNavStyle() {
-  try { const v = window.localStorage.getItem(styleKey()); return NAV_STYLES.some(([k]) => k === v) ? v : "grouped"; }
-  catch { return "grouped"; }
-}
-// has this person chosen yet? (the welcome question on first sign-in, D478)
-export function navStyleChosen() {
-  try { return !!window.localStorage.getItem(styleKey()); } catch { return true; }   // no storage: never ask
-}
-export function saveNavStyle(v) {
-  try { window.localStorage.setItem(styleKey(), v); } catch { /* a private window: this visit only */ }
-  window.dispatchEvent(new Event("eax-nav-style"));
-}
 
 // each group remembers the tab last used in it, per page kind (model, project, model admin)
 const lastKey = (page) => `eax.navLast.${who()}.${page}`;
@@ -34,10 +16,6 @@ export function saveLastTab(page, group, tab) {
   catch { /* only a convenience */ }
 }
 
-// the left menu folded to icons or not
-const foldKey = () => `eax.navFolded.${who()}`;
-export function readFolded() { try { return window.localStorage.getItem(foldKey()) === "1"; } catch { return false; } }
-export function saveFolded(v) { try { window.localStorage.setItem(foldKey(), v ? "1" : "0"); } catch { /* convenience */ } }
 
 // ---------------------------------------------------------------- the page shown now (read by quick jump)
 let current = null;

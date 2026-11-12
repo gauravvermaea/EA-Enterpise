@@ -439,7 +439,7 @@ def list_analyses(conn, model: Any = None) -> dict:
 def get(conn, model: Any, analysis: Any) -> dict:
     m = repo.get_model(conn, model)
     a = _analysis(conn, m, analysis)
-    items = _rows(conn, """SELECT guid AS id, match_key, entity_type, entity_type_name, domain AS domain, name, members, sides_count, is_common,
+    items = _rows(conn, """SELECT guid AS id, match_key, entity_type, entity_type_name, layer AS domain, name, members, sides_count, is_common,
                                   differs, note, decision, gone, modified_by, modified_at
                              FROM core.common_items WHERE analysis_id = :a
                             ORDER BY gone, sides_count DESC, layer, entity_type_name, lower(name)""", a=a["id"])

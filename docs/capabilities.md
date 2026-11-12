@@ -18,11 +18,22 @@ Every phase in detail: [build-phases.md](build-phases.md). Decisions: [decisions
 | Operations | One command (`eax`) and a console, start-up in two tiers, health, tagged backups and restores, every service switchable |
 
 ## The main screens
-The top bar's main menu: **System admin**, **Model admin**, **Project admin**, **Architecture work**, **Architecture
-repository**, **Reference library** and **Everything else**; and the older menu below it: **Start**, **Models**,
-**Projects**, **Repository**, **Library**, **Enterprise library**, **Reference library**, **Compare**, **Gap analysis**,
-**Common analysis**, **Change log**, **MCP**, **Administration** and **API**. Beside your name: **Documentation**, ? Help,
-the navigation style, quick jump and Sign out.
+Since R2.0 ([r2-0-menu.md](r2-0-menu.md), D586–D591) the top bar has two rows. Row 1: the **site picker** (● Local,
+pinned at the left: Farm Admin's Sites and Connect to a site, Super Admins), **EA Explorer**, **Find a function or
+content** (or **/** anywhere), the bell, and **Last model** and **Last project** side by side. Row 2: the main menus,
+each a drop-down with sub-menus: **Architecture Work** (My projects and My models, listed when opened; Compare and
+analyse; Merge requests; Change log; **Model library** and **Project library**, for everyone, D594), **Model Admin** (Wizards: click for the wizards page, or pick one from its
+sub-menus; Models; Model hierarchy; Metamodel drafts; Model library), **Project Admin** (Wizards; Projects; Project bases;
+Templates and libraries; Principles; Surveys and maturity), **Repository & Content Framework** (the **Architecture Repository** and its parts,
+the **Content framework**: content metamodel, model hierarchy, metamodel drafts; the libraries) and **System Admin**
+(Wizards, Settings, Users and roles, Running, Backups and restores, Updates and deploy, Tools, Machine access, AI
+activity); then on the right the **Menu | Classic** toggle, **the person's own menu** (their name and role: Home, My
+tasks, Surveys to answer, Notifications, Recent and pinned, Search everything, My profile and skills, My tokens and keys,
+Sign out) and **?** (help for this page, every document, getting started, release notes, the command line, MCP, the
+API). What a person may not use is not shown. **Classic** (the menus as they were in 1.0, kept for now: System admin,
+Model admin, Project admin, Architecture work, Architecture repository, Reference library and Everything else, and the
+older row below: Start, Models, Projects, Repository, Library, Enterprise library, Reference library, Compare, Gap
+analysis, Common analysis, Change log, MCP, Administration and API; with ? Help, Documentation and Sign out).
 
 ## Documentation
 - **Documentation** (beside your name, for everyone signed in): every document that ships with the version you run,
@@ -34,13 +45,13 @@ the navigation style, quick jump and Sign out.
   ones no longer shipped removed (D550)
 
 ## Finding your way
-Built ([navigation.md](navigation.md), D478–D481):
-- **Three ways to show a page's tabs**, chosen by each person beside their name or on My profile: **Grouped** (the
-  default: about six groups, then tabs, then sub-tabs, with a breadcrumb), **Menu** (a menu down the left that folds to
-  icons) or **Classic** (every tab in one row). The same links work in all three.
+Built ([navigation.md](navigation.md), D478–D481; changed in R2.0, D589–D590):
+- **The menu bar**: the nine-area menu across the top, and each page's tabs in groups, then tabs, then sub-tabs, with a
+  breadcrumb. The Classic screens of 1.0 are gone (D603, D606); every page they reached is in the menu bar.
 - **⋯ Actions** on each tab: what makes sense there and the person may do.
 - **Right-click on any entity** (rows, cards, links): open, edit, graph, history, related, add to a view, delete.
-- **Quick jump, Ctrl+K**: go to any tab, action, model or project by typing; near spellings work.
+- **Find, / or Ctrl+K**: any function (every menu item, with where it is in the menu; the page's tabs and actions; the
+  help's pages) or content (models, projects, entities as you type), and Search everything; near spellings work.
 
 ## On-screen help
 - **? Help** (top bar) or **F1** anywhere: a help panel beside the page for what is on the screen (the pop-up, the wizard step, the sub-tab, the tab, the page), with a search over all the help (D531)
@@ -201,6 +212,7 @@ Built (phase 13):
 - Scope, goals and outcomes, stakeholders and their map, **key questions**, principles, standards, the governance
   log, the charter, calendars and the Architecture Board, tracking sheets, tasks, sign-off.
 - **The Architecture Repository**, the content framework and the standards information base.
+- **Architecture principles as cards** (D607): by area, with statement, rationale and implications, enforced or optional, refinements and dispensations; Repository › Architecture principles and each project's Principles tab; edited on the card.
 - **Business architecture**: the TOGAF Phase B artifacts with their views, and **Business Model Canvases**
   (current, target, working copies marked by hand, compare and make a new one) (D344, D345).
 - **Project backups and restores**, with the project's documents, models and library.
@@ -264,6 +276,9 @@ Built ([operations.md](operations.md), [command-line-and-console.md](command-lin
 - **Health** of every part in the header and on Heartbeat; the administration console with settings applied at once.
 - **Backups**: tagged infrastructure backups (every database, files, certificate, configuration, versions), nightly
   and on demand, pinned, restored whole or in part; application backups of every model; project backups.
+- **Every database has its own setting** (R2.50, D611): empty means the shared PostgreSQL; set one to move that
+  database to a container or server of its own. System Admin › Databases and `eax databases` show where each lives
+  and whether it answers; backups follow each one ([databases.md](databases.md)).
 - **Every optional service can be switched off** (reports, documents, draw.io, MCP, change log, backups, library),
   with a dated copy of the configuration kept.
 - **Operations insight** (phase 35, [phase-35.md](phase-35.md)): who uses what and how often, models' use and size,
@@ -273,13 +288,13 @@ Built ([operations.md](operations.md), [command-line-and-console.md](command-lin
   after an age a Super Admin sets, never those a tag, baseline or evidence needs.
 - **Scaling out** (phase 36.3, [phase-36.3.md](phase-36.3.md)): API servers set on the web page, fixed or by rules;
   more hosts, a database standby, shared storage and the library on its own server, all with Docker Compose.
-- **Self-test** (phase 36.1, [testing.md](testing.md)): smoke and detailed tests (API, UI, database, security) of the
-  running installation in fixtures of its own, from the web page or `eax test`, with a report and a clean-up by hand.
-- **Test bench** ([testbench.md](testbench.md), D579 to D582): the same tests from another machine against any address
-  you own (`eax testbench`), in Chromium, Firefox, WebKit and Edge, with the same names and filters as `eax test`;
-  install, upgrade (data, version and migration checked) and load tests (k6: p50, p95, p99, errors, throughput);
-  HTML, JSON and JUnit reports with a coverage summary; results into the Self-test history; shared test data
-  (`testbench/data`); in CI on every change and nightly.
+- **Testing** (phase 36.1, [testing.md](testing.md); simple since R2.0.1, D592, D593): two choices, the **Smoke test** or
+  the **Full test** (every API endpoint as every role, the database, security, every page and journey in a browser),
+  from System Admin › Tools › Self-test or `eax test` / `eax test full`. Each run removes the test data earlier runs
+  left, starts its own test container, makes the data it needs, tests, reports (History; work/tests) and removes the
+  container. **Run the failed ones again** (History, or `eax test failed`) repeats only what failed and shows each
+  check then and now (D605). **Delete all test data** on the page, or `eax test clean`. CI also runs the test bench
+  ([testbench.md](testbench.md)): install, upgrade, other browsers and load.
 - **Deployment** (phase 36, [deployment.md](deployment.md)): `eax deploy`, a guided wizard in the console or a local
   web page, for five kinds: this laptop; a Linux server (on it, or from here over SSH, Docker installed if missing);
   AWS, Azure and DigitalOcean (the machine, a data disk, the firewall, a fixed address, off-site backup storage and DNS

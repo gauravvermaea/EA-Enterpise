@@ -81,15 +81,21 @@ def test_every_service_with_a_database_is_in_the_backup():
             if k in ("KC_DB_URL", "MAYAN_DATABASES") or k.endswith("_DB_NAME"):
                 on_main.add(name)
             if k == "KC_DB_URL":
-                assert "//db:5432/" in v
+                assert "//${EAX_KEYCLOAK_DB_HOST:-db}:${EAX_KEYCLOAK_DB_PORT:-5432}/" in v   # the shared server unless set (R2.50)
             if k == "MAYAN_DATABASES":
-                assert '"HOST":"db"' in v
+                assert '"HOST":"${EAX_MAYAN_DB_HOST:-db}"' in v
     assert {"keycloak", "dms", "db"} <= on_main          # db: it makes the main database (EAX_DB_NAME)
-    assert elsewhere == {"LIBRARY", "VIEWS"}
-    benv = services["backup"].get("environment") or {}
-    for kind in elsewhere:
-        assert f"EAX_{kind}_DB_HOST" in benv, kind
-        assert re.search(rf"for KIND in [A-Z ]*\b{kind}\b", BACKUP_SH), kind
+    assert elsewhere == {"LIBRARY", "VIEWS", "SUPERSET"}
+    # the backup container reads every database's setting (env_file, R2.50) and servers.sh finds those on their own
+    # servers: the services' by host, EA Explorer's own by connection string
+    assert services["backup"].get("env_file") == "work/eaexplorer.env"
+    servers = (REPO / "services" / "backup" / "servers.sh").read_text()
+    for kind in elsewhere | {"KEYCLOAK", "MAYAN"}:
+        assert re.search(rf'"{kind} [^"]*"', servers), kind
+    from eax import databases as dbs
+    for d in dbs.DATABASES:
+        if d.kind == "url":
+            assert d.setting.removeprefix("EAX_").removesuffix("_DB_URL") in servers, d.setting
     # every database the first start makes, and the two services' own, is one the restore knows who uses
     initdb = (REPO / "deploy" / "postgres" / "initdb" / "01-databases.sh").read_text()
     made = set(re.findall(r"CREATE DATABASE (\w+)", initdb))

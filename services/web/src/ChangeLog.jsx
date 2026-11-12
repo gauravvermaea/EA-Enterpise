@@ -72,8 +72,9 @@ export default function ChangeLog() {
   const { data, error } = useApi(`/api/v1/change-log?${qs}`);
   const set = (k) => (e) => { setLimit(200); setF((x) => ({ ...x, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value })); };
   const any = FILTERS.some((k) => f[k]);
-  if (error) return <p className="status bad">{error}</p>;
-  if (!data) return <p>Loading...</p>;
+  // the heading stays when the change log cannot be read, so the page still says what it is (R2.0.1)
+  if (error) return <section className="page"><h2>Change log</h2><p className="status bad">{error}</p></section>;
+  if (!data) return <section className="page"><h2>Change log</h2><p>Loading...</p></section>;
   const you = data.you;
   const fc = data.facets;
   return (

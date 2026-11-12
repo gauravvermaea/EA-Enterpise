@@ -105,18 +105,83 @@ def channels() -> dict:
 
 
 # ---------------------------------------------------------------- the updater container
+def _own_container() -> dict:
+    """This helper's own container, inspected: by HOSTNAME (its id), or else by its Compose service label (a hostname set
+    in the compose file, or HOSTNAME not passed through)."""
+    cid = os.environ.get("HOSTNAME", "")
+    try:
+        if cid:
+            return json.loads(hooks["docker"]("inspect", cid))[0]
+    except Exception:  # noqa: BLE001 - not a container id: look it up by its label below
+        pass
+    ids = hooks["docker"]("ps", "-q", "--filter", "label=com.docker.compose.service=ops").split()
+    if not ids:
+        raise RuntimeError("The operations helper cannot find its own container (HOSTNAME is not its id and no running "
+                           "container has the label com.docker.compose.service=ops).")
+    return json.loads(hooks["docker"]("inspect", ids[0]))[0]
+
+
+INSIDE = "/eax-install"
+
+
+def host_path(path: str) -> str:
+    """A host path as Docker reported it, tidied: forward slashes, no trailing one (C:\\Users\\x -> C:/Users/x)."""
+    return (path or "").replace("\\", "/").rstrip("/")
+
+
+def is_windows(path: str) -> bool:
+    return bool(re.match(r"^[A-Za-z]:/", host_path(path)))
+
+
+def inside(install: str) -> str:
+    """Where the installation folder is mounted in the helper's short-lived containers (the Command centre, the updater,
+    the test runner's build): the same path on Linux and macOS; /eax-install when the host is Windows, as a container's
+    working directory must be a Linux path (owner, 12 Nov 2026, R2.49: "the working directory 'C:/Users/gaura/Github/
+    EA-Enterpise' is invalid"; then /run/desktop/mnt/host/c/... mounted an empty folder: "No module named 'eaxcli'").
+    Docker Desktop takes the Windows path itself as a mount's source."""
+    return INSIDE if is_windows(install) else install
+
+
+def mount_args(me: dict) -> list[str]:
+    """-v <installation>:<inside> -w <inside> for a short-lived container."""
+    return ["-v", f"{me['install']}:{me['inside']}", "-w", me["inside"]]
+
+
+WINDOWS_REFUSED = ("On Windows this runs from PowerShell in the installation folder, not from the web: {cmd}. (Compose in a "
+                   "container would give the containers Linux paths for your Windows folders, R2.49.)")
+
+
+def install_folder(d: dict) -> str:
+    """The installation folder on the host, from the helper's container (R2.0.1, R2.8): the folder holding the files
+    docker-compose.yml mounts into it (the compose file itself, deploy/, eaxcli/, work/), else the Compose label
+    project.working_dir; a Windows one as C:/Users/... (host_path; inside() says where containers see it). Empty when none
+    is there."""
+    mounts = {m.get("Destination", ""): m.get("Source", "") for m in d.get("Mounts") or []}
+    up = {f"{REPO}/docker-compose.yml": 1, f"{REPO}/deploy": 1, f"{REPO}/eaxcli": 1, "/eax-work": 1,
+          f"{REPO}/services/api/version.toml": 3}
+    for dest, levels in up.items():
+        src = (mounts.get(dest) or "").replace("\\", "/").rstrip("/")
+        if src:
+            for _ in range(levels):
+                src = os.path.dirname(src)
+            if src:
+                return host_path(src)
+    wd = ((d.get("Config") or {}).get("Labels") or {}).get("com.docker.compose.project.working_dir", "")
+    return host_path(wd)
+
+
 def _me() -> dict:
     """This helper's container: the Compose project, its image and the installation folder on the host."""
-    cid = os.environ.get("HOSTNAME", "")
-    d = json.loads(hooks["docker"]("inspect", cid))[0]
+    d = _own_container()
     project = (d.get("Config", {}).get("Labels") or {}).get("com.docker.compose.project", "")
-    install = ""
-    for m in d.get("Mounts") or []:
-        if m.get("Destination") == f"{REPO}/docker-compose.yml":
-            install = os.path.dirname(m.get("Source", ""))
+    install = install_folder(d)
     if not install:
-        raise RuntimeError("The installation folder is not known: the helper's compose file mount is missing.")
-    return {"project": project, "image": d.get("Config", {}).get("Image") or d.get("Image"), "install": install}
+        seen = ", ".join(sorted(m.get("Destination", "") for m in d.get("Mounts") or [])) or "none"
+        raise RuntimeError("The installation folder is not known: the operations helper has none of the installation's "
+                           f"folders mounted (it has: {seen}). Run eax up (or eax clean-restart) so it is made again from "
+                           "docker-compose.yml.")
+    return {"project": project, "image": d.get("Config", {}).get("Image") or d.get("Image"), "install": install,
+            "inside": inside(install), "windows": is_windows(install)}
 
 
 def updater_running() -> dict | None:
@@ -144,12 +209,14 @@ def _start_container(run_id: str, args: list[str]) -> str:
     me = _me()
     if updater_running():
         raise RuntimeError("An updater is already running.")
+    if me["windows"]:
+        raise RuntimeError(WINDOWS_REFUSED.format(cmd=".\\eax update"))
     name = f"{me['project']}-updater-{run_id}"[:60]
     env = ["-e", f"COMPOSE_PROJECT_NAME={me['project']}", "-e", "EAX_OPS_URL=http://ops:8090",
            "-e", f"EAX_OPS_TOKEN={os.environ.get('EAX_OPS_TOKEN', '')}", "-e", "EAX_API_URL=http://api:8000"]
     hooks["docker"]("create", "--name", name, "--label", f"eax.updater={me['project']}", "--label", f"eax.update={run_id}",
-                    "-v", "/var/run/docker.sock:/var/run/docker.sock", "-v", f"{me['install']}:{me['install']}",
-                    "-w", me["install"], *env, "--entrypoint", "sh", me["image"], "-c", _shell(me["install"], run_id, "updater", args))
+                    "-v", "/var/run/docker.sock:/var/run/docker.sock", *mount_args(me),
+                    *env, "--entrypoint", "sh", me["image"], "-c", _shell(me["inside"], run_id, "updater", args))
     try:
         hooks["docker"]("network", "connect", f"{me['project']}_backend", name)
     except Exception:  # noqa: BLE001 - started anyway; it says when it cannot reach the helper
@@ -163,8 +230,8 @@ def _list_in_container(channel: str, installed: dict) -> dict:
     s = settings()
     args = ["list", s["git_url"], channel, installed.get("version") or "0.0.0", installed.get("commit") or "",
             "--cache", "work/updates/cache.git"]
-    r = subprocess.run(["docker", "run", "--rm", "-v", f"{me['install']}:{me['install']}", "-w", me["install"],
-                        "--entrypoint", "sh", me["image"], "-c", _shell(me["install"], "", "releases", args)],
+    r = subprocess.run(["docker", "run", "--rm", *mount_args(me),
+                        "--entrypoint", "sh", me["image"], "-c", _shell(me["inside"], "", "releases", args)],
                        capture_output=True, text=True, timeout=180)
     last = (r.stdout.strip().splitlines() or ["{}"])[-1]
     try:

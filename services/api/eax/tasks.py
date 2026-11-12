@@ -66,7 +66,7 @@ def defer_commit(tx, c) -> bool:
 KINDS = {"tag.create": "Tag a model", "sheet.build": "Build sheets", "load.preview": "Preview a load", "load.add": "Add a load",
          "delivery.accept": "Accept a delivery",
          "selftest.purge": "Purge self-test fixtures",
-         "backup.infrastructure": "Infrastructure backup", "backup.application": "Application backup", "backup.model": "Back up a model",
+         "backup.infrastructure": "Infrastructure backup", "backup.verify": "Trial restore", "backup.application": "Application backup", "backup.model": "Back up a model",
          "backup.restore": "Restore a model backup", "backup.restore_all": "Restore every model of an application backup"}
 
 
@@ -278,6 +278,17 @@ def _backup_infrastructure(conn, t: dict, user) -> tuple[str, dict]:
     raise EditError("The backup took more than six hours: see Administration > Backups.")
 
 
+def _backup_verify(conn, t: dict, user) -> tuple[str, dict]:
+    """R2.45: the operations helper's trial restore of an infrastructure backup (scratch copies, nothing live)."""
+    from .api.admin import _ops_raw
+    name = _params(t).get("name") or ""
+    out = _ops_raw("POST", f"/backups/{name}/verify", {}, timeout=3 * 3600)
+    bad = [c for c in out.get("checks") or [] if not c.get("ok")]
+    msg = (f"Trial restore of {name}: every check passed ({len(out.get('checks') or [])})." if not bad else
+           f"Trial restore of {name}: {len(bad)} check(s) failed: " + "; ".join(f"{c['name']}: {c['detail']}" for c in bad[:3]))
+    return msg, out
+
+
 def _backup_application(conn, t: dict, user) -> tuple[str, dict]:
     from . import backups as bk
     p = _params(t)
@@ -301,7 +312,7 @@ def _backup_restore(conn, t: dict, user) -> tuple[str, dict]:
 
 WORK = {"tag.create": _tag_create, "sheet.build": _sheet_build, "load.preview": _load_preview, "load.add": _load_add,
         "delivery.accept": _delivery_accept, "selftest.purge": _selftest_purge,
-        "backup.infrastructure": _backup_infrastructure, "backup.application": _backup_application,
+        "backup.infrastructure": _backup_infrastructure, "backup.application": _backup_application, "backup.verify": _backup_verify,
         "backup.model": _backup_model, "backup.restore": _backup_restore, "backup.restore_all": _backup_restore_all}
 
 

@@ -20,9 +20,13 @@ echo "EA Explorer: applying database migrations"
 python -m eax.startup serial -- sh -c "alembic upgrade head && python -m eax.jobs_schema && python -m eax.seed"
 
 echo "EA Explorer: starting the API and the job runner"
-gunicorn --bind 0.0.0.0:8000 --workers "${EAX_API_WORKERS:-2}" --access-logfile - "eax.wsgi:app" &
+# a request may take up to two minutes (gunicorn's own 30 seconds stopped a project's download and a busy page with a
+# bare server error, R2.0.1, the laptop's full run); EAX_API_TIMEOUT changes it
+gunicorn --bind 0.0.0.0:8000 --workers "${EAX_API_WORKERS:-2}" --timeout "${EAX_API_TIMEOUT:-120}" --access-logfile - "eax.wsgi:app" &
 API_PID=$!
-procrastinate --app=eax.jobs.app worker --concurrency "${EAX_JOB_CONCURRENCY:-2}" &
+# four jobs at once (was two): long ones (a project repository, the industry packs) no longer hold up a delivery preview
+# or a merge (R2.0.1, the laptop's full run)
+procrastinate --app=eax.jobs.app worker --concurrency "${EAX_JOB_CONCURRENCY:-4}" &
 JOBS_PID=$!
 # the change log (phase 9, D180): ships finished changes to its own database every few seconds; it logs and retries
 # on errors and never stops the API. Switched off: no new entries (D191)

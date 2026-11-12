@@ -294,3 +294,52 @@ def test_history_rows_are_mapped_safely():
 def test_the_migration_and_the_backup_cover_the_history():
     sql = (REPO / "services" / "api" / "migrations" / "sql" / "0044_updates.sql").read_text()
     assert "core.update_history" in sql and "'0.19.0'" in sql
+
+
+# ---------------------------------------------------------------- the installation folder (R2.0.1, R2.8)
+def test_the_installation_folder_is_found_from_any_of_the_helpers_mounts():
+    """"The installation folder is not known" stopped the self-test, updates and deploy on a laptop: the folder now comes
+    from any of the installation's files mounted into the helper, else Compose's working_dir label."""
+    spec = importlib.util.spec_from_file_location("ops_updates_folder", REPO / "services" / "ops" / "updates.py")
+    U = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(U)
+    f = U.install_folder
+    assert f({"Mounts": [{"Destination": "/eax-repo/docker-compose.yml", "Source": "/home/me/eax/docker-compose.yml"}]}) == "/home/me/eax"
+    desk = "/run/desktop/mnt/host/c/Users/gaura/Github/EA-Enterpise"
+    assert f({"Mounts": [{"Destination": "/eax-work", "Source": desk + "/work"}]}) == desk
+    assert f({"Mounts": [{"Destination": "/eax-repo/services/api/version.toml", "Source": "/srv/eax/services/api/version.toml"}]}) == "/srv/eax"
+    win = "C:/Users/gaura/Github/EA-Enterpise"
+    assert f({"Mounts": [], "Config": {"Labels": {"com.docker.compose.project.working_dir": "C:\\Users\\gaura\\Github\\EA-Enterpise"}}}) == win
+    assert f({"Mounts": []}) == ""
+    # R2.49 (owner, 12 Nov 2026): on Windows a short-lived container's working directory must be a Linux path ("the
+    # working directory 'C:/Users/...' is invalid"), and /run/desktop/mnt/host/c/... mounted an empty folder ("No module
+    # named 'eaxcli'"): the Windows path is the mount's source and /eax-install where the container sees it
+    assert f({"Mounts": [{"Destination": "/eax-repo/docker-compose.yml",
+                          "Source": "C:\\Users\\gaura\\Github\\EA-Enterpise\\docker-compose.yml"}]}) == win
+    assert U.inside(win) == "/eax-install" and U.is_windows(win) and U.inside("/srv/eax") == "/srv/eax"
+    assert U.mount_args({"install": win, "inside": U.inside(win)}) == ["-v", f"{win}:/eax-install", "-w", "/eax-install"]
+    src = (REPO / "services" / "ops" / "updates.py").read_text(encoding="utf-8")
+    assert "label=com.docker.compose.service=ops" in src and "Run eax up (or eax clean-restart)" in src
+
+
+def test_the_command_centre_runs_in_the_installation_folder_on_windows(monkeypatch):
+    """R2.49 (owner, 12 Nov 2026, 19:17: docker logs said "No module named 'eaxcli'"): the Command centre's container
+    (which also prepares the test runner for the Self-test page) gets the Windows folder as its mount's source and works
+    in /eax-install; a command that starts or stops containers is refused there with the PowerShell line to type."""
+    import sys
+    sys.path.insert(0, str(REPO))
+    spec = importlib.util.spec_from_file_location("ops_cc_windows", REPO / "services" / "ops" / "commandcentre.py")
+    cc = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cc)
+    made = []
+    win = "C:/Users/gaura/Github/EA-Enterpise"
+    cc.hooks.update(docker=lambda *a, **k: made.append(a) or "", me=lambda: {"project": "eaexplorer", "image": "ops:1",
+                                                                             "install": win, "inside": "/eax-install", "windows": True})
+    monkeypatch.setattr(cc, "_config_values", lambda: {})
+    cc._launch(["test", "--build"], "me", "20261112T171205Z-testbuild-f91d")
+    create = next(a for a in made if a[0] == "create")
+    assert f"{win}:/eax-install" in create and create[create.index("-w") + 1] == "/eax-install"
+    assert "EAX_PERSIST_DIR=/eax-install/persist" in create
+    monkeypatch.setattr(cc, "_need", lambda: None)
+    with pytest.raises(cc.C.Refused, match=r"PowerShell .*\.\\eax restart"):
+        cc.start({"argv": ["restart"], "by": "me", "roles": ["super-admin"]})

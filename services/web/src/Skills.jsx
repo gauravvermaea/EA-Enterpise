@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { apiFetch, myInfo, roleName, roles } from "./auth";
 import { refreshAll, useApi } from "./ModelViews";
 import { fmtDateTime } from "./fmt";
-import { NavStylePicker } from "./PageNav";
 
 export function SkillTags({ value, onChange, suggestions = [], disabled }) {
   const [t, setT] = useState("");
@@ -45,9 +44,7 @@ export default function MyProfile() {
   return (
     <section className="page">
       <h1>My profile</h1>
-      <div className="nav-style-box"><h2>How pages show their tabs</h2>
-        <p className="quiet">Grouped: groups, then tabs, then sub-tabs. Menu: a menu down the left of the page. Classic: every tab in one row, as before. Ctrl+K jumps anywhere.</p>
-        <NavStylePicker /></div>
+      <p className="quiet small">Press / (or Ctrl+K) anywhere to find a function or content.</p>
       <table className="facts">
         <tbody>
           <tr><th>Name</th><td>{me.name || me.username}</td></tr>

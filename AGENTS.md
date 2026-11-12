@@ -14,7 +14,12 @@ draw.io, nginx, React screens. How it is built: [docs/architecture.md](docs/arch
 - **You write code only.** The owner (Gaurav) runs Docker, installs things and pushes to GitHub. Do not
   install software on his machine or run the stack for him.
 - **Do not build anything until asked.** Discuss and plan first when a request is open.
-- **Always a clean rebuild** (`.\eax clean-run`); no in-place patches or hand fixes to a running system.
+- **No in-place patches or hand fixes to a running system**; every change goes in through a rebuild. **Each time you hand
+  over changes to test, say which rebuild they need** (owner, 12 Nov 2026): `.\eax up` (the default: it rebuilds what
+  changed, recreates those containers, keeps the data and applies database migrations at start) or `.\eax clean-restart`
+  (only when the sample data's contents, the Keycloak realm or a new setting in the config template changed, to try a
+  first install, or before accepting a release). If an image version in the config template changed, give the one line
+  that changes it in `work\eaexplorer.env` so `up` is still enough.
 - Everything that creates the database is code in this repository; nothing by hand.
 - Plain language in screens and docs; British spelling.
 - Never name another EA platform or vendor product in the code, screens, docs or workbooks (D114); requirements from
@@ -45,6 +50,14 @@ draw.io, nginx, React screens. How it is built: [docs/architecture.md](docs/arch
   (Documentation) and as a folder in the Enterprise library, refreshed from the release's own docs at start-up, so
   each installation shows the documents of the version it runs (D550); and (4) **no file in the repository needs Git
   LFS**: nothing over 50 MB (split larger files into parts with a manifest, joined when loaded).
+- **Every bug fixed gets a test that keeps it fixed (owner, 12 Nov 2026, D599)**: a fix is not done until a test fails
+  without it and passes with it: a unit or API test always, and a self-test check (smoke or full: an API call, a write,
+  a page or a journey step) when the bug could be seen on a screen or through the API. The test names the bug (its R2
+  number or the date and what was seen), so it is clear why it is there. A bug found by the self-test itself (a check
+  that was wrong) gets a unit test of that check.
+- **Bugs before features (owner, 12 Nov 2026: "Please fix the bugs we will only build new features after bugs are done unless
+  requested")**: while any bug is open, fix bugs; a new feature or story is recorded (docs/build-phases.md), not built,
+  unless the owner asks for that one to be built now.
 - **Avoid logic in the database where possible (D248)**: rules, calculations and checks go in Python; no new triggers or
   database functions for them. Heavy calculations run as background jobs and are stored; screens show the last result
   with its date (only a single entity is checked at once).

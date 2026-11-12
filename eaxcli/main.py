@@ -32,7 +32,7 @@ from .core import (
     version,
 )
 
-DOCKER_COMMANDS = {"check", "up", "start-later", "debug", "status", "logs", "down", "backup", "backups", "restore", "restores",
+DOCKER_COMMANDS = {"check", "up", "start-later", "debug", "status", "logs", "down", "backup", "backups", "restore", "restores", "databases",
                    "restore-log", "delete-backup", "delete-restore", "app-backup", "restore-model", "restore-app",
                    "stop-backup", "services", "service", "import", "update", "rollback", "test", "standby"}
 KEEP = ("tls",)                       # in work/data: the local certificate, kept by cleanup (D107)
@@ -361,6 +361,8 @@ def dispatch(command: str, rest: list[str], wait_all: bool) -> None:
     elif command == "restores":
         stack.backup_helpers()
         stack.interactive([*ops, "restores"], [])
+    elif command == "databases":       # where each database lives and whether it answers (R2.50)
+        stack.interactive(["api", "python", "-m", "eax.databases"], rest)
     elif command in ("restore-log", "delete-backup", "delete-restore"):
         stack.backup_helpers()
         stack.interactive([*ops, command], rest)
@@ -378,6 +380,10 @@ def dispatch(command: str, rest: list[str], wait_all: bool) -> None:
             "Chromium, scanners.")
         compose(["--profile", "test", "build", "testrunner"])
         say("The test runner is built.")
+    elif command == "test" and rest[:1] == ["clean"]:   # delete every test run's data, for good (R2.0.1, D593)
+        stack.interactive(["api", "python", "-m", "eax.testing.cli", "clean", "all"], rest[1:])
+    elif command == "test" and rest[:1] == ["delete"]:  # delete test results for good (R2.43)
+        stack.interactive(["api", "python", "-m", "eax.testing.cli", "delete"], rest[1:])
     elif command == "test":             # the self-test (phase 36.1, D367, D529): results read in the api container, a
         read = [a for a in rest if a in ("--status", "--last", "--report", "--fixtures", "--clean")]   # run through ops
         if read:
@@ -428,30 +434,6 @@ def dispatch(command: str, rest: list[str], wait_all: bool) -> None:
         raise Failure(f"Unknown command '{command}'. Run {EAX} help")
 
 
-def testbench(rest: list[str]) -> int:
-    """eax testbench ... (D579): python -m testbench, with the packages of testbench/requirements.txt. Here when they
-    are already importable; otherwise through uv (work/tools/uv, as eaxpy), which keeps them in work/tools/cache:
-    nothing is installed on the machine."""
-    import importlib.util
-    import os
-    import subprocess
-    import sys as _sys
-    if all(importlib.util.find_spec(m) for m in ("sqlalchemy", "playwright", "openpyxl")):
-        _sys.path.insert(0, str(ROOT))
-        from testbench.cli import main as bench
-        return bench(rest)
-    uv = os.environ.get("EAX_UV") or str(ROOT / "work" / "tools" / ("uv.exe" if os.name == "nt" else "uv"))
-    if not Path(uv).exists():
-        say("The test bench needs its Python packages: run it through eax (which fetches uv), or "
-            "pip install -r testbench/requirements.txt", "red")
-        return 1
-    env = {**os.environ, "UV_PYTHON_INSTALL_DIR": str(ROOT / "work" / "tools" / "python"),
-           "UV_CACHE_DIR": str(ROOT / "work" / "tools" / "cache"), "UV_PYTHON_PREFERENCE": "only-managed"}
-    return subprocess.call([uv, "run", "--no-project", "--quiet", "--python", "3.12", "--with-requirements",
-                            str(ROOT / "testbench" / "requirements.txt"), "python", "-m", "testbench", *rest],
-                           cwd=str(ROOT), env=env)
-
-
 def main(argv: list[str]) -> int:
     command = argv[0] if argv else "help"
     rest = [a for a in argv[1:] if a]
@@ -485,8 +467,6 @@ def main(argv: list[str]) -> int:
         if command == "test" and "--reset-survival" in rest:   # settings outlive a real reset (D561): runs here
             from . import reset_survival
             return reset_survival.main(ROOT, rest)
-        if command == "testbench":              # the outside test bench (D579): testbench/, with its own packages
-            return testbench(rest)
         if command == "packs":                  # the industry packs (phase 39, D546): one Python program for every form
             from . import packs
             return packs.main(rest)

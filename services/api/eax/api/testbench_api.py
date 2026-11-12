@@ -216,11 +216,20 @@ class State(MethodView):
         (the outside test bench compares them before and after an upgrade, D582)"""
         from .. import __version__
         counts: dict[str, int | None] = {}
+        problems: list[str] = []
         with get_engine().connect() as conn:
             migration = conn.execute(text("SELECT version_num FROM public.alembic_version LIMIT 1")).scalar()
-            for name, table in COUNTS.items():
-                if conn.execute(text("SELECT to_regclass(:t)"), {"t": table}).scalar():
-                    counts[name] = int(conn.execute(text(f"SELECT count(*) FROM {table}")).scalar() or 0)  # noqa: S608 - fixed names
-                else:
-                    counts[name] = None
-        return {"version": __version__, "migration": migration, "counts": counts}
+        for name, table in COUNTS.items():
+            # each count on its own connection: one that fails (a busy table under the self-test's parallel calls, a
+            # table this role may not read) is reported, not a server error for the whole answer (R2.0.1)
+            try:
+                with get_engine().begin() as conn:
+                    conn.execute(text("SET LOCAL statement_timeout = '20s'"))   # a big table never holds up the answer
+                    if conn.execute(text("SELECT to_regclass(:t)"), {"t": table}).scalar():
+                        counts[name] = int(conn.execute(text(f"SELECT count(*) FROM {table}")).scalar() or 0)  # noqa: S608 - fixed names
+                    else:
+                        counts[name] = None
+            except Exception as exc:  # noqa: BLE001
+                counts[name] = None
+                problems.append(f"{name}: {type(exc).__name__}")
+        return {"version": __version__, "migration": migration, "counts": counts, "problems": problems}

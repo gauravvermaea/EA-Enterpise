@@ -2,7 +2,8 @@
 checked three ways, so "pages opened N of N" stands on the report.
 
 Where the pages come from: the top-level routes (SEEDS, kept in step with App.jsx by a test) on the run's own model and
-project, then every tab the page shows: the navigation registry the page publishes (window.__eaxNav, PageNav.jsx: every
+project, every page the menu bar reaches (window.__eaxMenu, TopMenu.jsx: the menu as the person sees it, since R2.0),
+then every tab the page shows: the navigation registry the page publishes (window.__eaxNav, PageNav.jsx: every
 group's tabs, in any navigation style) and the tab bars on the page itself (sub-tabs). A tab added later is found the
 day it is added. Only the run's own model(s) and project are opened, plus pages that name no model or project.
 
@@ -26,19 +27,19 @@ Record = Callable[..., None]
 # App.jsx is here or in SKIP_ROUTES, so a new page cannot be missed.
 SEEDS = [
     "#/", "#/work", "#/repository", "#/reference-library", "#/enterprise-library", "#/my-profile", "#/documentation",
-    "#/more", "#/merge-requests", "#/project-admin", "#/metamodel", "#/metamodel/{m}", "#/model-admin/{m}", "#/projects",
-    "#/projects/{p}", "#/mcp", "#/library", "#/compare", "#/compare/gaps", "#/compare/common", "#/change-log",
-    "#/notifications", "#/surveys", "#/maturity", "#/change-documents", "#/admin", "#/users", "#/search?q=self_test",
+    "#/merge-requests", "#/project-admin", "#/metamodel", "#/metamodel/{m}", "#/model-admin/{m}", "#/projects",
+    "#/projects/{p}", "#/mcp", "#/library", "#/project-library", "#/principles", "#/compare", "#/compare/gaps", "#/compare/common", "#/change-log",
+    "#/notifications", "#/surveys", "#/maturity", "#/change-documents", "#/admin", "#/search?q=self_test", "#/farm",
+    "#/farm/connect",
 ]
 # pages the sweep does not open, and why
 SKIP_ROUTES = {
     "#/break-glass": "the emergency sign-in page (it signs the person out of the normal sign-in)",
-    "#/heartbeat": "an internal health ping, not a screen",
-    "#/sql": "the database console: opened by hand only",
+    "#/more": "Everything else: a page of the Classic menus, which are being retired (R2.0.1); every item is in the menu bar",
 }
 MAX_PAGES = 400
 _UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
-_LEAVE = re.compile(r"^#/(break-glass|heartbeat|sql)\b|logout|sign-?out", re.I)
+_LEAVE = re.compile(r"^#/break-glass\b|logout|sign-?out", re.I)
 
 
 def seeds(ids: dict[str, str]) -> list[str]:
@@ -73,6 +74,7 @@ PAGE_JS = """() => {
   const links = new Set();
   const nav = window.__eaxNav;
   if (nav && nav.groups) for (const g of nav.groups) for (const t of g.tabs) if (t.href) links.add(t.href);
+  for (const h of (window.__eaxMenu || [])) links.add(h);   // every page the menu bar reaches (R2.0, D586; TopMenu.jsx)
   for (const a of document.querySelectorAll('[role=tablist] a[href^="#/"], .tabs a[href^="#/"], .nav-groups a[href^="#/"], '
       + '.nav-menu a[href^="#/"], nav.subnav a[href^="#/"], .subtabs a[href^="#/"], .seg a[href^="#/"]')) links.add(a.getAttribute('href'));
   return { head, notFound: /\\bno route\\b|^\\s*Not found\\s*$/im.test(txt), links: [...links] };
@@ -104,17 +106,19 @@ def judge(found: dict, errors: list[str], help_state: str) -> tuple[str, str]:
 
 
 def sweep(page, open_route: Callable[[str], None], ids: dict[str, str], record: Record, max_pages: int = MAX_PAGES,
-          role: str = "super-admin") -> dict[str, int]:
+          role: str = "super-admin", routes: list[str] | None = None) -> dict[str, int]:
     """Opens every page reachable from the seeds through tab links, in scope; records one result per page
-    ("page: <route>"). open_route(route) loads a route (the self-test's sign-in in the URL). Returns the counts."""
+    ("page: <route>"). open_route(route) loads a route (the self-test's sign-in in the URL). Returns the counts.
+    routes: these pages only, no links followed (a repeat of the failed pages, R2.36)."""
     errors: list[str] = []
     page.on("pageerror", lambda e: errors.append(f"script error: {str(e)[:200]}"))
     page.on("response", lambda r: errors.append(f"{r.request.method} {r.url.split('?')[0]}: {r.status}")
             if "/api/" in r.url and r.status >= 500 else None)
-    queue = [norm(s) for s in seeds(ids)]
+    only = routes is not None
+    queue = [norm(s) for s in (routes if only else seeds(ids))]
     seen: set[str] = set(queue)
     counts = {"pages": 0, "passed": 0, "failed": 0, "warning": 0}
-    for route, why in SKIP_ROUTES.items():
+    for route, why in ({} if only else SKIP_ROUTES).items():
         record(f"page: {route}", "skipped", why, 0)
     loaded = 0
     while queue and counts["pages"] < max_pages:
@@ -134,12 +138,17 @@ def sweep(page, open_route: Callable[[str], None], ids: dict[str, str], record: 
             except Exception:  # noqa: BLE001 - a page that keeps asking (a live status) is fine
                 pass
             found = page.evaluate(PAGE_JS)
+            for _ in range(20):                            # a heading that comes with the page's data: up to 10 s more
+                if found.get("head") or found.get("notFound"):
+                    break
+                page.wait_for_timeout(500)
+                found = page.evaluate(PAGE_JS)
             page.keyboard.press("F1")
             page.wait_for_timeout(300)
             help_state = page.evaluate(HELP_JS)
             page.keyboard.press("Escape")
             outcome, detail = judge(found, list(errors), help_state)
-            for link in found["links"]:
+            for link in ([] if only else found["links"]):
                 n = norm(link)
                 if n not in seen and in_scope(n, ids):
                     seen.add(n)

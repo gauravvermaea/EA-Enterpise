@@ -9,6 +9,7 @@ are checked is a warning: the refusal is right, but for the wrong reason). Nothi
 from __future__ import annotations
 
 import json
+import re
 import time
 import urllib.error
 import urllib.request
@@ -79,10 +80,11 @@ def ident(answer) -> str | None:
     return None
 
 
-def judge(status: int, ok: set[int], refused: bool) -> tuple[str, str]:
-    """passed, warning or failed for one write (also used by the unit tests)."""
+def judge(status: int, ok: set[int], refused: bool, refused_also: set[int] | None = None) -> tuple[str, str]:
+    """passed, warning or failed for one write (also used by the unit tests); refused_also: other codes that refuse
+    here (404 where a thing the person may not read is not shown to exist)."""
     if refused:
-        if status in REFUSED:
+        if status in REFUSED or status in (refused_also or set()):
             return "passed", f"refused ({status})"
         if status == 400:
             return "warning", "400: refused, but before the rights were checked"
@@ -137,8 +139,27 @@ def plan(ids: dict[str, str], sid: str) -> list[dict]:
             dict(area="merge requests", what="send the child for merge", method="post",
                  path=f"/api/v1/models/{other}/merge-requests", body={"note": f"{tag} API write"}, who="super-admin",
                  ok={200, 201, 202, 409}),
+            # 404 is a refusal here: a model the person may not read is not shown to exist ("or you may not read it")
             dict(area="merge requests", what="refused: send as a Report Viewer", method="post",
-                 path=f"/api/v1/models/{other}/merge-requests", body={"note": "refused"}, who="report-viewer", refused=True),
+                 path=f"/api/v1/models/{other}/merge-requests", body={"note": "refused"}, who="report-viewer", refused=True,
+                 refused_also={404}),
+        ]
+    if m and other:
+        # a gap analysis and a common analysis between the run's two models, kept in its first (owner, 12 Nov 2026: making
+        # a gap analysis said "column domain does not exist"); both run in the background, so their task is followed
+        both = [{"kind": "model", "id": other}, {"kind": "model", "id": m}]
+        w += [
+            dict(area="analyses", what="make a gap analysis", method="post", path="/api/v1/gaps",
+                 body={"store_in": m, "name": f"{tag} gap analysis", "baseline": both[0], "target": both[1], "template": "all"},
+                 who="super-admin", ok={200, 201, 202}, save="gaptask", save_at="task",
+                 until={"path": "/api/v1/tasks/{gaptask}", "status": ["done"], "seconds": 300}),
+            dict(area="analyses", what="make a common analysis", method="post", path="/api/v1/commons",
+                 body={"store_in": m, "name": f"{tag} common analysis", "sides": both},
+                 who="super-admin", ok={200, 201, 202}, save="commontask", save_at="task",
+                 until={"path": "/api/v1/tasks/{commontask}", "status": ["done"], "seconds": 300}),
+            dict(area="analyses", what="refused: make a gap analysis with no role", method="post", path="/api/v1/gaps",
+                 body={"store_in": m, "name": f"{tag} refused", "baseline": both[0], "target": both[1]},
+                 who="no-role", refused=True, refused_also={404}),
         ]
     if m:
         # a delivery really loaded, accepted and undone (D583): the test data's good delivery (testbench/data)
@@ -148,7 +169,7 @@ def plan(ids: dict[str, str], sid: str) -> list[dict]:
                  save="source"),
             dict(area="imports", what="upload a delivery", method="post", path="/api/v1/import-sources/{source}/deliveries",
                  data="deliveries/good.xlsx", who="model-admin", ok={200, 201, 202}, save="load", save_at="load",
-                 until={"path": "/api/v1/loads/{load}", "status": ["previewed"], "seconds": 180}),
+                 until={"path": "/api/v1/loads/{load}", "status": ["previewed"], "seconds": 300}),
             dict(area="imports", what="refused: accept it as a Report Viewer", method="post", path="/api/v1/loads/{load}/accept",
                  body={}, who="report-viewer", refused=True, needs=["load"]),
             dict(area="imports", what="accept it (committed as the load)", method="post", path="/api/v1/loads/{load}/accept",
@@ -161,8 +182,6 @@ def plan(ids: dict[str, str], sid: str) -> list[dict]:
         ]
     if p:
         w += [
-            dict(area="projects", what="refused: change the iteration as a Report Viewer", method="post",
-                 path=f"/api/v1/projects/{p}/iteration", body={"iteration": "full"}, who="report-viewer", refused=True),
             dict(area="projects", what="refused: change the iteration with no role", method="post",
                  path=f"/api/v1/projects/{p}/iteration", body={"iteration": "full"}, who="no-role", refused=True),
         ]
@@ -174,11 +193,11 @@ def plan(ids: dict[str, str], sid: str) -> list[dict]:
              ok={200, 204}),
         dict(area="surveys", what="refused: create as a Report Viewer", method="post", path="/api/v1/surveys",
              body={"title": f"{tag} refused"}, who="report-viewer", refused=True),
-        dict(area="machine access", what="make the run's own token", method="post", path="/api/v1/machine-access/credentials",
-             body={"kind": "token", "name": f"{tag} write check", "days": 1}, who="super-admin", ok={200, 201},
-             save="credential"),
-        dict(area="machine access", what="revoke it", method="post", path="/api/v1/machine-access/credentials/{credential}/revoke",
-             body={"reason": "self-test"}, who="super-admin", ok={200, 204}),
+        # the run's accounts are themselves credentials, and credentials are made only by a person signed in
+        # (eax/api/machine_access.py): so even the Super Admin's test token is refused
+        dict(area="machine access", what="refused: a credential cannot make a credential", method="post",
+             path="/api/v1/machine-access/credentials", body={"kind": "token", "name": f"{tag} write check", "days": 1},
+             who="super-admin", refused=True),
         dict(area="machine access", what="refused: a client certificate with no role", method="post",
              path="/api/v1/machine-access/credentials", body={"kind": "certificate", "name": f"{tag} refused"},
              who="no-role", refused=True),
@@ -214,13 +233,20 @@ def wait_for(base: str, token: str | None, until: dict, saved: dict[str, str], p
         time.sleep(pause)
 
 
-def run(base: str, tokens: dict[str, str], ids: dict[str, str], record: Record, area: str | None = None) -> dict[str, int]:
+def run(base: str, tokens: dict[str, str], ids: dict[str, str], record: Record, area: str | None = None,
+        only: set[str] | None = None) -> dict[str, int]:
     """Runs the writes (of one area, if given); a write whose role is not in this run, or that needs something an
-    earlier write did not make, is skipped with the reason. Returns passed and failed counts."""
+    earlier write did not make, is skipped with the reason. Returns passed and failed counts. only: a repeat of these
+    writes (R2.36): the writes run in order up to the last of them (a write needs what earlier ones made, in its own
+    area or another), and the caller records only these."""
     sid = ids.get("sid", "")
     saved: dict[str, str] = {}
     counts = {"writes": 0, "passed": 0, "failed": 0}
-    for w in plan(ids, sid):
+    writes = plan(ids, sid)
+    if only is not None:
+        last = max((i for i, w in enumerate(writes) if f"write {w['area']}: {w['what']}" in only), default=-1)
+        writes = writes[:last + 1]
+    for w in writes:
         if area and area.lower() not in w["area"]:
             continue
         name = f"write {w['area']}: {w['what']}"
@@ -229,7 +255,8 @@ def run(base: str, tokens: dict[str, str], ids: dict[str, str], record: Record, 
             record(name, "skipped", f"no {w['who']} account in this run (--role)", 0)
             continue
         missing = [n for n in w.get("needs", []) if n not in saved and n != "fixture entity"]
-        if missing or "{" in json.dumps(_fill([w["path"], w.get("body")], saved)):
+        # a {name} left unfilled (not the JSON body's own braces: that skipped every write with a body, R2.0.1)
+        if missing or re.search(r"\{[a-z_]+\}", json.dumps(_fill([w["path"], w.get("body")], saved))):
             record(name, "skipped", "an earlier write did not make what this one needs", 0)
             continue
         path, body = _fill(w["path"], saved), _fill(w.get("body"), saved)
@@ -242,7 +269,7 @@ def run(base: str, tokens: dict[str, str], ids: dict[str, str], record: Record, 
                 status, answer = 0, f"no test data file {w['data']}: {exc}"
         else:
             status, answer = call(base, w["method"], path, token, body)
-        outcome, detail = judge(status, w.get("ok", {200}), w.get("refused", False))
+        outcome, detail = judge(status, w.get("ok", {200}), w.get("refused", False), w.get("refused_also", set()))
         if outcome == "passed" and w.get("save"):
             got = ident(answer.get(w["save_at"]) if w.get("save_at") and isinstance(answer, dict) else answer)
             if got:

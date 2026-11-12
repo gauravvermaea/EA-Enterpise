@@ -168,23 +168,45 @@ def join_parts(manifest: Path) -> tuple[str, bytes]:
     return m["name"], data
 
 
-def scan(root: Path) -> list[dict]:
-    """Every pack file under root: {industry, kind, name, title, content, checksum}. Folders are industries; zips are
-    opened (a starter pack's "complete set"); parts are joined; anything that is not a pack file is left out."""
-    found: dict[tuple[str, str], dict] = {}
+class PackFile(dict):
+    """One pack file found by scan: its industry, kind, name, title, checksum and size, and its content read only when
+    asked for (f["content"]), never kept: holding all of them at once (about 180 MB of PDFs and workbooks) took the
+    API container past its memory at start-up (R2.39, 12 Nov 2026: "api ... out of memory")."""
+
+    def __getitem__(self, key):
+        if key == "content":
+            return dict.__getitem__(self, "read")()
+        return dict.__getitem__(self, key)
+
+    def get(self, key, default=None):
+        return self[key] if key == "content" or key in self else default
+
+
+def _sha_of_file(path: Path) -> tuple[str, int]:
+    h, n = hashlib.sha256(), 0
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+            n += len(chunk)
+    return h.hexdigest(), n
+
+
+def scan(root: Path) -> list[PackFile]:
+    """Every pack file under root: {industry, kind, name, title, checksum, size, content (read when asked)}. Folders are
+    industries; zips are opened (a starter pack's "complete set"); parts are joined; anything that is not a pack file is
+    left out. Only one file's content is in memory at a time (R2.39)."""
+    found: dict[tuple[str, str], PackFile] = {}
     if not root.is_dir():
         return []
 
-    def keep(code: str, name: str, content: bytes):
+    def keep(code: str, name: str, sha: str, size: int, read):
         kind = classify(name)
-        if not kind or not content:
+        if not kind or not size:
             return
-        title = title_of(name, BY_CODE[code][1])
-        sha = hashlib.sha256(content).hexdigest()
         if any(f["checksum"] == sha and f["industry"] == code for f in found.values()):
             return                                   # the same file twice (e.g. a learner guide in two folders)
-        found[(code, name)] = {"industry": code, "kind": kind, "name": name, "title": title, "content": content,
-                               "checksum": sha}
+        found[(code, name)] = PackFile(industry=code, kind=kind, name=name, title=title_of(name, BY_CODE[code][1]),
+                                       checksum=sha, size=size, read=read)
 
     for folder in sorted(p for p in root.iterdir() if p.is_dir()):
         code = industry_of(folder.name)
@@ -195,15 +217,22 @@ def scan(root: Path) -> list[dict]:
                 continue
             low = f.name.lower()
             if low.endswith(".parts.json"):
-                name, data = join_parts(f)
-                keep(code, name, data)
+                m = json.loads(f.read_text(encoding="utf-8"))
+                keep(code, m["name"], m["sha256"], int(m.get("size") or 1), lambda f=f: join_parts(f)[1])
             elif low.endswith(".zip"):
                 with zipfile.ZipFile(f) as z:
                     for info in z.infolist():
-                        if not info.is_dir():
-                            keep(code, Path(info.filename).name, z.read(info))
+                        if info.is_dir() or not classify(Path(info.filename).name):
+                            continue
+                        h = hashlib.sha256()
+                        with z.open(info) as member:
+                            for chunk in iter(lambda member=member: member.read(1 << 20), b""):
+                                h.update(chunk)
+                        keep(code, Path(info.filename).name, h.hexdigest(), info.file_size,
+                             lambda f=f, n=info.filename: zipfile.ZipFile(f).read(n))
             else:
-                keep(code, f.name, f.read_bytes())
+                sha, size = _sha_of_file(f)
+                keep(code, f.name, sha, size, f.read_bytes)
     return list(found.values())
 
 
@@ -213,55 +242,105 @@ def _cabinet(code: str) -> int:
     return mayan.cabinet(BY_CODE[code][1], mayan.cabinet(CABINET))
 
 
-def load_folder(conn, root: Path, actor: str, dry_run: bool = False) -> dict:
+def load_folder(conn, root: Path, actor: str, dry_run: bool = False, begin=None, progress=None) -> dict:
     """Load every pack file under root into Documents: new files uploaded, changed ones a new version, unchanged ones
-    skipped, restricted ones refused (D547). Returns what happened, file by file."""
-    from . import mayan
-    loaded, replaced, skipped, refused = [], [], [], []
-    for f in scan(root):
+    skipped, restricted ones refused (D547). Returns what happened, file by file.
+
+    begin (a transaction factory, e.g. get_engine().begin): each file is then written in a transaction of its own, so
+    what is loaded stays loaded and shows at once, and one file that fails is reported and the rest carry on (R2.23:
+    in one transaction for all 97 files, the start-up showed "0 of 97" until the very end, and one failure threw away
+    the record of every file already uploaded, so the next start uploaded them all again). progress(done, total,
+    label) is told after each file."""
+    loaded, replaced, skipped, refused, failed = [], [], [], [], []
+    files = scan(root)
+    for n, f in enumerate(files, 1):
         label = f"{BY_CODE[f['industry']][1]}: {f['name']}"
-        if restricted(f["name"], f["content"]):
-            refused.append(label)
-            continue
-        row = conn.execute(text("""SELECT id, checksum, mayan_document_id, versions FROM core.industry_pack_files
-                                    WHERE industry = :i AND file_name = :n"""), {"i": f["industry"], "n": f["name"]}).mappings().first()
-        if row and row["checksum"] == f["checksum"] and row["mayan_document_id"]:
-            skipped.append(label)
-            continue
-        if dry_run:
-            (replaced if row else loaded).append(label)
-            continue
-        ctype = mimetypes.guess_type(f["name"])[0] or "application/octet-stream"
-        if row and row["mayan_document_id"]:
-            mayan.new_version(row["mayan_document_id"], f["name"], f["content"], f"{actor}: the pack file changed", ctype)
-            conn.execute(text("""UPDATE core.industry_pack_files SET checksum = :c, file_size = :s, kind = :k, title = :t,
-                                        content_type = :ct, versions = versions + 1, loaded_by = :u, updated_at = now(),
-                                        sample = false, sample_content = NULL WHERE id = :id"""),
-                         {"c": f["checksum"], "s": len(f["content"]), "k": f["kind"], "t": f["title"], "ct": ctype,
-                          "u": actor, "id": row["id"]})
-            replaced.append(label)
-        else:
-            doc = mayan.upload(f["name"], f["content"], ctype, label=f"{BY_CODE[f['industry']][1]} pack: {f['title']}")
-            mayan.add_to_cabinet(_cabinet(f["industry"]), doc["id"])
-            conn.execute(text("""INSERT INTO core.industry_pack_files (industry, kind, title, file_name, content_type, file_size,
-                                                                        checksum, mayan_document_id, loaded_by)
-                                 VALUES (:i, :k, :t, :n, :ct, :s, :c, :m, :u)
-                                 ON CONFLICT (industry, file_name) DO UPDATE SET kind = EXCLUDED.kind, title = EXCLUDED.title,
-                                     content_type = EXCLUDED.content_type, file_size = EXCLUDED.file_size,
-                                     checksum = EXCLUDED.checksum, mayan_document_id = EXCLUDED.mayan_document_id,
-                                     loaded_by = EXCLUDED.loaded_by, updated_at = now(), sample = false,
-                                     sample_content = NULL"""),
-                         {"i": f["industry"], "k": f["kind"], "t": f["title"], "n": f["name"], "ct": ctype,
-                          "s": len(f["content"]), "c": f["checksum"], "m": doc["id"], "u": actor})
-            loaded.append(label)
+        if progress:
+            progress(n - 1, len(files), label)
+        try:
+            _one_file(conn, begin, f, label, actor, dry_run, loaded, replaced, skipped, refused)
+        except Exception as exc:  # noqa: BLE001 - with begin: one file never stops the others; the next start tries it
+            if begin is None:
+                raise
+            failed.append(f"{label}: {str(exc).splitlines()[0] if str(exc) else type(exc).__name__}"[:300])
+    if progress:
+        progress(len(files), len(files), "")
     if not dry_run and (loaded or replaced or refused):
         from . import audit
-        audit.record(conn, actor=actor, action="industry_packs.loaded", object_type="industry_packs", object_id=str(root),
-                     details={"loaded": len(loaded), "replaced": len(replaced), "skipped": len(skipped),
-                              "refused": refused})
+        details = {"loaded": len(loaded), "replaced": len(replaced), "skipped": len(skipped), "refused": refused,
+                   "failed": failed}
+        if begin is not None:
+            with begin() as c:
+                audit.record(c, actor=actor, action="industry_packs.loaded", object_type="industry_packs",
+                             object_id=str(root), details=details)
+        else:
+            audit.record(conn, actor=actor, action="industry_packs.loaded", object_type="industry_packs",
+                         object_id=str(root), details=details)
     return {"folder": str(root), "loaded": loaded, "replaced": replaced, "unchanged": skipped, "refused": refused,
+            "failed": failed, "total": len(files),
             "message": (f"{len(loaded)} loaded, {len(replaced)} replaced, {len(skipped)} unchanged"
-                        + (f", {len(refused)} refused (marked not for AI use)" if refused else "") + ".")}
+                        + (f", {len(refused)} refused (marked not for AI use)" if refused else "")
+                        + (f", {len(failed)} failed (tried again at the next start)" if failed else "") + ".")}
+
+
+def _one_file(conn, begin, f, label: str, actor: str, dry_run: bool, loaded: list, replaced: list, skipped: list,
+              refused: list) -> None:
+    """One pack file: unchanged ones are skipped without reading them; the content of the others is read now, for
+    this file only (R2.39), checked for the not-for-AI mark (D547), then loaded in its own transaction when begin is
+    given."""
+    if begin is not None:
+        with begin() as c:
+            row = c.execute(text("""SELECT checksum, mayan_document_id FROM core.industry_pack_files
+                                     WHERE industry = :i AND file_name = :n"""), {"i": f["industry"], "n": f["name"]}).mappings().first()
+        if row and row["checksum"] == f["checksum"] and row["mayan_document_id"]:
+            skipped.append(label)
+            return
+    one = {k: v for k, v in f.items() if k != "read"}
+    one["content"] = f["content"]
+    if restricted(one["name"], one["content"]):
+        refused.append(label)
+        return
+    if begin is not None:
+        with begin() as c:
+            _load_one(c, one, label, actor, dry_run, loaded, replaced, skipped)
+    else:
+        _load_one(conn, one, label, actor, dry_run, loaded, replaced, skipped)
+
+
+def _load_one(conn, f: dict, label: str, actor: str, dry_run: bool, loaded: list, replaced: list, skipped: list) -> None:
+    """One pack file: skipped when unchanged, else a new version or a new document in Documents, and its row."""
+    from . import mayan
+    row = conn.execute(text("""SELECT id, checksum, mayan_document_id, versions FROM core.industry_pack_files
+                                WHERE industry = :i AND file_name = :n"""), {"i": f["industry"], "n": f["name"]}).mappings().first()
+    if row and row["checksum"] == f["checksum"] and row["mayan_document_id"]:
+        skipped.append(label)
+        return
+    if dry_run:
+        (replaced if row else loaded).append(label)
+        return
+    ctype = mimetypes.guess_type(f["name"])[0] or "application/octet-stream"
+    if row and row["mayan_document_id"]:
+        mayan.new_version(row["mayan_document_id"], f["name"], f["content"], f"{actor}: the pack file changed", ctype)
+        conn.execute(text("""UPDATE core.industry_pack_files SET checksum = :c, file_size = :s, kind = :k, title = :t,
+                                    content_type = :ct, versions = versions + 1, loaded_by = :u, updated_at = now(),
+                                    sample = false, sample_content = NULL WHERE id = :id"""),
+                     {"c": f["checksum"], "s": len(f["content"]), "k": f["kind"], "t": f["title"], "ct": ctype,
+                      "u": actor, "id": row["id"]})
+        replaced.append(label)
+        return
+    doc = mayan.upload(f["name"], f["content"], ctype, label=f"{BY_CODE[f['industry']][1]} pack: {f['title']}")
+    mayan.add_to_cabinet(_cabinet(f["industry"]), doc["id"])
+    conn.execute(text("""INSERT INTO core.industry_pack_files (industry, kind, title, file_name, content_type, file_size,
+                                                                checksum, mayan_document_id, loaded_by)
+                         VALUES (:i, :k, :t, :n, :ct, :s, :c, :m, :u)
+                         ON CONFLICT (industry, file_name) DO UPDATE SET kind = EXCLUDED.kind, title = EXCLUDED.title,
+                             content_type = EXCLUDED.content_type, file_size = EXCLUDED.file_size,
+                             checksum = EXCLUDED.checksum, mayan_document_id = EXCLUDED.mayan_document_id,
+                             loaded_by = EXCLUDED.loaded_by, updated_at = now(), sample = false,
+                             sample_content = NULL"""),
+                 {"i": f["industry"], "k": f["kind"], "t": f["title"], "n": f["name"], "ct": ctype,
+                  "s": len(f["content"]), "c": f["checksum"], "m": doc["id"], "u": actor})
+    loaded.append(label)
 
 
 # ---------------------------------------------------------------- the tiles
@@ -355,8 +434,62 @@ def missing_shipped(conn) -> list[str]:
 
 
 def load_shipped(conn, actor: str = "system:seed") -> dict:
-    """At start-up: the packs shipped in the repository, into Documents when missing or changed."""
+    """The packs shipped in the repository, into Documents when missing or changed, in the caller's transaction."""
     return load_folder(conn, PACKS_DIR, actor)
+
+
+LOCK_KEY = 7_465_546            # one loader at a time across the start-up step, the 10-minute job and the API servers
+PART = "packs"
+
+
+def _part(engine, state: str, done: int, total: int, detail: str, start: bool = False, finish: bool = False) -> None:
+    """The 'packs' row of core.startup_parts: what the start-up status shows for the industry packs."""
+    with engine.begin() as c:
+        c.execute(text("""INSERT INTO core.startup_parts (part, name, state, done, total, detail, started_at, finished_at, updated_at)
+                          VALUES (:p, 'Industry packs', :s, :d, :t, :x, now(), NULL, now())
+                          ON CONFLICT (part) DO UPDATE SET state = :s, done = :d, total = :t, detail = :x, updated_at = now(),
+                              started_at = CASE WHEN :start THEN now() ELSE core.startup_parts.started_at END,
+                              finished_at = CASE WHEN :finish THEN now() WHEN :start THEN NULL
+                                                 ELSE core.startup_parts.finished_at END"""),
+                  {"p": PART, "s": state, "d": done, "t": total, "x": detail[:1000], "start": start, "finish": finish})
+
+
+def load_shipped_each(actor: str = "system:seed", engine=None) -> dict:
+    """The shipped packs into Documents, each file in its own transaction, with the start-up status kept up to date
+    file by file ("loading 12 of 97", then "97 files loaded"); one loader at a time (R2.23). When Documents does not
+    answer yet, the status says so and the 10-minute job tries again."""
+    from . import mayan
+    from .db import get_engine
+    engine = engine or get_engine()
+    if not PACKS_DIR.is_dir():
+        return {"message": f"no folder {PACKS_DIR}; nothing to load", "skipped": True}
+    with engine.connect() as lock:
+        if not lock.execute(text("SELECT pg_try_advisory_lock(:k)"), {"k": LOCK_KEY}).scalar():
+            return {"message": "being loaded already (another server or the job)", "skipped": True}
+        try:
+            if not mayan.enabled():
+                _part(engine, "skipped", 0, 0, "Documents is switched off: no packs to load", finish=True)
+                return {"message": "Documents is switched off", "skipped": True}
+            if not mayan.ping():
+                _part(engine, "starting", 0, 0, "waiting for Documents to answer; tried again every 10 minutes")
+                return {"message": "Documents is not up; tried again every 10 minutes", "skipped": True}
+            _part(engine, "starting", 0, 0, "reading the pack files", start=True)
+
+            def told(done: int, total: int, label: str) -> None:
+                if done < total:
+                    _part(engine, "starting", done, total, f"loading ({done} of {total}): {label}"[:300])
+            out = load_folder(None, PACKS_DIR, actor, begin=engine.begin, progress=told)
+            total = out["total"]
+            if out["failed"]:
+                _part(engine, "down", total, total, f"{len(out['failed'])} not loaded, tried again in 10 minutes: "
+                      + "; ".join(out["failed"][:3]), finish=True)
+            else:
+                _part(engine, "up", total, total, f"{total - len(out['refused'])} files loaded"
+                      + (f" ({len(out['refused'])} marked not for AI use, not loaded)" if out["refused"] else ""), finish=True)
+            return out
+        finally:
+            lock.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": LOCK_KEY})
+            lock.commit()
 
 
 def main(argv: list[str]) -> int:

@@ -26,7 +26,8 @@ KC_INTERNAL = f"http://keycloak:8080/auth/realms/{REALM}/protocol/openid-connect
 # ---- Core
 SECRET_KEY = env("EAX_SUPERSET_SECRET_KEY")
 SQLALCHEMY_DATABASE_URI = (
-    f"postgresql+psycopg2://superset:{quote(env('EAX_SUPERSET_DB_PASSWORD'), safe='')}@db:5432/superset"
+    f"postgresql+psycopg2://superset:{quote(env('EAX_SUPERSET_DB_PASSWORD'), safe='')}"
+    f"@{env('EAX_SUPERSET_DB_HOST') or 'db'}:{env('EAX_SUPERSET_DB_PORT') or '5432'}/superset"   # R2.50
 )
 SQLALCHEMY_TRACK_MODIFICATIONS = False
 

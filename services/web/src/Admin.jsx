@@ -14,7 +14,8 @@
 //   commands     the Command centre: every eax command with a guided form, the Console, the history (D554), schedules (D559)
 //   banner       the banner under the top bar (D558): nothing shows unless an admin sets one
 //   licences     the products and libraries and their licences
-// The old addresses #/users, #/heartbeat and #/sql open the same tabs; #/admin/projects moved to #/project-admin/library.
+// #/admin/projects moved to #/project-admin/library. The old addresses #/users, #/heartbeat and #/sql are gone (R2.0.1):
+// #/admin/users, #/admin/health and #/admin/sql.
 import { lazy, Suspense, useEffect, useState } from "react";
 import { apiFetch, can, needsRole } from "./auth";
 import { refreshAll, useApi } from "./ModelViews";
@@ -38,6 +39,7 @@ const Updates = lazy(() => import("./Updates"));
 const CommandCentre = lazy(() => import("./CommandCentre"));
 const BannerAdmin = lazy(() => import("./AdminBanner").then((m) => ({ default: m.BannerAdmin })));
 const Deploy = lazy(() => import("./Deploy"));
+const DatabasesPage = lazy(() => import("./Databases"));
 const QualityAdmin = lazy(() => import("./Quality").then((x) => ({ default: x.QualityAdmin })));
 
 const TABS = [
@@ -47,6 +49,7 @@ const TABS = [
   ["users", "Users", () => can("users.read"), ["user-admin", "super-admin"]],
   ["health", "Health", () => true, null],
   ["containers", "Containers", () => can("system.operate"), ["it-admin", "super-admin"]],
+  ["databases", "Databases", () => can("system.operate"), ["it-admin", "super-admin"]],   // where each lives (R2.50)
   ["scaling", "Scaling", () => can("system.operate"), ["it-admin", "super-admin"]],
   ["self-test", "Self-test", () => can("system.operate"), ["it-admin", "super-admin"]],
   ["backups", "Backups", () => can("system.operate"), ["it-admin", "super-admin"]],
@@ -64,11 +67,8 @@ const TABS = [
 
 export function adminTab(route) {
   const r = route.replace(/^#/, "");
-  if (r.startsWith("/users")) return ["users", route];
-  if (r.startsWith("/heartbeat")) return ["health", route];
-  if (r.startsWith("/sql")) return ["sql", route];
-  const [, , tab, sub] = r.split("?")[0].split("/");
-  return [tab || "wizards", sub ? `#/users/${sub}` : "#/users"];
+  const [, , tab] = r.split("?")[0].split("/");
+  return [tab || "wizards", route];
 }
 
 export default function Admin({ route }) {
@@ -90,6 +90,7 @@ export default function Admin({ route }) {
             : t[0] === "users" ? <Users route={inner} />
               : t[0] === "health" ? <Heartbeat />
                 : t[0] === "containers" ? <ContainerConsole />
+                : t[0] === "databases" ? <DatabasesPage />
                   : t[0] === "backups" ? <AdminBackups />
                     : t[0] === "restores" ? <RestoresPage route={route} />
                     : t[0] === "quality" ? <QualityAdmin />

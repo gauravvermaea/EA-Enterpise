@@ -133,14 +133,14 @@ function RoleMapping() {
 }
 
 export default function Users({ route }) {
-  const tab = route.split("/")[2] || "people";
+  const tab = route.split("?")[0].split("/")[3] || "people";   // #/admin/users/<people|mapping>
   if (!can("users.read")) return <p className="status bad">This page is for User Admins and Super Admins.</p>;
   return (
     <div>
       <h1>Users and roles</h1>
       <div className="tabs" role="tablist">
         {[["people", "People"], ["mapping", "Keycloak role mapping"]].map(([k, l]) => (
-          <a key={k} href={`#/users/${k}`} className={`tab${tab === k ? " on" : ""}`} role="tab" aria-selected={tab === k}>{l}</a>
+          <a key={k} href={`#/admin/users/${k}`} className={`tab${tab === k ? " on" : ""}`} role="tab" aria-selected={tab === k}>{l}</a>
         ))}
       </div>
       <div className="tab-panel" role="tabpanel">{tab === "mapping" ? <RoleMapping /> : <People />}</div>

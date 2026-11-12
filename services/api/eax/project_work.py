@@ -951,6 +951,20 @@ def add_principle(conn, project: Any, user, d: dict) -> dict:
     the statement, rationale and implications rich text; it goes under an area (Business, Data, Security...)."""
     p = pj.project_row(conn, project)
     need(conn, p, user, "contribute")
+    if d.get("library_id"):                     # one from the principles library, in its own words (R2.48)
+        lib = _one(conn, "SELECT * FROM proj.lib_principles WHERE id = :l AND NOT retired", l=int(d["library_id"]))
+        if not lib:
+            raise EditError("No such principle in the library.", 404)
+        if _one(conn, "SELECT 1 AS x FROM proj.principles WHERE project_id = :p AND library_id = :l", p=p["id"], l=lib["id"]):
+            raise EditError(f"{lib['name']} is in this {'base' if p.get('base_kind') else 'project'} already.", 409)
+        mand = bool(p.get("base_kind")) and bool(d.get("mandatory", True))
+        r = _one(conn, """INSERT INTO proj.principles (project_id, code, name, statement, rationale, implications, library_id, area,
+                                                       created_by, mandatory, sort_order)
+                          SELECT :p, code, name, statement, rationale, implications, id, coalesce(NULLIF(:a, ''), category), :u, :m,
+                                 (SELECT coalesce(max(sort_order), 0) + 1 FROM proj.principles WHERE project_id = :p)
+                            FROM proj.lib_principles WHERE id = :l RETURNING id""",
+                 p=p["id"], a=(d.get("area") or "").strip()[:80], u=user.username, m=mand, l=lib["id"])
+        return {"id": r["id"], "message": f"Principle {lib['name']} added from the library."}
     v = _principle_vals(d)
     # in the Organisation base every principle binds the projects below it (phase 13.1, D304)
     # in a base, a principle is enforced (mandatory below it) or optional (D327); a project's own never binds others

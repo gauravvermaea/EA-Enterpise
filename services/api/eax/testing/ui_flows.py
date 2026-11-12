@@ -9,6 +9,7 @@ filled from the run's ids, and {$name}, filled from a "remember" step of the sam
   {"open": "#/route", "expect": "text"}     open a page, wait for a text (optional)
   {"click": "text"}                          a button, link, tab or label whose text starts with this (first visible);
                                              "exact": true for the whole text, "optional_alt": another text to try
+                                             "opens": css of the pop-up it opens (clicked once more if none came)
   {"click_re": "regex"}                      the same, by a regular expression ("^Merge \\d+ accepted")
   {"choose": "text"}                         a radio or checkbox by its label text
   {"fill": "label", "value": "…"}            the field with this label (or placeholder or aria-label)
@@ -16,6 +17,7 @@ filled from the run's ids, and {$name}, filled from a "remember" step of the sam
                                              ("*": the first real choice, not "(not set)")
   {"press": "F1"}                            a key
   {"expect": "text"} / {"expect_not": "text"} / {"expect_sel": "css"}   ("timeout": ms to wait longer)
+  {"open": "#/…", "expect": "text", "reload": true}   opened again every few seconds until it shows (a background task)
   {"upload": "css of the file input", "data": "deliveries/good.xlsx", "name": "good.xlsx"}
                                              a test data file by its manifest key (testbench/data; EAX_TEST_DATA in the
                                              test runner), or "text": inline contents
@@ -71,7 +73,7 @@ JOURNEYS: list[dict] = [
      "steps": [
          {"open": "#/metamodel/{m}/entry", "expect": "Entity type"},
          {"select": "Entity type", "option": "Application Component"},
-         {"click": "+ In a form"},
+         {"click": "+ In a form", "opens": DIALOG},
          {"fill": "Name", "value": "Journey app {sid} {role}"},
          {"fill": "Commit message", "value": "self-test journey", "optional": True},
          {"click": "Save", "exact": True, "optional_alt": "Save and commit"},
@@ -90,7 +92,7 @@ JOURNEYS: list[dict] = [
          {"expect": "{dup}"},
          {"click": "Compare and merge"},
          {"click": "Merge 1 into the one kept", "wait": 1500},
-         {"expect_not": "Merging…"},
+         {"expect_not": "Merging…", "timeout": 60000},                 # done (the merge is slower on a laptop)
      ]},
     {"name": "project: iteration, frozen phase, back", "smoke": True, "roles": ["super-admin", "architect"],
      "refused": {"role": "no-role", "open": "#/projects/{p}", "disabled_or_absent": "Change…"},
@@ -110,6 +112,30 @@ JOURNEYS: list[dict] = [
          {"expect_not": "Note (optional)"},
          {"click": "Iteration history", "optional": True},
          {"expect": "Full cycle"},
+     ]},
+    # the menu bar (R2.0, D586 to D591): its areas open, a Wizards item goes to the wizards page, / finds a function; the
+    # admin areas are not there for a role that may not use them (D588)
+    {"name": "the menu bar: areas, wizards and Find", "smoke": True, "roles": ["super-admin"],
+     "refused": {"role": "report-viewer", "open": "#/", "disabled_or_absent": "System Admin"},
+     "steps": [
+         {"open": "#/", "expect": "Architecture Work"},
+         {"click": "Architecture Work", "exact": True}, {"expect": "My models"}, {"press": "Escape"},
+         {"click": "Model Admin", "exact": True}, {"click": "Wizards", "within": ".tm-area.open"}, {"expect": "Model admin"},
+         {"click": "Project Admin", "exact": True}, {"click": "Wizards", "within": ".tm-area.open"}, {"expect": "Project admin"},
+         {"click": "System Admin", "exact": True}, {"click": "Wizards", "within": ".tm-area.open"}, {"expect": "Wizards"},
+         {"click": "Repository & Content Framework", "exact": True}, {"expect": "Content framework"}, {"press": "Escape"},
+         {"press": "/"}, {"expect_sel": ".qj"},
+         {"fill": "Find", "value": "backups", "wait": 600}, {"expect": "System Admin"}, {"press": "Escape"},
+     ]},
+    {"name": "the libraries for everyone: Model library and Project library", "smoke": True,
+     "roles": ["architect", "report-viewer"], "refused": None,
+     "why_no_refusal": "everyone signed in may open the Model library and the Project library (owner, 12 Nov 2026)",
+     "steps": [
+         {"open": "#/", "expect": "Architecture Work"},
+         {"click": "Architecture Work", "exact": True}, {"click": "Model library", "within": ".tm-area.open"},
+         {"expect": "Library"},
+         {"click": "Architecture Work", "exact": True}, {"click": "Project library", "within": ".tm-area.open"},
+         {"expect": "Project library"},
      ]},
     {"name": "help and documentation", "smoke": False, "roles": ["architect", "report-viewer"], "refused": None,
      "why_no_refusal": "everyone signed in may read the help and the documentation",
@@ -143,7 +169,8 @@ JOURNEYS: list[dict] = [
          {"click": "Turn off", "row": "self_test_{sid} schedule {role}", "wait": 1500},   # off: it never runs
          {"expect": "Turn on", "row": "self_test_{sid} schedule {role}"},
          {"click": "Remove", "exact": True, "row": "self_test_{sid} schedule {role}", "wait": 1500},   # the confirm is accepted
-         {"expect_not": "self_test_{sid} schedule {role}", "timeout": 10000},
+         # the page says so ("<name>: removed.", which holds the name, so the name alone is no test that it went)
+         {"expect": "self_test_{sid} schedule {role}: removed."},
      ]},
     {"name": "drawn view: drop, bind, create, line, undo, save", "smoke": False, "roles": ["model-admin", "committer"],
      "refused": {"role": "report-viewer", "open": "#/metamodel/{m}/drawn-views/{view}", "disabled_or_absent": "Save",
@@ -205,6 +232,20 @@ JOURNEYS: list[dict] = [
                     " return t === 'serves {sid} {role} (Association) [Protocol:https]' || ('after reopening the line shows ' + JSON.stringify(t));",
           "poll": True},
      ]},
+    {"name": "a model's picture in draw.io: its objects and their properties, read only", "smoke": False,
+     "roles": ["model-admin"], "refused": None,
+     "why_no_refusal": "anyone who may read the model may open its pictures in draw.io; nothing there changes the model",
+     "headless_only": True,
+     "why_headless": "the picture opens in a new tab with the draw.io canvas, a separate site: a watched run cannot follow it",
+     "steps": [                                                         # R2.7 (owner, 11 Nov 2026; read-only panels, 12 Nov)
+         {"open": "#/metamodel/{m}/graph", "expect": "Open in draw.io"},
+         {"popup": "Open in draw.io", "expect": "not saved", "wait": 1500},
+         {"drawio_ready": 60000},
+         {"expect": "Objects on this picture"},
+         {"click": "Show", "exact": True, "within": ".picture-panels", "wait": 1000},
+         {"expect": "Attributes", "within": ".picture-panels"},
+         {"drawio": "return !!g.getSelectionCell() || 'Show did not select it on the picture';"},
+     ]},
     {"name": "open in draw.io: a picture read only, exported, saved as a drawn view", "smoke": False, "roles": ["model-admin"],
      "refused": {"role": "report-viewer", "open": "#/metamodel/{m}/diagram", "disabled_or_absent": "Save as a drawn view"},
      "headless_only": True,
@@ -232,7 +273,7 @@ JOURNEYS: list[dict] = [
          {"expect": "self_test_{sid} source {role}"},
          {"upload": "input[type=file]", "row": "self_test_{sid} source {role}", "data": "deliveries/good.xlsx",
           "name": "good.xlsx", "wait": 3000},
-         {"expect": "Accept and commit", "timeout": 90000},             # previewed in the background
+         {"expect": "Accept and commit", "timeout": 240000},            # previewed in the background (a busy job queue)
          {"click": "Accept and commit", "wait": 3000},
          {"expect": "Undo the load", "timeout": 90000},                 # accepted: committed as the load
          {"click": "Undo the load", "wait": 3000},                      # the confirm is accepted
@@ -271,7 +312,7 @@ JOURNEYS: list[dict] = [
      "steps": [
          {"open": "#/metamodel/{other}/entry", "expect": "Entity type"},
          {"select": "Entity type", "option": "Application Component"},
-         {"click": "+ In a form"},
+         {"click": "+ In a form", "opens": DIALOG},
          {"fill": "Name", "value": "Merged app {sid} {role}"},
          {"click": "Save", "exact": True, "optional_alt": "Save and commit", "wait": 1500},
          {"open": "#/metamodel/{other}/changes", "optional": True},
@@ -279,16 +320,17 @@ JOURNEYS: list[dict] = [
          {"open": "#/model-admin/{other}/send", "expect": "for merge into"},
          {"click": "Preview and send…", "wait": 2000},
          {"click": "Send for merge", "within": DIALOG, "wait": 4000},
-         {"click": "Open the request", "within": DIALOG, "wait": 2000},
+         {"click": "Open the request", "within": DIALOG, "wait": 2000, "timeout": 90000},   # once the send is done
          {"remember": "mr", "url": r"#/merge-requests/([^/?#]+)"},
          {"as": "model-admin"},                                         # the parent's Model Admin reviews and merges
          {"open": "#/merge-requests/{$mr}", "expect": "Merge request"},
          {"click_re": r"^Merge \d+ accepted", "wait": 4000},
          {"expect": "Merged", "timeout": 90000},
          {"as": "{role}"},                                              # the child's admin refreshes the child
-         {"open": "#/merge-requests/{$mr}", "expect": "What happens to"},
+         # the merge finishes in the background: opened again until it shows (the laptop's full run, 12 Nov 2026)
+         {"open": "#/merge-requests/{$mr}", "expect": "What happens to", "reload": True, "timeout": 180000},
          {"click": "Refresh {other_name}", "wait": 4000},
-         {"expect": "Done.", "timeout": 90000},
+         {"expect": "now holds what", "timeout": 90000},             # the refresh's own message (the task's result)
      ]},
 ]
 
@@ -303,7 +345,8 @@ def data_folder() -> Path:
         return Path(env)
     if Path("/testdata/manifest.json").is_file():
         return Path("/testdata")
-    return Path(__file__).resolve().parents[4] / "testbench" / "data"
+    here = Path(__file__).resolve().parents
+    return here[4] / "testbench" / "data" if len(here) > 4 else Path("/testdata")   # in a container: /app/eax/testing
 
 
 def data_bytes(name: str) -> bytes:
@@ -386,8 +429,8 @@ def _with_data(s: dict) -> dict:
     if "upload" in s and s.get("data"):
         try:
             return {**s, "b64": base64.b64encode(data_bytes(s["data"])).decode()}
-        except OSError:
-            return s                                   # the step then says the file is missing
+        except (OSError, ValueError, IndexError):      # no test data folder: the step then says the file is missing
+            return s
     return s
 
 
@@ -485,10 +528,34 @@ def _clickable(page, text: str, exact: bool = False, pattern: str = ""):
     return None
 
 
+def _enabled(el, wait_ms: int = 30000) -> bool:
+    """True once the control is enabled, waiting up to wait_ms: some are enabled only when their page has loaded or laid
+    out what they act on (Open in draw.io on a picture, R2.0.1)."""
+    end = time.time() + wait_ms / 1000
+    while True:
+        try:
+            if not el.is_disabled():
+                return True
+        except Exception:  # noqa: BLE001 - gone from the page: let the step say so
+            return False
+        if time.time() > end:
+            return False
+        time.sleep(0.25)
+
+
 def _field(page, label: str):
-    for loc in (page.get_by_label(label, exact=False), page.get_by_placeholder(label, exact=False)):
+    """The first visible field to type into with this label or placeholder: an exact label first, and never a checkbox,
+    radio or button whose label merely starts the same ("Person" is not "Personal details", R2.0.1)."""
+    def fillable(el) -> bool:
+        try:
+            return el.evaluate("e => e.isContentEditable || e.tagName === 'TEXTAREA' || e.tagName === 'SELECT' || "
+                               "(e.tagName === 'INPUT' && !/^(checkbox|radio|button|submit|hidden|file)$/i.test(e.type))")
+        except Exception:  # noqa: BLE001
+            return False
+    for loc in (page.get_by_label(label, exact=True), page.get_by_label(label, exact=False),
+                page.get_by_placeholder(label, exact=False)):
         for i in range(min(loc.count(), 10)):
-            if _visible(loc.nth(i)):
+            if _visible(loc.nth(i)) and fillable(loc.nth(i)):
                 return loc.nth(i)
     return None
 
@@ -572,7 +639,20 @@ def step(page, s: dict, open_route: Callable[..., None], state: dict | None = No
             open_route(s["open"], state["role"])
         else:
             open_route(s["open"])
-        if s.get("expect"):                            # a full-page screen (a drawn view) has no EA Explorer header
+        if s.get("expect") and s.get("reload"):        # what a background task changes: opened again until it shows
+            end = time.time() + max(timeout, 60000) / 1000
+            while True:
+                try:
+                    _shows(page, s["expect"], 8000)
+                    break
+                except Exception:  # noqa: BLE001
+                    if time.time() > end:
+                        raise
+                    if state.get("role"):
+                        open_route(s["open"], state["role"])
+                    else:
+                        open_route(s["open"])
+        elif s.get("expect"):                          # a full-page screen (a drawn view) has no EA Explorer header
             _shows(page, s["expect"], max(timeout, 60000))
         else:
             page.wait_for_selector("text=EA Explorer", timeout=60000)
@@ -580,7 +660,7 @@ def step(page, s: dict, open_route: Callable[..., None], state: dict | None = No
         el = _clickable(root, s["popup"])
         if el is None:
             return f"no button or link \"{s['popup']}\""
-        if el.is_disabled():
+        if not _enabled(el):
             return f"\"{s['popup']}\" is disabled"
         with page.context.expect_page(timeout=timeout) as pg:
             el.click()
@@ -591,33 +671,62 @@ def step(page, s: dict, open_route: Callable[..., None], state: dict | None = No
             _shows(tab, s["expect"], max(timeout, 60000))
     elif "click" in s or "click_re" in s:
         what = s.get("click") or s.get("click_re")
-        el = _clickable(root, s.get("click", ""), s.get("exact", False), s.get("click_re", ""))
-        if el is None and s.get("optional_alt"):
-            el = _clickable(root, s["optional_alt"])
+        # wait for it to appear: a button that comes with what a step loads (+ In a form once the entity type's rows
+        # are in) is later on a slower machine (R2.0.1, the laptop's smoke run); an optional step waits less
+        end = time.time() + (3 if s.get("optional") else timeout / 1000)
+        while True:
+            el = _clickable(root, s.get("click", ""), s.get("exact", False), s.get("click_re", ""))
+            if el is None and s.get("optional_alt"):
+                el = _clickable(root, s["optional_alt"])
+            if el is not None or time.time() > end:
+                break
+            page.wait_for_timeout(300)
         if el is None:
             return f"no button or link \"{what}\""
-        if el.is_disabled():
+        if not _enabled(el):
             return f"\"{what}\" is disabled"
         el.click()
+        if s.get("opens"):                             # a click that opens a pop-up: once more if the page was still
+            try:                                       # settling and the first click was lost (the laptop's full run)
+                page.wait_for_selector(s["opens"], timeout=5000)
+            except Exception:  # noqa: BLE001
+                el = _clickable(root, s.get("click", ""), s.get("exact", False), s.get("click_re", ""))
+                if el is None or not _enabled(el):
+                    return f"\"{what}\" opened nothing"
+                el.click()
+                page.wait_for_selector(s["opens"], timeout=timeout)
     elif "choose" in s:
         loc = root.locator("label").filter(has_text=s["choose"]).first
         if not loc.count():
             return f"no choice \"{s['choose']}\""
         loc.click()
     elif "fill" in s:
+        end = time.time() + (3 if s.get("optional") else timeout / 1000)
         el = _field(root, s["fill"])
+        while el is None and time.time() < end:        # a field that comes with a pop-up or the page's data
+            page.wait_for_timeout(300)
+            el = _field(root, s["fill"])
         if el is None:
             return f"no field \"{s['fill']}\""
         el.fill(s["value"])
     elif "select" in s:
-        el = _field(root, s["select"])
+        # wait for the drop-down and its choices: they come with what the page loads (the entity types of the model's
+        # metamodel), later on a slower machine (R2.0.1, the laptop's smoke run)
+        end = time.time() + timeout / 1000
+        while True:
+            el = _field(root, s["select"])
+            pick = None
+            if el is not None:
+                opts = el.locator("option").all_inner_texts()
+                if s["option"] == "*":                 # any real choice: the first that is not "(not set)"
+                    pick = next((o for o in opts if o.strip() and not o.strip().startswith(("(", "Choose"))), None)
+                else:
+                    pick = next((o for o in opts if o.strip().lower().startswith(s["option"].lower())), None)
+            if pick is not None or time.time() > end:
+                break
+            page.wait_for_timeout(300)
         if el is None:
             return f"no drop-down \"{s['select']}\""
-        opts = el.locator("option").all_inner_texts()
-        if s["option"] == "*":                         # any real choice: the first that is not "(not set)"
-            pick = next((o for o in opts if o.strip() and not o.strip().startswith("(")), None)
-        else:
-            pick = next((o for o in opts if o.strip().lower().startswith(s["option"].lower())), None)
         if pick is None:
             return f"\"{s['select']}\" has no option \"{s['option']}\""
         el.select_option(label=pick)
@@ -682,16 +791,23 @@ def step(page, s: dict, open_route: Callable[..., None], state: dict | None = No
 def refusal(page, r: dict, open_route: Callable[..., None]) -> tuple[str, str]:
     """The role that may not: the button that would save is missing or disabled."""
     open_route(r["open"])
-    page.wait_for_selector("text=EA Explorer", timeout=60000)
+    try:                                             # a page that fills the window (a drawn view) has no header to wait for
+        page.wait_for_selector("text=EA Explorer", timeout=30000)
+    except Exception:  # noqa: BLE001
+        page.wait_for_load_state("domcontentloaded")
     page.wait_for_timeout(1500)
-    if r.get("select"):
-        el = _field(page, r["select"][0])
-        if el is not None:
-            opts = el.locator("option").all_inner_texts()
-            pick = next((o for o in opts if o.strip().lower().startswith(r["select"][1].lower())), None)
-            if pick:
-                el.select_option(label=pick)
-                page.wait_for_timeout(1200)
+    if r.get("select"):                              # its choices come with the page's data: wait for them (20 s)
+        end, pick, el = time.time() + 20, None, None
+        while pick is None and time.time() < end:
+            el = _field(page, r["select"][0])
+            if el is not None:
+                opts = el.locator("option").all_inner_texts()
+                pick = next((o for o in opts if o.strip().lower().startswith(r["select"][1].lower())), None)
+            if pick is None:
+                page.wait_for_timeout(300)
+        if el is not None and pick:
+            el.select_option(label=pick)
+            page.wait_for_timeout(3000)
     if r.get("click_first"):
         el = _clickable(page, r["click_first"])
         if el is not None and not el.is_disabled():
@@ -714,6 +830,9 @@ def _close_tab(state: dict) -> None:
         pass
 
 
+_LAST_SHOT: dict = {}
+
+
 def run_one(page, j: dict, open_route: Callable[..., None]) -> tuple[str, str]:
     """Runs one journey on a page; returns (outcome, detail)."""
     if j.get("refusal"):
@@ -730,6 +849,10 @@ def run_one(page, j: dict, open_route: Callable[..., None]) -> tuple[str, str]:
                 if s.get("optional"):
                     skipped.append(why)
                     continue
+                try:   # the tab the step failed in, before it is closed (a "popup" step's tab), for the report
+                    _LAST_SHOT["png"] = (state.get("tab") or page).screenshot(full_page=False)
+                except Exception:  # noqa: BLE001
+                    _LAST_SHOT["png"] = None
                 return "failed", f"step {done + len(skipped) + 1} ({_say(s)}): {why}"
             done += 1
     finally:
@@ -749,6 +872,7 @@ def run(page_factory: Callable[[str], tuple], js: list[dict], record: Record) ->
     counts = {"journeys": 0, "passed": 0, "failed": 0}
     for j in js:
         t0 = time.time()
+        _LAST_SHOT.clear()
         page, open_route, close = page_factory(j["role"])
         errors: list[str] = []
         page.on("pageerror", lambda e, errs=errors: errs.append(f"script error: {str(e)[:200]}"))
@@ -760,8 +884,8 @@ def run(page_factory: Callable[[str], tuple], js: list[dict], record: Record) ->
             outcome, detail = "failed", str(exc).splitlines()[0][:300]
         if outcome == "passed" and errors:
             outcome, detail = "failed", "; ".join(errors[:5])
-        shot = None
-        if outcome == "failed":
+        shot = _LAST_SHOT.pop("png", None) if outcome == "failed" else None   # the tab the failing step was in
+        if outcome == "failed" and shot is None:
             try:
                 shot = page.screenshot(full_page=False)
             except Exception:  # noqa: BLE001

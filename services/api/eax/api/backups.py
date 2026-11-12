@@ -39,6 +39,7 @@ import os
 from flask import Response, g, request
 from flask.views import MethodView
 from flask_smorest import Blueprint, abort
+from sqlalchemy import text
 
 from .. import __version__, audit, restore_notice
 from .. import backup_schedule as bs
@@ -79,6 +80,23 @@ def services_on() -> bool:
 
 
 # ---------------------------------------------------------------- Administration > Backups
+def web_proven(conn) -> dict:
+    """Whether backups and restores from the web are proven (R2.46; owner, 12 Nov 2026: "If we can not do reliable backups
+    and restores from web, then we should just show the command to run"): the newest self-test run with backup checks
+    (R2.45) passed all of them. Until one has, the Backups page shows the commands instead of its buttons."""
+    row = conn.execute(text("""SELECT r.id, r.finished_at,
+                                      count(*) FILTER (WHERE x.outcome = 'failed') AS failed, count(*) AS checks
+                                 FROM core.test_runs r JOIN core.test_results x ON x.run_id = r.id AND x.suite = 'backup'
+                                WHERE r.state IN ('passed', 'failed')
+                                GROUP BY r.id ORDER BY r.id DESC LIMIT 1""")).mappings().first()
+    if not row:
+        return {"proven": False, "why": "No self-test has checked the backups yet: run eax test backup (or the full test)."}
+    if row["failed"]:
+        return {"proven": False, "run": row["id"],
+                "why": f"Self-test {row['id']}: {row['failed']} of {row['checks']} backup checks failed."}
+    return {"proven": True, "run": row["id"], "at": row["finished_at"]}
+
+
 @blp.route("/admin/backups")
 class Backups(MethodView):
     @blp.doc(security=SECURITY)
@@ -93,8 +111,9 @@ class Backups(MethodView):
         with get_engine().connect() as conn:
             schedules = bs.get_all(conn)
             tz = str(bs.zone(conn))
+            proven = web_proven(conn)
         return {"infrastructure": infra, "application": bk.list_application(), "on": services_on(), "schedules": schedules,
-                "time_zone": tz, "folder": "work/backups", "version": __version__}
+                "time_zone": tz, "folder": "work/backups", "version": __version__, "web": proven}
 
 
 @blp.route("/admin/backups/projects")
@@ -149,6 +168,17 @@ class InfraBackup(MethodView):
             keep = bs.keep(conn, "infrastructure")
         return _task("backup.infrastructure", None, f"Infrastructure backup '{tag}'", {"tag": tag, "version": __version__,
                                                                                        "keep": keep})
+
+
+@blp.route("/admin/backups/infrastructure/<name>/verify")
+class InfraVerify(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(202, Free)
+    @require_auth("system.operate")
+    def post(self, name):
+        """Checks an infrastructure backup can be restored, touching nothing live (R2.45): its checksums, every file set
+        readable, every database restored into a scratch copy, counted and dropped. A task; its result lists the checks"""
+        return _task("backup.verify", None, f"Trial restore of {name}", {"name": name})
 
 
 @blp.route("/admin/backups/infrastructure/<name>/pin")

@@ -123,9 +123,10 @@ export function SearchPage({ route }) {
   );
 }
 
-export function TopSearch() {
+export function TopSearch({ find = false }) {
   const [q, setQ] = useState("");
   useEffect(() => {
+    if (find) return undefined;   // the menu style: "/" opens Find instead (QuickJump.jsx, D590)
     const key = (e) => {
       if (e.key === "/" && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName) && !document.activeElement?.closest?.(".grid-box")) {
         e.preventDefault(); document.getElementById("top-search")?.focus();
@@ -133,7 +134,16 @@ export function TopSearch() {
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, []);
+  }, [find]);
+  // the menu style (D590): one box for finding functions and content; it opens Find
+  if (find) {
+    return (
+      <button type="button" className="top-search top-find" title="Find any function or content: menus, tabs, wizards, models, projects, entities (press /)"
+        onClick={() => window.dispatchEvent(new Event("eax-quick-jump"))}>
+        <span aria-hidden="true">⌕</span> Find a function or content <kbd>/</kbd>
+      </button>
+    );
+  }
   return (
     <form className="top-search" onSubmit={(e) => { e.preventDefault(); window.location.hash = `/search?q=${encodeURIComponent(q)}`; }}>
       <input id="top-search" type="search" placeholder="Search (/)" value={q} onChange={(e) => setQ(e.target.value)} title="Search every model you can read (press / to jump here)" />

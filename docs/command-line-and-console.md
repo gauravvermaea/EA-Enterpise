@@ -128,7 +128,9 @@ says one line when there is no source folder. The sources: `eax packs source <fo
 `EAX_PACKS_SOURCE` in the config, else the default folders. As it starts it then loads the packs into Documents (the
 start-up status shows *Industry packs loading n of N*), the documentation into the library, sign-in and Reports set-up,
 the sample data and the persist/ settings, and builds the test runner in the background (about 1.5 GB). `eax test`
-prepares the runner itself every time, so `eax packs collect` and `eax test --build` are optional.
+prepares the runner itself every time, so `eax packs collect` is optional. Testing is two choices (D592): `eax test` (smoke)
+or `eax test full`; `eax test failed [run] [--warnings]` repeats only the checks that failed (D605); `eax test clean`
+deletes the test data (D593).
 
 ## Finding problems
 
@@ -508,3 +510,5 @@ Deploying to a server over SSH and to AWS, Azure and DigitalOcean is `eax deploy
 each cloud machine runs our Docker stack, so the console, logs, backups and restores work there as on any server
 (sign in to it over SSH and run `./eax.sh console`, or use `eax console --server https://<address>` from here).
 Passwords can be kept in a key vault (`eax secrets`). Several hosts and scaling out: 36.3.
+
+`eax databases` lists every database EA Explorer uses, where it lives and whether it answers (R2.50, D611; docs/databases.md).

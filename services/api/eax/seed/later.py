@@ -144,8 +144,8 @@ def plan(settings, with_sample: bool) -> list[tuple[str, object]]:
         steps.append(("Sample update history: succeeded, rolled back, not started, scheduled", sample_updates))
     if laptop:
         steps.append(("Sample test runs: passed, failed with a screenshot, could not start", sample_tests))
-    # every deployment (owner, 10 Nov 2026, D546): the industry packs shipped in library/industry-packs, into Documents
-    steps.append(("Industry packs into Documents (the library's Pack tab)", industry_packs))
+    # the industry packs (D546) are no longer a step here: they load beside these steps, with their own status
+    # (industry_packs_beside, main), so the sample data does not wait for Documents (R2.23)
     steps.append(("First data quality measurement", first_measurements))
     return steps
 
@@ -311,24 +311,35 @@ def sample_updates() -> None:
 def industry_packs() -> None:
     """D546: the packs shipped in the repository (library/industry-packs, mounted at /data/industry-packs) are uploaded
     into Documents when missing or changed (by checksum); unchanged files are skipped, so every start is quick after the
-    first. When Documents is off or not up yet, nothing is lost: the next start (or `eax packs load`) loads them."""
+    first. When Documents is off or not up yet, nothing is lost: the 10-minute job (or `eax packs load`) loads them."""
+    from .. import industry_packs as ip
+    # each file in its own transaction, the status kept up to date file by file, one loader at a time; what Documents
+    # refuses is tried again by the 10-minute job (R2.23)
+    out = ip.load_shipped_each("system:seed")
+    _say(f"industry packs: {out['message']}")
+    for name in out.get("refused", []):
+        _say(f"industry packs: not loaded (marked not for AI use): {name}")
+    for why in out.get("failed", []):
+        _say(f"industry packs: not loaded, tried again in 10 minutes: {why}")
+
+
+def industry_packs_beside(wait_minutes: float = 20, pause: float = 20) -> None:
+    """The industry packs, beside the steps (a thread of main): waits for Documents to answer (up to 20 minutes; after
+    that the 10-minute job carries on), then loads them file by file with their own start-up status (R2.23)."""
     from .. import industry_packs as ip
     from .. import mayan
-    from ..db import get_engine
-    if not ip.PACKS_DIR.is_dir():
-        _say(f"industry packs: no folder {ip.PACKS_DIR}; nothing to load")
-        return
+    end = time.monotonic() + wait_minutes * 60
     try:
-        if not mayan.enabled() or not mayan.ping():
-            _say("industry packs: Documents is not up; they load at the next start or with `eax packs load`")
-            return
-        with get_engine().begin() as conn:
-            out = ip.load_shipped(conn)
-        _say(f"industry packs: {out['message']}")
-        for name in out["refused"]:
-            _say(f"industry packs: not loaded (marked not for AI use): {name}")
-    except mayan.MayanError as exc:
-        _say(f"industry packs: Documents refused ({exc}); they load at the next start or with `eax packs load`")
+        while mayan.enabled() and not mayan.ping() and time.monotonic() < end:
+            time.sleep(pause)
+        industry_packs()
+    except Exception as exc:  # noqa: BLE001 - the job tries again in 10 minutes
+        _say(f"industry packs: FAILED ({exc}); tried again in 10 minutes")
+        try:
+            from ..db import get_engine
+            ip._part(get_engine(), "down", 0, 0, f"{exc}"[:300] + "; tried again in 10 minutes", finish=True)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def first_measurements() -> None:
@@ -369,6 +380,9 @@ def main() -> int:
     except Exception as exc:  # noqa: BLE001 - no status row: still load
         _say(f"cannot record progress ({exc})")
         progress = None
+    import threading
+    packs = threading.Thread(target=industry_packs_beside, name="industry-packs", daemon=True)
+    packs.start()
     for label, fn in steps:
         if progress:
             _run(progress, label, fn)
@@ -379,6 +393,7 @@ def main() -> int:
                 _say(f"{label}: FAILED ({exc})")
     if progress:
         progress.close()
+    packs.join()                                     # the process ends when the packs are loaded too
     _say(f"all done in {time.monotonic() - t:.0f} s")
     return 0
 

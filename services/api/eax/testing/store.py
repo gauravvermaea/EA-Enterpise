@@ -58,7 +58,7 @@ def estimate_minutes(level: str, suites: list[str], watch: bool = False) -> tupl
     if level == "smoke":
         return (2, 5)
     lo, hi = 1, 2                                                   # its fixtures: models, a project, accounts
-    add = {"api": (3, 10), "ui": (2, 5), "db": (0, 1), "security": (5, 15)}
+    add = {"api": (3, 10), "ui": (2, 5), "db": (0, 1), "security": (5, 15), "backup": (3, 15)}
     for s in suites:
         lo, hi = lo + add[s][0], hi + add[s][1]
     if watch:
@@ -68,12 +68,48 @@ def estimate_minutes(level: str, suites: list[str], watch: bool = False) -> tupl
 
 def create_run(conn, by: str, trigger: str, suites: list[str], folder: str = "", version: str = "", level: str = "smoke",
                role: str = "", area: str = "", watch: bool = False, journeys: list[str] | None = None,
-               pages_only: bool = False) -> int:
+               pages_only: bool = False, repeat_of: int | None = None, repeat_warnings: bool = False) -> int:
     return int(conn.execute(text("""
-        INSERT INTO core.test_runs (started_by, trigger, suites, folder, version, level, role, area, watch, journeys, pages_only)
-        VALUES (:by, :trigger, :suites, :folder, :version, :level, :role, :area, :watch, :journeys, :pages_only) RETURNING id"""),
+        INSERT INTO core.test_runs (started_by, trigger, suites, folder, version, level, role, area, watch, journeys, pages_only,
+                                    repeat_of, repeat_warnings)
+        VALUES (:by, :trigger, :suites, :folder, :version, :level, :role, :area, :watch, :journeys, :pages_only, :repeat_of,
+                :repeat_warnings) RETURNING id"""),
         {"by": by or "unknown", "trigger": trigger, "suites": suites, "folder": folder, "version": version, "level": level,
-         "role": role, "area": area, "watch": watch, "journeys": list(journeys or []), "pages_only": pages_only}).scalar())
+         "role": role, "area": area, "watch": watch, "journeys": list(journeys or []), "pages_only": pages_only,
+         "repeat_of": repeat_of or None, "repeat_warnings": bool(repeat_warnings)}).scalar())
+
+
+def repeat_options(conn, of: int | None, with_warnings: bool = False) -> dict[str, Any]:
+    """What a repeat of run `of` (None: the newest closed run) runs as (R2.36, D605): its level, role, area and the suites
+    with something to repeat. ValueError when there is no such run, it is still going, or nothing failed in it."""
+    from . import repeat
+    of = of or repeat.latest(conn)
+    if not of:
+        raise ValueError("There is no finished self-test to repeat.")
+    row = conn.execute(text("SELECT id, state, level, role, area, suites FROM core.test_runs WHERE id = :id"),
+                       {"id": of}).mappings().first()
+    if not row:
+        raise ValueError(f"No self-test run {of}.")
+    if row["state"] in OPEN:
+        raise ValueError(f"Self-test {of} is still going: wait for it to finish.")
+    rows = repeat.wanted(conn, of, with_warnings)
+    if not rows:
+        raise ValueError(f"Self-test {of} had no failed checks" + (" or warnings" if with_warnings else "") + ": nothing to repeat.")
+    found = {r["suite"] for r in rows}
+    suites = [s for s in SUITES if s in found] or [s for s in (row["suites"] or SUITES) if s in SUITES] or list(SUITES)
+    if "smoke" in found or row["level"] == "smoke":
+        level = "smoke"
+    else:
+        level = "detailed"
+    return {"of": int(of), "level": level, "role": row["role"] or "", "area": row["area"] or "", "suites": suites,
+            "checks": len(rows), "with_warnings": bool(with_warnings)}
+
+
+def set_fixture_ids(conn, run_id: int, ids: dict[str, str]) -> None:
+    """The ids the run's fixtures have (a repeat matches pages of the run's own model by them, R2.36)."""
+    from .repeat import ID_KEYS
+    conn.execute(text("UPDATE core.test_runs SET fixture_ids = CAST(:i AS jsonb) WHERE id = :id"),
+                 {"i": json.dumps({k: str(v) for k, v in ids.items() if k in ID_KEYS and v}), "id": run_id})
 
 
 def clean_journeys(journeys: list[str] | str | None) -> list[str]:
@@ -94,6 +130,8 @@ def command_line(run: dict[str, Any], eax: str = ".\\eax") -> str:
     bits = [eax, "test"]
     suites = list(run.get("suites") or [])
     journeys, pages_only = list(run.get("journeys") or []), bool(run.get("pages_only"))
+    if run.get("repeat_of"):                      # a repeat of an earlier run's failed checks (R2.36)
+        return " ".join(bits + ["failed", str(run["repeat_of"])] + (["--warnings"] if run.get("repeat_warnings") else []))
     if pages_only:
         bits.append("--pages-only")
     elif journeys:
@@ -189,6 +227,32 @@ def tally(conn, run_id: int) -> dict[str, int]:
     return out
 
 
+def progress(conn, run: dict[str, Any], done: int) -> dict[str, Any]:
+    """How many checks are left, roughly (R2.40; owner, 12 Nov 2026: "please tell how many tests are left as well when
+    in the screen"): a repeat has as many as it repeats; any other run as many as the newest finished run of the same
+    level, suites, role and area had. None known: the first run of its kind."""
+    if run.get("repeat_of"):
+        total = conn.execute(text("SELECT count(DISTINCT (suite, name)) FROM core.test_results WHERE run_id = :id "
+                                  "AND outcome = ANY(:o)"), {"id": run["repeat_of"],
+                                  "o": ["failed", "warning"] if run.get("repeat_warnings") else ["failed"]}).scalar()
+        how = f"the failed checks of run {run['repeat_of']}"
+    else:
+        row = conn.execute(text("""SELECT r.id, (SELECT count(*) FROM core.test_results x WHERE x.run_id = r.id) AS n
+                                     FROM core.test_runs r
+                                    WHERE r.id <> :id AND r.state IN ('passed', 'failed') AND r.level = :l AND r.repeat_of IS NULL
+                                      AND r.suites = CAST(:s AS text[]) AND r.role = :ro AND r.area = :a
+                                    ORDER BY r.id DESC LIMIT 1"""),
+                           {"id": run["id"], "l": run.get("level") or "", "s": list(run.get("suites") or []),
+                            "ro": run.get("role") or "", "a": run.get("area") or ""}).first()
+        total = int(row[1]) if row and row[1] else None
+        how = f"as many as run {row[0]} had" if total else ""
+    if not total:
+        return {"done": done, "total": None, "left": None, "how": "not known: the first run of its kind"}
+    total = max(int(total), done)
+    return {"done": done, "total": total, "left": total - done, "how": how,
+            "percent": round(100 * done / total) if total else 100}
+
+
 def finish(conn, run_id: int, error: str = "", stopped: str = "") -> str:
     """Counts the results and closes the run: stopped when someone stopped it, error when the run itself broke, failed
     when any check failed, else passed."""
@@ -204,7 +268,7 @@ def finish(conn, run_id: int, error: str = "", stopped: str = "") -> str:
 
 _LIVE = "CASE WHEN r.state IN ('queued', 'running') THEN (SELECT count(*) FROM core.test_results x WHERE x.run_id = r.id AND x.outcome {o}) ELSE r.{c} END AS {c}"
 _RUN_COLS = ("r.id, r.run_guid::text AS run_guid, r.started_by, r.trigger, r.suites, r.state, r.step, r.folder, r.version, "
-             "r.level, r.role, r.area, r.watch, r.journeys, r.pages_only, r.stop_asked, r.message, r.purged_at, r.purged_by, r.queued_at, r.started_at, "
+             "r.level, r.role, r.area, r.watch, r.journeys, r.pages_only, r.repeat_of, r.repeat_warnings, r.followed_up_by, r.stop_asked, r.message, r.purged_at, r.purged_by, r.queued_at, r.started_at, "
              "r.finished_at, (SELECT count(*) FROM core.test_fixtures f WHERE f.run_id = r.id AND f.purged_at IS NULL) AS fixtures, "
              + ", ".join(_LIVE.format(o=o, c=c) for o, c in (("= 'passed'", "passed"), ("= 'failed'", "failed"),
                                                              ("IN ('skipped', 'warning')", "skipped"))))
@@ -239,12 +303,22 @@ def run_detail(conn, run_id: int, outcome: str = "", suite: str = "") -> dict[st
           FROM core.test_results WHERE {' AND '.join(where)}
          ORDER BY CASE outcome WHEN 'failed' THEN 0 WHEN 'warning' THEN 1 WHEN 'skipped' THEN 2 ELSE 3 END, suite, id"""),
         params).mappings().all()
-    return {"run": run, "results": [dict(r) for r in results], "tally": tally(conn, run_id)}
+    from . import health
+    every = [dict(r) for r in conn.execute(text("SELECT suite, name, outcome FROM core.test_results WHERE run_id = :id"),
+                                          {"id": run_id}).mappings().all()]
+    from . import repeat
+    return {"run": run, "results": [dict(r) for r in results], "tally": tally(conn, run_id),
+            "health": health.summary(every),                   # critical and non-critical, and the health (R2.35)
+            "repeat": repeat.compare(conn, run_id),            # a repeat: each check then and now (R2.36)
+            "progress": progress(conn, run, len(every)) if run["state"] in OPEN else None}   # checks left (R2.40)
 
 
 def screenshot(conn, result_id: int) -> bytes | None:
     row = conn.execute(text("SELECT screenshot FROM core.test_results WHERE id = :id"), {"id": result_id}).first()
     return bytes(row[0]) if row and row[0] is not None else None
+
+
+_re_choice = __import__("re").compile(r"^  (smoke|full|backup|failed|delete|clean)\s{2,}(.*)$")
 
 
 def test_entry(help_text: str) -> dict:
@@ -262,6 +336,9 @@ def test_entry(help_text: str) -> dict:
             out["summary"] = ln[2:].strip()
         elif ln.startswith("$ "):
             out["examples"].append(ln[2:].strip())
+        elif _re_choice.match(ln):           # the choices of `eax test` since R2.0.1 (smoke, full, clean; D592)
+            m = _re_choice.match(ln)
+            out["options"].append({"flag": m.group(1), "what": m.group(2).strip()})
         elif ln.startswith("  --"):
             import re as _re
             m = _re.match(r"^(--\S+(?:\s+(?:\[[^\]]*\]|<[^>]*>|[A-Z]\b|--\S+))*)(?:\s+(.*))?$", ln.strip())

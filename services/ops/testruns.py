@@ -11,9 +11,13 @@ images next to it; then the runner reads their reports (collect) and closes the 
   POST /tests/build             {by, then?}: build the runner image (`eax test --build` in the Command centre's
                                 short-lived container, D554), then start `then` (a run the API recorded) if given (D570)
   GET  /tests/build/<id>?from=  the build's record, its log from byte `from` and its steps
-  POST /tests/settings          {auto_build, by}: build it automatically after each start or update (persist/settings.json)
+  POST /tests/settings          {auto_build, keep_days, by}: build it automatically after each start or update; how many
+                                days test results are kept (R2.43) (persist/settings.json)
+  POST /tests/results/delete    {folders}: removes test runs' folders in work/tests (R2.43)
   ops.py test [--smoke|--detailed] [--suite S]... [--role R] [--area A] [--version V] [--ci]
                                 the same from `eax test`, at once, following the runner's output in the console
+  ops.py test failed [N] [--warnings]
+                                only the checks that failed in run N (the newest finished run when no N), R2.36
 
 Bound to ops.py's helpers with bind(globals()) (ops.py runs as __main__, so it is not imported back)."""
 
@@ -22,13 +26,14 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import socket
 import subprocess
 import threading
 import time
 
 H: dict = {}                                   # ops.py's globals: docker, containers, jobs, _in_background...
-SUITES = ("api", "ui", "db", "security")
+SUITES = ("api", "ui", "db", "security", "backup")   # backup: the last of a full test (R2.45)
 ZAP_IMAGE = os.environ.get("EAX_IMAGE_ZAP", "ghcr.io/zaproxy/zaproxy:2.15.0")
 TRIVY_IMAGE = os.environ.get("EAX_IMAGE_TRIVY", "aquasec/trivy:0.56.2")
 WORK = "/eax-work"
@@ -82,6 +87,15 @@ def host_work() -> str:
     raise RuntimeError("The operations helper has no /eax-work mount.")
 
 
+def test_data_folder(work: str) -> str:
+    """testbench/data beside the work folder, in the host's own spelling: on Windows the work mount's source is
+    C:\\...\\work, so cutting at "/" left "...\\work/testbench/data", a folder that does not exist, and Docker mounted an
+    empty one (R2.0.1: the laptop's full run found no deliveries/good.xlsx)."""
+    sep = "\\" if "\\" in work and "/" not in work else "/"
+    base = re.sub(r"[\\/]work$", "", work.rstrip("\\/"))
+    return sep.join([base, "testbench", "data"])
+
+
 def _networks(info: dict) -> list[str]:
     return list(((info.get("NetworkSettings") or {}).get("Networks") or {}).keys())
 
@@ -91,7 +105,7 @@ NOT_BUILT = ("The test runner is prepared when a test starts (the first time abo
 
 
 def status() -> dict:
-    extra = {"build": build_status(), "auto_build": auto_build(_deployment()), "size_gb": RUNNER_SIZE_GB,
+    extra = {"build": build_status(), "auto_build": auto_build(_deployment()), "keep_days": keep_days(), "size_gb": RUNNER_SIZE_GB,
              "build_minutes": BUILD_MINUTES}
     try:
         image = runner_image()
@@ -150,6 +164,53 @@ def set_auto_build(on: bool, by: str = "") -> dict:
                  f"{AUTO_KEY}_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
     P.write_json(path, data)
     return {"auto_build": bool(on)}
+
+
+KEEP_KEY = "testrunner_keep_days"              # how long test results are kept (R2.43): 0 keeps them
+
+
+def keep_days() -> int:
+    P = _persist()
+    if P is None:
+        return 30
+    data, _warn = P.read_json(P.folder() / SETTINGS, {})
+    try:
+        return max(0, int(data.get(KEEP_KEY, 30)))
+    except (TypeError, ValueError):
+        return 30
+
+
+def set_keep_days(days: int, by: str = "") -> dict:
+    P = _persist()
+    if P is None:
+        raise RuntimeError("persist/ is not reachable from the operations helper (docker-compose.yml mounts it).")
+    if int(days) < 0 or int(days) > 3650:
+        raise ValueError("Keep test results 0 (always) to 3650 days.")
+    path = P.folder() / SETTINGS
+    data, _warn = P.read_json(path, {"version": P.VERSION})
+    data.update({KEEP_KEY: int(days), f"{KEEP_KEY}_by": by or "?",
+                 f"{KEEP_KEY}_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+    P.write_json(path, data)
+    return {"keep_days": int(days)}
+
+
+def delete_results(folders: list[str]) -> dict:
+    """Removes test runs' folders in work/tests (R2.43): the report, the log, the videos and screenshots. Only plain
+    folder names directly under work/tests; returns which went and which could not."""
+    removed, left = [], []
+    base = os.path.realpath(f"{WORK}/tests")
+    for name in folders:
+        name = str(name or "")
+        path = os.path.realpath(os.path.join(base, name))
+        if not re.match(r"^[A-Za-z0-9._-]+$", name) or os.path.dirname(path) != base:
+            left.append(name)
+            continue
+        if not os.path.exists(path):
+            removed.append(name)
+            continue
+        shutil.rmtree(path, ignore_errors=True)
+        (left if os.path.exists(path) else removed).append(name)
+    return {"removed": removed, "left": left}
 
 
 def build_steps(log: str, finished: bool = False, ok: bool = False) -> list[dict]:
@@ -279,9 +340,13 @@ def auto_build_loop() -> None:
 def _runner_args(info: dict, name: str, folder: str, cmd: list[str]) -> list[str]:
     env = [e for e in (info["Config"].get("Env") or []) if not e.startswith(("EAX_ROLE=", "PATH=", "HOME="))]
     args = ["create", "--name", name, "--label", "eaexplorer.test-runner=1"]
-    for e in env + ["EAX_TEST_RESULTS=/results"]:
+    for e in env + ["EAX_TEST_RESULTS=/results", "EAX_TEST_DATA=/testdata"]:
         args += ["-e", e]
-    args += ["-v", f"{host_work()}/tests/{folder}:/results/{folder}"]
+    work = host_work()
+    args += ["-v", f"{work}/tests/{folder}:/results/{folder}"]
+    # the test data the browser journeys upload (testbench/data, D580), beside work/ in the installation folder, as
+    # docker-compose.yml's testrunner service mounts it (R2.0.1: a run started here had none, so the journeys stopped)
+    args += ["-v", f"{test_data_folder(work)}:/testdata:ro"]
     nets = _networks(info)
     backend = next((n for n in nets if n.endswith("backend")), nets[0] if nets else "")
     if backend:
@@ -321,10 +386,32 @@ def _wait(cid: str, follow=None, limit: int = 7200) -> tuple[int, str]:
     return code, "".join(out)
 
 
+def scans_wanted(folder: str) -> dict | None:
+    """A repeat's scans (R2.36): scans.json in the run's folder, {zap, images: [... or "*"]}; None: every scan."""
+    try:
+        with open(f"{WORK}/tests/{folder}/scans.json", encoding="utf-8") as f:
+            got = json.load(f)
+        return {"zap": bool(got.get("zap")), "images": [str(i) for i in got.get("images") or []]}
+    except (OSError, ValueError):
+        return None
+
+
 def _security_scans(info: dict, folder: str, say) -> None:
     hostdir = f"{host_work()}/tests/{folder}"
+    only = scans_wanted(folder)
     nets = _networks(info)
     front = next((n for n in nets if n.endswith("frontend")), "")
+    if only is not None and not only["zap"]:
+        say("ZAP: not repeated (it passed in the run being repeated)")
+    else:
+        _zap(hostdir, front, say)
+    images = sorted({c["image"] for c in H["containers"]() if str(c.get("image", "")).startswith("eaexplorer/")})
+    if only is not None and "*" not in only["images"]:
+        images = [i for i in images if i in only["images"]]
+    _trivy(hostdir, images, say)
+
+
+def _zap(hostdir: str, front: str, say) -> None:
     say(f"OWASP ZAP baseline scan of the front door ({ZAP_IMAGE})")
     try:
         subprocess.run(check=False, args=["docker", "run", "--rm", *(["--network", front] if front else []), "-v", f"{hostdir}:/zap/wrk:rw",
@@ -332,7 +419,9 @@ def _security_scans(info: dict, folder: str, say) -> None:
                        capture_output=True, text=True, timeout=3600)
     except (OSError, subprocess.TimeoutExpired) as exc:
         say(f"ZAP did not run: {exc}")
-    images = sorted({c["image"] for c in H["containers"]() if str(c.get("image", "")).startswith("eaexplorer/")})
+
+
+def _trivy(hostdir: str, images: list[str], say) -> None:
     for image in images:
         short = re.sub(r"[^a-z0-9-]", "-", image.split("/")[-1].split(":")[0])
         say(f"Trivy scan of {image}")
@@ -347,7 +436,7 @@ def _security_scans(info: dict, folder: str, say) -> None:
 
 def run_sequence(level: str, suites: list[str], role: str = "", area: str = "", watch: bool = False, run_id: int = 0,
                  by: str = "", trigger: str = "web", follow=None, journeys: list[str] | None = None,
-                 pages_only: bool = False) -> dict:
+                 pages_only: bool = False, repeat: int | None = None, warnings: bool = False) -> dict:
     """The whole run: the runner, then (detailed with security) ZAP and Trivy, then collect. Returns {run_id, folder, code}."""
     say = follow or (lambda _m: None)
     with _lock:
@@ -376,6 +465,8 @@ def run_sequence(level: str, suites: list[str], role: str = "", area: str = "", 
             cmd += ["--journey", j]
         if pages_only:
             cmd.append("--pages-only")
+        if repeat is not None:                         # the failed checks of an earlier run only (R2.36)
+            cmd += ["--repeat", str(int(repeat))] + (["--warnings"] if warnings else [])
         cid = _start_runner(info, name, folder, cmd)
         current["container"] = cid
         code, out = _wait(cid, follow)
@@ -387,9 +478,16 @@ def run_sequence(level: str, suites: list[str], role: str = "", area: str = "", 
         H["docker"]("rm", "-f", cid, timeout=60)
         if current.get("stop") and run_id:
             _collect(info, name, folder, run_id, ["--stopped", current["stop"]])
-        elif level == "detailed" and "security" in suites and run_id and code == 0:
+        elif run_id and code == 0 and ("SCANS_NEXT" in out or (repeat is None and level == "detailed" and "security" in suites)):
             _security_scans(info, folder, say)
             code = _collect(info, name, folder, run_id, [], follow)
+        elif not run_id:                              # nothing to repeat: no run was made, nor is its folder needed
+            try:
+                for f in os.listdir(f"{WORK}/tests/{folder}"):
+                    os.remove(f"{WORK}/tests/{folder}/{f}")
+                os.rmdir(f"{WORK}/tests/{folder}")
+            except OSError:
+                pass
         return {"run_id": run_id, "folder": folder, "code": code}
     except Exception as exc:  # noqa: BLE001 - closes the run as an error, with the reason, when it was recorded
         say(f"ERROR: {exc}")
@@ -440,7 +538,9 @@ def start(body: dict) -> dict:
         "level": "detailed" if body.get("level") == "detailed" else "smoke", "suites": suites, "role": str(body.get("role") or ""),
         "area": str(body.get("area") or ""), "watch": bool(body.get("watch")), "run_id": int(body.get("run_id") or 0),
         "by": str(body.get("by") or ""), "trigger": "web", "journeys": [str(j) for j in body.get("journeys") or []][:20],
-        "pages_only": bool(body.get("pages_only"))}, daemon=True).start()
+        "pages_only": bool(body.get("pages_only")),
+        "repeat": int(body["repeat"]) if body.get("repeat") is not None else None,   # a repeat (R2.36)
+        "warnings": bool(body.get("warnings"))}, daemon=True).start()
     return {"run_id": int(body.get("run_id") or 0), "suites": suites, "message": "The self-test is starting."}
 
 
@@ -449,7 +549,15 @@ def _opt(args: list[str], flag: str) -> str:
 
 
 def cli(args: list[str]) -> int:
-    """ops.py test [--smoke|--detailed] [--suite S]... [--role R] [--area A] [--journey J]... [--pages-only] [--version V] [--ci]"""
+    """ops.py test [smoke|full] [--version V] [--ci]   (R2.0.1, D592: two choices only; full = every suite, every page and
+    journey). The older forms (--smoke, --detailed, --suite S, --role R, --area A, --journey J, --pages-only) still work
+    for CI and scripts, but are no longer shown.
+    ops.py test failed [N] [--warnings]: only the checks that failed in run N, or the newest finished run (R2.36, D605)."""
+    if args[:1] == ["failed"]:
+        return _cli_failed(args[1:])
+    if "full" in args:
+        args = [a for a in args if a != "full"] + ["--detailed"]
+    args = [a for a in args if a != "smoke"]
     level = "detailed" if "--detailed" in args else "smoke"
     picked = [args[i + 1] for i, a in enumerate(args) if a in ("--suite", "--suites") and i + 1 < len(args)]
     picked += [a for i, a in enumerate(args) if not a.startswith("--") and (i == 0 or args[i - 1] not in
@@ -466,14 +574,45 @@ def cli(args: list[str]) -> int:
         suites, level = ["ui"], "detailed"
     if picked and level == "smoke":
         level = "detailed"                            # choosing suites means the detailed tests
-    print(f"Self-test now: {level}" + ("" if level == "smoke" else f" ({', '.join(suites)})") + (f", role {role}" if role else "")
-          + (f", area {area}" if area else "") + ". It makes its own self_test_<id>_<n> models, project and accounts and tests "
-          "in them; nothing else changes. Results: System admin > Self-test, and work/tests.", flush=True)
+    shown = "smoke test" if level == "smoke" else "full test" if len(suites) == len(SUITES) else f"detailed ({', '.join(suites)})"
+    print(f"Self-test now: {shown}" + (f", role {role}" if role else "")
+          + (f", area {area}" if area else "") + ". It removes test data left by earlier runs, starts its own test container, "
+          "makes its own self_test_<id>_<n> models, project and accounts and tests in them; nothing else changes. The container "
+          "is removed when it ends. Results: System Admin > Tools > Self-test, and work/tests.", flush=True)
     r = run_sequence(level, suites, role, area, False, by="eax test", trigger="ci" if "--ci" in args else "eax",
                      follow=lambda line: print(line, flush=True), journeys=journeys, pages_only=pages_only)
     if r.get("error"):
         print(f"The self-test could not finish: {r['error']}")
         return 1
+    print(f"Self-test {r['run_id']} {'passed' if r['code'] == 0 else 'FAILED'}. Report: work/tests/{r['folder']}/report.html",
+          flush=True)
+    return 0 if r["code"] == 0 else 1
+
+
+def _cli_failed(args: list[str]) -> int:
+    """`eax test failed [N] [--warnings]` (R2.36, D605): a new run of only the checks that failed in run N (the newest
+    finished run when no N is given); the runner says what it repeats, or that nothing failed."""
+    if "--version" in args:                          # eax adds the version it prepared the runner for
+        i = args.index("--version")
+        args = args[:i] + args[i + 2:]
+    nums = [a for a in args if a.isdigit()]
+    bad = [a for a in args if not a.isdigit() and a not in ("--warnings", "--ci")]
+    if bad or len(nums) > 1:
+        print("Usage: eax test failed [run] [--warnings]   (the run's number from Self-test > History or eax test --last)")
+        return 2
+    of = int(nums[0]) if nums else 0
+    warnings = "--warnings" in args
+    print(("Self-test now: the failed checks " + (f"of run {of}" if of else "of the last finished run")
+           + (" and its warnings" if warnings else "") + ". It removes test data left by earlier runs, makes fresh test "
+           "models, project and accounts, and runs only those checks. Results: System Admin > Tools > Self-test, and "
+           "work/tests."), flush=True)
+    r = run_sequence("smoke", list(SUITES), by="eax test", trigger="ci" if "--ci" in args else "eax",
+                     follow=lambda line: print(line, flush=True), repeat=of, warnings=warnings)
+    if r.get("error"):
+        print(f"The self-test could not finish: {r['error']}")
+        return 1
+    if not r.get("run_id"):
+        return r["code"]                              # nothing to repeat (said by the runner), or it could not start
     print(f"Self-test {r['run_id']} {'passed' if r['code'] == 0 else 'FAILED'}. Report: work/tests/{r['folder']}/report.html",
           flush=True)
     return 0 if r["code"] == 0 else 1

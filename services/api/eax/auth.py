@@ -163,6 +163,21 @@ def _audit_break_glass(user: User) -> None:
                      details={"method": request.method})
 
 
+def _test_lock(user: User) -> None:
+    """A self-test in progress: a normal person's changes are refused (R2.51, D609); admins and the test go on."""
+    from . import test_lock
+    if test_lock.exempt(user.username, user.roles):
+        return
+    from .db import get_engine
+    try:
+        with get_engine().connect() as conn:
+            run = test_lock.active(conn)
+    except Exception:  # noqa: BLE001 - no test tables yet (a first start): nothing to wait for
+        return
+    if run:
+        abort(423, **test_lock.refusal(run))
+
+
 def require_auth(permission: str | None = None) -> Callable:
     """Decorator: the caller must be signed in and, when `permission` is given, allowed it: a global
     permission by their global roles; a model permission (model.*) by their role on the model in the
@@ -192,6 +207,8 @@ def require_auth(permission: str | None = None) -> Callable:
                                            + ".")
                 if user.break_glass:
                     _audit_break_glass(user)
+                if request.method not in ("GET", "HEAD", "OPTIONS"):
+                    _test_lock(user)
                 return view(*args, **kwargs)
             finally:
                 permissions.current.reset(token)

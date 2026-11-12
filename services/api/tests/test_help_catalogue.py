@@ -24,7 +24,7 @@ def test_the_inventory_finds_the_screens():
     need = inv.needed()
     assert {"page:#/metamodel", "page:#/projects", "page:#/admin", "page:#/surveys"} <= need["page"]
     assert {"tab:Grid", "tab:Views", "tab:Quality", "tab:Machine access", "tab:Scenarios"} <= need["tab"]
-    assert "popup:Merge duplicates: *" in need["popup"] and "popup:Quick jump" in need["popup"]
+    assert "popup:Merge duplicates: *" in need["popup"] and "popup:Find" in need["popup"]
     assert "step:Basics" in need["step"] and "step:Conflicts" in need["step"]
     assert "field:Commit message" in need["field"]
     assert "button:Commit" in need["button"]
@@ -49,7 +49,9 @@ def test_entries_are_well_formed():
 def test_help_is_wired_into_the_screens():
     web = ROOT / "services" / "web" / "src"
     app = (web / "App.jsx").read_text(encoding="utf-8")
-    assert "<HelpPanel />" in app and "<HelpButton />" in app
+    assert "<HelpPanel />" in app
+    # the ? menu's Help for this page (F1): the Classic row's own ? button went with R2.25 (D606)
+    assert '{ label: "Help for this page (F1)", action: "help" }' in (web / "menu.js").read_text(encoding="utf-8")
     assert "openHelp({ popup: title })" in (web / "ModelOps.jsx").read_text(encoding="utf-8")   # ? on every pop-up
     panel = (web / "help" / "HelpPanel.jsx").read_text(encoding="utf-8")
     assert '"F1"' in panel and "setAttribute(\"title\"" in panel

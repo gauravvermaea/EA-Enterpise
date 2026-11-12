@@ -1,5 +1,11 @@
 # The test bench: testing EA Explorer from outside
 
+> **Since R2.0.1 (D592) the test bench is for CI only.** People test with two choices: System Admin › Tools › Self-test
+> (Smoke test or Full test) or `eax test` / `eax test full`; each starts its own test container, tests, reports and
+> removes it. `eax testbench` is no longer a command. CI still runs `python -m testbench` (install, upgrade, browsers,
+> load) as described below.
+
+
 The test bench (`testbench/`, `eax testbench`) runs **every check of the self-test from another machine**, against any
 EA Explorer address you own, the way people and CI reach it: through the front door, over the network, in the browsers
 you choose. Decisions D579 to D582.

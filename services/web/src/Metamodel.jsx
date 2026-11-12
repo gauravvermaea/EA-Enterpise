@@ -547,7 +547,7 @@ function ModelPage({ model, view, itemId, sub }) {
     ...(m.kind === "project" || m.kind === "template" ? [["pushdown", "Push down", null]] : []),
     ["documents", "Change documents", null],
     ["diagram", "ER diagram", null], ["reports", "Reports", null],
-    ...(holdsContent ? [["designer", "Report designer", null], ["odata", "Power BI and Excel", null]] : []),
+    ...(holdsContent ? [["designer", "Report designer", null], ["odata", "OData", null]] : []),
     ["hierarchy", "Hierarchy", null],
     ...(changeableModel(m) ? [["people", "People", null]] : []),
     ...(canOn(model, "model.metamodel") && m.kind !== "template" ? [["backups", "Backups", null]] : []),

@@ -26,7 +26,9 @@ function DocumentList() {
   }, [q]);
   if (error) return <p className="status error">{error}</p>;
   if (!data) return <p><span className="spinner" aria-hidden="true" /> Loading the documentation…</p>;
-  const groups = data.groups.filter((g) => data.documents.some((d) => d.group === g));
+  // ?group=<name> (the top menu's Documentation › Release notes, D586): that group only
+  const only = decodeURIComponent((/[?&]group=([^&]+)/.exec(window.location.hash) || [])[1] || "");
+  const groups = data.groups.filter((g) => data.documents.some((d) => d.group === g) && (!only || g === only));
   return (
     <section className="docs-page">
       <h1>Documentation for EA Explorer {data.version}</h1>
@@ -99,6 +101,8 @@ function DocumentPage({ docKey, at }) {
           title="Download this document's own file">⬇ Download</button>
         <button onClick={() => window.print()} title="Print this document, or save it as a PDF from the print dialog">Print or save as PDF</button>
       </div>
+      {/* a plain-text document (the command line's help) has no heading of its own: show its title (R2.0.1) */}
+      {!/<h1[\s>]/.test(data.html || "") && <h1>{data.title}</h1>}
       {/* the API built this HTML from the document escaped first, so it holds only the tags it made itself */}
       <article ref={body} className="doc-body" onClick={onClick} dangerouslySetInnerHTML={{ __html: data.html }} />
     </section>

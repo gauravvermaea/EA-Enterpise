@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import csv
 import io
+import uuid
 from datetime import date
 from typing import Any
 
@@ -139,6 +140,10 @@ def _may_edit(conn, p: dict, user) -> bool:
 
 
 def _row(conn, p: dict, sid: str) -> dict:
+    try:   # a stakeholder id that is not a guid is not found, not a server error (R2.0.1)
+        uuid.UUID(str(sid))
+    except ValueError:
+        raise EditError("No such stakeholder in this project.", 404) from None
     r = _one(conn, "SELECT * FROM proj.stakeholders WHERE project_id = :p AND guid = CAST(:g AS uuid)", p=p["id"], g=sid)
     if not r:
         raise EditError("No such stakeholder in this project.", 404)

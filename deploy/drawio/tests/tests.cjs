@@ -221,8 +221,13 @@ const SETUP = {
   check(await inFrame("const e = m.getCell('l1'); return a(e,'ea_nested')==='1' && !m.isVisible(e) && !ui.eax.hidden().some(h => h.id === a(e,'ea_rel_id'));"), 'accepted: the nested line is not drawn (and not in the hidden list)');
 
   console.log('9b. decoration (D414)');
-  await inFrame("const pl = ui.sidebar.palettes['general']; pl[0].click();"); await wait(600);
-  const decorItems = await inFrame("const pl = ui.sidebar.palettes['general']; return pl[1].querySelectorAll('a.geItem').length;");
+  // draw.io 32 fills a palette only once it is on screen: scroll it into view, open it, and wait for its shapes
+  await inFrame("const pl = ui.sidebar.palettes['general']; pl[0].scrollIntoView(); pl[0].click();"); await wait(600);
+  let decorItems = 0;
+  for (let t = 0; t < 20 && decorItems <= 10; t++) {
+    await inFrame("const pl = ui.sidebar.palettes['general']; pl[1].scrollIntoView();"); await wait(250);
+    decorItems = await inFrame("const pl = ui.sidebar.palettes['general']; return pl[1].querySelectorAll('a.geItem').length;");
+  }
   check(decorItems > 10, 'the General palette opens with its shapes', decorItems);
   // click the General palette's items until one draws a line (an arrow): it must come marked ea_decor
   const items = fr.locator('.geSidebarContainer a.geItem');
@@ -503,6 +508,14 @@ const SETUP = {
   await send(Object.assign({}, SETUP, { readOnly: true })); await wait(800);
   check(await inFrame("return Object.keys(ui.sidebar.palettes).length === 0 && !g.isCellsMovable() && !g.isConnectable();"), 'read only: no stencil, no moving, no lines');
   check(await inFrame("const ac = ui.actions.get('eaxExportDrawio'); return !!ac && ac.isEnabled();"), 'read only: .drawio file is still offered');
+  // R2.7: a picture opened in draw.io (read only) still selects what EA Explorer asks for and says what is selected,
+  // for the panels below it (objects on the picture, properties, relationships)
+  const someId = await inFrame("const c = cells().find(x => x.vertex && a(x, 'ea_id') && m.isVisible(x)); return c ? a(c, 'ea_id') : null;");
+  await inFrame("g.clearSelection();"); await wait(200);
+  await send({ eax: 'select', entity: someId }); await wait(400);
+  const pick = await last('eax-selected');
+  check(someId && pick && pick.entity === someId && await inFrame("return a(g.getSelectionCell(), 'ea_id') === arg;", someId),
+    'read only: an object chosen in EA Explorer is selected and reported', { someId, pick });
 
   console.log(errs.length ? 'errors:\n' + errs.join('\n') : 'no page errors');
   console.log(`\n${pass} passed, ${fail} failed`);

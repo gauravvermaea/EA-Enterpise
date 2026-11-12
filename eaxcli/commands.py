@@ -31,7 +31,7 @@ WIPE = {"cleanup", "clean-run", "clean-restart", "clean-debug"}
 HOST = {"init", "check", "trust", "deploy", "secrets", "document", "schedule"}
 INTERACTIVE = {"console", "restore-model"}     # ask as they go: in the Console only
 FOLLOWS = {"logs", "debug"}                       # keep going until stopped: the page offers Stop
-STOPPABLE = FOLLOWS | {"status", "diag", "test", "backups", "restores", "url", "logins", "services", "help", "import",
+STOPPABLE = FOLLOWS | {"status", "diag", "test", "backups", "restores", "databases", "url", "logins", "services", "help", "import",
                        "restore-log", "servers"}
 YES = {"cleanup", "restore", "restore-app", "update", "rollback", "test"}   # take --yes: the page confirmed already
 HOST_WHY = {
@@ -135,9 +135,15 @@ def _params(args: str) -> list[dict]:
 PLACEHOLDERS = {"name", "tag", "run", "command", "source", "id", "words", "service", "n", "version"}
 # syntax lines too rich for the reader above: their fields written out
 OVERRIDES = {
-    "test": [{"key": "--smoke/--detailed", "type": "flags", "choices": ["--smoke", "--detailed"], "required": False},
+    "test": [{"key": "what", "type": "choice", "choices": ["smoke", "full", "backup", "failed", "delete", "clean"], "required": False,
+              "placeholder": "smoke|full|backup|failed|delete|clean"},
+             {"key": "run", "type": "word", "required": False, "placeholder": "run (with failed: which run; the last if none)"},
+             {"key": "--warnings", "type": "flag", "required": False},     # with failed: its warnings too (R2.36)
+             {"key": "--older-than", "type": "flag-value", "flags": ["--older-than"], "required": False,
+              "placeholder": "days"},                                     # with delete: runs older than DAYS (R2.43)
+             {"key": "--smoke/--detailed", "type": "flags", "choices": ["--smoke", "--detailed"], "required": False},
              {"key": "--suite", "type": "flag-value", "flags": ["--suite"], "required": False,
-              "placeholder": "api|ui|db|security|all", "choices": ["api", "ui", "db", "security", "all"]},
+              "placeholder": "api|ui|db|security|backup|all", "choices": ["api", "ui", "db", "security", "backup", "all"]},
              {"key": "--role", "type": "flag-value", "flags": ["--role"], "required": False, "placeholder": "role"},
              {"key": "--area", "type": "flag-value", "flags": ["--area"], "required": False, "placeholder": "area"},
              {"key": "--status/--last/--report/--fixtures/--build", "type": "flags",

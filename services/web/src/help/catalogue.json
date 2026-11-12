@@ -2,7 +2,7 @@
   "_about": "EA Explorer's on-screen help (D497): one catalogue for help panels and tooltips. Keys: page:#/route, tab:Label, popup:Title (* for the dynamic parts), step:Label, field:Label, button:Text. Pages, tabs, pop-ups and steps hold {title?, what, how[], example?}; fields and buttons hold the tooltip text. How to add help: docs/help-catalogue.md. tools/help_inventory.py lists what is missing.",
   "page:#/": {
     "title": "Start",
-    "what": "Where you choose where to work: architecture work, the repository, admin work and everything else.",
+    "what": "Home: the start page. Everything else is in the menu bar's nine areas (User, Architecture Work, Model Admin, Project Admin, Repository, Documentation, Profile, System Admin, Farm Admin); press / to find any function or content.",
     "how": [
       "Pick an area card to go there; the top bar takes you to the same areas from any page.",
       "Your tasks, notifications (the bell) and your last model and project are always at the top.",
@@ -65,15 +65,6 @@
     ],
     "example": "Find the 'Reuse before buy' principle and add it to a project."
   },
-  "page:#/heartbeat": {
-    "title": "Health",
-    "what": "Whether every part of EA Explorer is up: the API, databases, sign-in, reports, documents and the rest.",
-    "how": [
-      "Green is up, amber is slow or partly up, red is down.",
-      "Recalculate checks again now."
-    ],
-    "example": "Reports shows red: open Containers to restart it."
-  },
   "page:#/library": {
     "title": "Library",
     "what": "The model library: the reference and template models you can start new models from.",
@@ -82,6 +73,16 @@
       "Frozen and archived models are hidden until you tick Show frozen and archived."
     ],
     "example": "Open the Retail reference model 1.0 and look at its capability map."
+  },
+  "page:#/project-library": {
+    "title": "Project library",
+    "what": "The library projects: reference material every project can use (reference models, regulations, patterns, standards, useful links). Everyone with a role reads them.",
+    "how": [
+      "Open a library project to read its Reference area.",
+      "A new project copies what it needs from here (New project › Reference).",
+      "A Super Admin makes a project a library project here, or stops one being a library project."
+    ],
+    "example": "Open the library project and look at the regulations in its Reference area."
   },
   "page:#/maturity": {
     "title": "EA capability maturity",
@@ -162,10 +163,10 @@
   },
   "page:#/my-profile": {
     "title": "My profile",
-    "what": "Your name, roles, skills and preferences, including how page tabs are shown.",
+    "what": "Your name, roles and skills.",
     "how": [
       "Add your skills so project leads can find you.",
-      "Choose the page tabs style: Grouped, Menu or Classic."
+      "Press / (or Ctrl+K) anywhere to find a function or content."
     ],
     "example": "Add 'ArchiMate modelling' as a skill."
   },
@@ -219,14 +220,6 @@
     ],
     "example": "Search 'APP-0003' or 'claims'."
   },
-  "page:#/sql": {
-    "title": "SQL",
-    "what": "Read-only SQL on the reporting views, for IT and Super Admins.",
-    "how": [
-      "Write a SELECT; only reading is allowed. Results can be downloaded."
-    ],
-    "example": "SELECT name FROM reporting.applications WHERE lifecycle = 'Retire'"
-  },
   "page:#/surveys": {
     "title": "Surveys",
     "what": "Questionnaires sent to people through their task list: what to answer, what you answered and the surveys you run.",
@@ -236,14 +229,6 @@
       "Answers never change any model."
     ],
     "example": "Ask the architects five questions about how they use the repository."
-  },
-  "page:#/users": {
-    "title": "Users",
-    "what": "The people who use EA Explorer, their global roles and their model and project roles.",
-    "how": [
-      "Search a person; give or take away a role. Roles come from Keycloak and the role mapping."
-    ],
-    "example": "Give user_architect the Committer role on Claims 2028."
   },
   "page:#/work": {
     "title": "Architecture work",
@@ -969,7 +954,7 @@
     ],
     "example": "Every entity type, close names: \"Claims Platform\" and \"Claims Platfrom\" come up as one group, 93% alike."
   },
-  "tab:Power BI and Excel": {
+  "tab:OData": {
     "what": "The model's OData feed address, for Power BI and Excel.",
     "how": [
       "Copy the address; in Excel: Data › Get Data › OData feed; sign in with your user name and password, or a token as the password."
@@ -1623,13 +1608,6 @@
     "how": [
       "Pick the version; confirm."
     ]
-  },
-  "popup:Quick jump": {
-    "what": "Go anywhere: a tab, a model, a project or an action.",
-    "how": [
-      "Type a few letters (near spellings work); Enter to go; Esc to close."
-    ],
-    "example": "Type 'fynbos comm'."
   },
   "popup:Reading the model": {
     "what": "Reading the model.",
@@ -2317,7 +2295,6 @@
   "field:Outcome": "A result the project must achieve, with how it is measured.",
   "field:Over the last": "The period looked at.",
   "field:Owner": "Who is responsible.",
-  "field:Page tabs style": "How tabs are shown: Grouped, Menu or Classic.",
   "field:Path to another entity": "Follow relationships to another entity.",
   "field:Pattern (regular expression), e.g. APP-[A-Z].*": "A pattern the value must match.",
   "field:Person": "The person.",
@@ -3037,19 +3014,14 @@
   "button:Preview and send…": "See what changed since the starting point, add a note and send it to the parent's people for review.",
   "tab:Self-test": {
     "title": "Self-test",
-    "what": "Tests this installation in fixtures of its own: a smoke test or detailed tests (API, browser, database, security), with their history, reports and the test fixtures they made. Super Admins and IT Admins.",
+    "what": "Tests this installation: the Smoke test or the Full test, with their history and reports, and the test data they made. Super Admins and IT Admins.",
     "how": [
-      "Nothing to build by hand: Start prepares the test runner first (seconds when it is current; the first time about 5 to 15 minutes), and it is built in the background after every start. Advanced has Rebuild the test runner and the automatic-build box.",
-      "Run: choose a smoke test or detailed tests, optionally one role or one API area, and start it; it says how long it takes and asks to confirm.",
+      "Run: two choices. Smoke test: every role signs in, every main area answers, every page opens and the key journeys work once. Full test: every API endpoint as every role, the database, security, then every page and journey in a browser.",
+      "Each run removes the test data earlier runs left, starts a test container of its own, makes the data it needs (self_test_<id>_<n>), tests, writes the report and removes the container. Nothing else changes.",
       "Follow it live: its step and counts; Stop ends it at its next step.",
       "History: open a run's results; each failure says why, with what was asked and what came back, or a screenshot or video; download its report as HTML or Excel.",
-      "Test fixtures: purge what runs made (self_test_<id>_<n>), for good.",
-      "Detailed tests: tick Pages only for the page sweep alone, or tick journeys to run only those.",
-      "The same from the command line: the exact eax test command for what you picked, as you pick it. Choose how you type eax (.\\eax, ./eax.sh or eaxpy) and press Copy.",
-      "From the command line (folded): every option of eax test with what it does, and examples.",
-      "History: each run shows the command line it equals.",
-      "Each report starts with the coverage: pages opened N of N, journeys as each allowed role, journeys refused, journeys covered of those defined, refusals without a sign-in, reads as every role, writes by area, database and security checks.",
-      "From outside: the test bench (eax testbench --target https://<address> --i-own-this) runs the same tests from another machine, in Chromium, Firefox, WebKit or Edge; its runs show in History by \"(external testbench)\". See Documentation, The test bench."
+      "Test data: delete what runs made, for good, one item, one run or all of it; the reports stay.",
+      "From the command line: eax test (smoke), eax test full, eax test clean. The runs show here too."
     ],
     "example": "A smoke test before and after an update; detailed API tests as architect after changing roles."
   },
@@ -3063,16 +3035,6 @@
       "Start: it shows how long it takes and asks to confirm."
     ],
     "example": "Detailed, API only, role architect, area models."
-  },
-  "tab:Test fixtures": {
-    "title": "Test fixtures",
-    "what": "Everything self-test runs made (models, projects, test accounts and credentials named self_test_<id>_<n>), by run, with when it was made and its size. They stay until you purge them.",
-    "how": [
-      "Filter by run, tick fixtures, or use All of this run / All runs.",
-      "Delete selected, then type DELETE: they are removed for good as a background task with its progress; only fixtures the self-test recorded are ever touched.",
-      "The runs' reports stay, marked fixtures removed."
-    ],
-    "example": "Purge every run older than this week's."
   },
   "popup:Start the self-test now?": {
     "what": "Confirms the self-test you chose and says roughly how long it takes.",
@@ -3244,5 +3206,126 @@
   "field:Typed as": "How you type the eax command on your computer: .\\eax (Windows), ./eax.sh (Linux or Mac), or eaxpy. The commands shown on the page use it; your choice is remembered in this browser.",
   "field:Pages only": "Run only the page sweep: every page, group, tab and sub-tab is opened as Super Admin and checked (it renders, has a heading, F1 opens help). Same as eax test --pages-only.",
   "field:Journeys": "Run only the ticked browser journeys: model content, duplicates, project iteration, help, admin (banner and a schedule, put back afterwards), drawn view (headless only), import a delivery, survey, child merge. Each runs as every role allowed, then as one role that must be refused. None ticked: every journey (the smoke test runs the first three once). Same as eax test --journey <name>.",
-  "field:How you type eax": "How you type the eax command: .\\eax (Windows), ./eax.sh (Linux or Mac), or eaxpy. The command shown changes with it."
+  "field:How you type eax": "How you type the eax command: .\\eax (Windows), ./eax.sh (Linux or Mac), or eaxpy. The command shown changes with it.",
+  "popup:Find": {
+    "what": "Find any function or content: every menu item (with where it is in the menu), the tabs and actions of the page you are on, the help's pages, models, projects and entities.",
+    "how": [
+      "Press / anywhere outside a text box (or Ctrl+K), or click Find a function or content at the top.",
+      "Type a few letters: near spellings work. Functions show their menu path; entities show their type and model.",
+      "Enter goes there; the last line searches everything for what you typed. Esc closes."
+    ],
+    "example": "Type 'backups' for System Admin › Backups and restores › Backups, or 'claims' for the models, projects and entities called Claims."
+  },
+  "page:#/farm": {
+    "title": "Farm Admin",
+    "what": "For Super Admins: the other EA Explorer sites (installations) this one knows and connects to. The screens come in Release 2 (R2.1 sites, R2.2 connecting to a site).",
+    "how": [
+      "Today: put EA Explorer on another machine with System Admin › Updates and deploy › Deploy.",
+      "Open another site in its own browser tab and sign in there."
+    ]
+  },
+  "button:Menu": "The menu bar: Architecture Work, Model Admin, Project Admin, Repository & Content Framework and System Admin across the top, your own menu and ? on the right, page tabs in groups.",
+  "tab:Test data": {
+    "title": "Test data",
+    "what": "The test data every run made (self_test_<id>_<n> models, projects, test accounts and credentials). Each run removes what earlier runs left before it starts; delete it here at any time, the same as eax test clean.",
+    "how": [
+      "Filter by run, tick fixtures, or use All of this run / All runs.",
+      "Delete selected, then type DELETE: they are removed for good as a background task with its progress; only fixtures the self-test recorded are ever touched.",
+      "The runs' reports stay, marked fixtures removed."
+    ],
+    "example": "Purge every run older than this week's."
+  },
+  "button:Delete all test data": "Deletes every run's test data for good, after you type DELETE. The runs' reports stay. The same as eax test clean.",
+  "popup:Delete * item(s) of test data for good?": {
+    "what": "Deletes the chosen test data for good once you type DELETE: the self_test models and everything in them, the projects, the test accounts and credentials. The runs' reports stay.",
+    "how": [
+      "Check the runs and names listed.",
+      "Type DELETE and press Delete for good; it runs in the background with its progress."
+    ]
+  },
+  "popup:Start the * now?": {
+    "what": "Starts the chosen test now: it removes test data earlier runs left, starts its own test container, tests, writes the report and removes the container. Nothing else changes.",
+    "how": [
+      "Check how long it takes.",
+      "Press Start now; follow it live on the Run tab."
+    ]
+  },
+  "button:Start the": "Starts the Smoke test or the Full test, after asking you to confirm.",
+  "page:#/admin/health": {
+    "title": "Health",
+    "what": "Whether every part of EA Explorer is up: the API, databases, sign-in, reports, documents and the rest.",
+    "how": [
+      "Green is up, amber is slow or partly up, red is down.",
+      "Recalculate checks again now."
+    ],
+    "example": "Reports shows red: open Containers to restart it."
+  },
+  "page:#/admin/sql": {
+    "title": "SQL",
+    "what": "Read-only SQL on the reporting views, for IT and Super Admins.",
+    "how": [
+      "Write a SELECT; only reading is allowed. Results can be downloaded."
+    ],
+    "example": "SELECT name FROM reporting.applications WHERE lifecycle = 'Retire'"
+  },
+  "page:#/admin/users": {
+    "title": "Users",
+    "what": "The people who use EA Explorer, their global roles and their model and project roles.",
+    "how": [
+      "Search a person; give or take away a role. Roles come from Keycloak and the role mapping."
+    ],
+    "example": "Give user_architect the Committer role on Claims 2028."
+  },
+  "tab:Objects on this picture": {
+    "title": "Objects on this picture",
+    "what": "The model's entities shown on this picture, read only.",
+    "how": [
+      "Type to find one by name or type.",
+      "Show selects it on the picture; its properties, relationships and allowed relationships are on the next tabs.",
+      "To change the picture, Save as a drawn view."
+    ],
+    "example": "Find Claims Service and press Show to see its attributes."
+  },
+  "field:Find on this picture": "An object on this picture, by its name or its type (for example claims).",
+  "page:#/principles": {
+    "title": "Architecture principles",
+    "what": "The organisation's architecture principles, as cards grouped by area: each with its statement, rationale and implications, whether it is enforced in every project or optional, what it refines and what refines it. Everyone with a role reads them; Super Admins change them.",
+    "how": [
+      "Search, or choose an area or where principles come from, to narrow the cards.",
+      "Expand all opens every card's rationale and implications.",
+      "A Super Admin edits a principle on its card (Edit), adds one (＋ Add a principle, or ＋ From the library), enforces it or makes it optional.",
+      "Each project shows these on its Principles tab with its own; Refine it makes a project's own version under one."
+    ],
+    "example": "Choose the Security area and expand all to read why each security principle matters."
+  },
+  "popup:Add a principle from the library": {
+    "what": "The principles library (TOGAF's and the organisation's sets): add one to this project or base in the library's own words.",
+    "how": [
+      "Search by name, code or set.",
+      "＋ Add puts it in; its area and what it refines can be changed on its card later."
+    ],
+    "example": "Search 'interoperability' and add it."
+  },
+  "field:Business, Data, Security": "The principle's area: the heading it is grouped under (pick one or type a new one).",
+  "field:Search principles": "Narrows the cards to those whose name, code, area, statement, rationale or implications contain the words.",
+  "button:＋ From the library": "Add a principle from the principles library, in its own words.",
+  "popup:Delete test results for good?": {
+    "what": "Deletes test runs for good: their test data, results and screenshots, and their reports, logs and videos in work/tests.",
+    "how": [
+      "Type DELETE, then Delete. A run still going is left."
+    ],
+    "example": "Delete every finished run before handing the laptop over."
+  },
+  "field:Keep test results": "How many days finished test runs are kept; older ones are deleted once a day. 0 keeps them until deleted.",
+  "field:Type DELETE": "Type the word DELETE to confirm something that cannot be undone.",
+  "button:Delete all test results": "Delete every finished test run for good: its data, results, screenshots, report, log and videos.",
+  "button:Keep them": "Close without deleting anything.",
+  "tab:Databases": {
+    "what": "Every database EA Explorer uses: what it holds, its setting in eaexplorer.env, where it lives (the shared PostgreSQL or a server of its own) and whether it answers.",
+    "how": [
+      "An empty setting means the shared PostgreSQL. To move one, see docs/databases.md, set its setting and run eax up.",
+      "The same list on the command line: eax databases."
+    ],
+    "example": "tests: shared server; archive: dbarchive:5432/eaxarchive (its own), answers."
+  }
 }

@@ -291,3 +291,37 @@ def purge(conn, run_id: int, by: str, kinds: list[str] | None = None, fixture_id
                  details={k: v for k, v in counts.items() if k != "notes"} | {"run_guid": run["g"]})
     say(100, f"run {run_id} purged")
     return counts
+
+
+def clean_leftovers(engine, this_run: int, by: str, log, stale_hours: int = 6) -> dict[str, int]:
+    """Before a run (owner, 12 Nov 2026, R2.0.1, D593: "deleted previously created test data before next test if any
+    remains"): every earlier run's fixtures still there are removed for good, from the UI and `eax test` alike. A run
+    still marked queued or running for more than stale_hours (its runner stopped on an error) is closed as an error
+    first, so its data can go too. Only what core.test_fixtures lists is touched, as purge() does."""
+    with engine.begin() as conn:
+        stale = conn.execute(text("""UPDATE core.test_runs SET state = 'error', finished_at = now(),
+                                         message = 'Closed by a later self-test: it had stopped without finishing.'
+                                   WHERE id <> :me AND state IN ('queued', 'running')
+                                     AND COALESCE(started_at, queued_at) < now() - make_interval(hours => :h)
+                               RETURNING id"""), {"me": this_run, "h": stale_hours}).scalars().all()
+        runs = conn.execute(text("""SELECT DISTINCT f.run_id FROM core.test_fixtures f JOIN core.test_runs r ON r.id = f.run_id
+                                     WHERE f.purged_at IS NULL AND f.run_id <> :me AND r.state NOT IN ('queued', 'running')
+                                     ORDER BY f.run_id"""), {"me": this_run}).scalars().all()
+    total = {"runs": 0, "models": 0, "projects": 0, "service_accounts": 0, "credentials": 0, "closed": len(stale)}
+    if not runs:
+        log("no test data left from earlier runs" + (f" (closed {len(stale)} stopped run(s))" if stale else ""))
+        return total
+    log(f"removing the test data left by {len(runs)} earlier run(s): {', '.join(map(str, runs))}")
+    for run in runs:
+        try:
+            with engine.begin() as conn:
+                out = purge(conn, run, by)
+            total["runs"] += 1
+            for k in ("models", "projects", "service_accounts", "credentials"):
+                total[k] += out.get(k, 0)
+        except Exception as exc:  # noqa: BLE001 - one run's leftovers never stop the new run
+            log(f"  run {run}: could not remove all of its test data: {exc}")
+    log(f"removed {total['models']} model(s), {total['projects']} project(s), {total['service_accounts']} account(s) and "
+        f"{total['credentials']} credential(s) of earlier runs")
+    return total
+

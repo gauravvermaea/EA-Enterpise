@@ -73,6 +73,7 @@ class HeartbeatView(MethodView):
             "database": db,
             "jobs": jobs,
             "maintenance": maintenance.state(),
+            "test_in_progress": _test_in_progress() if db["reachable"] else None,   # R2.51 (D609)
         }
 
     @blp.arguments(HeartbeatRecordIn)
@@ -115,3 +116,14 @@ class ServicesView(MethodView):
         the overall status is ok, degraded, or down when the database is down. Always answers 200.
         """
         return health.check_all()
+
+
+def _test_in_progress():
+    """The self-test in progress, for the screens' sign-in screen and banner (R2.51, D609)."""
+    from .. import test_lock
+    from ..db import get_engine
+    try:
+        with get_engine().connect() as conn:
+            return test_lock.active(conn)
+    except Exception:  # noqa: BLE001 - no test tables yet
+        return None

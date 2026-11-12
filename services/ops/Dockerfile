@@ -2,8 +2,9 @@
 # console. Reaches the Docker engine through its socket; only on the internal network, no published port; every request
 # needs EAX_OPS_TOKEN. Port 8091 answers only interactive terminals, opened with a one-time ticket (D214). Accepts only: status, restart (all or one service), switch an optional service on or off
 # (writing the config file in the work folder, a dated copy first), list and restore copies of the config file.
-FROM docker:27.3-cli
-RUN apk add --no-cache python3 git
+# a current Docker CLI: 27.3 had critical vulnerabilities in its Go standard library and gRPC (R2.24); then Alpine's fixes
+FROM docker:29-cli
+RUN apk upgrade --no-cache && apk add --no-cache python3 git
 WORKDIR /app
 COPY ops.py /app/ops.py
 COPY console.py /app/console.py

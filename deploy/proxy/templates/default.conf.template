@@ -35,6 +35,9 @@ ssl_certificate_key /etc/nginx/tls/tls.key;
 ssl_protocols       TLSv1.2 TLSv1.3;
 # tls.crt is the site certificate followed by the local CA (D107), or your organisation's chain
 
+# the version of nginx is not told in any answer (R2.0.1, the self-test's header checks)
+server_tokens off;
+
 # ---- plain HTTP (D107): the API (with Swagger) and the MCP server answer on http too when
 # EAX_HTTP_API_MCP is true (laptops: for MCP clients and tools that cannot use a certificate; the laptop
 # binds port 80 to this computer only). Everything else, and everything on servers, goes to HTTPS.
@@ -125,6 +128,8 @@ server {
 
     add_header X-Content-Type-Options nosniff always;
     add_header Referrer-Policy strict-origin-when-cross-origin always;
+    # only this site may show its pages in a frame (draw.io at /drawio/ is this site) (R2.0.1, the self-test's header checks)
+    add_header X-Frame-Options SAMEORIGIN always;
     # HSTS only where the certificate is trusted by everyone (servers). On a laptop it stays off, so
     # people who do not run "eax trust" can still accept the browser warning, as before (D107).
     add_header Strict-Transport-Security "${EAX_HSTS}" always;

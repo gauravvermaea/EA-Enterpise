@@ -68,10 +68,12 @@ def test_scan_opens_zips_joins_parts_and_keeps_duplicates_once(tmp_path, monkeyp
     found = {(f["industry"], f["kind"]): f for f in ip.scan(tmp_path)}
     assert set(found) == {("retail", "book"), ("retail", "metamodel"), ("retail", "workbook")}
     assert found[("retail", "workbook")]["content"] == b"W" * 2500
-    # a part changed: the parts no longer join up
+    # a part changed: the parts no longer join up, found when the file is read (only one file is read at a time, so
+    # the load reports that file and carries on with the others, R2.39)
     (retail / "Retail - the architecture workbook.pdf.part02").write_bytes(b"X" * 900)
+    again = {(f["industry"], f["kind"]): f for f in ip.scan(tmp_path)}
     with pytest.raises(Exception, match="do not join up"):
-        ip.scan(tmp_path)
+        again[("retail", "workbook")]["content"]  # noqa: B018 - reading it is the check
 
 
 def test_the_ai_use_check():
@@ -224,7 +226,56 @@ def test_api_rights_migration_and_mounts():
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
     assert "./library/industry-packs:/data/industry-packs:ro" in compose and "/data/packs-extra:ro" in compose
     later = (ROOT / "services" / "api" / "eax" / "seed" / "later.py").read_text(encoding="utf-8")
-    assert '"Industry packs into Documents' in later
+    # beside the sample data, with their own status, not a step of it (R2.23)
+    assert "threading.Thread(target=industry_packs_beside" in later and "ip.load_shipped_each(" in later
     help_txt = (ROOT / "eaxcli" / "help.txt").read_text(encoding="utf-8")
     assert "### packs " in help_txt
     assert json.loads((ROOT / "services" / "web" / "src" / "help" / "catalogue.json").read_text(encoding="utf-8"))["tab:Pack"]
+
+
+def test_each_file_in_its_own_transaction_with_progress_and_failures_kept(tmp_path, monkeypatch):
+    """R2.23 (owner, 12 Nov 2026: "We should not have to restart 3 times for it to work"): with a transaction factory,
+    a file loaded stays loaded when a later one fails, the failure is reported and the others carry on, and progress is
+    told file by file (the start-up status's "loading n of N")."""
+    from contextlib import contextmanager
+
+    from eax import audit, mayan
+    monkeypatch.setattr(mayan, "add_to_cabinet", lambda c, d: None)
+    monkeypatch.setattr(mayan, "cabinet", lambda label, parent=None: 7)
+    monkeypatch.setattr(audit, "record", lambda conn, **kw: conn.audit.append(kw))
+
+    def upload(name, content, ctype, label=None):
+        if "Broken" in name:
+            raise mayan.MayanError("Documents refused it", 500)
+        return {"id": 1}
+    monkeypatch.setattr(mayan, "upload", upload)
+    pack = tmp_path / "Banking"
+    pack.mkdir()
+    for n in ("Banking_A_Metamodel.xlsx", "Banking_Broken_Metamodel.xlsx", "Banking_C_Metamodel.xlsx"):
+        (pack / n).write_bytes(_xlsx(n))
+    conn = FakeConn()
+
+    @contextmanager
+    def begin():
+        yield conn
+    told = []
+    out = ip.load_folder(None, tmp_path, "tester", begin=begin, progress=lambda d, t, label: told.append((d, t)))
+    assert len(out["loaded"]) == 2 and len(out["failed"]) == 1 and "Broken" in out["failed"][0]
+    assert out["total"] == 3 and told[0] == (0, 3) and told[-1] == (3, 3)
+    assert len(conn.rows) == 2                        # the two that loaded are recorded
+
+
+def test_the_status_shows_the_loaders_own_row():
+    from eax import startup_status as ss
+
+    class Conn:
+        def execute(self, *a, **k):
+            class R:
+                def mappings(self):
+                    return self
+
+                def first(self):
+                    return {"state": "starting", "done": 12, "total": 97, "detail": "loading"}
+            return R()
+    p = ss._packs(Conn())
+    assert p["status"] == "starting" and p["detail"] == "loading (12 of 97)" and p["done"] == 12

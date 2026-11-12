@@ -287,6 +287,8 @@ services:
       EAX_DB_MIGRATOR_PASSWORD: ${EAX_DB_MIGRATOR_PASSWORD:?set EAX_DB_MIGRATOR_PASSWORD}
       EAX_KEYCLOAK_DB_PASSWORD: ${EAX_KEYCLOAK_DB_PASSWORD:?set EAX_KEYCLOAK_DB_PASSWORD}
       EAX_SUPERSET_DB_PASSWORD: ${EAX_SUPERSET_DB_PASSWORD:?set EAX_SUPERSET_DB_PASSWORD}
+      EAX_SUPERSET_DB_HOST: ${EAX_SUPERSET_DB_HOST:-db}            # R2.50: its own server when set
+      EAX_SUPERSET_DB_PORT: ${EAX_SUPERSET_DB_PORT:-5432}
       EAX_MAYAN_DB_PASSWORD: ${EAX_MAYAN_DB_PASSWORD:?set EAX_MAYAN_DB_PASSWORD}
     volumes:
       - ${EAX_DATA_DIR:-eax-pgdata}:/var/lib/postgresql/data
@@ -325,7 +327,7 @@ services:
         condition: service_completed_successfully
     environment:
       KC_DB: postgres
-      KC_DB_URL: jdbc:postgresql://db:5432/keycloak
+      KC_DB_URL: jdbc:postgresql://${EAX_KEYCLOAK_DB_HOST:-db}:${EAX_KEYCLOAK_DB_PORT:-5432}/keycloak   # R2.50: its own server when set
       KC_DB_USERNAME: keycloak
       KC_DB_PASSWORD: ${EAX_KEYCLOAK_DB_PASSWORD}
       KC_HTTP_ENABLED: "true"
@@ -354,7 +356,7 @@ services:
     build:
       context: ./deploy/drawio
       args:
-        DRAWIO_IMAGE: ${EAX_IMAGE_DRAWIO:-jgraph/drawio:24.7.17}
+        DRAWIO_IMAGE: ${EAX_IMAGE_DRAWIO:-jgraph/drawio:32.6.10}
     image: eaexplorer/drawio:${EAX_VERSION:-dev}
     <<: [*restart, *logging]
     networks: [frontend]
@@ -367,6 +369,10 @@ services:
         SUPERSET_IMAGE: ${EAX_IMAGE_SUPERSET:-apache/superset:4.1.2}
     image: eaexplorer/superset:${EAX_VERSION:-dev}
     command: ["/bin/sh", "/app/eax/superset-init.sh"]
+    # a one-shot set-up: the Superset image's own health check (its web server) never answers here, so the container
+    # showed "unhealthy" on every start (R2.20)
+    healthcheck:
+      disable: true
     env_file: work/eaexplorer.env
     environment:
       SUPERSET_CONFIG_PATH: /app/eax/superset_config.py
@@ -393,6 +399,8 @@ services:
         SUPERSET_IMAGE: ${EAX_IMAGE_SUPERSET:-apache/superset:4.1.2}
     image: eaexplorer/superset:${EAX_VERSION:-dev}
     <<: [*restart, *logging]
+    # the server starts at once; the report dashboards and datasets load in the background (R2.39)
+    command: ["/bin/sh", "/app/eax/reports-start.sh"]
     env_file: work/eaexplorer.env
     environment:
       SUPERSET_CONFIG_PATH: /app/eax/superset_config.py
@@ -416,7 +424,7 @@ services:
       keycloak:
         condition: service_started
     environment:
-      MAYAN_DATABASES: '{"default":{"ENGINE":"django.db.backends.postgresql","NAME":"mayan","USER":"mayan","PASSWORD":"${EAX_MAYAN_DB_PASSWORD}","HOST":"db","PORT":"5432"}}'
+      MAYAN_DATABASES: '{"default":{"ENGINE":"django.db.backends.postgresql","NAME":"mayan","USER":"mayan","PASSWORD":"${EAX_MAYAN_DB_PASSWORD}","HOST":"${EAX_MAYAN_DB_HOST:-db}","PORT":"${EAX_MAYAN_DB_PORT:-5432}"}}'
       MAYAN_CELERY_BROKER_URL: redis://:${EAX_DMS_BROKER_PASSWORD_URLENC:?set EAX_DMS_BROKER_PASSWORD_URLENC}@dms-broker:6379/0
       MAYAN_CELERY_RESULT_BACKEND: redis://:${EAX_DMS_BROKER_PASSWORD_URLENC}@dms-broker:6379/1
       MAYAN_LOCK_MANAGER_BACKEND: mayan.apps.lock_manager.backends.redis_lock.RedisLock

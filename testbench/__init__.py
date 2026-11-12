@@ -18,5 +18,5 @@ Run with `eax testbench ...` (every form, D331) or `python -m testbench ...`. Ne
 
 __all__ = ["SUITES", "LEVELS"]
 
-SUITES = ("api", "ui", "db", "security")      # the self-test's suites (services/api/eax/testing/__init__.py)
+SUITES = ("api", "ui", "db", "security")      # the self-test's suites (services/api/eax/testing/__init__.py) but backup (inside only, R2.45)
 LEVELS = ("smoke", "detailed")

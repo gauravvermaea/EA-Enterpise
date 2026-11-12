@@ -197,8 +197,24 @@ def schema() -> str:
     return name
 
 
-def ensure(cl) -> None:
-    """Creates the change log's schema and tables in its database when they are missing (safe on every start)."""
+_ENSURED: set[str] = set()
+
+
+def ensure(cl, again: bool = False) -> None:
+    """Creates the change log's schema and tables in its database when they are missing (safe on every start). Done once
+    per process and database (R2.0.1): CREATE ... IF NOT EXISTS still takes table locks, so running it on every read made
+    the change log's screen wait behind the shipper when many asked at once."""
+    try:
+        key = f"{cl.engine.url.render_as_string(hide_password=True)}|{schema()}"
+    except AttributeError:   # not a real connection (the unit tests' fakes): always run
+        key, again = "", True
+    if key in _ENSURED and not again:
+        return
+    _do_ensure(cl)
+    _ENSURED.add(key)
+
+
+def _do_ensure(cl) -> None:
     s = schema()
     cl.execute(text(f"""
         CREATE SCHEMA IF NOT EXISTS {s};

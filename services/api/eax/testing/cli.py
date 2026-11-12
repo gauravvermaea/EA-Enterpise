@@ -6,6 +6,9 @@ in the api container (starting a run goes through the operations helper: service
   python -m eax.testing.cli report [run] [--xlsx]   where its report is (work/tests/<folder>/report.html, or .xlsx)
   python -m eax.testing.cli fixtures [run]          every self-test fixture still there, by run
   python -m eax.testing.cli clean <run|all> [--yes] purge them, for good (asks to type DELETE without --yes)
+  python -m eax.testing.cli delete <run|all> [--older-than DAYS] [--yes]
+                                                    delete test runs for good: their data, results, reports, logs and
+                                                    videos (R2.43)
 Exit code 1 when the run asked about failed (for CI)."""
 
 from __future__ import annotations
@@ -28,7 +31,10 @@ def _line(r: dict) -> str:
     extra = (f", role {r['role']}" if r["role"] else "") + (f", area {r['area']}" if r["area"] else "")
     return (f"Self-test {r['id']} ({store.short(r['run_guid'])}): {r['state'].upper()}  {what}{extra}  by {r['started_by']} "
             f"({r['trigger']})  passed {r['passed']}, failed {r['failed']}, skipped or warnings {r['skipped']}"
-            + ("  [fixtures removed]" if r.get("purged_at") else f"  [{r['fixtures']} fixture(s)]"))
+            + ("  [fixtures removed]" if r.get("purged_at") else f"  [{r['fixtures']} fixture(s)]")
+            + (f"  repeats run {r['repeat_of']}" if r.get("repeat_of") else "")
+            + (f"  followed up by run {r['followed_up_by']}" if r.get("followed_up_by") else
+               (f"  (run its failed checks again: eax test failed {r['id']})" if r.get("failed") and r["state"] not in store.OPEN else "")))
 
 
 def main(argv: list[str]) -> int:
@@ -108,8 +114,47 @@ def main(argv: list[str]) -> int:
                   f"{out['credentials']} credential(s), {out['history_versions']} history versions" +
                   (f"; {'; '.join(out['notes'])}" if out["notes"] else ""))
         return 0
+    if cmd == "delete":                               # test results, for good (R2.43)
+        return _delete(eng, args)
     print(__doc__)
     return 2
+
+
+def _delete(eng, args: list[str]) -> int:
+    """eax test delete <run|all> [--older-than DAYS] [--yes]: each run's test data, results and screenshots, and its
+    reports, logs and videos in work/tests, for good (R2.43)."""
+    from . import cleanup
+    usage = "Usage: eax test delete <run|all> [--older-than DAYS] [--yes]"
+    days = None
+    if "--older-than" in args:
+        i = args.index("--older-than")
+        if i + 1 >= len(args) or not args[i + 1].isdigit():
+            print(usage)
+            return 2
+        days = int(args[i + 1])
+        args = args[:i] + args[i + 2:]
+    which = next((a for a in args if not a.startswith("--")), "")
+    try:
+        with eng.connect() as conn:
+            runs = cleanup.pick(conn, which, days)
+    except ValueError as exc:
+        print(f"{exc}\n{usage}")
+        return 2
+    if not runs:
+        print("No finished test runs to delete for that.")
+        return 0
+    print(f"This deletes {len(runs)} test run(s) ({', '.join(str(r['id']) for r in runs[:20])}{'...' if len(runs) > 20 else ''}) "
+          "FOR GOOD: their test data, results and screenshots, and their reports, logs and videos in work/tests. "
+          "It cannot be undone.")
+    if "--yes" not in args and input("Type DELETE to go on: ").strip() != "DELETE":
+        print("Nothing deleted.")
+        return 1
+    from ..api.admin import _ops_raw
+    out = cleanup.delete(eng, [r["id"] for r in runs], "eax test delete",
+                         lambda folders: _ops_raw("POST", "/tests/results/delete", {"folders": folders}, timeout=120),
+                         say=lambda m: print(f"  {m}", flush=True))
+    print(cleanup.message(out))
+    return 0 if not out["left"] else 1
 
 
 if __name__ == "__main__":

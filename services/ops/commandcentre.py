@@ -106,11 +106,28 @@ def _safe_id(run_id: str) -> str:
     return run_id
 
 
+def last_words(run_id: str, lines: int = 15) -> str:
+    """What a run's container said when it wrote no record (it stopped before eaxcli.cmdrun could start: the
+    installation folder not mounted, no Python module, a Docker error): its last lines, else its state."""
+    try:
+        cid = hooks["docker"]("ps", "-aq", "--filter", f"label=eax.command.run={run_id}").strip().splitlines()
+        if not cid:
+            return "its container is gone"
+        out = hooks["docker"]("logs", "--tail", str(lines), cid[0]).strip()
+        state = hooks["docker"]("inspect", "--format", "{{.State.Status}} (exit {{.State.ExitCode}}) {{.State.Error}}", cid[0]).strip()
+        return (" | ".join(x.strip() for x in out.splitlines() if x.strip())[-800:] or "no output") + f"; container {state}"
+    except Exception as exc:  # noqa: BLE001
+        return f"its container could not be read ({exc})"
+
+
 def detail(run_id: str, start: int = 0) -> dict:
     folder = os.path.join(RUNS, _safe_id(run_id))
     rec = _read(os.path.join(folder, "status.json"))
     if not rec:
-        raise FileNotFoundError("No such run.")
+        if _container(run_id):                 # still starting: no record yet
+            return {"status": {"state": "running", "id": run_id}, "text": "", "next": start, "commands": [], "running": True}
+        # R2.49 (owner, 12 Nov 2026): the build for Run the failed ones again said only "No such run."
+        raise FileNotFoundError(f"The command wrote no record: {last_words(run_id)}")
     text, nxt = "", start
     for name in ("output.log", "transcript.log"):
         p = os.path.join(folder, name)
@@ -159,6 +176,8 @@ def start(body: dict) -> dict:
         raise C.Refused(f"{argv[0]} runs on the machine itself: {C.HOST_WHY.get(argv[0], '')} Type there: eax {' '.join(argv)}")
     if kind == "interactive":
         raise C.Refused(f"eax {argv[0]} asks questions as it goes: run it in the Console tab.")
+    if kind in ("offline", "wipe") and hooks["me"]().get("windows"):     # R2.49: compose in a container, Windows folders
+        raise C.Refused(f"On Windows this runs from PowerShell in the installation folder, not from the web: .\\eax {' '.join(argv)}")
     conf = body.get("confirm") or {}
     C.check_confirm(argv, str(conf.get("typed") or ""), installation_name(), bool(conf.get("understood")))
     run_id = _launch(argv, by, _new_id(argv[0]))
@@ -174,22 +193,32 @@ def persist_host() -> str:
     given = _config_values().get("EAX_PERSIST_DIR", "")
     if given and given.startswith("/"):
         return given
-    return os.path.join(me["install"], given or "persist")
+    return os.path.join(me["install"], given or "persist").replace("\\", "/")
+
+
+def _persist_inside(me: dict, host: str) -> str:
+    """persist/ as the short-lived container sees it: under the installation's inside path, or mounted on its own."""
+    root = me["install"].rstrip("/")
+    if host.startswith(root + "/"):
+        return me.get("inside", root) + host[len(root):]
+    return host if host.startswith("/") else "/eax-persist"
 
 
 def _launch(argv: list[str], by: str, run_id: str, env: dict | None = None) -> str:
     """The short-lived runner container (outside Compose): eaxcli.cmdrun runs the command through eaxpy."""
     me = hooks["me"]()
     name = f"{me['project']}-cmd-{run_id}"[:63]
+    me.setdefault("inside", me["install"])
     extra: list[str] = []
     host = persist_host()
+    seen = _persist_inside(me, host)
     if not host.startswith(me["install"].rstrip("/") + "/"):
-        extra += ["-v", f"{host}:{host}"]
-    for k, v in {"EAX_PERSIST_DIR": host, **(env or {})}.items():
+        extra += ["-v", f"{host}:{seen}"]
+    for k, v in {"EAX_PERSIST_DIR": seen, **(env or {})}.items():
         extra += ["-e", f"{k}={v}"]
     hooks["docker"]("create", "--name", name, "--label", f"eax.command={me['project']}", "--label", f"eax.command.run={run_id}",
-                    "-v", "/var/run/docker.sock:/var/run/docker.sock", "-v", f"{me['install']}:{me['install']}", *extra,
-                    "-w", me["install"], "-e", f"COMPOSE_PROJECT_NAME={me['project']}",
+                    "-v", "/var/run/docker.sock:/var/run/docker.sock", "-v", f"{me['install']}:{me['inside']}", *extra,
+                    "-w", me["inside"], "-e", f"COMPOSE_PROJECT_NAME={me['project']}",
                     "--entrypoint", "python3", me["image"], "-m", "eaxcli.cmdrun", run_id, by, "--", *argv)
     hooks["docker"]("start", name)
     return run_id
@@ -362,8 +391,8 @@ def console_ticket(body: dict) -> dict:
     sid = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "-" + secrets.token_hex(3)
     argv = ["docker", "run", "--rm", "-it", "--name", f"{me['project']}-console-{sid}"[:63],
             "--label", f"eax.command={me['project']}", "--label", f"eax.command.run=console-{sid}",
-            "-v", "/var/run/docker.sock:/var/run/docker.sock", "-v", f"{me['install']}:{me['install']}",
-            "-w", me["install"], "-e", f"COMPOSE_PROJECT_NAME={me['project']}", "-e", "TERM=xterm-256color",
+            "-v", "/var/run/docker.sock:/var/run/docker.sock", "-v", f"{me['install']}:{me.get('inside', me['install'])}",
+            "-w", me.get("inside", me["install"]), "-e", f"COMPOSE_PROJECT_NAME={me['project']}", "-e", "TERM=xterm-256color",
             "-e", f"EAX_CONSOLE_USER={by}", "-e", f"EAX_CONSOLE_ROLES={','.join(roles)}", "-e", f"EAX_CONSOLE_SESSION={sid}",
             "--entrypoint", "python3", me["image"], "-m", "eaxcli.webconsole"]
     ticket = secrets.token_urlsafe(32)

@@ -102,6 +102,28 @@ def record_terminal_ends(timestamp: int) -> None:
         log.info("terminal sessions recorded: %s", n)
 
 
+@app.periodic(cron="17 3 * * *")
+@app.task(name="eax.test_results_cleanup", queue="default", queueing_lock="test_results_cleanup")
+def test_results_cleanup(timestamp: int) -> None:
+    """R2.43: test runs older than the days set on the Self-test page go, once a day (their data, results, reports,
+    logs and videos); 0 keeps them."""
+    from .api.admin import _ops_raw
+    from .db import get_engine
+    from .testing import cleanup
+    try:
+        days = int((_ops_raw("GET", "/tests", timeout=20) or {}).get("keep_days", cleanup.DEFAULT_KEEP_DAYS))
+    except Exception:  # noqa: BLE001 - the operations helper is not there: try tomorrow
+        return
+    if days <= 0:
+        return
+    with get_engine().connect() as conn:
+        ids = [r["id"] for r in cleanup.pick(conn, "", days)]
+    if ids:
+        out = cleanup.delete(get_engine(), ids, "test results kept " + str(days) + " days",
+                             lambda folders: _ops_raw("POST", "/tests/results/delete", {"folders": folders}, timeout=120))
+        log.info("test results cleanup: %s", cleanup.message(out))
+
+
 @app.periodic(cron="*/10 * * * *")
 @app.task(name="eax.task_files_cleanup", queue="default", queueing_lock="task_files_cleanup")
 def task_files_cleanup(timestamp: int) -> None:
@@ -340,18 +362,15 @@ def project_repositories(timestamp: int) -> None:
 @app.periodic(cron="*/10 * * * *")
 @app.task(name="eax.industry_packs", queue="default", queueing_lock="industry_packs")
 def industry_packs(timestamp: int) -> None:
-    """Every 10 minutes: shipped industry pack files not in Documents yet (the start-up step ran before Documents was up)
-    are loaded once it answers (D546)."""
+    """Every 10 minutes: when the shipped industry packs are not all in Documents (the start-up step ran before Documents
+    answered, some files failed, or a loader was stopped half way), they are loaded, each file on its own (D546, R2.23)."""
     from . import industry_packs as ip
-    from . import mayan
     try:
         with get_engine().connect() as conn:
-            if not ip.missing_shipped(conn):
+            state = conn.execute(text("SELECT state FROM core.startup_parts WHERE part = :p"), {"p": ip.PART}).scalar()
+            if state in ("up", "skipped") or (state is None and not ip.missing_shipped(conn)):
                 return
-        if not mayan.enabled() or not mayan.ping():
-            return
-        with get_engine().begin() as conn:
-            log.info("industry packs: %s", ip.load_shipped(conn, "system:job")["message"])
+        log.info("industry packs: %s", ip.load_shipped_each("system:job")["message"])
     except Exception as exc:  # noqa: BLE001 - tried again in 10 minutes
         log.warning("industry packs: %s", exc)
 

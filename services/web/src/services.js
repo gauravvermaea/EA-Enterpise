@@ -92,16 +92,16 @@ export const groups = [
   {
     title: "Platform",
     items: [
-      { name: "Heartbeat", text: "API, database and job queue status", href: "#/heartbeat", live: true },
+      { name: "Heartbeat", text: "API, database and job queue status", href: "#/admin/health", live: true },
       { name: "API documentation (Swagger)", text: "Every API call, runnable in the browser", href: "/api/docs", live: true },
-      { name: "SQL", text: "Run queries on the database with a database login and see the results", href: "#/sql", live: true, perm: "system.operate", roles: ["it-admin", "super-admin"] },
+      { name: "SQL", text: "Run queries on the database with a database login and see the results", href: "#/admin/sql", live: true, perm: "system.operate", roles: ["it-admin", "super-admin"] },
       { name: "My account (Keycloak)", text: "Password, sessions and sign-in settings", href: `${config.keycloakUrl}/realms/${config.realm}/account/`, live: true },
       // The Keycloak administration console of the master realm, opened on our realm. Sign in there with the
       // Keycloak administrator (EAX_KC_ADMIN, listed by "eax logins"), not with an EA Explorer user.
       // Roles are given here, in Keycloak (D92). Keycloak Admins and Super Admins hold realm-admin on our realm,
       // so they sign in to its console with their own EA Explorer login.
       { name: "Keycloak administration", text: "Give people roles, manage users, groups and identity providers. Sign in with your own login", href: `${config.keycloakUrl}/admin/${config.realm}/console/`, live: true, perm: "keycloak.console", roles: ["keycloak-admin", "super-admin"], badge: "Keycloak Admins" },
-      { name: "Users and roles", text: "People, the EA Explorer roles their Keycloak roles give, their models, and the Keycloak role mapping", href: "#/users", live: true, perm: "users.read", roles: ["user-admin", "super-admin"] },
+      { name: "Users and roles", text: "People, the EA Explorer roles their Keycloak roles give, their models, and the Keycloak role mapping", href: "#/admin/users", live: true, perm: "users.read", roles: ["user-admin", "super-admin"] },
       { name: "Home dashboard and administration", text: "Live counts and the administration screens", phase: "10" },
       { name: "Backup and restore", text: "Back up now, scheduled backups, restore from the web or from a backup file you choose", phase: "8.4" },
       { name: "Enterprise readiness, part 1", text: "Release process and continuous integration, more automated tests, Superset tested end to end, monitoring and alerts", phase: "8.5" },

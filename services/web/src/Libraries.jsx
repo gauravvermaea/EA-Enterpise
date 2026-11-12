@@ -81,6 +81,8 @@ export default function EnterpriseLibraryPage({ route }) {
   if (info.mode === "link" && !lib) return <section className="page"><ExternalLibrary info={info} /></section>;
   return <section className="page"><OrgLibrary libId={lib} entry={entry} /></section>;
 }
+// the heading of the library while it loads or cannot be reached, so the page still says what it is (R2.0.1)
+const LibHead = () => <h1>Enterprise library</h1>;
 
 function ExternalLibrary({ info }) {
   const [q, setQ] = useState("");
@@ -104,8 +106,8 @@ function OrgLibrary({ libId, entry }) {
   const { data: org, error } = useApi(`${L}/libraries/org`);
   const other = org && libId && libId !== org.id ? libId : null;
   const { data: shownLib, error: shownErr } = useApi(other ? `${L}/libraries/${other}` : null);
-  if (error) return <LibraryDown error={error} />;
-  if (!org) return <p className="quiet">Loading…</p>;
+  if (error) return <><LibHead /><LibraryDown error={error} /></>;
+  if (!org) return <><LibHead /><p className="quiet">Loading…</p></>;
   if (other && shownErr) return <p className="status bad">{shownErr} <a href="#/enterprise-library">The enterprise library</a></p>;
   if (other && !shownLib) return <p className="quiet">Loading…</p>;
   const pub = org.published || [];

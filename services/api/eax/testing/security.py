@@ -52,7 +52,11 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 def check_headers(headers: dict[str, str], where: str, record: Record) -> None:
     for name, want, bad in HEADERS:
         have = headers.get(name)
-        if have is None:
+        if have is None and name == "strict-transport-security" and os.environ.get("EAX_DEPLOYMENT", "laptop") == "laptop":
+            # off on a laptop on purpose (D107): its certificate is the laptop's own, so the browser warning must stay
+            # possible to accept; a server sets EAX_HSTS
+            record(f"{where}: header {name}", "passed", "off on a laptop by design (D107); a server sets EAX_HSTS", 0)
+        elif have is None:
             record(f"{where}: header {name}", bad, "missing", 0)
         elif want and want not in have.lower():
             record(f"{where}: header {name}", bad, f"is {have!r}; expected it to contain {want!r}", 0)

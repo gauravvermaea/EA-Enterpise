@@ -76,7 +76,7 @@ The major phases; each line covers its sub-phases. **In detail (every sub-phase,
 | 37, 38 | Release candidate: in-page help and guides (D374); version 1.0 (D375) | released in 1.0.0 |
 | 39 | Industry models from the owner's documents (D376) | released in 1.0.0 |
 | 22, 23, 30, 31 | Closed as covered (D357, D362, D363) | closed |
-| R2 | Release 2: the self-test and test bench in their own container, stable start-up, on-screen help showing, layout switching, stencil and explorer on standard views in draw.io, remote instances, farms of installations | planned |
+| R2 | Release 2, first: a usable UI with a simple nine-area menu (R2.0); then the full self-test working end to end and every bug it finds fixed (R2.0.1); then the self-test and test bench in their own container, stable start-up, on-screen help showing, layout switching, stencil and explorer on standard views in draw.io, remote instances, farms of installations | planned |
 
 ## Quick start (laptop)
 

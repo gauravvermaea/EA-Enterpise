@@ -247,4 +247,17 @@ def create_app(testing: bool = False) -> Flask:
             return {"overall": "starting", "parts": [], "message": str(exc)[:200]}
 
     log.info("EA Explorer API %s started (%s deployment)", __version__, settings.deployment)
+    @app.errorhandler(Exception)
+    def _server_error(exc):
+        """A server error answers as JSON with its kind and the request's id, and its traceback goes to the API's log
+        under that id: so the self-test's report (and anyone asked to look) can find it (R2.0.1: the laptop's full run
+        had two bare "Internal Server Error" pages and nothing to go on). An HTTP error (abort) is answered as usual."""
+        from werkzeug.exceptions import HTTPException
+        if isinstance(exc, HTTPException):
+            return exc
+        rid = getattr(g, "request_id", "") or ""
+        log.exception("server error %s on %s %s (request %s)", type(exc).__name__, request.method, request.path, rid)
+        return {"code": 500, "status": "Internal Server Error", "error": type(exc).__name__, "request_id": rid,
+                "message": f"A server error ({type(exc).__name__}). The API's log has the details under request {rid}."}, 500
+
     return app

@@ -19,6 +19,7 @@ import { CollectWizard, LoadDataWizard, MigrationWizard, QualityWizard } from ".
 import { fmtDateTime } from "./fmt";
 import { MergeRequestsTab, SendForMergeWizard } from "./MergeBack";
 import PageNav from "./PageNav";
+import { MODEL_WIZARDS, wizardAsked } from "./wizardLists";
 
 const go = (path) => { window.location.hash = path; };
 const post = (path, body) => apiFetch(path, { method: "POST", body: JSON.stringify(body || {}) });
@@ -116,60 +117,6 @@ function SendForMergeTab({ m }) {
 }
 
 // ---------------------------------------------------------------- Model admin > Wizards (the first tab, owner 7 Nov 2026)
-// Every model wizard in one place: choose the wizard, then the model it runs on (or none, to make or upload one).
-// The same wizards are on each model's own Wizards tab, with the model already chosen.
-const ALL = [
-  ["Start a model", [
-    { k: "new", title: "New model", text: "Empty on a root metamodel or a library model, or a copy of a model with or without its data, with or without the parent-child link", none: true },
-    { k: "upload", title: "Upload a model", text: "A package from here or another installation, placed where you choose", none: true },
-  ]],
-  ["Copy and derive", [
-    { k: "child", title: "Copy with the parent-child link", text: "A child that merges back later; metamodel changes flow down to it", kinds: ["project"] },
-    { k: "copy", title: "Copy without the link", text: "A separate copy, with or without the data" },
-    { k: "library", title: "Copy from the library", text: "A new project model from a library (reference) or root model", kinds: ["reference", "template"] },
-    { k: "split", title: "Split part of a model into a new one", text: "Chosen types or entities, copied or moved, as a child or separate", kinds: ["project"] },
-  ]],
-  ["Merge and propagate", [
-    { k: "send", title: "Send for merge into the parent", text: "The child's changes, compared with its starting point, reviewed change by change by the parent's people; then freeze or refresh the child", kinds: ["project"] },
-    { k: "requests", title: "Review merge requests", text: "Children sent for merge: accept or reject each change, then merge", kinds: ["project"] },
-    { k: "down", title: "Propagate changes from the parent", text: "Choose what comes down from the parent into the child", kinds: ["project"] },
-    { k: "to-child", title: "Propagate to a child", text: "Choose what goes down from a model into one of its children", kinds: ["project"] },
-  ]],
-  ["Data and quality", [
-    { k: "quality", title: "Improve data quality", text: "Work through what data quality finds, one entity at a time: fill in, not applicable, still correct", kinds: ["project", "reference"] },
-    { k: "load", title: "Load data into a model", text: "Download the sheet, fill it in, upload it and check the preview", kinds: ["project", "reference"] },
-    { k: "collect", title: "Collect data from people", text: "Ask people to fill in entity types; what they upload comes back as commit requests", kinds: ["project"] },
-    { k: "migration", title: "Plan the migration from gaps", text: "Group a gap analysis's gaps into work packages, with a roadmap sheet", kinds: ["project"] },
-  ]],
-  ["Metamodel", [
-    { k: "extend", title: "Extend from another model", text: "Take entity types, relationship types and attributes another model has" },
-    { k: "upgrade", title: "Upgrade to another framework", text: "Move a model onto another root metamodel (ArchiMate 5)", kinds: ["project"] },
-  ]],
-  ["Lifecycle", [
-    { k: "lock", title: "Lock or unlock", text: "Temporary: the metamodel, the content, or everything, with a reason" },
-    { k: "freeze", title: "Freeze or unfreeze", text: "Final: read only for good (a Super Admin unfreezes)", kinds: ["project"] },
-    { k: "tag", title: "Tag a model now", text: "A named point in time to compare with or restore", kinds: ["project", "reference"] },
-    { k: "restore", title: "Restore a tag", text: "Make a tag the latest again", kinds: ["project", "reference"] },
-    { k: "archive", title: "Archive or reactivate", text: "Hidden from lists; nothing is lost" },
-    { k: "delete", title: "Delete a model", text: "For good, after a package of it is saved" },
-  ]],
-  ["Library and publishing", [
-    { k: "promote", title: "Promote to the library", text: "A copy becomes a library model (a draft until published)", kinds: ["project"] },
-    { k: "request-publish", title: "Request publishing", text: "Ask for a draft to be published", drafts: true },
-    { k: "publish", title: "Approve and publish", text: "Approve, send back or reject a draft", drafts: true },
-    { k: "reopen", title: "Open a rejected draft again", text: "Work on it again and request publishing once more", drafts: true },
-    { k: "withdraw", title: "Withdraw or restore in the library", text: "Nobody starts new models from it; those built on it keep working", kinds: ["reference", "template"] },
-  ]],
-  ["People and family", [
-    { k: "hand", title: "Hand over a model", text: "Model Admins in and out, and the owner" },
-    { k: "family", title: "Detach or reparent", text: "Break the parent-child link, or make it derive from another model", kinds: ["project"] },
-  ]],
-  ["Packages", [
-    { k: "download", title: "Download a model", text: "One package, Excel or zip, with or without data or history" },
-    { k: "spec", title: "Download a metamodel", text: "The metamodel as one JSON document" },
-  ]],
-];
-
 export function AdminTabs({ on }) {
   return (
     <div className="tabs" role="tablist">
@@ -181,7 +128,8 @@ export function AdminTabs({ on }) {
 }
 
 function WizardsHome() {
-  const [open, setOpen] = useState(null);
+  // a wizard asked for in the address (the top menu's Model Admin › Wizards › …, D586) opens at once
+  const [open, setOpen] = useState(() => MODEL_WIZARDS.flatMap(([, cards]) => cards).find((c) => c.k === wizardAsked()) || null);
   const close = () => setOpen(null);
   const creator = can("models.create") || can("library.curate");
   return (
@@ -192,7 +140,7 @@ function WizardsHome() {
         model's own page (<a href="#/work">Architecture work</a>).</p>
       <AdminTabs on="wizards" />
       <div className="wizards">
-        {ALL.map(([g, cards]) => (
+        {MODEL_WIZARDS.map(([g, cards]) => (
           <section key={g}>
             <h3>{g}</h3>
             <div className="wiz-grid">

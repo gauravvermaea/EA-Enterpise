@@ -86,9 +86,10 @@ function useView(model, code) {
 
 // the Views tab's sub-tabs (owner, 10 Nov 2026, D412): #/metamodel/<m>/views/custom|standard. Custom views are the model's
 // own, whoever made them: its drawn views and its copies of generated views (MV-n), in one list; standard views are the
-// organisation's (VP-n). With no sub-tab named: Custom views when the model has any, else Standard views. A view code opens
-// that view; the older drawn and own addresses land on Custom views.
-const VIEW_TABS = [["custom", "Custom views"], ["standard", "Standard views"]];
+// organisation's (VP-n). Standard views come first and open when no sub-tab is named, the drawn (custom) views next (owner,
+// 12 Nov 2026: "standard views should be the first tab drawn the next one"). A view code opens that view; the older
+// drawn and own addresses land on Custom views.
+const VIEW_TABS = [["standard", "Standard views"], ["custom", "Custom views"]];
 const OLD_TABS = { drawn: "custom", own: "custom" };
 export default function ViewsTab({ model, m, code, sub }) {
   const c = code ? decodeURIComponent(code) : "";
@@ -104,7 +105,7 @@ function ViewList({ model, m, tab: asked }) {
   const [editing, setEditing] = useState(null);
   const curate = can("library.curate");
   const customCount = mine.data || drawn.data ? (mine.data?.views.length || 0) + (drawn.data?.views.length || 0) : null;
-  const tab = asked || (customCount === null && !mine.error && !drawn.error ? "" : customCount ? "custom" : "standard");
+  const tab = asked || "standard";
   const groups = useMemo(() => {
     if (!data) return [];
     const f = filter.trim().toLowerCase();

@@ -100,7 +100,7 @@ function Usage() {
         <>
           <h3>Uncommitted changes older than {d.stale_change_days} days</h3>
           {d.stale_changes.length ? <table className="grid-table"><thead><tr><th>Model</th><th>Whose</th><th>Changes</th><th>Oldest</th></tr></thead>
-            <tbody>{d.stale_changes.map((x) => <tr key={`${x.model_guid}${x.author}`}><td><a href={`#/models/${x.model_guid}`}>{x.model}</a></td>
+            <tbody>{d.stale_changes.map((x) => <tr key={`${x.model_guid}${x.author}`}><td><a href={`#/metamodel/${x.model_guid}`}>{x.model}</a></td>
               <td>{x.author}</td><td>{x.changes}</td><td>{fmtDate(x.oldest)}</td></tr>)}</tbody></table> : <p className="quiet">None.</p>}
           <h3>Loads not added after {d.stale_load_days} days</h3>
           {d.old_loads.length ? <table className="grid-table"><thead><tr><th>Model</th><th>File</th><th>Where it stopped</th><th>Whose</th><th>Uploaded</th><th>Size</th></tr></thead>
@@ -126,7 +126,7 @@ function ModelTable({ rows }) {
       <table className="grid-table">
         <thead><tr><th>Model</th><th>Kind</th><th>Entities</th><th>Relationships</th><th>History versions</th><th>Calls</th><th>People</th><th>Last used</th><th>Last changed</th></tr></thead>
         <tbody>{rows.map((m) => (
-          <tr key={m.guid} className={m.archived ? "is-retired" : ""}><td><a href={`#/models/${m.guid}`}>{m.name}</a></td><td>{m.kind}</td>
+          <tr key={m.guid} className={m.archived ? "is-retired" : ""}><td><a href={`#/metamodel/${m.guid}`}>{m.name}</a></td><td>{m.kind}</td>
             <td>{fmtNumber(m.entities)}</td><td>{fmtNumber(m.relationships)}</td><td>{fmtNumber(m.versions)}</td><td>{fmtNumber(m.calls)}</td>
             <td>{m.people}</td><td>{m.last_used ? fmtDate(m.last_used) : <span className="quiet">never</span>}</td>
             <td>{m.last_changed ? fmtDate(m.last_changed) : ""}</td></tr>))}</tbody>

@@ -118,7 +118,8 @@ def level_and_suites(args, store) -> tuple[str, list[str]]:
         asked = asked or ["ui"]
     level = "detailed" if (args.detailed or asked) else "smoke"
     suites = store.clean_suites(asked or None) if level == "detailed" else list(SUITES)
-    return level, suites
+    # the backup checks (R2.45) need the installation's own backup container: inside only, never from the bench
+    return level, [s for s in suites if s in SUITES]
 
 
 def sign_in(args, target: str) -> str:

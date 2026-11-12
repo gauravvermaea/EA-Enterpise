@@ -23,4 +23,4 @@ fixtures stay until an admin purges them (Self-test > Test fixtures, `eax test -
 run recorded (fixtures.py). The report (HTML and Excel) stays after the purge, marked "fixtures removed".
 """
 
-SUITES = ("api", "ui", "db", "security")
+SUITES = ("api", "ui", "db", "security", "backup")   # backup: the last of a full test (R2.45)

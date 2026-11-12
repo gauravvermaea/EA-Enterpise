@@ -1,12 +1,13 @@
 // "Open in draw.io" (owner, 11 Nov 2026, D585): a generated picture, a canvas or the metamodel diagram in our own
 // draw.io (with our plugin, stencil and ArchiMate notation), full screen in a tab of its own (D411), as a scratch view.
 // It is kept nowhere and changes nothing: it opens read only (look, zoom, export; draw.io's File > Export as too), so
-// nothing on it can touch the model (D408, D413). To change it, Save as a drawn view (those who may draw on the model):
+// nothing on it can touch the model (D408, D413). A picture of a model has the drawn view's panels below it, read only
+// (R2.7): the objects on it, and the selected one's properties, relationships and allowed relationships. To change it, Save as a drawn view (those who may draw on the model):
 // the tab then becomes that drawn view. The picture comes from drawioScratch.js (#/drawio/open/<key>).
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "./auth";
 import { useApi } from "./ModelViews";
-import { NewDrawnView, dataUriToBlob, mayDraw, pngToPdf } from "./DrawnView";
+import { NewDrawnView, PicturePanels, dataUriToBlob, mayDraw, pngToPdf } from "./DrawnView";
 import { saveBlob } from "./exporting";
 import { forgetScratch, takeScratch } from "./drawioScratch";
 
@@ -37,6 +38,7 @@ function ScratchDrawio({ scratchKey, pic, reloadable }) {
   const [phase, setPhase] = useState("starting");
   const [dlg, setDlg] = useState(null);
   const [toast, setToast] = useState(null);
+  const [selected, setSelected] = useState(null);   // what is selected on the picture, for the panels (R2.7)
   const frame = useRef(null);
   const st = useRef({ ready: false, loaded: false, setupSent: false, guard: true, exportWaiting: null, v: Date.now() });
   const may = !!model && !!m && mayDraw(model, m);
@@ -90,6 +92,7 @@ function ScratchDrawio({ scratchKey, pic, reloadable }) {
         case "export": if (s.exportWaiting) { const f = s.exportWaiting; s.exportWaiting = null; f(msg.data); } break;
         case "eax-open": if (model && !pic.plain && msg.entity) window.open(`#/metamodel/${model}/entity/${msg.entity}`, "_blank"); break;
         case "eax-exported-drawio": say(`Downloaded ${msg.name}.`); break;
+        case "eax-selected": setSelected(msg.cell && (msg.entity || msg.relationship || msg.relType) ? msg : null); break;
         default: break;
       }
     }
@@ -140,6 +143,8 @@ function ScratchDrawio({ scratchKey, pic, reloadable }) {
             {off && <div className="drawn-wait">Starting draw.io…</div>}
           </div>
         </div>
+        {/* R2.7: the objects on the picture and their properties, relationships and allowed relationships, read only */}
+        {model && !pic.plain && setup && !off && <PicturePanels model={model} setup={setup} xml={pic.xml} selected={selected} post={post} />}
       </div>
       {dlg === "save" && <NewDrawnView model={model} views={[]} xml={pic.xml} source="generated" sourceNote={pic.title} sameTab
         onSaved={() => { st.current.guard = false; forgetScratch(scratchKey); }} onClose={() => setDlg(null)} />}

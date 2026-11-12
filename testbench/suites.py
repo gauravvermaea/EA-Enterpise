@@ -32,9 +32,10 @@ COVERED = {
     "ui_journeys.run_all", "ui_flows.journeys", "ui_flows.run", "ui_pages.sweep", "ui_flows.skipped_in_browser",
 }
 # what the inside run calls that is the platform's own bookkeeping, not a test (made by the target for the bench)
-BOOKKEEPING = {"fixtures.accounts", "fixtures.models_and_project", "report.write", "report.html", "report.xlsx",
+BOOKKEEPING = {"fixtures.accounts", "fixtures.models_and_project", "fixtures.clean_leftovers", "report.write", "report.html", "report.xlsx",
                "store.create_run", "store.set_state", "store.set_browser", "store.clean_options", "store.clean_suites",
-               "store.clean_journeys", "store.add_result", "store.short", "ui_pages.seeds"}
+               "store.clean_journeys", "store.add_result", "store.short", "ui_pages.seeds",
+               "store.repeat_options", "store.set_fixture_ids"}   # a repeat's options and the ids it matches by (R2.36)
 
 
 class Session:

@@ -11,7 +11,7 @@ keepLook and plainLabels for pictures opened in draw.io, the saved file and read
 These files are kept out of the image (`../.dockerignore`). To run them:
 
 1. Take draw.io's web app at the image's version: the `src/main/webapp` folder of the draw.io repository at the same
-   tag as `DRAWIO_IMAGE` in `../Dockerfile` (e.g. `git clone --depth 1 --branch v24.7.17 https://github.com/jgraph/drawio`).
+   tag as `DRAWIO_IMAGE` in `../Dockerfile` (e.g. `git clone --depth 1 --branch v32.6.10 https://github.com/jgraph/drawio`).
 2. Put `../eax-plugin.js` there as `plugins/eax.js`, add the `<script src="plugins/eax.js"></script>` line before
    `</body>` in `index.html` (as the Dockerfile does), and copy `test-host.html` beside `index.html`.
 3. Serve the folder (e.g. `python3 -m http.server 8771`) and run `node tests.cjs http://localhost:8771 <screenshot folder>`.

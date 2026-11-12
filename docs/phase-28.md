@@ -199,7 +199,7 @@ PDF, so a PDF is made by EA Explorer from the PNG or SVG).
 *Edit Data*, *Edit Style*, *Edit Tooltip*, *Edit Link* and *Edit Shape* are refused on EA cells. Text, notes and other
 decoration stay free. Objects are containers (`container=1`), so one can be dropped into another, which `eax-nest` checks.
 
-**Tested** (`deploy/drawio/tests`, 53 checks against draw.io 24.7.17). **Limits:** junction lines are checked as if direct
+**Tested** (`deploy/drawio/tests`, 53 checks against draw.io 24.7.17; 150 checks against draw.io 32.6.10 on 12 Nov 2026, D598). **Limits:** junction lines are checked as if direct
 against the objects already on the junction's other side (EA Explorer checks again when it makes the relationship); a
 heat map shows in exports made while it is on; a copy made by dragging a hover arrow onto empty canvas is a second
 instance of the same entity (allowed, rule 10).
@@ -364,7 +364,7 @@ generated pictures and the project's Views tab.
 - **Evidence**: *Use as project evidence…* in the editor (a saved version, a deliverable or a key question, a PNG
   snapshot); the project's **Views** tab lists its drawn views as evidence, each opening that version.
 - **After the owner's try-out (D412)**: the **Views** tab has two sub-tabs, *Custom views* and *Standard views*
-  (`#/metamodel/<m>/views/custom|standard`; with none named, Custom views when the model has any, else Standard views;
+  (`#/metamodel/<m>/views/standard|custom`; Standard views first and when none is named, Custom views next (D602, 12 Nov 2026);
   the older `views/drawn` and `views/own` land on Custom views). **Custom views** is one list of the model's own views,
   whoever made them: its drawn views and its copies of generated views (MV-n), with a **Kind** column (Drawn, Generated)
   and each kind's actions (a drawn one: Open ↗ in its own tab, Versions, Copy, Rename, Delete; a generated one: Open,

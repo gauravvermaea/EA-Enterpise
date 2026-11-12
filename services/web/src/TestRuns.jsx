@@ -1,19 +1,19 @@
-// System admin › Self-test (phase 36.1, D367, D522 to D529): Super Admins and IT Admins test this installation, from here
-// or with `eax test`: one runner, one results store, so a run started in either place shows in both.
-//   Run           choose a smoke test or detailed tests (API, browser, database, security; one role, one area), start it
-//                 now (it says how long and asks to confirm), follow it live, stop it. With "Watch it in this browser"
-//                 the browser journeys run here, in a frame, in this browser (it is recorded with its name and version)
+// System Admin › Tools › Self-test (phase 36.1, D367, D522 to D529; made simple in R2.0.1, D592): Super Admins and IT
+// Admins test this installation, from here or with `eax test smoke|full`: one runner, one results store, so a run started
+// in either place shows in both.
+//   Run           two choices only: the Smoke test or the Full test (owner, 12 Nov 2026: "Not too many options"); it
+//                 asks to confirm, then starts its own test container, tests, writes the report and removes the container;
+//                 follow it live, stop it
 //   History       every run: its results with each failure explained (what was asked and what came back; a screenshot or
-//                 video), its report (HTML or Excel) and its fixtures
-//   Test fixtures every self_test_<id>_<n> model, project, account and credential of every run; tick and purge them
-//                 (for good: type DELETE), as a background task with its progress
-// Each run makes its own fixtures and tests only inside them; nothing else changes, and nothing is ever purged by itself.
-// The test runner (a container image, about 1.5 GB) is prepared whenever a test starts (D584): nothing to build by hand.
-// Advanced keeps "Rebuild the test runner" (its steps and log live, Retry) and "Build it automatically after each start
-// or update" (persist/settings.json, on by default).
+//                 video), its report (HTML or Excel) and its fixtures; Run the failed ones again (R2.36, D605): a new run
+//                 of only the checks that failed, whose results show each check then and now
+//   Test data     every self_test_<id>_<n> model, project, account and credential of every run; tick and delete them,
+//                 or Delete all test data (for good: type DELETE), as a background task with its progress (D593)
+// Each run makes the data it needs and tests only inside it; nothing else changes. The test container's image is
+// prepared whenever a test starts (D584): nothing to build by hand; its build shows here while it runs.
 // Health shows the last run in one line (LastSelfTest).
 import { useEffect, useRef, useState } from "react";
-import { CLI_FORMS, commandLine, journey, makeFrame, sweep } from "./selfTestDriver.js";
+import { journey, makeFrame, sweep } from "./selfTestDriver.js";
 import { apiBlobUrl, apiDownload, apiFetch, can } from "./auth";
 import { Modal } from "./ModelOps";
 import { fmtDateTime } from "./fmt";
@@ -24,6 +24,7 @@ const SUITES = [
   ["ui", "Browser", "the main journeys through the screens"],
   ["db", "Database", "read-only checks of the database"],
   ["security", "Security", "headers, cookies, the Python dependencies, an OWASP ZAP scan and Trivy image scans"],
+  ["backup", "Backups", "the last: an infrastructure and an application backup, each restored into a scratch copy, then removed (R2.45)"],
 ];
 const STATE = { queued: "Starting", running: "Running", passed: "Passed", failed: "Failed", error: "Could not finish", stopped: "Stopped" };
 const OUTCOME = { passed: "Passed", failed: "Failed", warning: "Warning", skipped: "Skipped" };
@@ -37,8 +38,35 @@ function took(r) {
   const s = Math.max(0, Math.round((end - new Date(r.started_at)) / 1000));
   return s < 90 ? `${s} s` : `${Math.round(s / 60)} min`;
 }
-const what = (r) => (r.level === "smoke" ? "Smoke test" : `Detailed: ${r.suites.join(", ")}`)
+const what = (r) => (r.repeat_of ? `The failed checks of run ${r.repeat_of} again${r.repeat_warnings ? " (and its warnings)" : ""}`
+  : r.level === "smoke" ? "Smoke test" : r.suites.length >= 4 ? "Full test" : `Detailed: ${r.suites.join(", ")}`)
   + (r.role ? ` · role ${r.role}` : "") + (r.area ? ` · area ${r.area}` : "") + (r.watch ? " · in a browser" : "");
+const repeatable = (r) => r && !open_(r) && (r.failed > 0 || r.skipped > 0);
+
+// Run the failed ones again (R2.36, D605): a new run of only the checks that failed in run `id` (and its warnings if
+// asked), in fresh test data (earlier test data is removed first, as before every run)
+function RepeatButton({ run, busy, onStarted, small }) {
+  const [warnings, setWarnings] = useState(false);
+  const [msg, setMsg] = useState("");
+  if (!repeatable(run)) return null;
+  const go = async () => {
+    setMsg("");
+    try {
+      const x = await apiFetch(`/api/v1/admin/tests/${run.id}/repeat`, { method: "POST", body: JSON.stringify({ warnings }) });
+      onStarted(x);
+    } catch (e) { setMsg(e.message); }
+  };
+  return (
+    <span className="test-repeat">
+      <button className={small ? "linkish" : ""} disabled={busy || (!run.failed && !warnings)} onClick={go}
+        title="A new run of only the checks that failed here, in fresh test data; its results show each check then and now">
+        Run the failed ones again</button>
+      {!small && run.skipped > 0 && <label className="small"><input type="checkbox" checked={warnings}
+        onChange={(e) => setWarnings(e.target.checked)} /> and the warnings</label>}
+      {msg && <span className="bad-text small"> {msg}</span>}
+    </span>
+  );
+}
 
 // ---------------------------------------------------------------- the page
 export default function SelfTest() {
@@ -56,6 +84,7 @@ export default function SelfTest() {
     return () => clearInterval(t);
   }, [live?.id, building]);
   const built = () => { setTab("run"); load(); };
+  const repeated = () => { setOpen(null); setTab("run"); load(); };
   if (!can("system.operate")) return <p className="status bad">The self-test is for Super Admins and IT Admins.</p>;
   return (
     <div className="self-test">
@@ -63,112 +92,79 @@ export default function SelfTest() {
         named <code>self_test_&lt;id&gt;_&lt;n&gt;</code> and tests only inside them, so nothing else changes and runs can be repeated.
         The same runs come from <code>eax test</code> and CI. Fixtures stay until you purge them (Test fixtures).</p>
       <div className="seg" role="tablist" aria-label="Self-test">
-        {[["run", "Run"], ["history", "History"], ["fixtures", "Test fixtures"]].map(([k, l]) => (
+        {[["run", "Run"], ["history", "History"], ["fixtures", "Test data"]].map(([k, l]) => (
           <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{l}</button>))}
       </div>
       {err && <p className="status bad">{err}</p>}
-      {tab === "run" && data && <TestRunner runner={data.runner || {}} onBuilt={built} onChange={load} />}
+      {tab === "run" && data?.runner?.build?.busy && <TestRunner runner={data.runner || {}} onBuilt={built} onChange={load} />}
       {tab === "run" && data && (live ? <LiveRun runId={live.id} onChange={load} onOpen={setOpen} />
         : <Chooser data={data} onStarted={load} />)}
-      {tab === "run" && data && !live && <ResetSurvival />}
       {tab === "run" && data && !live && data.runs[0] && (
         <p className="small last-run">Last run: <button className="linkish" onClick={() => setOpen(data.runs[0].id)}>
           {data.runs[0].id}</button> <span className={cls(data.runs[0].state)}>{STATE[data.runs[0].state]}</span> · {what(data.runs[0])}
           {" "}· {fmtDateTime(data.runs[0].finished_at || data.runs[0].queued_at)}</p>)}
-      {tab === "history" && data && <History runs={data.runs} onOpen={setOpen} />}
+      {tab === "history" && data && <History runs={data.runs} onOpen={setOpen} busy={!!live} onRepeat={repeated}
+        keepDays={data.runner?.keep_days} onChange={load} />}
       {tab === "fixtures" && <FixturesTab runs={data?.runs || []} />}
-      {open && <RunDetail id={open} onClose={() => { setOpen(null); load(); }} />}
+      {open && <RunDetail id={open} busy={!!live} onRepeat={repeated} onClose={() => { setOpen(null); load(); }} />}
     </div>
   );
 }
 
 // ---------------------------------------------------------------- choosing and starting
+// Two choices only (owner, 12 Nov 2026, R2.0.1, D592: "Test from UI - Smoke or Full ... Not too many options"): a smoke test
+// or the full test (every suite: the API, the database, security, then every page and journey in a headless browser).
+// Each run starts its own test container, tests, reports and removes the container; it makes the data it needs itself.
+const CHOICES = [
+  ["smoke", "Smoke test", "every role signs in, every main area answers, every page opens and the key journeys work once"],
+  ["full", "Full test", "everything: every API endpoint for every role, the database, security, then every page and journey in a browser"],
+];
+
 function Chooser({ data, onStarted }) {
-  const [level, setLevel] = useState("smoke");
-  const [pick, setPick] = useState(["api", "ui", "db", "security"]);
-  const [role, setRole] = useState("");
-  const [area, setArea] = useState("");
-  const [watch, setWatch] = useState(false);
-  const [jpick, setJpick] = useState([]);
-  const [pagesOnly, setPagesOnly] = useState(false);
-  const [confirm, setConfirm] = useState(false);
+  const [ask, setAsk] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const runner = data.runner || {};
-  const toggle = (k) => setPick((p) => (p.includes(k) ? p.filter((x) => x !== k) : [...p, k]));
-  const est = level === "smoke" ? data.estimates.smoke : pick.reduce((a, s) => [a[0] + data.estimates[s][0] - 1, a[1] + data.estimates[s][1] - 2], [1, 2]);
-  const notBuilt = runner.image_present === false;
+  const est = (k) => (k === "smoke" ? data.estimates.smoke
+    : SUITES.reduce((a, [s]) => [a[0] + data.estimates[s][0] - 1, a[1] + data.estimates[s][1] - 2], [1, 2]));
   const start = async () => {
     setBusy(true); setMsg("");
     try {
-      const r = await apiFetch("/api/v1/admin/tests", { method: "POST", body: JSON.stringify({ level, suites: pick, role, area,
-        watch: watch && level === "detailed" && pick.includes("ui"),
-        journeys: level === "detailed" && !pagesOnly ? jpick : [], pages_only: level === "detailed" && pagesOnly }) });
-      setMsg(r.message); setConfirm(false); onStarted();
-    } catch (e) { setMsg(e.message); setConfirm(false); } finally { setBusy(false); }
+      const r = await apiFetch("/api/v1/admin/tests", { method: "POST", body: JSON.stringify(ask === "smoke"
+        ? { level: "smoke", suites: [] } : { level: "detailed", suites: SUITES.map(([k]) => k) }) });
+      setMsg(r.message); setAsk(""); onStarted();
+    } catch (e) { setMsg(e.message); setAsk(""); } finally { setBusy(false); }
   };
+  const minutes = (k) => { const [lo, hi] = est(k); return `${Math.max(1, lo)} to ${Math.max(2, hi)} minutes`; };
   return (
     <section className="self-test-choose" aria-label="Choose a self-test">
       {runner.message && runner.image_present !== false && <p className="status warn small">{runner.message}</p>}
-      <fieldset>
-        <legend>What to run</legend>
-        <label className="radio"><input type="radio" name="level" checked={level === "smoke"} onChange={() => setLevel("smoke")} />
-          {" "}<b>Smoke test</b>: every role signs in, every main area answers, the key journeys work once ({data.estimates.smoke.join(" to ")} minutes)</label>
-        <label className="radio"><input type="radio" name="level" checked={level === "detailed"} onChange={() => setLevel("detailed")} />
-          {" "}<b>Detailed tests</b>: the suites below</label>
-        {level === "detailed" && (
-          <div className="self-test-suites">
-            <label className="check"><input type="checkbox" checked={pick.length === SUITES.length}
-              onChange={(e) => setPick(e.target.checked ? SUITES.map(([k]) => k) : [])} /> <b>All</b></label>
-            {SUITES.map(([k, l, help]) => (
-              <label key={k} className="check" title={help}><input type="checkbox" checked={pick.includes(k)} onChange={() => toggle(k)} /> {l}
-                <span className="quiet small"> {help}</span></label>))}
-            <label className="check" title="The browser journeys run here, in a frame of this page, in this browser, while you watch">
-              <input type="checkbox" checked={watch} disabled={!pick.includes("ui")} onChange={(e) => setWatch(e.target.checked)} /> Watch it in this browser
-              <span className="quiet small"> (the journeys run in this browser instead of headless on the server)</span></label>
-            <label className="check" title="Only the page sweep: every page, group, tab and sub-tab opened and checked (means the browser suite)">
-              <input type="checkbox" checked={pagesOnly} onChange={(e) => { setPagesOnly(e.target.checked); if (e.target.checked) { setJpick([]); setPick(["ui"]); } }} />
-              {" "}Pages only <span className="quiet small"> (every page opens, renders, has a heading and F1 help; no journeys)</span></label>
-            {(data.journeys || []).length > 0 && (
-              <fieldset className="self-test-journeys" disabled={pagesOnly}>
-                <legend className="small">Journeys <span className="quiet">(none ticked: every journey; ticking any means the browser suite)</span></legend>
-                {data.journeys.map((j) => (
-                  <label key={j.name} className="check" title={`As ${j.roles.join(", ")}${j.headless_only ? "; headless only" : ""}`}>
-                    <input type="checkbox" checked={jpick.includes(j.key)}
-                      onChange={(e) => { setJpick((p) => (e.target.checked ? [...p, j.key] : p.filter((x) => x !== j.key))); if (e.target.checked) setPick(["ui"]); }} />
-                    {" "}{j.name}{j.smoke && <span className="quiet small"> · in the smoke test</span>}{j.headless_only && <span className="quiet small"> · headless only</span>}</label>))}
-              </fieldset>)}
-          </div>)}
-      </fieldset>
-      <div className="toolbar">
-        <label>Role <select value={role} onChange={(e) => setRole(e.target.value)} title="Test as one role only">
-          <option value="">every role</option>{data.roles.map((r) => <option key={r} value={r}>{r}</option>)}</select></label>
-        <label>Area <select value={area} onChange={(e) => setArea(e.target.value)} title="Test one API area only">
-          <option value="">every area</option>{data.areas.map((a) => <option key={a.code} value={a.code}>{a.label}</option>)}</select></label>
-        <button className="primary" disabled={busy || (level === "detailed" && !pick.length) || !!runner.build?.busy}
-          onClick={() => setConfirm(true)}>Start</button>
-        {msg && <span className="small">{msg}</span>}
+      <div className="self-test-choices">
+        {CHOICES.map(([k, label, what]) => (
+          <div key={k} className="card self-test-choice">
+            <h3>{label}</h3>
+            <p className="small">{what}.</p>
+            <p className="quiet small">About {minutes(k)}.</p>
+            <button className={k === "smoke" ? "primary" : ""} disabled={busy || !!runner.build?.busy} onClick={() => setAsk(k)}>
+              Start the {label.toLowerCase()}</button>
+          </div>))}
       </div>
-      <CommandLine run={{ level, suites: level === "detailed" ? pick : [], role, area, watch: watch && level === "detailed" && pick.includes("ui"),
-        journeys: level === "detailed" && !pagesOnly ? jpick : [], pages_only: level === "detailed" && pagesOnly }} />
-      <FromTheCommandLine commands={data.commands} />
-      {confirm && (
-        <Modal title="Start the self-test now?" onClose={() => setConfirm(false)}
-          actions={<><button onClick={() => setConfirm(false)}>Cancel</button>
+      {msg && <p className="small">{msg}</p>}
+      <p className="quiet small">From the command line: <code>eax test smoke</code> or <code>eax test full</code> (the same runs; they show here too).</p>
+      {ask && (
+        <Modal title={`Start the ${ask === "smoke" ? "smoke test" : "full test"} now?`} onClose={() => setAsk("")}
+          actions={<><button onClick={() => setAsk("")}>Cancel</button>
             <button className="primary" disabled={busy} onClick={start}>{busy ? "Starting..." : "Start now"}</button></>}>
-          <p className="small">The test runner is prepared first: seconds when it is current{notBuilt
-            ? <>; it is not built yet, so this time about <b>{(runner.build_minutes || [5, 15]).join(" to ")} minutes</b> (about {runner.size_gb || 1.5} GB)</>
-            : ""}. Then this run starts by itself.</p>
-          <p>{level === "smoke" ? "A smoke test" : `Detailed tests: ${pick.join(", ")}`}{role ? `, as ${role} only` : ""}{area ? `, ${area} only` : ""}.
-            It takes about <b>{Math.max(1, est[0])} to {Math.max(2, est[1])} minutes</b>{watch && level === "detailed" ? "; keep this page open while the journeys run in it" : ""}.</p>
-          <p className="small">It makes its own models, project and test accounts (<code>self_test_&lt;id&gt;_&lt;n&gt;</code>) and tests only inside
-            them; nothing else changes. Its test accounts' tokens are revoked when it ends; its fixtures stay until you purge them.</p>
+          <p>It starts a test container of its own, tests, writes the report and removes the container. It takes about <b>{minutes(ask)}</b>
+            {runner.image_present === false ? <>, plus about {(runner.build_minutes || [5, 15]).join(" to ")} minutes the first time to prepare
+              the test container</> : ""}.</p>
+          <p className="small">It makes the models, project and test accounts it needs (<code>self_test_&lt;id&gt;_&lt;n&gt;</code>) and tests only
+            inside them; nothing else changes.</p>
         </Modal>)}
     </section>
   );
 }
 
-// ---------------------------------------------------------------- the test runner: built here (D570)
 function TestRunner({ runner, onBuilt, onChange }) {
   const b = runner.build || {};
   const [watching, setWatching] = useState(b.busy ? b.run_id : null);
@@ -252,6 +248,19 @@ function RunnerBuild({ id, onRetry, onBuilt }) {
   );
 }
 
+// how many checks are left (R2.40; owner, 12 Nov 2026: "please tell how many tests are left as well when in the screen"):
+// as many as the newest finished run of the same kind had (a repeat: as many as it repeats)
+function Progress({ p }) {
+  if (!p) return null;
+  if (p.total == null) return <p className="small quiet test-progress">{p.done} checks so far; how many are left is not known ({p.how}).</p>;
+  return (
+    <div className="test-progress" title={`About ${p.total} checks in all: ${p.how}`}>
+      <div className="test-progress-bar"><span style={{ width: `${p.percent}%` }} /></div>
+      <p className="small"><b>{p.done}</b> of about {p.total} checks done · <b>{p.left}</b> left ({p.percent}%)</p>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------- a run going on
 function LiveRun({ runId, onChange, onOpen }) {
   const [d, setD] = useState(null);
@@ -276,6 +285,8 @@ function LiveRun({ runId, onChange, onOpen }) {
         <div className="kpi"><b>{t.warning}</b><span>warnings</span></div>
         <div className="kpi"><b>{t.skipped}</b><span>skipped</span></div>
       </div>
+      <Progress p={d.progress} />
+      <HealthPanel h={d.health} />
       <p className="self-test-step"><span className="spinner" aria-hidden="true" /> {r.stop_asked ? `Stopping (asked by ${r.stop_asked})...` : r.step || "Starting..."}</p>
       <div className="toolbar">
         <button onClick={() => setStopAsk(true)} disabled={!!r.stop_asked}>Stop</button>
@@ -323,58 +334,6 @@ async function snapshot(frame) {
 }
 
 // ---------------------------------------------------------------- the same from the command line (D578)
-function useCliForm() {
-  const [form, setForm] = useState(() => { try { return localStorage.getItem("eax.selftest.cli") || CLI_FORMS[0][0]; } catch { return CLI_FORMS[0][0]; } });
-  const pick = (f) => { setForm(f); try { localStorage.setItem("eax.selftest.cli", f); } catch { /* private window */ } };
-  return [form, pick];
-}
-
-function CopyButton({ text }) {
-  const [done, setDone] = useState(false);
-  const copy = async () => {
-    try { await navigator.clipboard.writeText(text); setDone(true); setTimeout(() => setDone(false), 1500); } catch { setDone(false); }
-  };
-  return <button className="small" onClick={copy} title="Copy the command">{done ? "Copied" : "Copy"}</button>;
-}
-
-function CommandLine({ run }) {
-  const [form, setForm] = useCliForm();
-  const cmd = commandLine(run, form).split("   (")[0];
-  return (
-    <div className="self-test-cli" aria-label="The same run from the command line">
-      <span className="small">The same from the command line:</span>{" "}
-      <code className="self-test-cli-cmd">{cmd}</code>
-      <CopyButton text={cmd} />
-      <select value={form} onChange={(e) => setForm(e.target.value)} aria-label="How you type eax" title="How you type the eax command">
-        {CLI_FORMS.map(([f, l]) => <option key={f} value={f}>{f} ({l})</option>)}</select>
-      {run.watch && <span className="quiet small">Watching in a browser is only from this page; the command runs the journeys headless.</span>}
-    </div>
-  );
-}
-
-function FromTheCommandLine({ commands }) {
-  const [form, setForm] = useCliForm();
-  if (!commands?.options?.length) return null;
-  const fill = (t) => t.replaceAll("{eax}", form);
-  return (
-    <details className="self-test-cli-help">
-      <summary>From the command line</summary>
-      <p className="small">{commands.summary} Every option of <code>{form} test</code> (from the command-line help, <code>{form} help test</code>);
-        the whole command line is in <a href="#/documentation">the documentation</a> (<code>{form} document</code>).
-        {" "}<label className="small">Typed as <select value={form} onChange={(e) => setForm(e.target.value)}>
-          {CLI_FORMS.map(([f, l]) => <option key={f} value={f}>{f} ({l})</option>)}</select></label></p>
-      <table className="grid-table small">
-        <thead><tr><th>Option</th><th>What it does</th></tr></thead>
-        <tbody>{commands.options.map((o) => <tr key={o.flag}><td className="nowrap"><code>{o.flag}</code></td><td>{o.what}</td></tr>)}</tbody>
-      </table>
-      {commands.examples?.length > 0 && <>
-        <p className="small">Examples:</p>
-        <ul className="self-test-cli-examples">
-          {commands.examples.map((x) => <li key={x}><code>{fill(x)}</code> <CopyButton text={fill(x)} /></li>)}
-        </ul></>}
-    </details>
-  );
-}
 
 function BrowserDriver({ runId, browser }) {
   // the page sweep, then the journeys, in a frame of this page (selfTestDriver.js: the same rules as the headless runner)
@@ -438,9 +397,56 @@ function BrowserDriver({ runId, browser }) {
 }
 
 // ---------------------------------------------------------------- history and a run's results
-function History({ runs, onOpen }) {
-  if (!runs.length) return <p className="quiet">No self-test yet.</p>;
+// deleting test results (R2.43; owner, 12 Nov 2026: "delete test logs both on web and UI so that all the captured images,
+// logs videos all are deleted"): a run, every finished one, or those older than N days; and how long they are kept
+function DeleteResults({ keepDays, onChange }) {
+  const [ask, setAsk] = useState(null);       // {runs, label}
+  const [typed, setTyped] = useState("");
+  const [days, setDays] = useState(keepDays ?? 30);
+  const [msg, setMsg] = useState("");
+  useEffect(() => { setDays(keepDays ?? 30); }, [keepDays]);
+  const go = async () => {
+    try {
+      const x = await apiFetch("/api/v1/admin/tests/delete", { method: "POST", body: JSON.stringify(ask.body) });
+      setMsg(x.message); setAsk(null); setTyped(""); onChange();
+    } catch (e) { setMsg(e.message); }
+  };
+  const saveDays = async () => {
+    try { await apiFetch("/api/v1/admin/tests/settings", { method: "PUT", body: JSON.stringify({ keep_days: Number(days) || 0 }) }); setMsg(Number(days) ? `Test results are kept ${days} days.` : "Test results are kept until deleted."); onChange(); }
+    catch (e) { setMsg(e.message); }
+  };
   return (
+    <div className="row-gap filters test-delete">
+      <button onClick={() => setAsk({ body: { runs: "all" }, label: "every finished test run" })}>Delete all test results...</button>
+      <label className="small">Keep test results <input type="number" min="0" max="3650" value={days} onChange={(e) => setDays(e.target.value)} style={{ width: 70 }} /> days
+        (0: until deleted)</label>
+      <button className="linkish" onClick={saveDays}>Save</button>
+      {msg && <span className="small">{msg}</span>}
+      {ask && (
+        <Modal title="Delete test results for good?" onClose={() => setAsk(null)}
+          actions={<><button onClick={() => setAsk(null)}>Keep them</button>
+            <button className="danger" disabled={typed !== "DELETE"} onClick={go}>Delete</button></>}>
+          <p>This deletes {ask.label} for good: its test data, its results and screenshots, and its reports, logs and videos
+            in work/tests. It cannot be undone. A run still going is left.</p>
+          <label>Type DELETE <input value={typed} onChange={(e) => setTyped(e.target.value)} autoFocus /></label>
+        </Modal>)}
+    </div>
+  );
+}
+
+function History({ runs, onOpen, busy, onRepeat, keepDays, onChange }) {
+  const [msg, setMsg] = useState("");
+  if (!runs.length) return <><DeleteResults keepDays={keepDays} onChange={onChange} /><p className="quiet">No self-test yet.</p></>;
+  const del = async (r) => {
+    // eslint-disable-next-line no-alert
+    if (!window.confirm(`Delete self-test ${r.id} for good: its test data, results, screenshots, report, log and videos?`)) return;
+    try { const x = await apiFetch("/api/v1/admin/tests/delete", { method: "POST", body: JSON.stringify({ runs: [r.id] }) }); setMsg(x.message); onChange(); }
+    catch (e) { setMsg(e.message); }
+  };
+  return (
+    <>
+    <DeleteResults keepDays={keepDays} onChange={onChange} />
+    {msg && <p className="small status">{msg}</p>}
     <table className="grid-table test-run-table">
       <thead><tr><th>Run</th><th>Started</th><th>By</th><th>What</th><th>Result</th><th className="num">Passed</th>
         <th className="num">Failed</th><th className="num">Skipped, warnings</th><th>Took</th><th>Fixtures</th><th /></tr></thead>
@@ -452,21 +458,86 @@ function History({ runs, onOpen }) {
             <td>{r.started_by}<span className="quiet small"> · {r.trigger}</span></td>
             <td className="small">{what(r)}{r.command && <div><code className="quiet" title="The same run from the command line">{r.command}</code></div>}</td>
             <td><span className={cls(r.state)}>{STATE[r.state] || r.state}</span>
-              {r.state === "error" && r.message && <div className="bad-text small">{r.message}</div>}</td>
+              {r.state === "error" && r.message && <div className="bad-text small">{r.message}</div>}
+              {r.followed_up_by && <div className="ok-text small">followed up by run {r.followed_up_by}</div>}</td>
             <td className="num">{r.passed || ""}</td>
             <td className={`num${r.failed ? " bad-text" : ""}`}>{r.failed || ""}</td>
             <td className="num">{r.skipped || ""}</td>
             <td className="nowrap small">{took(r)}</td>
             <td className="small">{r.purged_at ? <span className="quiet">removed</span> : r.fixtures}</td>
-            <td><button className="linkish" onClick={() => onOpen(r.id)}>Results</button></td>
+            <td className="nowrap"><button className="linkish" onClick={() => onOpen(r.id)}>Results</button>
+              {r.failed > 0 && !r.followed_up_by && <> · <RepeatButton run={r} busy={busy} onStarted={onRepeat} small /></>}
+              {!open_(r) && <> · <button className="linkish" onClick={() => del(r)}>Delete</button></>}</td>
           </tr>
         ))}
       </tbody>
     </table>
+    </>
   );
 }
 
-function RunDetail({ id, onClose }) {
+// the functional health of a run and its ring (R2.35, owner, 12 Nov 2026): every check is critical or not
+// (eax/testing/health.py); Not healthy when a critical one failed, Degraded when many non-critical ones failed or a
+// critical one warns, else Healthy. Security findings are shown beside it, never counted against it.
+const RING_COLOURS = { "critical failed": "#b42318", "non-critical failed": "#e8833a", warning: "#d4a72c", skipped: "#9aa3af", passed: "#2e7d4f" };
+const HEALTH_CLASS = { Healthy: "ok", Degraded: "amber", "Not healthy": "bad", "Not known": "off" };
+function Ring({ parts, size = 120, label }) {
+  const total = parts.reduce((a, [, n]) => a + n, 0) || 1;
+  const r = size / 2 - 10, c = 2 * Math.PI * r, cx = size / 2;
+  let at = 0;
+  const failed = parts.filter(([k]) => k.endsWith("failed")).reduce((a, [, n]) => a + n, 0);
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label={`${label}: ${failed} failed of ${total}`}>
+      <circle cx={cx} cy={cx} r={r} fill="none" stroke="#e5e7eb" strokeWidth="16" />
+      {parts.filter(([, n]) => n > 0).map(([k, n]) => {
+        const f = n / total;
+        const el = <circle key={k} cx={cx} cy={cx} r={r} fill="none" stroke={RING_COLOURS[k]} strokeWidth="16"
+          strokeDasharray={`${f * c} ${c}`} strokeDashoffset={-at * c} transform={`rotate(-90 ${cx} ${cx})`}><title>{`${k}: ${n}`}</title></circle>;
+        at += f;
+        return el;
+      })}
+      <text x={cx} y={cx - 2} textAnchor="middle" fontSize="20" fontWeight="700" fill="currentColor">{failed}</text>
+      <text x={cx} y={cx + 15} textAnchor="middle" fontSize="11" fill="currentColor">failed</text>
+    </svg>
+  );
+}
+export function HealthPanel({ h }) {
+  if (!h) return null;
+  const c = h.critical, nc = h.non_critical;
+  const parts = [["critical failed", c.failed], ["non-critical failed", nc.failed], ["warning", c.warning + nc.warning],
+    ["skipped", c.skipped + nc.skipped], ["passed", c.passed + nc.passed]];
+  return (
+    <div className="test-health">
+      <Ring parts={parts} label="Every check" />
+      <div>
+        <p><span className={`rag ${HEALTH_CLASS[h.health] || "off"}`}>Functional health: {h.health}</span></p>
+        <p className="small">{h.reason}</p>
+        <p className="small quiet">Critical: {c.passed} passed, {c.failed} failed, {c.warning} warnings, {c.skipped} skipped ·
+          Non-critical: {nc.passed} passed, {nc.failed} failed, {nc.warning} warnings · Security (not counted in the health):
+          {" "}{h.security.failed} failed, {h.security.warning} warnings</p>
+        <p className="small test-legend">{Object.entries(RING_COLOURS).map(([k, col]) => <span key={k}><i style={{ background: col }} />{k}</span>)}</p>
+      </div>
+    </div>
+  );
+}
+
+// a repeat beside the run it repeats (R2.36): each check then and now
+function RepeatPanel({ rp }) {
+  if (!rp) return null;
+  return (
+    <div className="test-repeat-panel">
+      <p><b>Repeat of self-test {rp.of}</b>{rp.with_warnings ? " (with its warnings)" : ""}: {rp.fixed} of {rp.checks.length} now pass
+        {rp.all_passed ? `; self-test ${rp.of} is marked as followed up.` : "."}</p>
+      <table className="grid-table test-results"><thead><tr><th>Suite</th><th>Check</th><th>Then</th><th>Now</th></tr></thead>
+        <tbody>{rp.checks.map((c) => (
+          <tr key={`${c.suite} ${c.name}`}><td className="small">{c.suite}</td><td className="small">{c.name}</td>
+            <td><span className={cls(c.then)}>{OUTCOME[c.then] || c.then}</span></td>
+            <td><span className={cls(c.now)}>{OUTCOME[c.now] || c.now}</span></td></tr>))}</tbody></table>
+    </div>
+  );
+}
+
+function RunDetail({ id, onClose, busy, onRepeat }) {
   const [outcome, setOutcome] = useState("");
   const [suite, setSuite] = useState("");
   const [d, setD] = useState(null);
@@ -482,11 +553,15 @@ function RunDetail({ id, onClose }) {
   const run = d?.run;
   return (
     <Modal wide title={`Self-test ${id}${run ? `: ${STATE[run.state] || run.state}` : ""}`} onClose={onClose}
-      actions={<><button onClick={() => rep("html")}>Download report (HTML)</button><button onClick={() => rep("xlsx")}>Excel</button>
+      actions={<>{run && <RepeatButton run={run} busy={busy} onStarted={onRepeat} />}
+        <button onClick={() => rep("html")}>Download report (HTML)</button><button onClick={() => rep("xlsx")}>Excel</button>
         <button onClick={onClose}>Close</button></>}>
       {err && <p className="status bad">{err}</p>}
       {run && <p className="small">{what(run)} · {run.message} · version {run.version || "?"} · started by {run.started_by} ({run.trigger})
         {" "}{fmtDateTime(run.started_at || run.queued_at)}{run.purged_at ? ` · fixtures removed by ${run.purged_by}` : ""}</p>}
+      {run?.followed_up_by && <p className="status ok small">Followed up: every check that failed here passes in run {run.followed_up_by}.</p>}
+      {d?.health && <HealthPanel h={d.health} />}
+      <RepeatPanel rp={d?.repeat} />
       <div className="toolbar">
         <label>Show <select value={outcome} onChange={(e) => setOutcome(e.target.value)}>
           <option value="">everything</option>{Object.entries(OUTCOME).map(([k, l]) => <option key={k} value={k}>{l.toLowerCase()} only</option>)}</select></label>
@@ -563,11 +638,16 @@ function FixturesTab({ runs }) {
         <button onClick={() => setSel(new Set(rows.map((r) => r.id)))} disabled={!rows.length}>{run ? "All of this run" : "All runs"}</button>
         <button onClick={() => setSel(new Set())} disabled={!sel.size}>None</button>
         <button className="danger" disabled={!sel.size} onClick={() => setAsk(true)}>Delete selected ({sel.size})</button>
+        {/* one click for all of it, as `eax test clean` (R2.0.1, D593); each run also removes what earlier runs left */}
+        {!run && <button className="danger" disabled={!rows.length} onClick={() => { setSel(new Set(rows.map((r) => r.id))); setAsk(true); }}>
+          Delete all test data</button>}
         {err && <span className="small bad-text">{err}</span>}
       </div>
       {task && <p className={`small ${task.status === "failed" ? "bad-text" : ""}`}>Purging: {task.status}{task.progress != null ? ` ${task.progress}%` : ""}
         {task.note ? ` · ${task.note}` : ""}{task.message ? ` · ${task.message}` : ""}</p>}
-      {rows.length === 0 ? <p className="quiet">No self-test fixtures: nothing to remove.</p> : (
+      <p className="quiet small">Every test run removes the test data earlier runs left before it starts; delete it here at any time
+        (the same as <code>eax test clean</code>).</p>
+      {rows.length === 0 ? <p className="quiet">No test data: nothing to remove.</p> : (
         <table className="grid-table">
           <thead><tr><th><span className="sr-only">Choose</span></th><th>Run</th><th>Kind</th><th>Name</th><th>Made</th><th>Size</th></tr></thead>
           <tbody>
@@ -584,7 +664,7 @@ function FixturesTab({ runs }) {
           </tbody>
         </table>)}
       {ask && (
-        <Modal title={`Delete ${chosen.length} self-test fixture(s) for good?`} onClose={() => setAsk(false)}
+        <Modal title={`Delete ${chosen.length} item(s) of test data for good?`} onClose={() => setAsk(false)}
           actions={<><button onClick={() => setAsk(false)}>Cancel</button>
             <button className="danger" disabled={typed !== "DELETE"} onClick={purge}>Delete for good</button></>}>
           <p><b>This cannot be undone.</b> The self_test models and everything in them (entities, relationships, history, tags,
@@ -605,52 +685,5 @@ export function LastSelfTest() {
   return (
     <p className="small last-self-test">Self-test: {r ? <><span className={cls(r.state)}>{STATE[r.state]}</span> · {what(r)} · {fmtDateTime(r.finished_at || r.queued_at)}</> : "never run"}
       {" "}· <a href="#/admin/self-test">Self-test</a></p>
-  );
-}
-
-
-// ---------------------------------------------------------------- settings survive a reset (D561), opt-in only
-function ResetSurvival() {
-  const [d, setD] = useState(null);
-  const [on, setOn] = useState(false);
-  const [typed, setTyped] = useState("");
-  const [understood, setUnderstood] = useState(false);
-  const [msg, setMsg] = useState("");
-  const [busy, setBusy] = useState(false);
-  useEffect(() => { apiFetch("/api/v1/admin/commands/reset-survival").then(setD).catch(() => {}); }, []);
-  if (!d) return null;
-  const start = async () => {
-    setBusy(true); setMsg("");
-    try {
-      const r = await apiFetch("/api/v1/admin/commands/run", { method: "POST",
-        body: JSON.stringify({ argv: ["test", "--reset-survival"], confirm: { typed, understood } }) });
-      setMsg(`Started (${r.command}). EA Explorer goes offline now; open this address again in a few minutes and look below.`);
-    } catch (e) { setMsg(e.message); }
-    setBusy(false);
-  };
-  return (
-    <section className="self-test-reset" aria-label="Settings survive a reset">
-      <h3>Settings survive a reset</h3>
-      <p className="small quiet">Checks that the schedules, the banner and the safety backups in <code>persist/</code> outlive a real
-        <code> eax clean-restart</code>: it writes markers there, resets, waits for EA Explorer to come back and checks them. Never part of
-        the smoke or detailed runs. Also <code>eax test --reset-survival</code>.</p>
-      {d.you?.super_admin ? <>
-        <label className="check"><input type="checkbox" checked={on} onChange={(e) => setOn(e.target.checked)} /> <b>Includes a full reset: deletes all data</b></label>
-        {on && <div className="status bad" role="alert">
-          <p>This runs a real <code>eax clean-restart</code>: every database, the document files, the config file, the logs and work/backups are deleted,
-            and EA Explorer starts again with the sample data. A safety backup is taken first into persist/safety-backups.</p>
-          <label>Type the installation's name, <strong>{d.installation}</strong>, to confirm <input value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" /></label>
-          <label className="check"><input type="checkbox" checked={understood} onChange={(e) => setUnderstood(e.target.checked)} /> I understand that this deletes all data</label>
-          <div className="toolbar"><button className="danger" disabled={busy || !understood || typed.trim() !== d.installation} onClick={start}>Reset and test</button></div>
-        </div>}
-      </> : <p className="small quiet">Only Super Admins can run it.</p>}
-      {msg && <p className="small">{msg}</p>}
-      {d.runs.length > 0 && <table className="grid-table">
-        <thead><tr><th>Run</th><th>Started</th><th>Result</th><th>Checks</th></tr></thead>
-        <tbody>{d.runs.map((r) => <tr key={r.id}><td>{r.id}</td><td>{fmtDateTime(r.started)}</td>
-          <td><span className={cls(r.state)}>{r.state}</span></td>
-          <td className="small">{(r.checks || []).map((c) => <div key={c.name}>{c.result === "passed" ? "passed" : "FAILED"}: {c.name}{c.note ? ` (${c.note})` : ""}</div>)}</td></tr>)}</tbody>
-      </table>}
-    </section>
   );
 }

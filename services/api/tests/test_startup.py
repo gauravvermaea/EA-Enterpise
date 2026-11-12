@@ -72,8 +72,16 @@ def test_compose_and_scripts_start_in_two_tiers():
         assert core in sh.split('CORE_SERVICES="')[1].split('"')[0].split()
     assert "Wait-Core" in ps1 and "start-later" in ps1 and "--no-deps" in ps1
     assert "wait_core" in sh and "start-later" in sh and "--no-deps" in sh
+    # the set-up holds Reports back only for what the server needs; the content waits for the sample data, in the
+    # background, once Reports has started (R2.39)
     init = (REPO / "deploy" / "superset" / "superset-init.sh").read_text()
-    assert "http://api:8000/api/startup" in init and init.index("api/startup") < init.index("python /app/eax/eax_reports_init.py")
+    content = (REPO / "deploy" / "superset" / "reports-content.sh").read_text()
+    start = (REPO / "deploy" / "superset" / "reports-start.sh").read_text()
+    assert "superset db upgrade" in init and "eax_import_reports" not in init and "api/startup" not in init
+    assert "http://api:8000/api/startup" in content and content.index("api/startup") < content.index("python /app/eax/eax_reports_init.py")
+    assert 'json.load(r).get("parts", [])' in content            # the public answer lists the parts, "later" among them
+    assert "reports-content.sh" in start and start.index("&") < start.index("exec")
+    assert compose["services"]["reports"]["command"] == ["/bin/sh", "/app/eax/reports-start.sh"]
 
 
 def test_pictures_save_as_drawn_views():
@@ -83,3 +91,60 @@ def test_pictures_save_as_drawn_views():
     assert "export function openDrawio(" not in ex and "export function drawioXml(" in ex and "export function tidy(" in ex
     for f in web.glob("*.jsx"):
         assert "openDrawio" not in f.read_text(), f.name
+
+
+def test_the_helper_starts_reports_left_created_after_its_set_up(tmp_path, monkeypatch):
+    """R2.23 (owner, 12 Nov 2026): after a clean restart Reports stayed "reports: Created" (its set-up had finished, but
+    the `eax up` waiting to start it had ended); the operations helper starts it, unless Reports is switched off or its
+    set-up did not finish well."""
+    import importlib.util
+    from pathlib import Path
+    work = tmp_path / "work"
+    work.mkdir()
+    (work / "eaexplorer.env").write_text("EAX_TIMEZONE=UTC\n")
+    for k in ("EAX_WORK_MOUNT", "EAX_BACKUP_MOUNT", "EAX_REPO_MOUNT"):
+        monkeypatch.setenv(k, str(work))
+    spec = importlib.util.spec_from_file_location("ops_after_setup", Path(__file__).resolve().parents[2] / "ops" / "ops.py")
+    ops = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ops)
+    rows = [{"service": "reports-init", "name": "eaexplorer-reports-init-1", "state": "exited", "status": "Exited (0) 2 minutes ago"},
+            {"service": "reports", "name": "eaexplorer-reports-1", "state": "created", "status": "Created"}]
+    assert ops.created_after_setup(rows, {"reports": True}) == ["eaexplorer-reports-1"]
+    assert ops.created_after_setup(rows, {"reports": False}) == []                      # switched off: left created
+    rows[0]["status"] = "Exited (1) 2 minutes ago"
+    assert ops.created_after_setup(rows, {"reports": True}) == []                       # its set-up failed
+    rows[0]["state"], rows[0]["status"] = "running", "Up 1 minute"
+    assert ops.created_after_setup(rows, {"reports": True}) == []                       # still setting up
+
+
+def test_a_loader_that_stopped_is_shown_as_stopped_not_loading_for_ever():
+    """R2.39 (owner, 12 Nov 2026: the API ran out of memory; Sample data stayed at "loading 9 of 29"): a part that has
+    not moved for STALE_MINUTES is shown as stopped, saying the next start (or the job) carries on."""
+    from eax import startup_status as ss
+
+    class Conn:
+        def __init__(self, row):
+            self.row = row
+
+        def execute(self, *a, **k):
+            row = self.row
+
+            class R:
+                def mappings(self):
+                    return self
+
+                def first(self):
+                    return row
+            return R()
+    later = ss._later(Conn({"part": "later", "name": "Sample data", "state": "starting", "done": 9, "total": 29,
+                            "detail": "", "started_at": None, "finished_at": None, "stale": True}))
+    assert later["status"] == "down" and "stopped at 9 of 29" in later["detail"]
+    packs = ss._packs(Conn({"state": "starting", "done": 0, "total": 97, "detail": "", "stale": True}))
+    assert packs["status"] == "down" and "stopped at 0 of 97" in packs["detail"]
+
+
+def test_the_api_has_room_on_a_laptop():
+    """R2.39: 768 MB was not enough for the API servers, the job runner and the start-up work together."""
+    import yaml
+    laptop = yaml.safe_load((REPO / "deploy" / "compose" / "docker-compose.laptop.yml").read_text())
+    assert laptop["services"]["api"]["deploy"]["resources"]["limits"]["memory"] == "2g"
