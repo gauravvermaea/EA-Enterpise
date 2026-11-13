@@ -1,4 +1,4 @@
-"""Version 1.1.0: Release 2 (records the version only).
+"""Prepared as version 1.1.0 for Release 2; 2.0.0 was chosen (0067). Records nothing new.
 
 Revision ID: 0066_release_1_1_0
 Revises: 0065_model_ancestors_concurrency
@@ -25,5 +25,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    raw = op.get_bind().connection.driver_connection
-    raw.execute("DELETE FROM core.schema_versions WHERE version = '1.1.0'")
+    pass
