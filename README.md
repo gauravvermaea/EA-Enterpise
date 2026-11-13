@@ -27,9 +27,9 @@ documentation**, refreshed at every start (D550 to D552). On the command line, `
 **All the documentation, listed with what each covers: [docs/index.md](docs/index.md).** Backup and restore
 commands: [below](#backup-and-restore-from-the-command-line) and in [docs/operations.md](docs/operations.md#backup-and-restore-from-the-command-line-d227).
 
-**Status: version 1.0.0, Release 1, released 11 Nov 2026** (tag `v1.0.0` on the `release` branch; release notes:
-[releases/1.0.0.md](releases/1.0.0.md)). Release 2 is being planned (the R2 rows in
-[docs/build-phases.md](docs/build-phases.md)); it starts with the self-test in its own container. The short list is
+**Status: version 1.1.0, Release 2, released 13 Nov 2026** (tag `v1.1.0` on the `release` branch; release notes:
+[releases/1.1.0.md](releases/1.1.0.md); Release 1: [releases/1.0.0.md](releases/1.0.0.md)). Release 3 is being planned (the
+R3 rows in [docs/build-phases.md](docs/build-phases.md)). The short list is
 below; every phase in detail: [docs/build-phases.md](docs/build-phases.md). Database design:
 [docs/database.md](docs/database.md). How it is built (for developers and AI agents):
 [docs/architecture.md](docs/architecture.md), [AGENTS.md](AGENTS.md); the high-level technical architecture (under 10 pages):

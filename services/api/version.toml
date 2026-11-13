@@ -4,4 +4,4 @@
 # differ (for example a new API image against a database whose migrations did not run).
 # Bump it in every build phase: phase N is 0.N.0 until version 1.0; additions between phases
 # take the next patch number (0.2.1).
-version = "1.0.0"
+version = "1.1.0"
