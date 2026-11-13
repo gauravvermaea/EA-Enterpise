@@ -445,6 +445,7 @@ def run_sequence(level: str, suites: list[str], role: str = "", area: str = "", 
         current.clear()
         current.update(busy=True, started=time.time(), run_id=run_id, level=level, suites=suites, by=by, stop="")
     folder = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + (f"-run{run_id}" if run_id else "")
+    beating = None
     project = H["project"]() or "eaexplorer"
     name = f"{project}-testrunner"
     try:
@@ -455,6 +456,7 @@ def run_sequence(level: str, suites: list[str], role: str = "", area: str = "", 
         os.makedirs(f"{WORK}/tests/{folder}", exist_ok=True)
         os.chmod(f"{WORK}/tests/{folder}", 0o777)
         current["folder"] = folder
+        beating = keep_beating(f"{WORK}/tests/{folder}")   # this run is being run, scans and collect included (R2.64)
         cmd = ["run", "--level", level, "--suites", ",".join(suites), "--trigger", trigger, "--folder", folder]
         for flag, value in (("--run-id", str(run_id) if run_id else ""), ("--by", by), ("--role", role), ("--area", area)):
             if value:
@@ -500,8 +502,30 @@ def run_sequence(level: str, suites: list[str], role: str = "", area: str = "", 
                 pass
         return {"run_id": run_id, "folder": folder, "code": 1, "error": str(exc)}
     finally:
+        if beating is not None:
+            beating.set()
         with _lock:
             current.update(busy=False, finished=time.time())
+
+
+# "being run" (R2.64): the same heartbeat as services/api/eax/testing/alive.py (this helper does not import it): .alive in
+# the run's folder every 20 seconds; the API closes a running run as stopped when it is older than 3 minutes
+BEAT_FILE, BEAT_EVERY = ".alive", 20
+
+
+def keep_beating(folder: str) -> threading.Event:
+    stop = threading.Event()
+
+    def loop() -> None:
+        while not stop.is_set():
+            try:
+                with open(os.path.join(folder, BEAT_FILE), "w", encoding="utf-8") as f:
+                    f.write(str(int(time.time())))
+            except OSError:
+                pass
+            stop.wait(BEAT_EVERY)
+    threading.Thread(target=loop, daemon=True, name="selftest-heartbeat").start()
+    return stop
 
 
 def _collect(info: dict, name: str, folder: str, run_id: int, extra: list[str], follow=None) -> int:

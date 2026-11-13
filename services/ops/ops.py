@@ -1974,17 +1974,20 @@ class Handler(BaseHTTPRequestHandler):
             return False
         return True
 
-    def _hostwatch_call(self, fn):
+    def _hostwatch_call(self, fn) -> bool:
+        """Answers once and says so (True), so do_GET stops there: _send returns None, which made the handler go on and
+        send a second answer, a 404, after the first (the ops log: "GET /alerts -> 200" then "GET /alerts -> 404")."""
         try:
-            return self._send(200, fn())
+            self._send(200, fn())
         except FileNotFoundError as exc:
-            return self._send(404, {"message": str(exc)})
+            self._send(404, {"message": str(exc)})
         except PermissionError as exc:
-            return self._send(403, {"message": str(exc)})
+            self._send(403, {"message": str(exc)})
         except (ValueError, FileExistsError) as exc:
-            return self._send(409, {"message": str(exc)})
+            self._send(409, {"message": str(exc)})
         except Exception as exc:  # noqa: BLE001
-            return self._send(500, {"message": str(exc)[:500]})
+            self._send(500, {"message": str(exc)[:500]})
+        return True
 
     def _hostwatch_get(self):
         """GET /hosts, /mounts, /mounts/<id>[/search], /containers/<s>/files[/content|/download], /alerts (R2.16-R2.19)."""

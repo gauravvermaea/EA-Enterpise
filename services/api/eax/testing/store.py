@@ -289,6 +289,31 @@ def progress(conn, run: dict[str, Any], done: int) -> dict[str, Any]:
             "percent": round(100 * done / total) if total else 100}
 
 
+GONE = "EA Explorer, as its test runner was no longer running (restarted or removed)"
+
+
+def close_orphans(conn, root=None, now: float | None = None) -> list[int]:
+    """Closes as stopped every run marked running that no one is running any more (R2.64; owner, 13 Nov 2026: a run killed
+    by `eax up` stayed "Running" and Stop could not end it): no heartbeat in its folder for alive.STALE seconds, and
+    started more than alive.GRACE seconds ago. Queued runs wait for a runner and are left alone. Where work/tests cannot
+    be read (a platform without a local file system, R2.44) nothing is closed. Returns the runs closed."""
+    from pathlib import Path
+
+    from . import alive
+    root = Path(root) if root is not None else alive.results_root()
+    if not root.is_dir():
+        return []
+    rows = conn.execute(text("""SELECT id, folder, EXTRACT(EPOCH FROM COALESCE(started_at, queued_at)) AS started
+                                  FROM tests.test_runs WHERE state = 'running'""")).mappings().all()
+    closed = []
+    for r in rows:
+        folder = root / r["folder"] if r["folder"] else None
+        if alive.is_orphan(folder, float(r["started"]) if r["started"] is not None else None, now):
+            finish(conn, int(r["id"]), stopped=GONE)
+            closed.append(int(r["id"]))
+    return closed
+
+
 def finish(conn, run_id: int, error: str = "", stopped: str = "") -> str:
     """Counts the results and closes the run: stopped when someone stopped it, error when the run itself broke, failed
     when any check failed, else passed."""

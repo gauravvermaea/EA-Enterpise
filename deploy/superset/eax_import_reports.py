@@ -4,7 +4,7 @@ Phase 5 ran `superset import-dashboards` once per dashboard. Each run starts the
 (10 to 20 seconds), which was fine for 32 dashboards and far too slow for 111. This script starts Superset
 once and imports every zip in /rendered/superset/reports with the same command the CLI uses, one dashboard at
 a time, so one that fails does not stop the others. A dashboard whose zip has not changed since the last
-import (same SHA-256, kept in superset_home) is skipped, so later starts are quick.
+import (same SHA-256, kept in superset_home) and still in Superset is skipped, so later starts are quick.
 """
 
 from __future__ import annotations
@@ -47,7 +47,10 @@ def main() -> int:
         except ImportError:   # Superset before 4.0
             from superset.dashboards.commands.importers.dispatcher import ImportDashboardsCommand
 
+        from superset.models.dashboard import Dashboard
+
         g.user = sm.find_user(username="admin")
+        have = {d.slug for d in db.session.query(Dashboard.slug).all()}
         try:
             stamps = json.loads(STAMPS.read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -56,7 +59,7 @@ def main() -> int:
         started = time.monotonic()
         for i, z in enumerate(zips, 1):
             digest = hashlib.sha256(z.read_bytes()).hexdigest()
-            if stamps.get(z.name) == digest:
+            if stamps.get(z.name) == digest and z.stem in have:   # unchanged and still there
                 skipped += 1
                 continue
             try:

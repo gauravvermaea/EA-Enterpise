@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from . import commands as C
@@ -143,7 +143,7 @@ def zone(root: Path | str | None = None):
         from zoneinfo import ZoneInfo
         return ZoneInfo(name)
     except Exception:  # noqa: BLE001 - an unknown zone: UTC
-        return timezone.utc
+        return UTC
 
 
 def path(root: Path | str | None = None) -> Path:

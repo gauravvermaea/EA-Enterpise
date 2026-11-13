@@ -57,6 +57,15 @@ def _ops_message(exc: Exception) -> str:
     return str(msg)
 
 
+def _tidy() -> list[int]:
+    """Closes the runs no one is running any more (R2.64) before a page shows them or a run starts; never fails a call."""
+    try:
+        with store.engine().begin() as conn:
+            return store.close_orphans(conn)
+    except Exception:  # noqa: BLE001 - only tidying
+        return []
+
+
 @blp.route("/tests")
 class Tests(MethodView):
     @blp.doc(security=SECURITY)
@@ -66,6 +75,7 @@ class Tests(MethodView):
         """Self-test runs, newest first; the test runner (built, a run going on); the choices (levels, suites, roles,
         areas) and how long each kind of run takes"""
         from ..machine_access import AREAS
+        _tidy()
         with store.engine().connect() as conn:
             runs = store.runs(conn, int(request.args.get("limit", 30)))
         try:
@@ -103,6 +113,7 @@ class Tests(MethodView):
         # always prepare the runner first (owner, 11 Nov 2026, D584): `docker compose build` is near-instant when the image is
         # current (layer cache) and rebuilds it when the code or version changed, so no one builds it by hand
         build_first = data.get("build_first", True) is not False
+        _tidy()                                       # a run left "running" by a runner that is gone does not block (R2.64)
         with get_engine().begin() as conn, store.tests(conn) as tc:
             busy = tc.execute(text("SELECT id FROM tests.test_runs WHERE state IN ('queued', 'running') "
                                    "AND queued_at > now() - interval '3 hours' ORDER BY id DESC LIMIT 1")).scalar()
@@ -247,6 +258,7 @@ class TestRun(MethodView):
     def get(self, run_id):
         """A run: its results (failures first; ?outcome=passed|failed|skipped|warning, ?suite=), its files, its fixtures;
         while it waits for a watching browser also its ticket and the journeys to drive"""
+        _tidy()
         with store.engine().connect() as conn:
             d = store.run_detail(conn, run_id, request.args.get("outcome", ""), request.args.get("suite", ""))
             if not d:
@@ -320,7 +332,10 @@ class TestStop(MethodView):
     @blp.response(200, Free)
     @require_auth("system.operate")
     def post(self, run_id):
-        """Stops a running self-test: it ends at its next step, keeps what it found, and its tokens are revoked"""
+        """Stops a running self-test: it ends at its next step, keeps what it found, and its tokens are revoked; one no one is
+        running any more (its test runner was restarted or removed) is closed as stopped at once (R2.64)"""
+        if run_id in _tidy():
+            return {"message": f"Self-test {run_id} is closed as stopped: its test runner was no longer running."}
         with get_engine().begin() as conn, store.tests(conn) as tc:
             if not store.ask_stop(tc, run_id, g.user.username):
                 abort(409, message=f"Self-test {run_id} is not running.")

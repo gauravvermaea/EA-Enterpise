@@ -170,3 +170,28 @@ def test_the_iteration_shows_at_once_after_saving():
     assert "if (onSaved && r.iteration) onSaved({ ...r.iteration, frozen_phases: r.frozen || [] });" in src
     it = _read("services", "api", "eax", "iterations.py")
     assert 'return {"iteration": now, "frozen": frozen,' in it                 # what saving answers carries both
+
+
+def test_a_helper_answer_is_sent_once():
+    """13 Nov 2026 (the operations log: "GET /alerts -> 200" then "GET /alerts -> 404"): _hostwatch_call returned what
+    _send returned (None), so do_GET went on and sent a second answer. It now says True: answered, stop here."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("ops_answer_once", REPO / "services" / "ops" / "ops.py")
+    ops = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ops)
+    sent = []
+    h = ops.Handler.__new__(ops.Handler)
+    h._send = lambda code, body: sent.append(code)                      # returns None, as the real one
+    assert h._hostwatch_call(lambda: {"ok": 1}) is True and sent == [200]
+
+    def missing():
+        raise FileNotFoundError("no such mount")
+    assert h._hostwatch_call(missing) is True and sent == [200, 404]
+
+
+def test_a_report_deleted_from_reports_is_imported_again():
+    """A report removed in Reports (Superset) stayed missing: its file was unchanged, so its import was skipped. It is
+    skipped now only when it is unchanged and still there (its dashboard's slug is the file's name)."""
+    src = _read("deploy", "superset", "eax_import_reports.py")
+    assert "have = {d.slug for d in db.session.query(Dashboard.slug).all()}" in src
+    assert "if stamps.get(z.name) == digest and z.stem in have:" in src

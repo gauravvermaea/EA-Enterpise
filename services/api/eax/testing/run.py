@@ -31,6 +31,7 @@ from pathlib import Path
 from sqlalchemy import text
 
 from . import (
+    alive,
     api_matrix,
     api_writes,
     db_checks,
@@ -553,6 +554,7 @@ def cmd_run(args) -> int:
                                 {"id": run_id}).mappings().first())
     print(f"RUN_ID={run_id}", flush=True)
     r = Run(engine, run_id, folder, repo)
+    alive.keep_beating(r.dir)                        # "being run" for as long as this process lives (R2.64)
     by = run["started_by"]
     error, stopped, keep_open = "", "", False
     try:
@@ -753,6 +755,7 @@ def cmd_collect(args) -> int:
         return 0 if row[1] == "passed" else 1
     r = Run.__new__(Run)
     r.engine, r.repo, r.id, r.folder, r.dir = engine, repo, args.run_id, row[0], RESULTS / row[0]
+    alive.keep_beating(r.dir)                        # collecting: still being run (R2.64)
     r.dir.mkdir(parents=True, exist_ok=True)
     r.only, r.ids, r.left_out, r.counts = None, {}, 0, {}
     with engine.connect() as conn:                   # a repeat records only the scans that failed before (R2.36)

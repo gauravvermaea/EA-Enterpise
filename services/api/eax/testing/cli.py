@@ -43,6 +43,12 @@ def _line(r: dict) -> str:
 def main(argv: list[str]) -> int:
     cmd, args = (argv[0] if argv else "last"), argv[1:]
     eng, teng = _engine(), store.engine()
+    try:                                              # runs no one is running any more are closed first (R2.64)
+        with teng.begin() as conn:
+            for rid in store.close_orphans(conn):
+                print(f"Self-test {rid} is closed as stopped: its test runner was no longer running.")
+    except Exception:  # noqa: BLE001, S110 - only tidying
+        pass
     with teng.connect() as conn:
         runs = store.runs(conn, 50)
     if cmd == "status":

@@ -126,7 +126,7 @@ testbench/data's good delivery, accept, undo), survey (make, send, answer as the
 that may not, who must find the button missing or disabled (D583). The smoke test runs the first three, once.
 
 **Start** shows how long it should take and asks you to confirm. Then you see live counts, the current step and the
-failures as they come, with **Stop**. Tests always start at once; there is no scheduling.
+failures as they come, with **Stop**. Tests always start at once; there is no scheduling. A run whose test runner was restarted or removed (an `eax up` while it ran) closes itself as stopped within a few minutes, or at once on **Stop**: whoever runs a run touches `.alive` in its folder every 20 seconds, and a running run without one for 3 minutes is no longer being run (R2.64, D656).
 
 ## Results and the report
 
