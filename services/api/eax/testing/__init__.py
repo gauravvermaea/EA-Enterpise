@@ -2,7 +2,7 @@
 
 Started from System admin > Self-test or `eax test` (all four forms, D331), at once (never scheduled), or in CI; both
 use one runner (a container of its own, services/api/Dockerfile.test, started by the operations helper) and one results
-store (core.test_runs, core.test_results, core.test_fixtures), so a run started in either place shows in both.
+store (tests.test_runs, tests.test_results, tests.test_fixtures), so a run started in either place shows in both.
 
 Levels:
   smoke     a few minutes: every test role signs in, every main area answers, the key journeys work once
@@ -17,7 +17,7 @@ Levels:
 Filters: one role, one API area.
 
 Each run has a guid; everything it needs it makes itself, named self_test_<first 12 of the guid>_<n> (models, a project)
-and svc-self-test-<id>-<role> (one service account and one-day token per role), recorded in core.test_fixtures. It never
+and svc-self-test-<id>-<role> (one service account and one-day token per role), recorded in tests.test_fixtures. It never
 changes anything it did not make; standard screens and lists are only read. Its tokens are revoked when it ends. The
 fixtures stay until an admin purges them (Self-test > Test fixtures, `eax test --clean`): a hard delete of only what the
 run recorded (fixtures.py). The report (HTML and Excel) stays after the purge, marked "fixtures removed".

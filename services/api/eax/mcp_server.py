@@ -134,6 +134,11 @@ async def _run(fn, *args, begin: bool = False, **kwargs) -> Any:
     model_arg = caller.get("model") if isinstance(caller.get("model"), str) else None
 
     def work():
+        from . import library_models
+        with library_models.route(library_models.is_library(model_arg) and not begin):   # a library model's content (R2.42)
+            return _work()
+
+    def _work():
         engine = get_engine()
         with (engine.begin() if begin else engine.connect()) as conn:
             out = fn(conn, *args, **kwargs)

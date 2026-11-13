@@ -42,7 +42,7 @@ def test_the_areas_and_where_they_sit():
     for x in ("Home", "My tasks", "My profile and skills", "My tokens and keys", 'action: "sign-out"'):
         assert x in me, x
     assert '"Help for this page (F1)", action: "help"' in MENU and '"Documentation: every document", href: "#/documentation"' in MENU
-    assert '"● Local (this site)"' in MENU
+    assert '{ label: "Sites", href: "#/farm", dynamic: "farm-sites" }' in MENU   # Local is the first site (R2.1, D646)
 
 
 def test_wizards_parent_opens_the_wizards_page_and_repository_holds_the_content_framework():

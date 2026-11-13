@@ -50,7 +50,16 @@ from ..db import get_engine
 from ..metamodel_edit import EditError
 from .admin import _ops
 from .models import Free, FreeIn
-from .sheets import _task
+from .sheets import _task as _start_task
+
+
+def _task(kind, *a, **kw):
+    """A backup task, once the backups have a folder (R2.44, D635: on a server or platform, a mounted one)."""
+    from .. import backup_folder
+    ok, why = backup_folder.ready()
+    if not ok and kind.startswith("backup."):
+        abort(409, message=why)
+    return _start_task(kind, *a, **kw)
 
 blp = Blueprint("backups", __name__, url_prefix="/api/v1", description="Backups and restores (phase 8.4)")
 SECURITY = [{"bearerAuth": []}]
@@ -88,7 +97,7 @@ def web_proven(conn) -> dict:
     with store.tests(conn) as tc:                    # the self-test's results, in the tests database (R2.28)
         row = tc.execute(text("""SELECT r.id, r.finished_at,
                                         count(*) FILTER (WHERE x.outcome = 'failed') AS failed, count(*) AS checks
-                                   FROM core.test_runs r JOIN core.test_results x ON x.run_id = r.id AND x.suite = 'backup'
+                                   FROM tests.test_runs r JOIN tests.test_results x ON x.run_id = r.id AND x.suite = 'backup'
                                   WHERE r.state IN ('passed', 'failed')
                                   GROUP BY r.id ORDER BY r.id DESC LIMIT 1""")).mappings().first()
     if not row:

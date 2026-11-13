@@ -29,6 +29,7 @@ from typing import Any
 
 from sqlalchemy import text
 
+from . import databases
 from .metamodel_edit import EditError
 
 PACKS_DIR = Path(os.environ.get("EAX_INDUSTRY_PACKS_DIR", "/data/industry-packs"))
@@ -443,14 +444,14 @@ PART = "packs"
 
 
 def _part(engine, state: str, done: int, total: int, detail: str, start: bool = False, finish: bool = False) -> None:
-    """The 'packs' row of core.startup_parts: what the start-up status shows for the industry packs."""
+    """The 'packs' row of operations.startup_parts: what the start-up status shows for the industry packs."""
     with engine.begin() as c:
-        c.execute(text("""INSERT INTO core.startup_parts (part, name, state, done, total, detail, started_at, finished_at, updated_at)
+        databases.on("operations", c).execute(text("""INSERT INTO operations.startup_parts (part, name, state, done, total, detail, started_at, finished_at, updated_at)
                           VALUES (:p, 'Industry packs', :s, :d, :t, :x, now(), NULL, now())
                           ON CONFLICT (part) DO UPDATE SET state = :s, done = :d, total = :t, detail = :x, updated_at = now(),
-                              started_at = CASE WHEN :start THEN now() ELSE core.startup_parts.started_at END,
+                              started_at = CASE WHEN :start THEN now() ELSE operations.startup_parts.started_at END,
                               finished_at = CASE WHEN :finish THEN now() WHEN :start THEN NULL
-                                                 ELSE core.startup_parts.finished_at END"""),
+                                                 ELSE operations.startup_parts.finished_at END"""),
                   {"p": PART, "s": state, "d": done, "t": total, "x": detail[:1000], "start": start, "finish": finish})
 
 

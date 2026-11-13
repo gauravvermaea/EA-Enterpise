@@ -239,9 +239,9 @@ def evidence(conn) -> list[dict]:
         people = 0
     _bypass(conn, False)
     try:
-        from .db import get_engine, get_projects_engine
+        from .db import base_engine, get_projects_engine
         peng = get_projects_engine()
-        with (contextlib.nullcontext(conn) if peng is get_engine() else peng.connect()) as pconn:
+        with (contextlib.nullcontext(conn) if peng is base_engine() else peng.connect()) as pconn:
             def pone(sql: str) -> dict:
                 with pconn.begin_nested():
                     return dict(pconn.execute(text(sql)).mappings().first() or {})

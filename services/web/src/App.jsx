@@ -20,7 +20,7 @@ import { TaskDrawer } from "./TaskDrawer";
 import NotificationsPage, { Bell, ChangeDocumentPage } from "./Notifications";
 import SurveysPage from "./Surveys";
 import Admin from "./Admin";
-import { setAppSettings } from "./fmt";
+import { fmtDateTime, setAppSettings } from "./fmt";
 import { refreshAll } from "./ModelViews";
 import ModelSwitcher, { ProjectSwitcher } from "./ModelSwitcher";
 import { SearchPage, TopSearch } from "./GridPages";
@@ -29,12 +29,14 @@ import StartupStatus from "./StartupStatus";
 import Projects, { ProjectAdmin, ProjectLibraryPage } from "./Projects";
 import { PrinciplesPage } from "./Principles";
 import MergeRequestsPage from "./MergeBack";
+import ArchivePage from "./Archive";
 import TopMenu, { MenuBar } from "./TopMenu";
 import FarmPage from "./Farm";
 import QuickJump from "./QuickJump";
 import EntityMenu from "./EntityMenu";
 import { UpdateNotice } from "./Updates";
 import { AdminBanner } from "./AdminBanner";
+import { ContainerAlertBanner } from "./Hosts";
 import HelpPanel from "./help/HelpPanel";
 import DocumentationPage from "./Documentation";
 
@@ -52,6 +54,7 @@ export default function App() {
   const route = useHashRoute();
   const signedIn = isSignedIn();
   const [version, setVersion] = useState(null);  // the product version, from the API (version.toml)
+  const [build, setBuild] = useState(null);      // its build: commit or CI number, when, channel (R2.47)
   const [, setFormatsReady] = useState(0);        // re-render once the installation's formats are in
   const [maintenance, setMaintenance] = useState(null);   // a restore is running: read only (D216)
   // a self-test in progress (R2.51, D609): who signs in meanwhile waits (testAtSignIn); those already in see a banner
@@ -60,7 +63,7 @@ export default function App() {
   useEffect(() => {
     if (!signedIn) return undefined;
     const beat = () => apiFetch("/api/v1/heartbeat").then((b) => {
-      setVersion(b.version); setMaintenance(b.maintenance || null); setTestRun(b.test_in_progress || null);
+      setVersion(b.version); setBuild({ build: b.build, built_at: b.built_at, commit: b.commit, channel: b.channel }); setMaintenance(b.maintenance || null); setTestRun(b.test_in_progress || null);
       setTestAtSignIn((was) => (was === null ? !!b.test_in_progress : was && !!b.test_in_progress));
     }).catch(() => {});
     beat();
@@ -120,9 +123,9 @@ export default function App() {
       <header className="topbar with-menu">
         <MenuBar route={route} place="left" label="Sites" />
         <a href="#/" className="brand">EA Explorer</a>
+        {version && <VersionTag version={version} build={build} />}
         <span className="tm-break" aria-hidden="true" /><TopMenu route={route} />
         <TopSearch find />
-        <Bell route={route} />
         <div className="switchers">
           <ModelSwitcher route={route} />
           <ProjectSwitcher route={route} />
@@ -130,8 +133,9 @@ export default function App() {
         <div className="user">
           <div className="user-row">
           {signedIn ? (
-            /* the menu style (D591): ? and the person's own menu (their name: User and Profile, Sign out) in one place */
-            <MenuBar route={route} place="right" label="Help and my menu" />
+            /* the menu style (D591): ? and the person's own menu (their name: User and Profile, Sign out) in one place;
+               the bell beside them, so everything about the person is together (owner, 12 Nov 2026, R2.34) */
+            <><Bell route={route} /><MenuBar route={route} place="right" label="Help and my menu" /></>
           ) : (
             <button className="primary" onClick={() => keycloak.login()}>Sign in</button>
           )}
@@ -152,6 +156,7 @@ export default function App() {
         Nothing can be changed until it is done; you will be asked to sign in again.</div>}
       {signedIn && !isBreakGlass() && <UpdateNotice />}
       {signedIn && <AdminBanner />}
+      {signedIn && <ContainerAlertBanner />}
       {signedIn && <TaskDrawer />}
       <main>
         {testRunShown && testExempt && !route.startsWith("#/admin/self-test") ? <TestOnlyPage />
@@ -167,6 +172,7 @@ export default function App() {
           : route.startsWith("#/farm") ? <FarmPage route={route} />
           : route.startsWith("#/model-admin") ? <ModelAdmin route={route} />
           : route.startsWith("#/merge-requests") ? <MergeRequestsPage route={route} />
+          : route.startsWith("#/archive") ? <ArchivePage />
           : route.startsWith("#/project-admin") ? <ProjectAdmin route={route} />
           : route.startsWith("#/project-library") ? <ProjectLibraryPage />
           : route.startsWith("#/principles") ? <PrinciplesPage />
@@ -186,7 +192,7 @@ export default function App() {
       <EntityMenu />
       <HelpPanel />
       <footer>
-        Version {version || "?"} · {config.deployment} deployment · open source (AGPL-3.0)
+        Version {version || "?"} · build {(build && build.build) || "dev"} · {config.deployment} deployment · open source (AGPL-3.0)
       </footer>
     </div>
   );
@@ -241,4 +247,13 @@ function TestOnlyPage() {
         and see its results; everything else comes back when it ends.</p>
     </div>
   );
+}
+
+// the release and its build at the top left (owner, 12 Nov 2026: "display version of application on top left - Release +
+// build number", R2.47): "1.0.0 · build 4f2a9c1"; the tooltip has the full commit, when it was built and the channel
+export function VersionTag({ version, build }) {
+  const b = build || {};
+  const tip = [`EA Explorer ${version}`, `build ${b.build || "dev"}`, b.commit && `commit ${b.commit}`,
+    b.built_at && `built ${fmtDateTime(b.built_at)}`, b.channel && `channel ${b.channel}`].filter(Boolean).join("\n");
+  return <span className="version-tag" title={tip} aria-label={tip}>{version} · build {b.build || "dev"}</span>;
 }

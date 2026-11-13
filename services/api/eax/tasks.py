@@ -352,6 +352,15 @@ def _notify(conn, t: dict, actor: str, ok: bool, message: str) -> None:
         log.warning("task %s: notification not made", t["id"], exc_info=True)
 
 
+# the kinds that make or change something from a library model in core (a copy): they stay on the repository's engine
+NOT_ROUTED = {"project.created", "project.restore", "backup.restore", "backup.restore_all", "tag.restore", "library.promoted",
+              "common.make_model", "wizard.merge", "wizard.split", "wizard.extend", "merge.apply", "merge.analyse",
+              "merge.sample", "draft.applied", "pushdown.push", "pushdown.decide", "archive.move", "archive.restore",
+              "archive.project_move", "delivery.accept", "load.add", "load.preview", "package.uploaded",
+              "compare.run", "compare.download", "gap.create", "gap.refresh", "gap.download", "gap.runs_compare",
+              "common.create", "common.refresh", "common.suggestions", "common.tag", "common.download"}
+
+
 def run(task_id: str, actor: str, roles: list[str]) -> None:
     """Does a task as the person who asked (the database checks their rights as in the screens)."""
     from . import audit, background  # noqa: F401 - background registers the kinds of D273 in WORK
@@ -368,8 +377,11 @@ def run(task_id: str, actor: str, roles: list[str]) -> None:
             conn.execute(text("UPDATE core.tasks SET status = 'running', started_at = now() WHERE id = :i"), {"i": t["id"]})
         t["params"] = _params(t)
         mark = _running.set(t["id"])
+        from . import library_models
+        # a task about a library model reads its content from the library schema (R2.42, D633)
+        lib = library_models.is_library(t.get("model_guid") and str(t["model_guid"])) and t["kind"] not in NOT_ROUTED
         try:
-            with commits_after(), get_engine().begin() as conn:
+            with library_models.route(lib), commits_after(), get_engine().begin() as conn:
                 message, result = WORK[t["kind"]](conn, t, user)
                 result = dict(result or {})
                 action = result.pop("_action", None) or t["kind"]

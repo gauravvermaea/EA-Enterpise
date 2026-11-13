@@ -9,7 +9,7 @@ code under it does not change it. Standard library, git and docker compose only.
   python3 updater.py retry    --id <id>      the failed step again, then the rest
   python3 updater.py rollback --id <id>      back to the version before the update: its backup put back
 
-What it keeps in work/updates (on the host; the API copies the history into the database, core.update_history):
+What it keeps in work/updates (on the host; the API copies the history into the database, operations.update_history):
   installed.json       the installed version, its channel, commit and when
   current.json         the update running or waiting for a decision (status running, failed, rolling-back)
   history.json         every update and rollback: from, to, who, when, the backup taken, the steps, the result

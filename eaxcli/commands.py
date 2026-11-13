@@ -28,10 +28,10 @@ NOT_ALLOWED = set(";|&$`<>()\\\"'\n\r\t*?![]{}~#")
 
 OFFLINE = {"stop", "restart", "up", "update", "rollback", "restore", "restore-app", "maintenance", "standby"}
 WIPE = {"cleanup", "clean-run", "clean-restart", "clean-debug"}
-HOST = {"init", "check", "trust", "deploy", "secrets", "document", "schedule"}
+HOST = {"init", "check", "trust", "deploy", "secrets", "document", "schedule", "persist"}
 INTERACTIVE = {"console", "restore-model"}     # ask as they go: in the Console only
 FOLLOWS = {"logs", "debug"}                       # keep going until stopped: the page offers Stop
-STOPPABLE = FOLLOWS | {"status", "diag", "test", "backups", "restores", "databases", "url", "logins", "services", "help", "import",
+STOPPABLE = FOLLOWS | {"status", "diag", "test", "backups", "restores", "databases", "footprint", "url", "logins", "services", "help", "import",
                        "restore-log", "servers"}
 YES = {"cleanup", "restore", "restore-app", "update", "rollback", "test"}   # take --yes: the page confirmed already
 HOST_WHY = {
@@ -42,6 +42,7 @@ HOST_WHY = {
     "secrets": "It reads and writes cloud key vaults with the cloud credentials of the machine itself.",
     "document": "It opens a page in the browser of the machine itself; the Documentation page has the same.",
     "schedule": "On this page use the Schedules tab instead: the same schedules, with a form and the checks of who may make which.",
+    "persist": "On the web use System Admin > Persist: the same list, with Delete beside each item (R2.26).",
 }
 
 
@@ -135,8 +136,8 @@ def _params(args: str) -> list[dict]:
 PLACEHOLDERS = {"name", "tag", "run", "command", "source", "id", "words", "service", "n", "version"}
 # syntax lines too rich for the reader above: their fields written out
 OVERRIDES = {
-    "test": [{"key": "what", "type": "choice", "choices": ["smoke", "full", "backup", "failed", "delete", "clean"], "required": False,
-              "placeholder": "smoke|full|backup|failed|delete|clean"},
+    "test": [{"key": "what", "type": "choice", "choices": ["smoke", "full", "backup", "ui-review", "failed", "delete", "clean"], "required": False,
+              "placeholder": "smoke|full|backup|ui-review|failed|delete|clean"},
              {"key": "run", "type": "word", "required": False, "placeholder": "run (with failed: which run; the last if none)"},
              {"key": "--warnings", "type": "flag", "required": False},     # with failed: its warnings too (R2.36)
              {"key": "--older-than", "type": "flag-value", "flags": ["--older-than"], "required": False,

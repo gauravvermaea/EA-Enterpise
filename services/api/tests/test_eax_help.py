@@ -14,6 +14,8 @@ sys.path.insert(0, str(REPO))
 
 from eaxcli import help as eax_help  # noqa: E402
 
+GROUPS = ["Start and stop", "Status and logs", "Backups and restores", "Updates", "Test", "Settings and services",
+          "Site and deploy", "Developer", "Help and documentation"]
 ASKS = ([], ["--all"], ["stop"], ["down"], ["run"], ["restart"], ["restore"], ["trust"], ["start-later"], ["no-such"])
 
 
@@ -62,7 +64,7 @@ def test_the_source_is_plain_and_complete():
     raw = eax_help.SOURCE.read_bytes()
     raw.decode("ascii")                                   # Windows PowerShell 5.1 reads it too
     doc = eax_help.parse(raw.decode("ascii"), eax_help.TAGS)
-    assert doc["sections"][0]["title"] == "Starting and stopping"
+    assert [x["title"] for x in doc["sections"]] == GROUPS     # the groups (R2.29)
     first = [c["names"][0] for c in doc["sections"][0]["commands"]]
     assert first[:3] == ["up", "stop", "restart"]
     for s in doc["sections"]:
@@ -77,7 +79,7 @@ def test_stop_says_the_data_is_kept_and_the_wiping_commands_say_they_delete():
     for name in ("cleanup", "clean-restart", "clean-run"):
         assert "DELETES" in eax_help.render("sh", "./eax.sh", False, name)[0], name
     overview, _ = eax_help.render("ps1", ".\\eax", True)
-    assert overview.index("Starting and stopping") < overview.index("Getting started")
+    assert overview.index("Start and stop") < overview.index("Status and logs") < overview.index("Site and deploy")
     assert "work\\eaexplorer.env" in overview and "work/" not in overview
     assert eax_help.render("py", "./eaxpy.sh", False, "no-such")[1] == 1
 
@@ -186,7 +188,7 @@ def test_eax_sh_document_console_menu(scripts):
         pytest.skip("no bash")
     r = subprocess.run(["bash", str(scripts / "eax.sh"), "document", "--console"], input="6\ns\nbackup\nq\n",
                        capture_output=True, text=True, timeout=60)
-    assert r.returncode == 0 and "Deleting everything and starting again" in r.stdout and "clean-restart" in r.stdout
+    assert r.returncode == 0 and "Settings and services" in r.stdout and "servers [n]" in r.stdout
     assert "  backup [tag]" in r.stdout
 
 
@@ -203,4 +205,4 @@ def test_eaxpy_document(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr("builtins.input", lambda *_: next(answers))
     main.main(["document", "--console"])
     out = capsys.readouterr().out
-    assert "Starting and stopping" in out and "stop   (also: down)" in out and "trust [--remove]" in out
+    assert "Start and stop" in out and "stop   (also: down)" in out and "trust [--remove]" in out

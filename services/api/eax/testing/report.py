@@ -20,7 +20,7 @@ COLOUR = {"passed": "#1b7a3a", "failed": "#b42318", "warning": "#9a6700", "skipp
 
 
 def _shots(conn, run_id: int) -> dict[int, bytes]:
-    rows = conn.execute(text("SELECT id, screenshot FROM core.test_results WHERE run_id = :id AND screenshot IS NOT NULL"),
+    rows = conn.execute(text("SELECT id, screenshot FROM tests.test_results WHERE run_id = :id AND screenshot IS NOT NULL"),
                         {"id": run_id}).mappings().all()
     return {int(r["id"]): bytes(r["screenshot"]) for r in rows}
 

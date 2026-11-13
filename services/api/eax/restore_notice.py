@@ -17,8 +17,6 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import text
-
 from . import notify
 
 log = logging.getLogger(__name__)
@@ -40,8 +38,11 @@ def everyone(conn) -> list[str]:
 
 
 def announced(conn, kind: str, rid: str) -> bool:
-    return bool(conn.execute(text("SELECT 1 FROM core.notifications WHERE kind = :k AND link = :l LIMIT 1"),
-                             {"k": kind, "l": link(rid)}).scalar())
+    from . import personal as P
+    try:
+        return bool(P.one(conn, "SELECT 1 AS x FROM personal.notifications WHERE kind = :k AND link = :l LIMIT 1", k=kind, l=link(rid)))
+    except P.Unavailable:
+        return True     # cannot tell: better not to announce twice
 
 
 def _label(rec: dict) -> str:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import time
 from pathlib import Path
 
 import pytest
@@ -216,7 +217,7 @@ def test_run_a_command_is_gone(tmp_path, monkeypatch):
     assert "/exec" not in (ROOT / "eax" / "api" / "admin.py").read_text()
     assert "/exec$" not in (REPO / "services" / "ops" / "ops.py").read_text()
     web = (REPO / "services" / "web" / "src" / "ContainerConsole.jsx").read_text()
-    assert "Run a command" not in web and "function Run(" not in web and '["terminal", "Terminal"]]' in web
+    assert "Run a command" not in web and "function Run(" not in web and '["terminal", "Terminal"], ["files", "Files"]]' in web   # Files: R2.18
 
 
 def test_templates_set_the_container_console():
@@ -308,6 +309,10 @@ def test_interactive_terminal(tmp_path, monkeypatch):
     assert t["idle_minutes"] == 15
     s, head = _ws_client(port, t["ticket"])
     assert " 101 " in head.splitlines()[0]
+    for _ in range(100):                 # the shell starts just after the handshake; a busy machine takes a moment
+        if seen:
+            break
+        time.sleep(0.05)
     assert seen[0][:3] == ["docker", "exec", "-it"] and "aaa111bbb222ccc" in seen[0]
     _ws_send(s, json.dumps({"t": "i", "d": "mkdir zz && cd zz && X=7\n"}))
     _ws_send(s, json.dumps({"t": "i", "d": "echo here-$X-$(basename $(pwd))\n"}))

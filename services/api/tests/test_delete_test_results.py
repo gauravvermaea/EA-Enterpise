@@ -60,7 +60,7 @@ def test_a_delete_purges_then_removes_rows_and_folders(monkeypatch):
     out = cleanup.delete(eng, [1, 2], "me", lambda folders: (got.extend(folders), {"removed": folders, "left": []})[1])
     assert out["runs"] == 1 and out["results"] == 5 and out["fixtures"] == 9 and got == ["f1"]
     assert "run 2 is still going" in out["notes"][0]
-    assert any(c.startswith("DELETE core.test_runs") for c in calls)
+    assert any(c.startswith("DELETE tests.test_runs") for c in calls)
     assert "Deleted 1 run(s)" in cleanup.message(out)
 
 

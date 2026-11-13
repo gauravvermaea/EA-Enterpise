@@ -99,8 +99,14 @@ def snapshot(conn, m: dict) -> dict:
     return {"entities": entities, "relationships": relationships}
 
 
-def side_of_model(conn, model: Any) -> dict:
-    """A model as it is now, ready to compare or tag: its metamodel and snapshot."""
+def side_of_model(conn, model: Any, _library: bool = False) -> dict:
+    """A model as it is now, ready to compare or tag: its metamodel and snapshot. A library model's content is read on a
+    library connection (R2.42, D633), so comparing a working model with a library model reads each where it is."""
+    from . import library_models as lm
+    if not _library:
+        with lm.reading(conn, model) as rc:
+            if rc is not conn:
+                return side_of_model(rc, model, _library=True)
     m = repo.get_model(conn, model)
     return {"kind": "model", "model_id": str(m["id"]), "model": m["name"], "tag_id": None, "tag": None,
             "commit": cm.latest(conn, str(m["id"]))["number"], "metamodel_version": m["metamodel_version"],

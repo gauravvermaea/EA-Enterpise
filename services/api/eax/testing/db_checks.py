@@ -8,6 +8,11 @@ import os
 import re
 from collections.abc import Callable
 
+# foreign keys left without an index on purpose (D648, migration 0063): a lookup of a few values, never deleted, on the
+# busiest tables, where an index would only slow every write
+FK_INDEX_EXCEPTIONS = tuple(f"core.{t}.status_code" for t in ("entities", "relationships", "attribute_values",
+                                                               "allowed_relationships", "item_attributes"))
+
 # (name, query finding what is wrong (each row one problem), outcome when it finds something)
 CHECKS: list[tuple[str, str, str]] = [
     ("every table has a primary key", """
@@ -43,7 +48,7 @@ CHECKS: list[tuple[str, str, str]] = [
          WHERE EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'eax_report')
            AND has_table_privilege('eax_report', 'core.entities', p)""", "failed"),
     ("self-test fixtures are named after their run", """
-        SELECT f.kind || ' ' || f.name FROM core.test_fixtures f JOIN core.test_runs r ON r.id = f.run_id
+        SELECT f.kind || ' ' || f.name FROM tests.test_fixtures f JOIN tests.test_runs r ON r.id = f.run_id
          WHERE f.purged_at IS NULL AND position(substr(replace(r.run_guid::text, '-', ''), 1, 12) IN f.name) = 0
          LIMIT 50""", "failed"),
     # D577: history stays whole, values fit their attribute, relationship values belong to their mapping
@@ -106,12 +111,20 @@ CHECKS: list[tuple[str, str, str]] = [
                             WHERE x.item_attribute_id = i.id AND NOT x.is_deleted
                               AND a.source_type_id = s.entity_type_id AND a.target_type_id = g.entity_type_id)
          LIMIT 50""", "failed"),
-    ("foreign keys have an index (speed)", """
+    # every foreign key has an index (D648, migration 0063), but the few left out on purpose (FK_INDEX_EXCEPTIONS)
+    ("foreign keys have an index (speed)", f"""
         SELECT c.conrelid::regclass || '(' || a.attname || ')' FROM pg_constraint c
           JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
-         WHERE c.contype = 'f' AND array_length(c.conkey, 1) = 1 AND c.connamespace::regnamespace::text IN ('core', 'proj')
+         WHERE c.contype = 'f' AND c.connamespace::regnamespace::text NOT IN ('pg_catalog', 'information_schema', 'procrastinate')
+           AND (c.conrelid::regclass::text || '.' || a.attname) NOT IN ({", ".join(f"'{x}'" for x in FK_INDEX_EXCEPTIONS)})
            AND NOT EXISTS (SELECT 1 FROM pg_index i WHERE i.indrelid = c.conrelid AND i.indkey[0] = c.conkey[1])
-         LIMIT 100""", "warning"),
+         LIMIT 100""", "failed"),
+    # the owner's rule (13 Nov 2026): "There will never be cross DB or cross schema foreign keys" (D630, D648)
+    ("no foreign key crosses schemas", """
+        SELECT c.conrelid::regclass || ' -> ' || c.confrelid::regclass FROM pg_constraint c
+          JOIN pg_class t ON t.oid = c.conrelid JOIN pg_class p ON p.oid = c.confrelid
+         WHERE c.contype = 'f' AND t.relnamespace <> p.relnamespace
+         LIMIT 100""", "failed"),
 ]
 
 

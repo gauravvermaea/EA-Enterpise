@@ -169,7 +169,7 @@ def test_the_proxy_asks_for_certificates_on_its_own_port_only():
     tpl = (REPO / "deploy" / "proxy" / "templates" / "default.conf.template").read_text()
     main, mtls = tpl.split("listen 9443 ssl;")
     assert "ssl_verify_client" not in main                                 # browsers are never asked for a certificate
-    assert "ssl_verify_client optional_no_ca;" in mtls and mtls.count("X-EAX-Client-Cert $ssl_client_escaped_cert") == 2
+    assert "ssl_verify_client optional_no_ca;" in mtls and mtls.count("X-EAX-Client-Cert $ssl_client_escaped_cert") == 5   # the API (and who am I, exact), the operations and personal data services (R2.27, R2.53), MCP
     # everywhere else the header is cleared, so nobody can send one of their own
     assert 'proxy_set_header X-EAX-Client-Cert "";' in main.split("server {")[0]
     for block in main.split("location ")[1:]:

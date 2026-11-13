@@ -165,10 +165,10 @@ def run() -> list[str]:
         archived = [
             ("loads", "core.loads", "Claims applications 2025.csv (added)", {"file_name": "Claims applications 2025.csv",
              "status": "added", "owner": "user_architect", "format": "csv"}, b"Name,Lifecycle\nClaims Hub,Active\nOld Claims Desk,Retiring\n", 400),
-            ("notifications", "core.notifications", "Changes committed on Protea Insurance (demo estate)",
+            ("notifications", "personal.notifications", "Changes committed on Protea Insurance (demo estate)",
              {"kind": "commit.done", "title": "Changes committed on Protea Insurance (demo estate)", "actor": "user_model_admin",
               "recipients": [{"username": "user_architect"}]}, None, 420),
-            ("notifications", "core.notifications", "The Fynbos Life model was locked",
+            ("notifications", "personal.notifications", "The Fynbos Life model was locked",
              {"kind": "model.locked", "title": "The Fynbos Life model was locked", "actor": "user_model_admin",
               "recipients": [{"username": "user_architect"}, {"username": "user_model_sub_admin"}]}, None, 380),
         ]

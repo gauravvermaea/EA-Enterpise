@@ -15,6 +15,7 @@ import {
   PublishStepDialog, TagNowDialog, UploadWizard, draftWhy, isTop, libraryAction, mayCreateFrom, ownsDraft,
 } from "./ModelOps";
 import { runTask } from "./tasks";
+import { MoveToArchiveDialog } from "./Archive";
 import { CollectWizard, LoadDataWizard, MigrationWizard, QualityWizard } from "./GuidedWizards";
 import { fmtDateTime } from "./fmt";
 import { MergeRequestsTab, SendForMergeWizard } from "./MergeBack";
@@ -262,6 +263,8 @@ function Wizards({ m, only = null, onDone = null }) {
       { k: "archive", title: m.lifecycle === "archived" ? "Reactivate" : "Archive", text: m.lifecycle === "archived" ? "Back in the lists" : "Hidden from lists; nothing is lost and it can be reactivated",
         ok: admin && !m.is_locked && !isTop(m), why: isTop(m) ? "Root always stays" : adminWhy },
       { k: "delete", title: "Delete", text: "For good, after a package of it is saved", ok: superAdmin && !isTop(m), why: isTop(m) ? "Root always stays" : needsRole(["super-admin"]) },
+      { k: "archive-db", title: "Move to the archive", text: "Out of the working database, whole, with its history; its admins can bring it back from the Archive (R2.41)",
+        ok: (admin || superAdmin) && project, why: !project ? "Only working models move to the archive" : adminWhy },
     ]],
     ["Library and publishing", [
       { k: "promote", title: "Promote to the library", text: "A copy becomes a library model, a draft until a Library Admin publishes it",
@@ -353,6 +356,7 @@ function Wizards({ m, only = null, onDone = null }) {
       {open === "freeze" && <FreezeDialog m={m} onClose={close} />}
       {open === "tag" && <TagNowDialog m={m} onClose={close} />}
       {open === "delete" && <DeleteDialog m={m} onClose={close} />}
+      {open === "archive-db" && <MoveToArchiveDialog m={m} superAdmin={superAdmin} onClose={close} />}
       {open === "promote" && <PromoteDialog m={m} onClose={close} />}
       {open === "request-publish" && <PublishStepDialog m={m} step="request-publish" onClose={close} />}
       {open === "publish" && <PublishChoice m={m} onClose={close} />}

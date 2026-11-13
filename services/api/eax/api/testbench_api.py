@@ -52,7 +52,7 @@ def _open_run_of_caller(conn, run_id: int) -> dict:
 
 
 def _external(conn, run_id: int) -> bool:
-    return conn.execute(text("SELECT browser->>'external' FROM core.test_runs WHERE id = :id"), {"id": run_id}).scalar() == "true"
+    return conn.execute(text("SELECT browser->>'external' FROM tests.test_runs WHERE id = :id"), {"id": run_id}).scalar() == "true"
 
 
 @blp.route("/runs")
@@ -100,7 +100,7 @@ def ids_of(conn, run_id: int, run_guid: str) -> dict[str, str]:
     """The run's ids as the self-test's journeys and API matrix use them (fixtures.models_and_project). conn: the
     repository's; the fixtures' record is in the tests database."""
     with store.tests(conn) as tc:
-        rows = tc.execute(text("SELECT kind, ident, name FROM core.test_fixtures WHERE run_id = :r AND purged_at IS NULL "
+        rows = tc.execute(text("SELECT kind, ident, name FROM tests.test_fixtures WHERE run_id = :r AND purged_at IS NULL "
                                "ORDER BY id"), {"r": run_id}).mappings().all()
     models = [r for r in rows if r["kind"] == "model"]
     first = next((r for r in models if str(r["name"]).endswith("_1")), models[0] if models else None)
@@ -136,7 +136,7 @@ class Session(MethodView):
         with get_engine().begin() as conn:
             with store.tests(conn) as tc:
                 row = _open_run_of_caller(tc, run_id)
-                guid = tc.execute(text("SELECT run_guid::text FROM core.test_runs WHERE id = :id"), {"id": run_id}).scalar()
+                guid = tc.execute(text("SELECT run_guid::text FROM tests.test_runs WHERE id = :id"), {"id": run_id}).scalar()
             b = row.get("browser") or {}
             if not b.get("ticket"):
                 return {"ready": False, "step": row.get("step") or "making the run's fixtures"}

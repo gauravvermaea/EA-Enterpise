@@ -1,4 +1,4 @@
-"""A self-test run's fixtures: made at its start, purged only by hand (phase 36.1, D529).
+"""A self-test run's fixtures: made at its start, removed at its end (phase 36.1, D529; R2.11, D637).
 
 The self-test runs on the live installation but only in what it makes itself, named after the run's short id (the first
 12 characters of its guid) so runs never clash and can be repeated:
@@ -9,14 +9,19 @@ The self-test runs on the live installation but only in what it makes itself, na
   svc-self-test-<id>-<role> one service account per role tested, each with a one-day token (machine access, D366): the
                             global roles, the model roles on self_test_<id>_1, and someone with no role at all
 
-Each is recorded in core.test_fixtures with its run. Purging (System admin > Self-test > Test fixtures, or
+Each is recorded in tests.test_fixtures with its run. Purging (System admin > Self-test > Test fixtures, or
 `eax test --clean <run|all>`) is a **hard delete**: the models and everything in them (entities, relationships, values,
 history versions, tags, KPI snapshots, quality runs, uncommitted changes, drawn views), the projects (and their folder
-in Documents), the service accounts and credentials. Only what core.test_fixtures lists for the run is touched, never
+in Documents), the service accounts and credentials. Only what tests.test_fixtures lists for the run is touched, never
 anything else even if its name looks like a fixture; it is idempotent (what is gone is skipped) and safe to run again
 after a partial failure. History stays append-only for everything else: the guard is lifted only inside the purge's own
 transaction and checked back on before it commits, as housekeeping does (D445, D248). The change log keeps the run and
-the purge (who, when, how many); the run's report stays downloadable, marked "fixtures removed"."""
+the purge (who, when, how many); the run's report stays downloadable, marked "fixtures removed".
+
+Since R2.11 (D637) the models and projects are marked is_test_data, so the model and project lists leave them out
+(except for the self-test's own accounts, or with ?test_data=1), and every run removes its own fixtures when it ends,
+passed, failed or stopped (remove_at_end; EAX_TEST_KEEP_DATA=1 keeps them for the next run to remove). preview() is the
+dry run: what a purge would delete, nothing deleted."""
 
 from __future__ import annotations
 
@@ -90,6 +95,7 @@ def models_and_project(engine, run: dict, by: str, roles: list[str], log) -> dic
     m1 = _as(me, mb.create_model(f"self_test_{sid}_1", start="empty", source="ArchiMate 4", description=desc))
     with store.engine().begin() as tc:
         store.add_fixture(tc, run["id"], "model", m1["model"], m1["name"])
+    mark_model(engine, m1["model"])
     _as(me, mb.add_entities(m1["model"], "Capability", [{"name": f"Self-test capability {i}"} for i in (1, 2, 3)]))
     _as(me, mb.add_entities(m1["model"], "ApplicationComponent", [{"name": f"Self-test application {i}"} for i in (1, 2)]
                             + [{"name": "Self-test duplicate app"}, {"name": "Self-test duplicate ap"}]))   # a pair to find and merge (D576)
@@ -118,6 +124,7 @@ def models_and_project(engine, run: dict, by: str, roles: list[str], log) -> dic
     m2 =_as(me, mb.create_model(f"self_test_{sid}_2", start="child", source=m1["model"], description=desc))
     with store.engine().begin() as tc:
         store.add_fixture(tc, run["id"], "model", m2["model"], m2["name"])
+    mark_model(engine, m2["model"])
     with engine.begin() as conn:
         model_roles = [r for r in roles if r in store.MODEL_TEST_ROLES]
         for role in model_roles:
@@ -141,6 +148,8 @@ def models_and_project(engine, run: dict, by: str, roles: list[str], log) -> dic
                                                                          "role": "current", "home": True}], description=desc))
             with store.engine().begin() as tc:
                 store.add_fixture(tc, run["id"], "project", p["project"], f"self_test_{sid}_3")
+            with pj.connections() as pc:             # test data: left out of the project list (R2.11)
+                pc.execute(text("UPDATE proj.projects SET is_test_data = true WHERE guid::text = :g"), {"g": str(p["project"])})
             ids.update(project=p["project"], project_id=p["project"], project_name=f"self_test_{sid}_3")
             # the test roles the journeys' role plan runs on the project are its members (D583)
             with pj.connections() as pc:
@@ -156,7 +165,72 @@ def models_and_project(engine, run: dict, by: str, roles: list[str], log) -> dic
     return ids
 
 
-# ---------------------------------------------------------------- purging (by hand only, D529)
+def mark_model(engine, guid) -> None:
+    """A fixture model is test data (R2.11, D637): the model lists leave it out for everyone but the self-test's own
+    accounts, until the run's end removes it."""
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE core.models SET is_test_data = true WHERE guid = CAST(:g AS uuid)"), {"g": str(guid)})
+
+
+def preview(conn, run_ids: list[int]) -> dict[str, Any]:
+    """A dry run (R2.11): what purging these runs would delete, nothing deleted. conn: the repository's. Each fixture
+    still there with its run, kind and name, and for models their entities, relationships and history versions."""
+    with store.tests(conn) as tc:
+        rows = [dict(r) for r in tc.execute(text("""SELECT f.id, f.run_id, f.kind, f.ident, f.name, r.state
+                                                      FROM tests.test_fixtures f JOIN tests.test_runs r ON r.id = f.run_id
+                                                     WHERE f.run_id = ANY(:r) AND f.purged_at IS NULL ORDER BY f.run_id, f.id"""),
+                                            {"r": list(run_ids)}).mappings()]
+    out = {"runs": sorted({r["run_id"] for r in rows}), "fixtures": [], "totals": {}, "running": []}
+    for r in rows:
+        item = {k: r[k] for k in ("id", "run_id", "kind", "name")}
+        if r["state"] in store.OPEN:
+            out["running"].append(r["run_id"])
+        if r["kind"] == "model":
+            c = conn.execute(text("""SELECT (SELECT count(*) FROM core.entities e WHERE e.model_id = m.id) AS entities,
+                                            (SELECT count(*) FROM core.relationships x WHERE x.model_id = m.id) AS relationships,
+                                            (SELECT count(*) FROM history.row_versions v WHERE v.model_id = m.id) AS history_versions
+                                       FROM core.models m WHERE m.guid::text = :g"""), {"g": r["ident"]}).mappings().first()
+            item.update(dict(c) if c else {"gone": True})
+        out["fixtures"].append(item)
+        out["totals"][r["kind"]] = out["totals"].get(r["kind"], 0) + 1
+    out["running"] = sorted(set(out["running"]))
+    return out
+
+
+def preview_text(p: dict[str, Any]) -> str:
+    if not p["fixtures"]:
+        return "Dry run: no test data to remove."
+    lines = [f"Dry run: nothing is deleted. Removing the test data of run(s) {', '.join(map(str, p['runs']))} would delete:"]
+    for f in p["fixtures"]:
+        extra = (f" ({f.get('entities', 0)} entities, {f.get('relationships', 0)} relationships, "
+                 f"{f.get('history_versions', 0)} history versions)" if f["kind"] == "model" and not f.get("gone") else "")
+        lines.append(f"  run {f['run_id']:<6} {f['kind']:<16} {f['name']}{extra}")
+    lines.append("In all: " + ", ".join(f"{n} {k.replace('_', ' ')}(s)" for k, n in sorted(p["totals"].items())) + ".")
+    if p["running"]:
+        lines.append(f"Still running (left alone until they end): {', '.join(map(str, p['running']))}.")
+    return "\n".join(lines)
+
+
+def remove_at_end(repo, run_id: int, log=print) -> dict[str, Any] | None:
+    """The end of every run, passed, failed or stopped (R2.11; owner: the harness cleans up after itself): the run's test
+    data removed for good, as purge() does. EAX_TEST_KEEP_DATA=1 keeps it (to look into a failure); the next run removes
+    it then (clean_leftovers). A run whose process was killed is cleaned by the next run too."""
+    import os
+    if os.environ.get("EAX_TEST_KEEP_DATA", "").lower() in ("1", "true", "yes", "on"):
+        log("test data kept (EAX_TEST_KEEP_DATA): the next run removes it")
+        return None
+    try:
+        with repo.begin() as conn:
+            out = purge(conn, run_id, "self-test (end of run)")
+        log(f"test data removed: {out['models']} model(s), {out['projects']} project(s), {out['service_accounts']} account(s), "
+            f"{out['credentials']} credential(s)")
+        return out
+    except Exception as exc:  # noqa: BLE001 - the next run removes what is left (clean_leftovers)
+        log(f"test data not removed now ({exc}); the next run removes it")
+        return None
+
+
+# ---------------------------------------------------------------- purging (D529; and at every run's end, R2.11)
 def _plan(conn) -> list[tuple[str, str]]:
     """(table, which of its rows go) for everything that refers to core.models, directly or through other rows (up to
     four steps: change sets, then pending changes, then commit items...). Read from the catalogue, so a table added later
@@ -204,6 +278,8 @@ def _purge_models(conn, model_ids: list[int], by: str) -> int:
             break
     for mid in sorted(model_ids, reverse=True):    # children (made later) first
         conn.execute(text("UPDATE core.models SET parent_model_id = NULL, source_model_id = NULL WHERE id = :i"), {"i": mid})
+    from .. import personal
+    personal.forget_models(conn, model_ids)       # notifications, favourites, views about them (no FK crosses, D632)
     conn.execute(text("DELETE FROM core.models WHERE id = ANY(:ids)"), {"ids": model_ids})
     conn.execute(text("ALTER TABLE history.row_versions DISABLE TRIGGER row_versions_no_change"))
     n = conn.execute(text("DELETE FROM history.row_versions WHERE model_id = ANY(:ids)"), {"ids": model_ids})
@@ -217,12 +293,12 @@ def _purge_models(conn, model_ids: list[int], by: str) -> int:
 
 def purge(conn, run_id: int, by: str, kinds: list[str] | None = None, fixture_ids: list[int] | None = None,
           progress=None) -> dict[str, Any]:
-    """Hard-deletes a run's fixtures (all, or the kinds or fixture ids chosen): only what core.test_fixtures lists for
+    """Hard-deletes a run's fixtures (all, or the kinds or fixture ids chosen): only what tests.test_fixtures lists for
     the run. Idempotent. Returns the counts; the change log keeps them."""
     say = progress or (lambda _p, _n: None)
     with store.tests(conn) as tc:                  # what to remove: the tests database's record of the run (R2.28)
-        run = tc.execute(text("SELECT id, run_guid::text AS g, state FROM core.test_runs WHERE id = :id"), {"id": run_id}).mappings().first()
-        rows = [dict(r) for r in tc.execute(text("""SELECT id, kind, ident, name FROM core.test_fixtures
+        run = tc.execute(text("SELECT id, run_guid::text AS g, state FROM tests.test_runs WHERE id = :id"), {"id": run_id}).mappings().first()
+        rows = [dict(r) for r in tc.execute(text("""SELECT id, kind, ident, name FROM tests.test_fixtures
                                                     WHERE run_id = :r AND purged_at IS NULL ORDER BY id"""), {"r": run_id}).mappings()]
     if not run:
         raise LookupError(f"No self-test run {run_id}.")
@@ -287,10 +363,10 @@ def purge(conn, run_id: int, by: str, kinds: list[str] | None = None, fixture_id
     say(90, "models removed")
     with store.tests(conn) as tc:
         if rows:
-            tc.execute(text("UPDATE core.test_fixtures SET purged_at = now(), purged_by = :by WHERE id = ANY(:ids)"),
+            tc.execute(text("UPDATE tests.test_fixtures SET purged_at = now(), purged_by = :by WHERE id = ANY(:ids)"),
                        {"by": by, "ids": [r["id"] for r in rows]})
-        if not tc.execute(text("SELECT 1 FROM core.test_fixtures WHERE run_id = :r AND purged_at IS NULL"), {"r": run_id}).first():
-            tc.execute(text("UPDATE core.test_runs SET purged_at = coalesce(purged_at, now()), purged_by = coalesce(purged_by, :by) "
+        if not tc.execute(text("SELECT 1 FROM tests.test_fixtures WHERE run_id = :r AND purged_at IS NULL"), {"r": run_id}).first():
+            tc.execute(text("UPDATE tests.test_runs SET purged_at = coalesce(purged_at, now()), purged_by = coalesce(purged_by, :by) "
                             "WHERE id = :r"), {"by": by, "r": run_id})
     from .. import audit
     audit.record(conn, actor=by, action="selftest.purged", object_type="test_run", object_id=str(run_id),
@@ -303,15 +379,15 @@ def clean_leftovers(engine, this_run: int, by: str, log, stale_hours: int = 6) -
     """Before a run (owner, 12 Nov 2026, R2.0.1, D593: "deleted previously created test data before next test if any
     remains"): every earlier run's fixtures still there are removed for good, from the UI and `eax test` alike. A run
     still marked queued or running for more than stale_hours (its runner stopped on an error) is closed as an error
-    first, so its data can go too. Only what core.test_fixtures lists is touched, as purge() does. engine: the
+    first, so its data can go too. Only what tests.test_fixtures lists is touched, as purge() does. engine: the
     repository's (the runs' records are in the tests database, store.engine())."""
     with store.engine().begin() as conn:
-        stale = conn.execute(text("""UPDATE core.test_runs SET state = 'error', finished_at = now(),
+        stale = conn.execute(text("""UPDATE tests.test_runs SET state = 'error', finished_at = now(),
                                          message = 'Closed by a later self-test: it had stopped without finishing.'
                                    WHERE id <> :me AND state IN ('queued', 'running')
                                      AND COALESCE(started_at, queued_at) < now() - make_interval(hours => :h)
                                RETURNING id"""), {"me": this_run, "h": stale_hours}).scalars().all()
-        runs = conn.execute(text("""SELECT DISTINCT f.run_id FROM core.test_fixtures f JOIN core.test_runs r ON r.id = f.run_id
+        runs = conn.execute(text("""SELECT DISTINCT f.run_id FROM tests.test_fixtures f JOIN tests.test_runs r ON r.id = f.run_id
                                      WHERE f.purged_at IS NULL AND f.run_id <> :me AND r.state NOT IN ('queued', 'running')
                                      ORDER BY f.run_id"""), {"me": this_run}).scalars().all()
     total = {"runs": 0, "models": 0, "projects": 0, "service_accounts": 0, "credentials": 0, "closed": len(stale)}

@@ -6,9 +6,29 @@ import os
 from dataclasses import dataclass, field
 from urllib.parse import quote
 
+SECRETS_DIR = os.environ.get("EAX_SECRETS_DIR", "/run/secrets")
+
 
 def _env(name: str, default: str = "") -> str:
-    return os.environ.get(name, default).strip()
+    """A setting: the environment (eaexplorer.env on a laptop or server, a Docker config on a platform), else - on a
+    platform with no local file system (R2.44, D635) - a Docker secret of the same name: the file NAME_FILE names, or
+    /run/secrets/NAME. The names are eaexplorer.env's everywhere."""
+    v = os.environ.get(name)
+    if v is not None and v.strip():
+        return v.strip()
+    return secret(name) or (v or default).strip()
+
+
+def secret(name: str) -> str:
+    """A Docker secret for a setting (R2.44): NAME_FILE's file, or /run/secrets/NAME (or its lower-case name)."""
+    for path in (os.environ.get(f"{name}_FILE", ""), os.path.join(SECRETS_DIR, name), os.path.join(SECRETS_DIR, name.lower())):
+        if path and os.path.isfile(path):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    return f.read().strip()
+            except OSError:
+                continue
+    return ""
 
 
 def _conninfo_quote(value: str) -> str:
@@ -66,6 +86,13 @@ class Settings:
             f"postgresql+psycopg://{quote(self.db_user, safe='')}:{quote(self.db_password, safe='')}"
             f"@{self.db_host}:{self.db_port}/{self.db_name}"
         )
+
+    @property
+    def migrator_sqlalchemy_url(self) -> str:
+        """The installer's login (the migrations and the seed): only for the application's own work on read-only models,
+        such as moving a library model's content into its schema (R2.42, D633)."""
+        return (f"postgresql+psycopg://{quote(self.db_migrator_user, safe='')}:{quote(self.db_migrator_password, safe='')}"
+                f"@{self.db_host}:{self.db_port}/{self.db_name}")
 
     @property
     def projects_sqlalchemy_url(self) -> str:

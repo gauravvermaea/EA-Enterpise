@@ -33,7 +33,7 @@ ID_KEYS = ("model", "other_model", "project", "entity", "view", "sid")
 
 def latest(conn) -> int | None:
     """The newest closed run (the one `eax test failed` repeats when no run is named)."""
-    return conn.execute(text(f"SELECT id FROM core.test_runs WHERE state IN {CLOSED} ORDER BY id DESC LIMIT 1")).scalar()
+    return conn.execute(text(f"SELECT id FROM tests.test_runs WHERE state IN {CLOSED} ORDER BY id DESC LIMIT 1")).scalar()
 
 
 def outcomes(with_warnings: bool) -> tuple[str, ...]:
@@ -42,21 +42,21 @@ def outcomes(with_warnings: bool) -> tuple[str, ...]:
 
 def wanted(conn, run_id: int, with_warnings: bool = False) -> list[dict[str, Any]]:
     """The checks to repeat: the run's failed results (and warnings), one per suite and name."""
-    rows = conn.execute(text("""SELECT DISTINCT ON (suite, name) suite, name, outcome FROM core.test_results
+    rows = conn.execute(text("""SELECT DISTINCT ON (suite, name) suite, name, outcome FROM tests.test_results
                                  WHERE run_id = :id AND outcome = ANY(:o) ORDER BY suite, name, id"""),
                         {"id": run_id, "o": list(outcomes(with_warnings))}).mappings().all()
     return [dict(r) for r in rows]
 
 
 def fixture_ids(conn, run_id: int) -> dict[str, str]:
-    """The ids a run made (kept with the run since R2.36), else what core.test_fixtures says of its models and project."""
-    got = conn.execute(text("SELECT fixture_ids FROM core.test_runs WHERE id = :id"), {"id": run_id}).scalar() or {}
+    """The ids a run made (kept with the run since R2.36), else what tests.test_fixtures says of its models and project."""
+    got = conn.execute(text("SELECT fixture_ids FROM tests.test_runs WHERE id = :id"), {"id": run_id}).scalar() or {}
     if isinstance(got, str):
         got = json.loads(got or "{}")
     if got:
         return {k: str(v) for k, v in got.items() if k in ID_KEYS and v}
     out: dict[str, str] = {}
-    for _kind, ident, name in conn.execute(text("SELECT kind, ident, name FROM core.test_fixtures WHERE run_id = :id "
+    for _kind, ident, name in conn.execute(text("SELECT kind, ident, name FROM tests.test_fixtures WHERE run_id = :id "
                                                "AND kind IN ('model', 'project')"), {"id": run_id}).all():
         key = {"_1": "model", "_2": "other_model", "_3": "project"}.get(str(name)[-2:])
         if key:
@@ -135,11 +135,11 @@ def then_and_now(earlier: list[dict[str, Any]], old_ids: dict[str, str], results
 def compare(conn, run_id: int) -> dict[str, Any] | None:
     """A repeat beside the run it repeats: each repeated check's outcome then and now ("not repeated" when the new run
     has no result for it: a fixture it could not make, or a check that no longer exists)."""
-    row = conn.execute(text("SELECT repeat_of, repeat_warnings FROM core.test_runs WHERE id = :id"), {"id": run_id}).first()
+    row = conn.execute(text("SELECT repeat_of, repeat_warnings FROM tests.test_runs WHERE id = :id"), {"id": run_id}).first()
     if not row or not row[0]:
         return None
     of, warn = int(row[0]), bool(row[1])
-    results = [tuple(x) for x in conn.execute(text("SELECT suite, name, outcome FROM core.test_results WHERE run_id = :id "
+    results = [tuple(x) for x in conn.execute(text("SELECT suite, name, outcome FROM tests.test_results WHERE run_id = :id "
                                                    "ORDER BY id"), {"id": run_id}).all()]
     checks = then_and_now(wanted(conn, of, warn), fixture_ids(conn, of), results, fixture_ids(conn, run_id))
     fixed = sum(1 for c in checks if c["now"] == "passed")
@@ -152,5 +152,5 @@ def mark_followed_up(conn, run_id: int) -> bool:
     c = compare(conn, run_id)
     if not c or not c["all_passed"]:
         return False
-    conn.execute(text("UPDATE core.test_runs SET followed_up_by = :r WHERE id = :of"), {"r": run_id, "of": c["of"]})
+    conn.execute(text("UPDATE tests.test_runs SET followed_up_by = :r WHERE id = :of"), {"r": run_id, "of": c["of"]})
     return True

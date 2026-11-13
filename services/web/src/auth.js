@@ -44,7 +44,7 @@ export async function initAuth() {
       if (r.ok && b.token) { ST.token = b.token; ST.username = b.username; }
     } catch (err) { console.warn("The self-test session could not be read", err); }
     if (ST.token) {
-      try { me = await apiFetch("/api/v1/me"); } catch (err) { console.warn("Could not read /api/v1/me", err); }
+      try { me = await apiFetch("/api/v1/me", { cache: "no-store" }); } catch (err) { console.warn("Could not read /api/v1/me", err); }
       return true;
     }
   }
@@ -63,7 +63,7 @@ export async function initAuth() {
     }
   }
   if (signedIn()) {
-    try { me = await apiFetch("/api/v1/me"); } catch (err) { console.warn("Could not read /api/v1/me", err); }
+    try { me = await apiFetch("/api/v1/me", { cache: "no-store" }); } catch (err) { console.warn("Could not read /api/v1/me", err); }
   }
   return signedIn();
 }
@@ -108,6 +108,8 @@ export function currentUser() {
 }
 
 // EA Explorer roles (mapped from Keycloak's), e.g. ["model-admin"]
+// Who am I is never taken from the browser's cache (13 Nov 2026): a browser that once got a 301 from /api/v1/me to
+// /api/v1/me/ (the personal service, before the front door's exact match) kept following it and showed "no role".
 export function roles() {
   return me?.roles || [];
 }

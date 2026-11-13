@@ -325,9 +325,9 @@ def clean_recipients(spec: Any) -> list[dict]:
 def _project_members(conn, guid: str) -> list[str]:
     from . import projects as pj
     try:
-        from .db import get_engine, get_projects_engine
+        from .db import base_engine, get_projects_engine
         peng = get_projects_engine()
-        if peng is get_engine():
+        if peng is base_engine():
             rows = _rows(conn, """SELECT DISTINCT lower(m.username) AS u FROM proj.members m JOIN proj.projects p ON p.id = m.project_id
                                    WHERE p.guid = CAST(:g AS uuid)""", g=guid)
         else:
@@ -371,10 +371,10 @@ def people_to_pick(conn, q: str = "") -> dict:
                              ORDER BY name LIMIT 200""", q=like)
     projects: list[dict] = []
     try:
-        from .db import get_engine, get_projects_engine
+        from .db import base_engine, get_projects_engine
         peng = get_projects_engine()
         sql = "SELECT guid::text AS id, name FROM proj.projects WHERE lower(name) LIKE :q ORDER BY name LIMIT 200"
-        if peng is get_engine():
+        if peng is base_engine():
             projects = _rows(conn, sql, q=like)
         else:
             with peng.connect() as pc:
@@ -645,13 +645,26 @@ def add_recipients(conn, user, guid: Any, recipients: Any) -> dict:
     return out
 
 
-def _resolve_open(conn, s: dict, note: str, username: str | None = None) -> int:
+def _recipient_ids(conn, s: dict, username: str | None = None) -> list[int]:
     where = "r.survey_guid = :g" + (" AND r.username = :u" if username else "")
-    return conn.execute(text(f"""
-        UPDATE core.notifications n SET resolved_at = now(), resolved_by = :b, resolution = :note
-          FROM core.survey_recipients r
-         WHERE n.ref_kind = 'survey_recipient' AND n.ref_id = r.id AND n.needs_action AND n.resolved_at IS NULL AND {where}"""),
-        {"g": s["guid"], "u": username, "b": username or "system", "note": note}).rowcount
+    return [int(x) for x in conn.execute(text(f"SELECT r.id FROM core.survey_recipients r WHERE {where}"),
+                                         {"g": s["guid"], "u": username}).scalars()]
+
+
+def _resolve_open(conn, s: dict, note: str, username: str | None = None) -> int:
+    """The survey's open notifications resolved: the recipients from the repository, the notifications in the personal
+    schema (no join across schemas, D632)."""
+    from . import personal as P
+    ids = _recipient_ids(conn, s, username)
+    if not ids:
+        return 0
+    try:
+        return P.run(conn, """
+            UPDATE personal.notifications n SET resolved_at = now(), resolved_by = :b, resolution = :note
+             WHERE n.ref_kind = 'survey_recipient' AND n.ref_id = ANY(:ids) AND n.needs_action AND n.resolved_at IS NULL""",
+                     ids=ids, b=username or "system", note=note).rowcount
+    except P.Unavailable:
+        return 0
 
 
 def close(conn, user, guid: Any, by: str | None = None) -> dict:
@@ -668,9 +681,15 @@ def _close(conn, s: dict, by: str) -> None:
     conn.execute(text("UPDATE core.surveys SET status = 'closed', closed_at = now(), updated_at = now() WHERE guid = :g"),
                  {"g": s["guid"]})
     _resolve_open(conn, s, "The survey closed")
-    conn.execute(text("""UPDATE core.notifications n SET resolved_by = :b FROM core.survey_recipients r
-                          WHERE n.ref_kind = 'survey_recipient' AND n.ref_id = r.id AND r.survey_guid = :g
-                            AND n.resolution = 'The survey closed' AND n.resolved_by = 'system'"""), {"b": by, "g": s["guid"]})
+    from . import personal as P
+    ids = _recipient_ids(conn, s)
+    if ids:
+        try:
+            P.run(conn, """UPDATE personal.notifications n SET resolved_by = :b
+                            WHERE n.ref_kind = 'survey_recipient' AND n.ref_id = ANY(:ids)
+                              AND n.resolution = 'The survey closed' AND n.resolved_by = 'system'""", b=by, ids=ids)
+        except P.Unavailable:
+            pass
     if s["kind"] == "maturity":
         from . import maturity as mt
         mt.on_close(conn, _survey(conn, s["guid"]))

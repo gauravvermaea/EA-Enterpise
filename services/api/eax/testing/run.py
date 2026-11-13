@@ -12,9 +12,10 @@ helper starts it for System admin > Self-test and `eax test`; CI runs `eax test`
   python -m eax.testing collect --run-id N [--error TEXT | --stopped BY]
         reads the ZAP and Trivy reports the operations helper left in the run's folder and closes the run.
 
-Results go to the installation's database as they come (core.test_runs, core.test_results, core.test_fixtures); files to
+Results go to the installation's database as they come (tests.test_runs, tests.test_results, tests.test_fixtures); files to
 /results/<folder> (work/tests/<folder> on the host): run.log, videos of failed journeys, the scan reports, report.html and
-report.xlsx. Nothing is ever purged here: the fixtures stay until someone removes them (D529)."""
+report.xlsx. The run's fixtures are removed when it ends, however it ends (R2.11, D637; EAX_TEST_KEEP_DATA=1 keeps them
+for the next run to remove)."""
 
 from __future__ import annotations
 
@@ -71,7 +72,7 @@ class Run:
         """How far the run is, for the command line (R2.40): "[120 of about 900, 780 left]"."""
         with self.engine.connect() as conn:
             run = store.run_row(conn, self.id)
-            done = conn.execute(text("SELECT count(*) FROM core.test_results WHERE run_id = :id"), {"id": self.id}).scalar() or 0
+            done = conn.execute(text("SELECT count(*) FROM tests.test_results WHERE run_id = :id"), {"id": self.id}).scalar() or 0
             p = store.progress(conn, run, int(done)) if run else {"total": None, "done": done}
         return f"[{p['done']} of about {p['total']}, {p['left']} left]" if p.get("total") else f"[{p['done']} so far]"
 
@@ -86,7 +87,7 @@ class Run:
             f.write(line + "\n")
         with self.engine.begin() as conn:
             store.set_state(conn, self.id, step=msg[:300])
-            asked = conn.execute(text("SELECT stop_asked FROM core.test_runs WHERE id = :id"), {"id": self.id}).scalar()
+            asked = conn.execute(text("SELECT stop_asked FROM tests.test_runs WHERE id = :id"), {"id": self.id}).scalar()
         if asked:
             raise Stopped(asked)
 
@@ -181,7 +182,7 @@ def _wait_for_browser(engine, run_id: int, r) -> None:
     r.log("waiting for the journeys in your browser (Self-test page): keep it open")
     for i in range(1800):
         with engine.connect() as conn:
-            done = conn.execute(text("SELECT browser->>'done' FROM core.test_runs WHERE id = :id"), {"id": run_id}).scalar()
+            done = conn.execute(text("SELECT browser->>'done' FROM tests.test_runs WHERE id = :id"), {"id": run_id}).scalar()
         if done == "true":
             return
         if i and i % 30 == 0:
@@ -194,7 +195,9 @@ def _post_json(path: str, token: str | None, body: dict) -> tuple[int, str]:
     import json as _json
     import urllib.error
     import urllib.request
-    req = urllib.request.Request(API + path, data=_json.dumps(body).encode(), method="POST",
+
+    from ..service_split import route
+    req = urllib.request.Request(route(API, path) + path, data=_json.dumps(body).encode(), method="POST",
                                  headers={"Content-Type": "application/json", "Accept": "application/json",
                                           **({"Authorization": f"Bearer {token}"} if token else {})})
     try:
@@ -285,16 +288,16 @@ def deploy_page(rec, tokens: dict[str, str]) -> None:
     other = next((t for k, t in tokens.items() if k not in ("super-admin", "it-admin")), None)
     if admin:
         t0 = time.time()
-        s, body = api_matrix.call(API, "post", "/api/v1/deploys/questions", admin)
+        s, body = api_matrix.call(API, "post", "/api/v1/operations/deploys/questions", admin)
         ok = s == 200 and "hostname" in body
         rec("deploy: the questions answer (no laptop)", "passed" if ok and '"laptop"' not in body else
             "warning" if s in (502, 503, 504) else "failed", f"{s}", int((time.time() - t0) * 1000),
-            request="" if ok else "POST /api/v1/deploys/questions", response="" if ok else f"{s}\n{body}")
+            request="" if ok else "POST /api/v1/operations/deploys/questions", response="" if ok else f"{s}\n{body}")
     if other:
         t0 = time.time()
-        s, body = api_matrix.call(API, "get", "/api/v1/deploys", other)
+        s, body = api_matrix.call(API, "get", "/api/v1/operations/deploys", other)
         rec("deploy: refused to people who are not IT or Super Admins", "passed" if s == 403 else "failed", f"{s}",
-            int((time.time() - t0) * 1000), request="" if s == 403 else "GET /api/v1/deploys", response="" if s == 403 else body)
+            int((time.time() - t0) * 1000), request="" if s == 403 else "GET /api/v1/operations/deploys", response="" if s == 403 else body)
 
 
 def documentation(rec, tokens: dict[str, str]) -> None:
@@ -338,6 +341,145 @@ def _backup_suite(r: Run, tokens: dict[str, str], ids: dict[str, str], run_id: i
             store.add_fixture(conn, run_id, kind, ident, name)
     r.log("backups: an infrastructure and an application backup, a trial restore of each (nothing live is touched)")
     backups_check.run(API, tokens.get("super-admin", ""), ids, r.recorder("backup"), r.log, r.repo, run_id, add_fixture)
+
+
+def coverage_html(c: dict) -> str:
+    import html as _h
+    rows = "".join(f"<tr><td>{_h.escape(a['area'])}</td><td>{a['run']}</td><td>{a['lines']}</td><td>{a['percent']}%</td></tr>"
+                   for a in c.get("areas") or [])
+    files = "".join(f"<tr><td>{_h.escape(f['file'])}</td><td>{f['run']}</td><td>{f['lines']}</td><td>{f['percent']}%</td></tr>"
+                    for f in c.get("files") or [])
+    return ("<!doctype html><meta charset='utf-8'><title>Code coverage</title><style>body{font-family:sans-serif}"
+            "td,th{padding:2px 8px;text-align:left}</style>"
+            f"<h1>Code coverage of the API: {c.get('percent')}%</h1><p>{c.get('run')} of {c.get('lines')} lines of EA Explorer's "
+            "code ran while the API was up (since it started; D642).</p>"
+            f"<h2>By area</h2><table><tr><th>Area</th><th>Lines run</th><th>Lines</th><th>Covered</th></tr>{rows}</table>"
+            f"<h2>By file, the least covered first</h2><table><tr><th>File</th><th>Lines run</th><th>Lines</th><th>Covered</th></tr>"
+            f"{files}</table>")
+
+
+def coverage_result(r: Run, token: str) -> dict | None:
+    """The API's code coverage at the run's end (EAX_COVERAGE=on, D642): kept as coverage.json and coverage.html in the
+    run's folder and as one result line (a measurement, never a failure)."""
+    import json as _json
+    t0 = time.time()
+    s, body = api_matrix.call(API, "get", "/api/v1/admin/coverage", token, timeout=180, size=None)
+    rec = r.recorder("api")
+    try:
+        c = _json.loads(body) if s == 200 else {}
+    except ValueError:
+        c = {}
+    ms = int((time.time() - t0) * 1000)
+    if not c.get("on") or c.get("percent") is None:
+        rec("coverage: the API's code run by this test", "skipped", c.get("why") or f"HTTP {s}", ms)
+        return None
+    try:
+        (r.dir / "coverage.json").write_text(_json.dumps(c, indent=1), encoding="utf-8")
+        (r.dir / "coverage.html").write_text(coverage_html(c), encoding="utf-8")
+    except OSError as exc:
+        r.log(f"coverage files not written: {exc}")
+    low = ", ".join(f"{a['area']} {a['percent']}%" for a in (c.get("areas") or [])[:4])
+    rec("coverage: the API's code run by this test", "passed",
+        f"{c['percent']}% of lines ({c['run']} of {c['lines']}); least covered areas: {low}; coverage.html in the run's folder",
+        ms)
+    r.counts["coverage %"] = c["percent"]
+    return c
+
+
+# the containers a run tests (owner, 13 Nov 2026: no waiting for everything to start; "Why is sample data and industry pack
+# needed for testing?" They are not): the core and the second-tier services the checks use. The sample data, the
+# industry packs and the demo estate are never waited for.
+UNDER_TEST = {"api": "the API", "web": "the screens", "proxy": "the front door", "keycloak": "sign-in", "db": "the database",
+              "operations": "the operations service", "personal": "the personal data service", "library": "the libraries",
+              "views": "the drawn views", "reports": "Reports", "dms": "Documents", "drawio": "draw.io"}
+
+
+def readiness(containers: list[dict]) -> dict[str, str]:
+    """Each container under test: up, starting, failed, or off (switched off: not there, or stopped on purpose)."""
+    out: dict[str, str] = {}
+    for svc in UNDER_TEST:
+        rows = [c for c in containers if c.get("service") == svc]
+        if not rows:
+            out[svc] = "off"
+            continue
+        states = []
+        for c in rows:
+            state, health = str(c.get("state") or "").lower(), str(c.get("health") or "").lower()
+            if state == "running":
+                states.append("starting" if health == "starting" else "failed" if health == "unhealthy" else "up")
+            elif state in ("created", "restarting"):
+                states.append("starting")
+            elif state == "exited" and int(c.get("exit_code") or 0) == 0:
+                states.append("off")
+            else:
+                states.append("failed")
+        out[svc] = "up" if "up" in states else "starting" if "starting" in states else states[0]
+    return out
+
+
+def services_ready(r, token: str, wait: int = 600, pause: int = 10, call=None, sleep=time.sleep, clock=time.time) -> dict:
+    """Waits only for the containers this run tests to finish starting (up to `wait` seconds), saying which on the run's
+    step, so a test can start right after `eax clean-restart`. A switched-off one: its checks are skipped. One still not
+    up at the end: a failed check with the reason; the run goes on."""
+    import json as _json
+    call = call or api_matrix.call
+    t0, last = clock(), {}
+    while True:
+        s, body = call(API, "get", "/api/v1/admin/services/health", token, timeout=90, size=None)
+        try:
+            last = readiness(_json.loads(body).get("containers") or []) if s == 200 else last
+        except ValueError:
+            pass
+        waiting = [k for k, v in last.items() if v == "starting"]
+        if s == 200 and not waiting:
+            break
+        if clock() - t0 >= wait:
+            break
+        names = ", ".join(UNDER_TEST[k] for k in waiting) or "the services' state"
+        r.log(f"waiting for {names} to finish starting")
+        with r.engine.begin() as conn:
+            store.set_state(conn, r.id, step=f"Waiting for {names} to finish starting")
+        sleep(pause)
+    rec, ms = r.recorder("smoke"), int((clock() - t0) * 1000)
+    up = sorted(k for k, v in last.items() if v == "up")
+    rec("start-up: the services under test are up", "passed" if up and not any(v in ("starting", "failed") for v in last.values())
+        else "failed", "; ".join(f"{UNDER_TEST[k]} {v}" for k, v in sorted(last.items()) if v != "up") or "all up", ms)
+    for k, v in sorted(last.items()):
+        if v == "off":
+            rec(f"start-up: {UNDER_TEST[k]}", "skipped", "switched off: its checks are skipped", 0)
+        elif v in ("starting", "failed"):
+            rec(f"start-up: {UNDER_TEST[k]}", "failed",
+                "still starting after the wait" if v == "starting" else "stopped or unhealthy", ms)
+    return last
+
+
+def alert_check(api: str, token: str, rec, log, wait: int = 150, pause: int = 10) -> None:
+    """R2.19, as the owner asked: a container "stopped on purpose" (a test alert: the watcher tells it as if api had
+    stopped; nothing is stopped), then the alert and its recovery notice, within the watcher's next looks."""
+    import json as _json
+    t0 = time.time()
+    s, _ = api_matrix.call(api, "post", "/api/v1/admin/alerts/test", token)
+    if s != 200:
+        rec("alerts: a test alert is raised", "failed", f"HTTP {s}", int((time.time() - t0) * 1000))
+        return
+    log(f"alerts: waiting up to {wait} s for the watcher's alert and recovery notice")
+    seen: set[str] = set()
+    while time.time() - t0 < wait:
+        s, body = api_matrix.call(api, "get", "/api/v1/admin/alerts", token, size=None)
+        try:
+            hist = _json.loads(body).get("history") or []
+        except ValueError:
+            hist = []
+        seen |= {h.get("event") for h in hist if h.get("at") and h["at"] >= t0 - 5 and "test alert" in str(h.get("detail") or "")
+                 or (h.get("at") and h["at"] >= t0 - 5 and h.get("event") == "recovered" and h.get("kind") == "stopped")}
+        if {"alert", "recovered"} <= seen:
+            break
+        time.sleep(pause)
+    ms = int((time.time() - t0) * 1000)
+    rec("alerts: a container that stops raises an alert", "passed" if "alert" in seen else "failed",
+        "" if "alert" in seen else "no alert from the watcher in time", ms)
+    rec("alerts: its recovery is told", "passed" if "recovered" in seen else "failed",
+        "" if "recovered" in seen else "no recovery notice in time", ms)
 
 
 def _repeat_detailed(r: Run, p: dict, spec: dict, tokens: dict[str, str], test_tokens: dict[str, str], ids: dict[str, str],
@@ -389,7 +531,7 @@ def cmd_run(args) -> int:
     rep_of, rep_warn = None, bool(args.warnings)
     with engine.begin() as conn:
         if args.run_id:                             # recorded by the Self-test page: a repeat says so in its row
-            got = conn.execute(text("SELECT repeat_of, repeat_warnings FROM core.test_runs WHERE id = :id"),
+            got = conn.execute(text("SELECT repeat_of, repeat_warnings FROM tests.test_runs WHERE id = :id"),
                                {"id": args.run_id}).first()
             if got and got[0]:
                 rep_of, rep_warn = int(got[0]), bool(got[1])
@@ -407,7 +549,7 @@ def cmd_run(args) -> int:
         run_id = args.run_id or store.create_run(conn, args.by or "eax test", args.trigger, suites, folder, _version(), level,
                                                  role, area, args.watch, repeat_of=rep_of, repeat_warnings=rep_warn)
         store.set_state(conn, run_id, state="running", folder=folder, version=_version())
-        run = dict(conn.execute(text("SELECT id, run_guid::text AS run_guid, started_by FROM core.test_runs WHERE id = :id"),
+        run = dict(conn.execute(text("SELECT id, run_guid::text AS run_guid, started_by FROM tests.test_runs WHERE id = :id"),
                                 {"id": run_id}).mappings().first())
     print(f"RUN_ID={run_id}", flush=True)
     r = Run(engine, run_id, folder, repo)
@@ -422,6 +564,7 @@ def cmd_run(args) -> int:
         fixtures.clean_leftovers(repo, run_id, by, r.log)   # earlier runs' test data goes first (D593)
         with repo.begin() as conn:
             tokens = fixtures.accounts(conn, run, by, roles, r.log)
+        services_ready(r, tokens.get("super-admin", ""))   # only what this run tests, never the sample data or packs
         ids = fixtures.models_and_project(repo, run, by, roles, r.log)
         with engine.begin() as conn:
             store.set_fixture_ids(conn, run_id, ids)
@@ -459,11 +602,15 @@ def cmd_run(args) -> int:
                 r.log("API writes, area by area, inside the run's own fixtures (and the same writes refused)")
                 r.counts.update({f"writes {k}": v for k, v in api_writes.run(API, test_tokens, ids, r.recorder("api"),
                                                                               area=area).items()})
-            guarded = "ui" in suites and _admin_journey(journeys, role, args.pages_only)
+            guarded = "ui" in suites and not getattr(args, "ui_review", False) and _admin_journey(journeys, role, args.pages_only)
             if guarded:                                  # the real banner and schedules, put back however the run ends (D583)
                 admin_before = _admin_guard(tokens, "before", r.log)
             try:
-                if "ui" in suites and not args.watch:
+                if "ui" in suites and getattr(args, "ui_review", False):   # the UI review only (R2.12)
+                    from . import ui_review
+                    r.log("UI review: every main page as each role at three widths (screenshots and notes, nothing changed)")
+                    r.counts.update(ui_review.run(ids, ticket, r.dir, r.recorder("ui"), roles=[role] if role else None))
+                elif "ui" in suites and not args.watch:
                     r.log("browser: every page, then the journeys (Chromium, headless)" if not (journeys or args.pages_only)
                           else "browser: the page sweep" if args.pages_only else f"browser: journey {', '.join(journeys)}")
                     r.counts.update(ui_journeys.run_all(ids, ticket, r.dir, r.recorder("ui"), role=role, journeys=journeys,
@@ -483,8 +630,11 @@ def cmd_run(args) -> int:
                 security.front_door(rec)
                 security.python_dependencies(rec)
                 keep_open = True
+            if "api" in suites and not area:          # container alerts and their recovery (R2.19)
+                alert_check(API, tokens.get("super-admin", ""), r.recorder("api"), r.log)
             if "backup" in suites:                    # the last: backups and trial restores (R2.45)
                 _backup_suite(r, tokens, ids, run_id)
+        coverage_result(r, tokens.get("super-admin", ""))   # what of the API's code this run made it run (D642)
     except Stopped as exc:
         stopped = str(exc)
     except Exception as exc:  # noqa: BLE001 - the run itself broke: kept as an error with the reason
@@ -508,7 +658,7 @@ def _close_access(engine, run_id: int, by: str, repo=None) -> None:
     from .. import machine_access as ma
     from .. import permissions as perms
     with engine.connect() as conn:
-        creds = [g for (g,) in conn.execute(text("SELECT ident FROM core.test_fixtures WHERE run_id = :r AND kind = 'credential' "
+        creds = [g for (g,) in conn.execute(text("SELECT ident FROM tests.test_fixtures WHERE run_id = :r AND kind = 'credential' "
                                                  "AND purged_at IS NULL"), {"r": run_id}).all()]
     with (repo if repo is not None else engine).begin() as conn:
         for guid in creds:
@@ -517,7 +667,7 @@ def _close_access(engine, run_id: int, by: str, repo=None) -> None:
             except Exception:  # noqa: BLE001
                 pass
     with engine.begin() as conn:
-        conn.execute(text("UPDATE core.test_runs SET browser = jsonb_build_object('done', true) WHERE id = :id"), {"id": run_id})
+        conn.execute(text("UPDATE tests.test_runs SET browser = jsonb_build_object('done', true) WHERE id = :id"), {"id": run_id})
 
 
 SUITE_NAMES = {"smoke": "Smoke", "api": "API", "ui": "Pages and journeys", "db": "Database", "security": "Security"}
@@ -567,12 +717,20 @@ def _close(engine, r: Run, error: str = "", stopped: str = "") -> int:
         state = store.finish(conn, r.id, error, stopped)
         if not (error or stopped) and repeat.mark_followed_up(conn, r.id):
             print("Every repeated check passes now: the earlier run is marked as followed up.", flush=True)
+    if getattr(r, "repo", None) is not None:          # the run's test data goes now, however it ended (R2.11)
+        fixtures.remove_at_end(r.repo, r.id, lambda m: print(m, flush=True))
     try:
         with engine.connect() as conn:
             (r.dir / "report.html").write_text(report.to_html(conn, r.id), encoding="utf-8")
             (r.dir / "report.xlsx").write_bytes(report.to_xlsx(conn, r.id))
     except Exception as exc:  # noqa: BLE001 - the results are in the database whatever happens to the files
         print(f"the report files could not be written: {exc}", flush=True)
+    from .. import filestore
+    if filestore.in_database():                      # no local file system (R2.44, D635): the run's folder into the store
+        try:
+            print(f"{filestore.put_folder('tests', r.dir, r.folder)} file(s) of the run kept in the file store", flush=True)
+        except Exception as exc:  # noqa: BLE001 - the results are in the database whatever happens to the files
+            print(f"the run's files could not be put in the file store: {exc}", flush=True)
     try:                                             # the summary at the end (owner, 12 Nov 2026: R2.35, D604)
         with engine.connect() as conn:
             print(summary_text(store.run_detail(conn, r.id)), flush=True)
@@ -586,7 +744,7 @@ def cmd_collect(args) -> int:
     from ..db import get_engine
     engine, repo = store.engine(), get_engine()
     with engine.begin() as conn:
-        row = conn.execute(text("SELECT folder, state, started_by FROM core.test_runs WHERE id = :id"), {"id": args.run_id}).first()
+        row = conn.execute(text("SELECT folder, state, started_by FROM tests.test_runs WHERE id = :id"), {"id": args.run_id}).first()
     if not row:
         print(f"No self-test run {args.run_id}.")
         return 2
@@ -598,7 +756,7 @@ def cmd_collect(args) -> int:
     r.dir.mkdir(parents=True, exist_ok=True)
     r.only, r.ids, r.left_out, r.counts = None, {}, 0, {}
     with engine.connect() as conn:                   # a repeat records only the scans that failed before (R2.36)
-        rp = conn.execute(text("SELECT repeat_of, repeat_warnings FROM core.test_runs WHERE id = :id"), {"id": args.run_id}).first()
+        rp = conn.execute(text("SELECT repeat_of, repeat_warnings FROM tests.test_runs WHERE id = :id"), {"id": args.run_id}).first()
         if rp and rp[0]:
             r.only = repeat.plan(repeat.wanted(conn, int(rp[0]), bool(rp[1])), repeat.fixture_ids(conn, int(rp[0])))["keys"]
             r.ids = repeat.fixture_ids(conn, args.run_id)
@@ -621,6 +779,7 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("--watch", action="store_true")
     a.add_argument("--journey", action="append", default=[])
     a.add_argument("--pages-only", action="store_true")
+    a.add_argument("--ui-review", action="store_true", help="screenshots of every main page, each role, three widths (R2.12)")
     a.add_argument("--run-id", type=int, default=0)
     a.add_argument("--trigger", default="eax", choices=["web", "eax", "ci"])
     a.add_argument("--by", default="")

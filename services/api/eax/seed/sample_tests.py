@@ -49,13 +49,13 @@ def run() -> list[str]:
     from ..testing import fixtures
     eng = get_engine()
     with eng.begin() as conn, store.tests(conn) as tc:      # the runs go to the tests database (R2.28)
-        if tc.execute(text("SELECT 1 FROM core.test_runs LIMIT 1")).first():
+        if tc.execute(text("SELECT 1 FROM tests.test_runs LIMIT 1")).first():
             return ["sample self-test runs: there are runs already"]
         version = conn.execute(text("SELECT version FROM core.schema_versions ORDER BY applied_at DESC LIMIT 1")).scalar() or ""
         ok = store.create_run(tc, "user_it_admin", "web", ["api", "ui", "db", "security"], "20261109T201500Z-run1", version,
                               "smoke")
         store.set_state(tc, ok, state="running")
-        run = dict(tc.execute(text("SELECT id, run_guid::text AS run_guid FROM core.test_runs WHERE id = :i"), {"i": ok}).mappings().first())
+        run = dict(tc.execute(text("SELECT id, run_guid::text AS run_guid FROM tests.test_runs WHERE id = :i"), {"i": ok}).mappings().first())
     notes = []
     try:
         with eng.begin() as conn:
@@ -75,7 +75,7 @@ def run() -> list[str]:
         conn.execute(text("UPDATE core.machine_credentials SET revoked_at = now(), revoked_by = 'user_it_admin', "
                           "revoke_reason = 'the self-test run ended' WHERE owner LIKE :o AND revoked_at IS NULL"),
                      {"o": f"svc-self-test-{store.short(run['run_guid'])}-%"})
-        tc.execute(text("""UPDATE core.test_runs SET queued_at = now() - interval '1 day', started_at = now() - interval '1 day',
+        tc.execute(text("""UPDATE tests.test_runs SET queued_at = now() - interval '1 day', started_at = now() - interval '1 day',
                              finished_at = now() - interval '1 day' + interval '4 minutes' WHERE id = :id"""), {"id": ok})
 
         bad = store.create_run(tc, "eax test", "eax", ["api", "ui", "db", "security"], "20261110T061000Z", version, "detailed",
@@ -98,12 +98,12 @@ def run() -> list[str]:
         store.add_result(tc, bad, "security", "Python dependencies (pip-audit)", "skipped",
                          "pip-audit could not run: no internet to read the advisory database", 0)
         store.finish(tc, bad)
-        tc.execute(text("UPDATE core.test_runs SET purged_at = now(), purged_by = 'user_super_admin' WHERE id = :id"), {"id": bad})
+        tc.execute(text("UPDATE tests.test_runs SET purged_at = now(), purged_by = 'user_super_admin' WHERE id = :id"), {"id": bad})
 
         err = store.create_run(tc, "user_super_admin", "web", ["ui"], "", version, "detailed")
         store.set_state(tc, err, state="error",
                         message="Could not start: The test runner image eaexplorer/testrunner is not built yet: run eax test once on this server.")
-        tc.execute(text("UPDATE core.test_runs SET queued_at = now() - interval '2 days', finished_at = now() - interval '2 days' "
+        tc.execute(text("UPDATE tests.test_runs SET queued_at = now() - interval '2 days', finished_at = now() - interval '2 days' "
                           "WHERE id = :id"), {"id": err})
         r1 = store.create_run(tc, "user_it_admin", "web", ["api", "ui"], "20261110T081000Z-run4", version, "detailed",
                               repeat_of=bad)
@@ -122,7 +122,7 @@ def run() -> list[str]:
         from ..testing import repeat
         repeat.mark_followed_up(tc, r2)
         for rid, hours in ((r1, 20), (r2, 18)):
-            tc.execute(text("""UPDATE core.test_runs SET queued_at = now() - make_interval(hours => :h),
+            tc.execute(text("""UPDATE tests.test_runs SET queued_at = now() - make_interval(hours => :h),
                                  started_at = now() - make_interval(hours => :h),
                                  finished_at = now() - make_interval(hours => :h) + interval '3 minutes' WHERE id = :id"""),
                          {"h": hours, "id": rid})

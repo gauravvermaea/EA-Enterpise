@@ -13,6 +13,7 @@ import ModelReports from "./ModelReports";
 import { refreshAll, useApi } from "./ModelViews";
 import { NewGapDialog } from "./Versions";
 import { projectPhaseEnabled } from "./iterations";
+import { MoveProjectToArchiveDialog } from "./Archive";
 
 const shortPhase = (ph) => ph.name.replace(/^Phase /, "").replace(" Architecture", "").replace(" (repository-wide)", "");
 
@@ -241,6 +242,7 @@ export function ProjectBackupPanel({ p }) {
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
   const [restoring, setRestoring] = useState(null);
+  const [archiving, setArchiving] = useState(false);
   async function backUp() {
     setBusy("backup"); setMsg("");
     try { const r = await runTask(apiFetch(`/api/v1/projects/${p.id}/backups`, { method: "POST", body: JSON.stringify({ why: "" }) }), `#/projects/${p.id}/about`); setMsg(r?.message || "Backed up."); refreshAll(); }
@@ -260,7 +262,8 @@ export function ProjectBackupPanel({ p }) {
       <p className="small quiet">A backup holds the project (its people, steps, document classes, approvals and history), the models it works on and
         the latest version of each document. Restoring makes a <b>new</b> project from it: the old one is not touched. It runs in the background.
         {p.frozen && " A finished project can still be backed up."}</p>
-      <button disabled={!!busy} onClick={backUp}>{busy === "backup" ? "Backing up…" : "Back up now"}</button>
+      <div className="row-gap"><button disabled={!!busy} onClick={backUp}>{busy === "backup" ? "Backing up…" : "Back up now"}</button>
+        <button className="danger" onClick={() => setArchiving(true)}>Move to the archive</button></div>
       {msg && <p className="small status">{msg}</p>}
       {list.length > 0 && <table className="grid-table small">
         <thead><tr><th>Backed up</th><th>By</th><th className="num">Documents</th><th>Models</th><th /></tr></thead>
@@ -280,6 +283,7 @@ export function ProjectBackupPanel({ p }) {
           </tr>))}</tbody>
       </table>}
       {restoring && <RestoreDialog p={p} b={restoring.b} over={restoring.over} onClose={() => setRestoring(null)} />}
+      {archiving && <MoveProjectToArchiveDialog p={p} superAdmin={superAdmin} onClose={() => setArchiving(false)} />}
     </div>
   );
 }

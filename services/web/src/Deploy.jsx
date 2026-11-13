@@ -57,7 +57,7 @@ function Question({ q, value, onChange }) {
 }
 
 function Run({ id, onBack }) {
-  const r = useFresh(`/api/v1/deploys/${id}`);
+  const r = useFresh(`/api/v1/operations/deploys/${id}`);
   const [busy, setBusy] = useState("");
   const logRef = useRef(null);
   const live = r.data && ["running", "failed"].includes(r.data.status);
@@ -72,7 +72,7 @@ function Run({ id, onBack }) {
   const d = r.data;
   async function decide(choice) {
     setBusy(choice);
-    try { await apiFetch(`/api/v1/deploys/${id}/decide`, { method: "POST", body: JSON.stringify({ choice }) }); r.reload(); }
+    try { await apiFetch(`/api/v1/operations/deploys/${id}/decide`, { method: "POST", body: JSON.stringify({ choice }) }); r.reload(); }
     finally { setBusy(""); }
   }
   const [cls, label] = STATUS[d.status] || ["", d.status];
@@ -110,7 +110,7 @@ function Run({ id, onBack }) {
 }
 
 export default function Deploy() {
-  const ov = useFresh("/api/v1/deploys");
+  const ov = useFresh("/api/v1/operations/deploys");
   const [answers, setAnswers] = useState({ kind: "server" });
   const [qs, setQs] = useState([]);
   const [key, setKey] = useState("");
@@ -123,7 +123,7 @@ export default function Deploy() {
   useEffect(() => {
     if (!allowed) return;
     let gone = false;
-    apiFetch("/api/v1/deploys/questions", { method: "POST", body: JSON.stringify({ answers }) })
+    apiFetch("/api/v1/operations/deploys/questions", { method: "POST", body: JSON.stringify({ answers }) })
       .then((d) => { if (!gone) setQs(d.questions || []); }).catch((e) => setError(e.message));
     return () => { gone = true; };
   }, [JSON.stringify(answers), allowed]);
@@ -146,7 +146,7 @@ export default function Deploy() {
       const secretKeys = qs.filter((q) => q.secret).map((q) => q.key);
       const secrets = Object.fromEntries(secretKeys.map((k) => [k, full[k]]).filter(([, v]) => v));
       for (const k of secretKeys) delete full[k];
-      const out = await apiFetch("/api/v1/deploys", { method: "POST", body: JSON.stringify({ answers: full, secrets, ssh_key: key, keep,
+      const out = await apiFetch("/api/v1/operations/deploys", { method: "POST", body: JSON.stringify({ answers: full, secrets, ssh_key: key, keep,
         use_kept: useKept, plan, confirm: !plan }) });
       setRunId(out.id);
       ov.reload();
@@ -154,7 +154,7 @@ export default function Deploy() {
   }
   async function forget(t) {
     if (!window.confirm(`Forget the credentials kept for ${t}?`)) return;
-    try { await apiFetch(`/api/v1/deploys/kept/${encodeURIComponent(t)}`, { method: "DELETE" }); ov.reload(); }
+    try { await apiFetch(`/api/v1/operations/deploys/kept/${encodeURIComponent(t)}`, { method: "DELETE" }); ov.reload(); }
     catch (e) { setError(e.message); }
   }
   const data = ov.data || {};

@@ -10,6 +10,38 @@ ENV_FILE=work/eaexplorer.env
 LOG_DIR=work/logs
 STAMP=$(date +%Y%m%d-%H%M%S)
 LOG=""
+# --no-color anywhere: plain text (R2.10); colour only on a terminal, never with NO_COLOR or CI set, never when piped
+_plain=""
+_args=()
+for _a in "$@"; do if [ "$_a" = --no-color ]; then _plain=1; else _args+=("$_a"); fi; done
+set -- ${_args[@]+"${_args[@]}"}
+C_RED=""; C_GREEN=""; C_YELLOW=""; C_CYAN=""; C_GREY=""; C_OFF=""
+if [ -z "$_plain" ] && [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ -z "${EAX_NO_COLOR:-}" ] && [ -z "${CI:-}" ]; then
+  C_RED=$'\033[31m'; C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'; C_CYAN=$'\033[36m'; C_GREY=$'\033[90m'; C_OFF=$'\033[0m'
+fi
+err()     { printf '%s\n' "${C_RED}ERROR: $*${C_OFF}"; }
+warn()    { printf '%s\n' "${C_YELLOW}$*${C_OFF}"; }
+ok()      { printf '%s\n' "${C_GREEN}$*${C_OFF}"; }
+heading() { printf '%s\n' "${C_CYAN}$*${C_OFF}"; }
+# each `docker compose ps` line in its state's colour (the same rule as eaxcli/core.py state_colour)
+colour_status() {
+  local first=1 line low c
+  while IFS= read -r line; do
+    if [ -n "$first" ]; then printf '%s\n' "$line"; first=""; continue; fi
+    low=$(printf '%s' "$line" | tr '[:upper:]' '[:lower:]'); c=""
+    case "$low" in
+      *setup*"exited (0"*|*reports-init*"exited (0"*) c=$C_GREY ;;
+      *unhealthy*|*" dead"*|*restarting*|*oomkilled*) c=$C_RED ;;
+      *"exited (0"*) c=$C_GREY ;;
+      *exited*) c=$C_RED ;;
+      *"health: starting"*|*starting*|*created*|*paused*|*removing*) c=$C_YELLOW ;;
+      *"up "*|*running*|*"(healthy)"*) c=$C_GREEN ;;
+    esac
+    printf '%s\n' "${c}${line}${c:+$C_OFF}"
+  done
+}
+# no command on a terminal: the numbered menu (R2.29); piped or in a script: the help, as before
+if [ "$#" -eq 0 ]; then if [ -t 0 ]; then set -- menu; else set -- help; fi; fi
 CMD="${1:-help}"
 # <command> --help (or -h, /?): the help of that command
 if [ "$CMD" != help ] && [ "$CMD" != -h ] && [ "$CMD" != --help ]; then
@@ -177,7 +209,8 @@ start_log() {
   find "$LOG_DIR" -name '*.log' -mtime +14 -delete 2>/dev/null || true   # keep two weeks
   LOG="$LOG_DIR/eax-$STAMP-$CMD.log"
   exec 3>&1 4>&2                          # keep the plain console for "debug"
-  exec > >(tee -a "$LOG") 2>&1            # everything from here on goes to the console and the log
+  # everything from here on goes to the console and the log (the log without colour codes, R2.10)
+  exec > >(tee >(awk '{ gsub(/\033\[[0-9;]*m/, ""); print; fflush() }' >> "$LOG")) 2>&1
   echo "=== eax $* $(date '+%Y-%m-%dT%H:%M:%S%z')   folder $(pwd)   $(uname -sr)"
   echo "Log: $LOG"
 }
@@ -198,8 +231,20 @@ setting() {
   echo "${v:-${2:-}}"
 }
 kind() { setting EAX_DEPLOYMENT laptop; }
+# the build shown with the release (R2.47): EAX_BUILD as CI sets it, else the commit's short id ("-changed" when files
+# differ from it), "dev" outside git; the commit and its time, so the API container is made again only when they change
+build_id() {
+  if [ -n "${EAX_BUILD:-}" ]; then echo "$EAX_BUILD"; return; fi
+  c=$(git rev-parse --short HEAD 2>/dev/null) || { echo dev; return; }
+  if [ -n "$(git status --porcelain --untracked-files=no 2>/dev/null)" ]; then c="$c-changed"; fi
+  echo "$c"
+}
+release() { sed -n 's/^version *= *"\(.*\)"/\1/p' services/api/version.toml 2>/dev/null; }
 compose() {
   [ -f "$ENV_FILE" ] || { echo "No $ENV_FILE yet: run ./eax.sh init first."; return 1; }
+  EAX_BUILD=$(build_id); EAX_COMMIT=${EAX_COMMIT:-$(git rev-parse HEAD 2>/dev/null || true)}
+  EAX_BUILT_AT=${EAX_BUILT_AT:-$(git log -1 --format=%cI 2>/dev/null || true)}
+  export EAX_BUILD EAX_COMMIT EAX_BUILT_AT
   # plain progress and no colour codes, so the log reads cleanly
   # scale-out extra files (phase 36.3, D521): EAX_COMPOSE_EXTRA=standby,shared-storage... (deploy/compose/scale)
   set -- $(compose_extra) "$@"
@@ -257,7 +302,7 @@ run_compose() {
   if ! compose "$@"; then
     echo "docker compose failed. Collecting diagnostics..."
     diagnostics
-    echo "ERROR: docker compose failed. Full log with diagnostics: $LOG"
+    err "docker compose failed. Full log with diagnostics: $LOG"
     exit 1
   fi
 }
@@ -412,8 +457,8 @@ show_services() {
 }
 set_service() {
   local n="${1:-}" v="${2:-}" key copy
-  key=$(service_setting "$n") || { echo "ERROR: unknown service '$n'. One of: $SERVICE_NAMES"; exit 1; }
-  case "$v" in on|off) ;; *) echo "ERROR: say on or off: ./eax.sh service $n on"; exit 1 ;; esac
+  key=$(service_setting "$n") || { err "unknown service '$n'. One of: $SERVICE_NAMES"; exit 1; }
+  case "$v" in on|off) ;; *) err "say on or off: ./eax.sh service $n on"; exit 1 ;; esac
   mkdir -p "$WORK_DIR/config-history"
   copy="eaexplorer.env.$(date -u +%Y%m%d-%H%M%S).$(echo "${USER:-eax}" | tr -c 'A-Za-z0-9_.\n-' '-').$n-$v"
   cp -p "$ENV_FILE" "$WORK_DIR/config-history/$copy"
@@ -473,7 +518,7 @@ ca_path() {
 }
 trust() {
   local ca; ca=$(ca_path)
-  [ -n "$ca" ] || { echo "ERROR: EAX_TLS_DIR is a Docker volume; copy ca.crt out with: docker compose cp setup:/tls/ca.crt ."; exit 1; }
+  [ -n "$ca" ] || { err "EAX_TLS_DIR is a Docker volume; copy ca.crt out with: docker compose cp setup:/tls/ca.crt ."; exit 1; }
   if [ "${1:-}" = "--remove" ]; then
     if [ "$(uname)" = Darwin ]; then
       while security delete-certificate -c "EA Explorer local CA" ~/Library/Keychains/login.keychain-db >/dev/null 2>&1; do :; done
@@ -483,7 +528,7 @@ trust() {
     fi
     return 0
   fi
-  [ -f "$ca" ] || { echo "ERROR: no $ca yet: run ./eax.sh up first (the setup service makes it)."; exit 1; }
+  [ -f "$ca" ] || { err "no $ca yet: run ./eax.sh up first (the setup service makes it)."; exit 1; }
   if [ "$(uname)" = Darwin ]; then
     while security delete-certificate -c "EA Explorer local CA" ~/Library/Keychains/login.keychain-db >/dev/null 2>&1; do :; done
     security add-trusted-cert -r trustRoot -k ~/Library/Keychains/login.keychain-db "$ca"
@@ -569,7 +614,7 @@ watch_containers() {
 cleanup() {
   local all=false yes=false cert=false a
   for a in "$@"; do
-    case "$a" in --all) all=true ;; --yes|-y) yes=true ;; --certificate) cert=true ;; *) echo "ERROR: unknown option $a"; exit 1 ;; esac
+    case "$a" in --all) all=true ;; --yes|-y) yes=true ;; --certificate) cert=true ;; *) err "unknown option $a"; exit 1 ;; esac
   done
   echo "This deletes everything in $(pwd)/$WORK_DIR: the config file, all logs, the laptop data folders, and every backup and"
   echo "restore log (work/backups)."
@@ -578,6 +623,8 @@ cleanup() {
     read -r -p "Type yes to continue: " answer
     [ "$answer" = "yes" ] || { echo "Nothing deleted."; exit 0; }
   fi
+  # the logs first, where no reset deletes them (R2.30); a log backup never stops the cleanup
+  "$BASH" ./eaxpy.sh logs backup before-cleanup --outside-work || echo "The logs could not be backed up first."
   if [ -f "$ENV_FILE" ]; then
     if $all; then compose down -v --remove-orphans || true; else compose down --remove-orphans || true; fi
   elif $all; then
@@ -598,7 +645,7 @@ cleanup() {
       >/dev/null 2>&1 || true
   fi
   if [ -d "$WORK_DIR/backups" ]; then
-    echo "WARNING: $WORK_DIR/backups could not be deleted completely: delete it by hand (sudo rm -rf $WORK_DIR/backups)."
+    warn "WARNING: $WORK_DIR/backups could not be deleted completely: delete it by hand (sudo rm -rf $WORK_DIR/backups)."
   else
     echo "Every backup and restore log is deleted."
   fi
@@ -614,7 +661,7 @@ backup_helpers() { compose up -d db backup ops >/dev/null; }
 # Stops early with a plain message when the Docker engine is not reachable
 assert_docker() {
   if ! docker info --format '{{.ServerVersion}}' >/dev/null 2>&1; then
-    echo "ERROR: Docker is not running (or still starting). Start Docker Desktop or the Docker service, check with: docker version (it must show a Server section), then run this again."
+    err "Docker is not running (or still starting). Start Docker Desktop or the Docker service, check with: docker version (it must show a Server section), then run this again."
     exit 1
   fi
 }
@@ -665,13 +712,47 @@ console() {
   done
 }
 
+# did you mean (R2.29): the same rule as eaxcli/help.py suggest() and unknown()
+unknown_command() {
+  LC_ALL=C awk -v orig="$1" -v word="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" '
+    function dist(a, b,   i, j, la, lb, p, c, x, y, z) {
+      la = length(a); lb = length(b)
+      for (j = 0; j <= lb; j++) p[j] = j
+      for (i = 1; i <= la; i++) {
+        c[0] = i
+        for (j = 1; j <= lb; j++) {
+          x = p[j] + 1; y = c[j - 1] + 1; z = p[j - 1] + (substr(a, i, 1) != substr(b, j, 1))
+          c[j] = (x < y ? (x < z ? x : z) : (y < z ? y : z))
+        }
+        for (j = 0; j <= lb; j++) p[j] = c[j]
+      }
+      return p[lb]
+    }
+    /^### / { split(substr($2, 1), nm, "|"); for (k in nm) seen[nm[k]] = 1 }
+    END {
+      most = (length(word) <= 3) ? 1 : 2; n = 0
+      for (name in seen) {
+        s = (length(word) >= 2 && index(name, word) == 1) ? 0 : dist(word, name)
+        if (s <= most) { n++; key[n] = sprintf("%d %s", s, name) }
+      }
+      for (i = 2; i <= n; i++) { v = key[i]; for (j = i - 1; j >= 1 && key[j] > v; j--) key[j + 1] = key[j]; key[j + 1] = v }
+      out = ""; for (i = 1; i <= n && i <= 3; i++) { sub(/^[0-9]+ /, "", key[i]); out = out (i > 1 ? ", " : "") key[i] }
+      hint = (out != "") ? " Did you mean: " out "?" : ""
+      printf "unknown command '\''%s'\''.%s Run ./eax.sh help, or ./eax.sh menu to pick one.", orig, hint
+    }' eaxcli/help.txt
+}
+
 # ------------------------------------------------------------------ commands
 # eax test --reset-survival: settings outlive a real reset (D561), one Python program for every form
 if [ "$CMD" = "test" ]; then case " $* " in *" --reset-survival "*) exec "$BASH" ./eaxpy.sh "$@" ;; esac; fi
 case "$CMD" in
   help|-h|--help|/\?) show_help "${2:-}" "${3:-}"; exit $? ;;
   document)       shift; document "$@"; exit 0 ;;
-  deploy|secrets|packs|schedule)   # packs (D546); schedule: scheduled commands (D559)
+  logs) case "${2:-}" in backup|clean) exec "$BASH" ./eaxpy.sh "$@" ;; esac ;;   # back up and clean the logs (R2.30)
+esac
+case "$CMD" in
+  menu) EAX_FORM=sh exec "$BASH" ./eaxpy.sh menu ;;   # the numbered menu (R2.29), one Python program for every form
+  deploy|secrets|packs|schedule|persist)   # packs (D546); schedule: scheduled commands (D559); persist (R2.26)
     # phase 36 (D498, D504): one Python program for every form (D500): eaxpy.sh fetches uv and Python into work/tools
     exec "$BASH" ./eaxpy.sh "$@" ;;
   restart)
@@ -679,7 +760,7 @@ case "$CMD" in
     for step in "down" "up${WAIT_ALL:+ --wait-all}"; do
       echo; echo "=== ./eax.sh $step"
       # shellcheck disable=SC2086
-      "$BASH" "./$(basename "${BASH_SOURCE[0]}")" $step || { echo "ERROR: ./eax.sh $step failed; restart stopped there."; exit 1; }
+      "$BASH" "./$(basename "${BASH_SOURCE[0]}")" $step || { err "./eax.sh $step failed; restart stopped there."; exit 1; }
     done
     exit 0 ;;
   console)        shift; console "$@"; exit 0 ;;
@@ -696,7 +777,7 @@ case "$CMD" in
     for step in "${steps[@]}"; do
       echo; echo "=== ./eax.sh $step"
       # shellcheck disable=SC2086
-      "$BASH" "./$(basename "${BASH_SOURCE[0]}")" $step || { echo "ERROR: ./eax.sh $step failed; $CMD stopped there."; exit 1; }
+      "$BASH" "./$(basename "${BASH_SOURCE[0]}")" $step || { err "./eax.sh $step failed; $CMD stopped there."; exit 1; }
     done
     exit 0 ;;
 esac
@@ -707,25 +788,34 @@ if [ -f eaexplorer.env ] && [ ! -f "$ENV_FILE" ]; then
   echo "Delete the old file and run ./eax.sh init laptop (or copy your changes into $ENV_FILE)."
 fi
 
-case "$CMD" in check|up|start-later|debug|status|logs|down|backup|backups|restore|restores|restore-log|delete-backup|delete-restore|app-backup|restore-model|restore-app|stop-backup|services|service|import|update|rollback) assert_docker ;; esac
+case "$CMD" in check|up|start-later|debug|status|logs|down|backup|backups|footprint|restore|restores|restore-log|delete-backup|delete-restore|app-backup|restore-model|restore-app|stop-backup|services|service|import|update|rollback) assert_docker ;; esac
 
 case "$CMD" in
   init)
     K="${2:-laptop}"
-    [ -f "$ENV_FILE" ] && { echo "ERROR: $ENV_FILE already exists; not overwriting. Use ./eax.sh cleanup to start again."; exit 1; }
-    [ -f "deploy/templates/eaexplorer.$K.env" ] || { echo "ERROR: unknown deployment kind: $K"; exit 1; }
+    [ -f "$ENV_FILE" ] && { err "$ENV_FILE already exists; not overwriting. Use ./eax.sh cleanup to start again."; exit 1; }
+    [ -f "deploy/templates/eaexplorer.$K.env" ] || { err "unknown deployment kind: $K"; exit 1; }
     mkdir -p work/logs work/backups work/proxy work/data/imports work/data/exports work/data/tls
     # Plain copy with LF endings: no passwords are generated
     tr -d '\r' < "deploy/templates/eaexplorer.$K.env" > "$ENV_FILE"
     chmod 600 "$ENV_FILE"
     echo "Created $ENV_FILE ($K) from deploy/templates/eaexplorer.$K.env."
     if [ "$K" = "laptop" ]; then show_logins
-    else echo "Now replace every change-me value in $ENV_FILE with your own passwords before ./eax.sh up."; fi
+    else
+      # a server or platform keeps its backups in a mounted folder (R2.44, D635): no backups until it is set
+      if [ -t 0 ]; then
+        read -r -p "Folder for backups: a mounted network share or volume (empty: set EAX_BACKUP_DIR later): " BDIR
+        if [ -n "$BDIR" ]; then
+          sed -i "s|^EAX_BACKUP_DIR=\$|EAX_BACKUP_DIR=$BDIR|" "$ENV_FILE" && echo "Backups go to $BDIR (EAX_BACKUP_DIR)."
+        else echo "No backups are taken until EAX_BACKUP_DIR is set in $ENV_FILE."; fi
+      else echo "Set EAX_BACKUP_DIR in $ENV_FILE to the mounted folder for backups: no backups are taken until it is set."; fi
+      echo "Now replace every change-me value in $ENV_FILE with your own passwords before ./eax.sh up."
+    fi
     ;;
   check)
-    docker version --format 'Docker {{.Server.Version}}' || { echo "ERROR: Docker is not running."; exit 1; }
+    docker version --format 'Docker {{.Server.Version}}' || { err "Docker is not running."; exit 1; }
     docker compose version
-    [ -f "$ENV_FILE" ] || { echo "ERROR: no $ENV_FILE yet: run ./eax.sh init"; exit 1; }
+    [ -f "$ENV_FILE" ] || { err "no $ENV_FILE yet: run ./eax.sh init"; exit 1; }
     echo "Config: $ENV_FILE ($(kind))"
     run_compose config --quiet && echo "Compose configuration is valid."
     ;;
@@ -742,7 +832,7 @@ case "$CMD" in
     if ! up_services "$@"; then
       if [ -n "$PAGE" ]; then rm -f work/proxy/maintenance; fi
       echo "docker compose failed. Collecting diagnostics..."; diagnostics
-      echo "ERROR: docker compose failed. Full log with diagnostics: $LOG"; exit 1
+      err "docker compose failed. Full log with diagnostics: $LOG"; exit 1
     fi
     if [ -n "$PAGE" ]; then rm -f work/proxy/maintenance; fi
     if [ "$#" -gt 0 ]; then show_part_urls "$@"; else show_urls; show_logins; fi
@@ -757,12 +847,15 @@ case "$CMD" in
     watch_containers "$@"
     ;;
   diag)    diagnostics ;;
-  status)  run_compose ps -a; show_filesystems ;;
+  status)  heading "EA Explorer $(release), build $(build_id)"
+           _ps=$(compose ps -a) || { echo "docker compose failed. Collecting diagnostics..."; diagnostics; err "docker compose failed. Full log with diagnostics: $LOG"; exit 1; }
+           printf '%s\n' "$_ps" | colour_status; show_filesystems ;;
   logs)    shift; compose logs -f --tail=100 "$@" || true ;;
   down)    run_compose down ;;
-  backup)  service_on backups || { echo "ERROR: backups are switched off: ./eax.sh service backups on"; exit 1; }
+  backup)  service_on backups || { err "backups are switched off: ./eax.sh service backups on"; exit 1; }
            shift; backup_helpers; compose exec ops python3 /app/ops.py backup "$@" ;;
   backups) shift; backup_helpers; compose exec ops python3 /app/ops.py list "$@" ;;
+  footprint) shift; compose exec ops python3 /app/ops.py footprint "$@" ;;   # how much each container takes (R2.22)
   stop-backup) backup_helpers; compose exec ops python3 /app/ops.py stop-backup ;;
   restore-app) shift; compose exec api python -m eax.backups_cli restore-all "$@" ;;
   maintenance)
@@ -772,7 +865,7 @@ case "$CMD" in
       off) rm -f work/proxy/maintenance; echo "The maintenance page is off." ;;
       *) echo "Usage: ./eax.sh maintenance on|off"; exit 2 ;;
     esac ;;
-  restore) service_on backups || { echo "ERROR: backups are switched off: ./eax.sh service backups on"; exit 1; }
+  restore) service_on backups || { err "backups are switched off: ./eax.sh service backups on"; exit 1; }
            shift; VER=$(sed -n 's/^version = "\(.*\)"/\1/p' services/api/version.toml)
            backup_helpers; compose exec ops python3 /app/ops.py restore "$@" --version "$VER" ;;
   restores) backup_helpers; compose exec ops python3 /app/ops.py restores ;;
@@ -802,7 +895,7 @@ case "$CMD" in
           compose exec api python -m eax.testing.cli "$READ" $REST
         else
           echo "Preparing the test runner... (the first time about 5 to 15 minutes; seconds when it is current)"   # D584
-          compose --profile test build testrunner || { echo "ERROR: the test runner could not be built."; exit 1; }
+          compose --profile test build testrunner || { err "the test runner could not be built."; exit 1; }
           VER=$(sed -n 's/^version = "\(.*\)"/\1/p' services/api/version.toml)
           backup_helpers; compose exec ops python3 /app/ops.py test "$@" --version "$VER"
         fi ;;
@@ -830,8 +923,8 @@ case "$CMD" in
       compose up -d --no-deps --no-recreate --scale "api=$2" api
     fi ;;
   url)     show_urls; show_logins ;;
-  logins)  [ -f "$ENV_FILE" ] || { echo "ERROR: no $ENV_FILE yet: run ./eax.sh init first."; exit 1; }; show_logins ;;
-  trust)   [ -f "$ENV_FILE" ] || { echo "ERROR: no $ENV_FILE yet: run ./eax.sh init first."; exit 1; }; trust "${2:-}" ;;
-  *)       echo "ERROR: unknown command '$CMD'. Run ./eax.sh help"; exit 1 ;;
+  logins)  [ -f "$ENV_FILE" ] || { err "no $ENV_FILE yet: run ./eax.sh init first."; exit 1; }; show_logins ;;
+  trust)   [ -f "$ENV_FILE" ] || { err "no $ENV_FILE yet: run ./eax.sh init first."; exit 1; }; trust "${2:-}" ;;
+  *)       err "$(unknown_command "$CMD")"; exit 1 ;;
 esac
 echo "Log: $LOG"

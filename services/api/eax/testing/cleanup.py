@@ -2,7 +2,7 @@
 images, logs videos all are deleted. Otherwise this will take a lot of space").
 
 Deleting a run removes, for good: its test data first (its fixtures, fixtures.purge), then its results with their
-screenshots (rows in core.test_results), its fixture records and its run row, and its folder in work/tests (the report,
+screenshots (rows in tests.test_results), its fixture records and its run row, and its folder in work/tests (the report,
 the log, the videos and screenshots; the operations helper removes it, as only it may write there). A run still going
 cannot be deleted. Old runs go by themselves after the days set on the Self-test page (persist/settings.json,
 testrunner_keep_days, default 30; 0 keeps them), once a day."""
@@ -33,7 +33,7 @@ def pick(conn, which: str = "", older_than_days: int | None = None) -> list[dict
         where.append(f"coalesce(finished_at, queued_at) < now() - make_interval(days => {int(older_than_days)})")
     if not which and older_than_days is None:
         raise ValueError("Give a run's number, all, or --older-than DAYS.")
-    return [dict(r) for r in conn.execute(text(f"SELECT id, folder, state FROM core.test_runs WHERE {' AND '.join(where)} "
+    return [dict(r) for r in conn.execute(text(f"SELECT id, folder, state FROM tests.test_runs WHERE {' AND '.join(where)} "
                                                "ORDER BY id"), params).mappings()]
 
 
@@ -45,7 +45,7 @@ def delete(engine, ids: list[int], by: str, remove_folders, say=lambda _m: None)
     for run_id in ids:
         with engine.begin() as conn:                 # engine: the repository's, where the fixtures are
             with store.tests(conn) as tc:
-                row = tc.execute(text("SELECT id, folder, state FROM core.test_runs WHERE id = :id"), {"id": run_id}).mappings().first()
+                row = tc.execute(text("SELECT id, folder, state FROM tests.test_runs WHERE id = :id"), {"id": run_id}).mappings().first()
             if not row:
                 continue
             if row["state"] in store.OPEN:
@@ -54,9 +54,9 @@ def delete(engine, ids: list[int], by: str, remove_folders, say=lambda _m: None)
             purged = fx.purge(conn, run_id, by)
             out["fixtures"] += purged["models"] + purged["projects"] + purged["service_accounts"] + purged["credentials"]
             with store.tests(conn) as tc:            # the run's record, in the tests database (R2.28)
-                out["results"] += tc.execute(text("DELETE FROM core.test_results WHERE run_id = :id"), {"id": run_id}).rowcount
-                tc.execute(text("DELETE FROM core.test_fixtures WHERE run_id = :id"), {"id": run_id})
-                tc.execute(text("DELETE FROM core.test_runs WHERE id = :id"), {"id": run_id})
+                out["results"] += tc.execute(text("DELETE FROM tests.test_results WHERE run_id = :id"), {"id": run_id}).rowcount
+                tc.execute(text("DELETE FROM tests.test_fixtures WHERE run_id = :id"), {"id": run_id})
+                tc.execute(text("DELETE FROM tests.test_runs WHERE id = :id"), {"id": run_id})
             out["runs"] += 1
             if row["folder"]:
                 folders.append(row["folder"])

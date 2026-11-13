@@ -436,7 +436,7 @@ def _trivy(hostdir: str, images: list[str], say) -> None:
 
 def run_sequence(level: str, suites: list[str], role: str = "", area: str = "", watch: bool = False, run_id: int = 0,
                  by: str = "", trigger: str = "web", follow=None, journeys: list[str] | None = None,
-                 pages_only: bool = False, repeat: int | None = None, warnings: bool = False) -> dict:
+                 pages_only: bool = False, repeat: int | None = None, warnings: bool = False, ui_review: bool = False) -> dict:
     """The whole run: the runner, then (detailed with security) ZAP and Trivy, then collect. Returns {run_id, folder, code}."""
     say = follow or (lambda _m: None)
     with _lock:
@@ -465,6 +465,8 @@ def run_sequence(level: str, suites: list[str], role: str = "", area: str = "", 
             cmd += ["--journey", j]
         if pages_only:
             cmd.append("--pages-only")
+        if ui_review:                                  # screenshots for the UI review (R2.12)
+            cmd.append("--ui-review")
         if repeat is not None:                         # the failed checks of an earlier run only (R2.36)
             cmd += ["--repeat", str(int(repeat))] + (["--warnings"] if warnings else [])
         cid = _start_runner(info, name, folder, cmd)
@@ -555,6 +557,18 @@ def cli(args: list[str]) -> int:
     ops.py test failed [N] [--warnings]: only the checks that failed in run N, or the newest finished run (R2.36, D605)."""
     if args[:1] == ["failed"]:
         return _cli_failed(args[1:])
+    if args[:1] == ["ui-review"]:                     # every main page, each role, three widths (R2.12)
+        role = _opt(args, "--role")
+        print("Self-test now: the UI review. Screenshots of every main page as " + (role or "each test role")
+              + " at laptop, large and narrow widths, with notes; nothing in the screens changes. "
+              "Results: work/tests/<run>/ui-review.html.", flush=True)
+        r = run_sequence("detailed", ["ui"], role, "", False, by="eax test", trigger="ci" if "--ci" in args else "eax",
+                         follow=lambda line: print(line, flush=True), ui_review=True)
+        if r.get("error"):
+            print(f"The UI review could not finish: {r['error']}")
+            return 1
+        print(f"UI review {r['run_id']}: work/tests/{r['folder']}/ui-review.html", flush=True)
+        return 0
     if "full" in args:
         args = [a for a in args if a != "full"] + ["--detailed"]
     args = [a for a in args if a != "smoke"]

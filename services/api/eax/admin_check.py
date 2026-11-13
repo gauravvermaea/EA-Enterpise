@@ -23,8 +23,6 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 
-from sqlalchemy import text
-
 log = logging.getLogger(__name__)
 
 KIND = "system.health"
@@ -42,7 +40,8 @@ def health_now() -> dict:
     checks = {"api": hc.check_api, "db": hc.check_database, "keycloak": hc.check_keycloak, "web": hc.check_web,
               "proxy": hc.check_proxy, "reports": hc.check_reports, "documents": hc.check_dms,
               "documents_broker": hc.check_dms_broker, "drawio": hc.check_drawio, "mcp": hc.check_mcp,
-              "backups": hc.check_backup, "library": hc.check_library, "views": hc.check_views, "api_jobs": hc.check_jobs}
+              "backups": hc.check_backup, "library": hc.check_library, "views": hc.check_views, "api_jobs": hc.check_jobs,
+              "operations": hc.check_operations, "personal": hc.check_personal}
     with ThreadPoolExecutor(max_workers=len(checks) + 1) as pool:
         futures = {k: pool.submit(f) for k, f in checks.items()}
 
@@ -201,19 +200,25 @@ def _notify(conn, username: str, h: dict, want: dict, days, deployment: str, api
     user = (username or "").lower()
     problems = find_problems(h, want=want, cert_days=days, versions=(_db_version(conn), api_version),
                              deployment=deployment)
-    conn.execute(text("""
-        UPDATE core.notifications n SET resolved_at = now(), resolved_by = 'system',
-               resolution = 'A newer sign-in check replaced it'
-         WHERE n.kind = :k AND n.needs_action AND n.resolved_at IS NULL
-           AND EXISTS (SELECT 1 FROM core.notification_recipients r WHERE r.notification_id = n.id AND r.username = :u)"""),
-        {"k": KIND, "u": user})
+    from . import personal as P
+    try:
+        P.run(conn, """
+            UPDATE personal.notifications n SET resolved_at = now(), resolved_by = 'system',
+                   resolution = 'A newer sign-in check replaced it'
+             WHERE n.kind = :k AND n.needs_action AND n.resolved_at IS NULL
+               AND EXISTS (SELECT 1 FROM personal.notification_recipients r WHERE r.notification_id = n.id AND r.username = :u)""",
+              k=KIND, u=user)
+    except P.Unavailable:
+        pass
     if not problems:
         return None
     red = sum(1 for p in problems if p["level"] == "red")
     title = (f"{red} problem{'s' if red != 1 else ''} and {len(problems) - red} warning{'s' if len(problems) - red != 1 else ''} "
              "need your attention" if red else f"{len(problems)} warning{'s' if len(problems) != 1 else ''} for the administrators")
     body = "\n".join(f"{'●' if p['level'] == 'red' else '○'} {p['area']}: {p['text']}" for p in problems)
-    last = conn.execute(text("SELECT body FROM core.notifications WHERE kind = :k ORDER BY id DESC LIMIT 1"),
-                        {"k": KIND}).scalar()
+    try:
+        last = (P.one(conn, "SELECT body FROM personal.notifications WHERE kind = :k ORDER BY id DESC LIMIT 1", k=KIND) or {}).get("body")
+    except P.Unavailable:
+        last = None
     return notify.create(conn, kind=KIND, category="system", title=title, body=body, link=LINK, actor="system",
                          recipients=[user], needs_action=True, include_actor=True, webhooks=(last != body))

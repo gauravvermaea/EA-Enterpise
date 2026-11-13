@@ -11,8 +11,18 @@ from . import permissions
 from .config import get_settings
 
 
-@lru_cache(maxsize=1)
 def get_engine() -> Engine:
+    """The repository's engine; inside a library model's request, task or tool (R2.42, D633) the library engine, whose
+    statements read the library model's content from the library_models schema (eax/library_models.py)."""
+    from . import library_models
+    if library_models.routed():
+        return library_models.engine()
+    return base_engine()
+
+
+@lru_cache(maxsize=1)
+def base_engine() -> Engine:
+    """The repository's own engine, whatever the route."""
     settings = get_settings()
     engine = create_engine(
         settings.sqlalchemy_url,
@@ -52,6 +62,14 @@ def get_engine() -> Engine:
 
 
 @lru_cache(maxsize=1)
+def installer_engine() -> Engine:
+    """The installer's engine (the migrations' login): the application's own work on read-only (locked) models, which
+    the database allows only to the installer, such as moving a library model's content (R2.42, D633). Small pool."""
+    return create_engine(get_settings().migrator_sqlalchemy_url, pool_pre_ping=True, pool_size=1, max_overflow=1,
+                         connect_args={"connect_timeout": 5, "application_name": "eaexplorer-installer"})
+
+
+@lru_cache(maxsize=1)
 def get_changelog_engine() -> Engine:
     """The change log's own database (phase 9, D180): EAX_CHANGELOG_DB_URL, or the repository's database when it is
     empty. No user identity is set on it: who sees which rows is decided in eax/change_log.py."""
@@ -71,6 +89,6 @@ def get_projects_engine() -> Engine:
     is empty (one database, one transaction). eax/projects.py never joins proj with another schema; what it needs from
     the repository (models, views, model roles, notifications) goes through the repository connection."""
     if not projects_separate():
-        return get_engine()
+        return base_engine()
     return create_engine(get_settings().projects_sqlalchemy_url, pool_pre_ping=True, pool_size=3, max_overflow=5,
                          connect_args={"connect_timeout": 5, "application_name": "eaexplorer-projects"})

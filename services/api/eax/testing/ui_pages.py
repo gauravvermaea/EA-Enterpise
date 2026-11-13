@@ -27,7 +27,7 @@ Record = Callable[..., None]
 # App.jsx is here or in SKIP_ROUTES, so a new page cannot be missed.
 SEEDS = [
     "#/", "#/work", "#/repository", "#/reference-library", "#/enterprise-library", "#/my-profile", "#/documentation",
-    "#/merge-requests", "#/project-admin", "#/metamodel", "#/metamodel/{m}", "#/model-admin/{m}", "#/projects",
+    "#/merge-requests", "#/archive", "#/project-admin", "#/metamodel", "#/metamodel/{m}", "#/model-admin/{m}", "#/projects",
     "#/projects/{p}", "#/mcp", "#/library", "#/project-library", "#/principles", "#/compare", "#/compare/gaps", "#/compare/common", "#/change-log",
     "#/notifications", "#/surveys", "#/maturity", "#/change-documents", "#/admin", "#/search?q=self_test", "#/farm",
     "#/farm/connect",

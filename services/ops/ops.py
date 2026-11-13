@@ -13,6 +13,9 @@ restarts the system from the administration console. It talks to the Docker engi
   GET  /containers/<service>    one container: state, health with its last checks, image, mounts, ports, networks,
                                 environment, restart policy, limits, and what it uses now
   GET  /containers/<service>/logs?tail=N   its last log lines (standard output and error)
+  POST /ssh/ticket             {host, port, ssh_user, auth, key, instance, user, cols, rows}: a one-time ticket for an
+                               SSH session to a remote instance's host, recorded (R2.2, D634); GET /ssh/public-key this
+                               installation's own key's public part; GET /ssh/sessions/<s> a session's transcript
   POST /terminal/ticket        {service, user, cols, rows}: a one-time ticket (30 s) for an interactive terminal in a
                                 container (D214); the browser opens wss://<host>/ops-terminal/<ticket>, which the proxy
                                 passes to port 8091 here (a network only the proxy and this helper share)
@@ -101,7 +104,7 @@ SERVICES = {"reports": ("EAX_SERVICE_REPORTS", ["reports-init", "reports"]),
             "views": ("EAX_SERVICE_VIEWS", ["views"])}
 OFF = {"off", "false", "0", "no", "disabled"}
 SECTION = "# ---- Services (D191)"
-ORDER = ["db", "dms-broker", "keycloak", "api", "library", "views", "reports", "dms", "drawio", "web", "backup", "proxy"]
+ORDER = ["db", "dms-broker", "keycloak", "api", "operations", "personal", "library", "views", "reports", "dms", "drawio", "web", "backup", "proxy"]
 state = {"restarting": False, "started": None, "finished": None, "log": []}
 # what is being applied, one entry per service (owner, 5 Nov 2026: each switched on its own, the others stay usable),
 # and "config" for a restore or a saved config file (these may touch several services, so they wait for the others)
@@ -129,15 +132,27 @@ def project() -> str:
     return labels.get("com.docker.compose.project", "")
 
 
+def is_service_container(config_hash: str, oneoff: str) -> bool:
+    """A container Compose made for a service (it has a config hash and is not a one-off). The short-lived containers
+    this helper starts from its own image (a Command centre command, an update, a mount look) carry the image's Compose
+    labels too, so they looked like more "ops-1" containers, stopped ones as problems and alerts (owner, 13 Nov 2026:
+    "What is Ops1 container?"); they are not services and are left out."""
+    return bool(config_hash.strip()) and oneoff.strip().lower() != "true"
+
+
 def containers() -> list[dict]:
     out = docker("ps", "-a", "--filter", f"label=com.docker.compose.project={project()}",
                  "--format", "{{json .}}")
     rows = []
     for line in out.splitlines():
         c = json.loads(line)
-        svc, num = (docker("inspect", "--format", '{{index .Config.Labels "com.docker.compose.service"}}|'
-                                                  '{{index .Config.Labels "com.docker.compose.container-number"}}',
-                           c["ID"]).strip().split("|") + ["1"])[:2]
+        svc, num, made, oneoff = (docker("inspect", "--format", '{{index .Config.Labels "com.docker.compose.service"}}|'
+                                                              '{{index .Config.Labels "com.docker.compose.container-number"}}|'
+                                                              '{{index .Config.Labels "com.docker.compose.config-hash"}}|'
+                                                              '{{index .Config.Labels "com.docker.compose.oneoff"}}',
+                                       c["ID"]).strip().split("|") + ["1", "", ""])[:4]
+        if not is_service_container(made, oneoff):
+            continue
         rows.append({"id": c["ID"], "name": c["Names"], "service": svc, "number": int(num or 1) if (num or "1").isdigit() else 1,
                      "state": c["State"], "status": c["Status"], "image": c["Image"]})
     # a service with several containers (the API and job servers, D249): each is named and reached as service-number
@@ -898,6 +913,72 @@ def terminal_ack(ids: list[str]) -> int:
     return len(gone)
 
 
+# ---------------------------------------------------------------- SSH to a remote instance's host (R2.2, D634)
+# A Super Admin's SSH session from the browser: ssh on a pseudo-terminal here (the same WebSocket as the terminals),
+# everything the host shows (what is typed comes back as its echo; a password does not) recorded in
+# work/ssh-sessions/<session>.log. How the person proves who they are is the API's
+# EAX_REMOTE_SSH_AUTH: a key given for this session (written here 0600 and removed when it ends), the host's own
+# password prompt, or this installation's own key (work/ssh/id_ed25519, made on first use).
+SSH_DIR = os.path.join(WORK, "ssh")
+SSH_LOGS = os.path.join(WORK, "ssh-sessions")
+_HOSTNAME = re.compile(r"^[A-Za-z0-9._:-]{1,255}$")
+_SSH_USER = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+
+
+def ssh_server_key() -> dict:
+    """This installation's own SSH key (server_key mode): made once; its public part, to put on remote hosts."""
+    os.makedirs(SSH_DIR, mode=0o700, exist_ok=True)
+    key = os.path.join(SSH_DIR, "id_ed25519")
+    if not os.path.exists(key):
+        subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "ea-explorer", "-f", key], check=True,
+                       capture_output=True, timeout=30)
+    with open(key + ".pub", encoding="utf-8") as f:
+        return {"public_key": f.read().strip(), "path": "work/ssh/id_ed25519.pub"}
+
+
+def ssh_ticket(b: dict) -> dict:
+    """A one-time ticket for an SSH session: the API has checked the person (a Super Admin) and the instance."""
+    host, user = str(b.get("host") or ""), str(b.get("ssh_user") or "")
+    port, auth = int(b.get("port") or 22), str(b.get("auth") or "ask")
+    if not _HOSTNAME.match(host) or not _SSH_USER.match(user) or not 1 <= port <= 65535:
+        raise ValueError("The SSH host, port or user is not valid.")
+    ticket, sid = secrets.token_urlsafe(32), secrets.token_hex(8)
+    os.makedirs(SSH_DIR, mode=0o700, exist_ok=True)
+    os.makedirs(SSH_LOGS, mode=0o700, exist_ok=True)
+    argv = ["ssh", "-tt", "-p", str(port), "-o", "StrictHostKeyChecking=accept-new",
+            "-o", f"UserKnownHostsFile={os.path.join(SSH_DIR, 'known_hosts')}", "-o", "ServerAliveInterval=30"]
+    cleanup = ""
+    if auth == "server_key":
+        ssh_server_key()
+        argv += ["-i", os.path.join(SSH_DIR, "id_ed25519"), "-o", "IdentitiesOnly=yes"]
+    elif str(b.get("key") or "").strip():
+        cleanup = os.path.join("/tmp", f"eax-ssh-{sid}.key")
+        fd = os.open(cleanup, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(str(b["key"]).strip() + "\n")
+        argv += ["-i", cleanup, "-o", "IdentitiesOnly=yes"]
+    argv += [f"{user}@{host}"]
+    now = time.time()
+    with _tlock:
+        _tickets[ticket] = {"session": sid, "service": f"ssh:{b.get('instance') or host}", "cid": "", "user": str(b.get("user") or "?"),
+                            "cols": max(20, min(int(b.get("cols") or 120), 500)), "rows": max(5, min(int(b.get("rows") or 32), 200)),
+                            "until": now + 30, "argv": argv, "kind": "ssh", "cleanup": cleanup,
+                            "record": os.path.join(SSH_LOGS, f"{sid}.log")}
+    return {"ticket": ticket, "session": sid, "idle_minutes": idle_minutes()}
+
+
+def ssh_transcript(sid: str, tail: int = 200000) -> dict:
+    if not re.fullmatch(r"[0-9a-f]{8,32}", sid or ""):
+        raise ValueError("No such session.")
+    path = os.path.join(SSH_LOGS, f"{sid}.log")
+    if not os.path.exists(path):
+        raise FileNotFoundError("No transcript for this session.")
+    size = os.path.getsize(path)
+    with open(path, "rb") as f:
+        f.seek(max(0, size - tail))
+        return {"session": sid, "bytes": size, "text": f.read().decode("utf-8", "replace")}
+
+
 def _winsize(fd: int, rows: int, cols: int) -> None:
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
 
@@ -1003,7 +1084,17 @@ def run_terminal(sock, rfile, t: dict) -> None:
     sid, idle = t["session"], idle_minutes() * 60
     send_lock = threading.Lock()
     rec = {"id": sid, "service": t["service"], "user": t["user"], "started": time.time(), "ended": None, "reason": "",
-           "exit_code": None}
+           "exit_code": None, "kind": t.get("kind") or "terminal", "bytes": 0}
+    record = open(t["record"], "ab") if t.get("record") else None    # an SSH session: every byte kept (R2.2)
+
+    def keep(direction: bytes, data: bytes) -> None:
+        if record:
+            try:
+                record.write(direction + data)
+                record.flush()
+                rec["bytes"] += len(data)
+            except OSError:
+                pass
     with _tlock:
         _sessions[sid] = rec
 
@@ -1043,6 +1134,7 @@ def run_terminal(sock, rfile, t: dict) -> None:
                 break
             if not data or not send(2, data):
                 break
+            keep(b"", data)
         done.set()
     threading.Thread(target=pump, daemon=True).start()
     last_typed, reason = time.time(), ""
@@ -1079,6 +1171,7 @@ def run_terminal(sock, rfile, t: dict) -> None:
                 continue
             if m.get("t") == "i":
                 last_typed = time.time()
+                # what is typed is recorded as the host echoes it back (a password is not echoed, so not kept)
                 os.write(master, str(m.get("d", "")).encode())
             elif m.get("t") == "r":
                 _winsize(master, max(5, min(int(m.get("rows") or 24), 200)), max(20, min(int(m.get("cols") or 80), 500)))
@@ -1100,6 +1193,17 @@ def run_terminal(sock, rfile, t: dict) -> None:
             os.close(master)
         except OSError:
             pass
+        if record:
+            try:
+                record.write(f"\r\n[session ended: {reason}]\r\n".encode())
+                record.close()
+            except OSError:
+                pass
+        if t.get("cleanup"):
+            try:
+                os.remove(t["cleanup"])          # a key given for this session only
+            except OSError:
+                pass
         send(1, json.dumps({"t": "exit", "reason": reason, "code": rec["exit_code"]}).encode())
         send(8, struct.pack(">H", 1000))
         rec.update(ended=time.time(), reason=reason)
@@ -1870,6 +1974,46 @@ class Handler(BaseHTTPRequestHandler):
             return False
         return True
 
+    def _hostwatch_call(self, fn):
+        try:
+            return self._send(200, fn())
+        except FileNotFoundError as exc:
+            return self._send(404, {"message": str(exc)})
+        except PermissionError as exc:
+            return self._send(403, {"message": str(exc)})
+        except (ValueError, FileExistsError) as exc:
+            return self._send(409, {"message": str(exc)})
+        except Exception as exc:  # noqa: BLE001
+            return self._send(500, {"message": str(exc)[:500]})
+
+    def _hostwatch_get(self):
+        """GET /hosts, /mounts, /mounts/<id>[/search], /containers/<s>/files[/content|/download], /alerts (R2.16-R2.19)."""
+        from urllib.parse import parse_qs, urlparse
+        u = urlparse(self.path)
+        q = {k: v[0] for k, v in parse_qs(u.query).items()}
+        if u.path == "/hosts":
+            return self._hostwatch_call(hostwatch.hosts)
+        if u.path == "/mounts":
+            return self._hostwatch_call(hostwatch.mounts)
+        if u.path == "/alerts":
+            return self._hostwatch_call(hostwatch.alerts)
+        m = re.match(r"^/mounts/([0-9a-f]{12})(/search)?$", u.path)
+        if m:
+            if m.group(2):
+                return self._hostwatch_call(lambda: hostwatch.probe(m.group(1), "search", q))
+            if q.get("path"):
+                return self._hostwatch_call(lambda: hostwatch.probe(m.group(1), "list", {"path": q["path"]}))
+            return self._hostwatch_call(lambda: hostwatch.probe(m.group(1), "summary"))
+        m = re.match(r"^/containers/([a-z0-9_-]+)/files(/content|/download)?$", u.path)
+        if m:
+            svc, what, path = m.group(1), m.group(2), q.get("path", "/")
+            if what == "/content":
+                return self._hostwatch_call(lambda: hostwatch.files_content(svc, path))
+            if what == "/download":
+                return self._hostwatch_call(lambda: hostwatch.files_download(svc, path))
+            return self._hostwatch_call(lambda: hostwatch.files_list(svc, path))
+        return None
+
     def do_GET(self):  # noqa: N802
         if self.path == "/health":
             return self._send(200, {"status": "ok"})
@@ -1902,6 +2046,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, stats(fresh="fresh" in self.path))
             except Exception as exc:  # noqa: BLE001
                 return self._send(500, {"message": str(exc)})
+        out = self._hostwatch_get()                  # hosts, mounts, files, alerts (R2.16 to R2.19)
+        if out is not None:
+            return out
         m = re.match(r"^/containers/([a-z0-9_-]+)(/logs)?(?:\?(.*))?$", self.path)
         if m:
             from urllib.parse import parse_qs
@@ -1945,10 +2092,45 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(500, {"message": f"Could not read the config file: {exc}"})
         if self.path == "/config-copies":
             return self._send(200, {"copies": copies()})
+        if self.path == "/ssh/public-key":
+            try:
+                return self._send(200, ssh_server_key())
+            except (OSError, subprocess.SubprocessError) as exc:
+                return self._send(500, {"message": f"Could not make this installation's SSH key: {exc}"})
+        if self.path.startswith("/ssh/sessions/"):
+            try:
+                return self._send(200, ssh_transcript(self.path.rsplit("/", 1)[-1]))
+            except (ValueError, FileNotFoundError) as exc:
+                return self._send(404, {"message": str(exc)})
         if self.path == "/terminal/sessions":
             return self._send(200, {"sessions": terminal_sessions()})
         if self.path.split("?")[0].startswith("/commands"):      # the Command centre (D554; commandcentre.py)
             return self._commands_get()
+        if self.path.split("?")[0] in ("/logs/files", "/logs/read", "/logs/own"):   # the logs kept on disk (R2.31, R2.32)
+            from urllib.parse import parse_qs, urlparse
+            q = {k: v[0] for k, v in parse_qs(urlparse(self.path).query).items()}
+            try:
+                if self.path.startswith("/logs/files"):
+                    return self._send(200, logsops.files(q.get("service", "")))
+                if self.path.startswith("/logs/own"):
+                    return self._send(200, logsops.own(q))
+                return self._send(200, logsops.read(q))
+            except ValueError as exc:
+                return self._send(400, {"message": str(exc)})
+            except RuntimeError as exc:
+                return self._send(409, {"message": str(exc)})
+        if self.path == "/footprint":                          # how much each container takes (R2.22)
+            return self._send(200, footprint.latest())
+        if self.path == "/estate":                             # the estate's diagrams, as it runs (R2.33)
+            try:
+                return self._send(200, estate_ops.live())
+            except RuntimeError as exc:
+                return self._send(409, {"message": str(exc)})
+        if self.path == "/persist":                            # what persist/ holds (R2.26)
+            try:
+                return self._send(200, commandcentre.persist_list())
+            except RuntimeError as exc:
+                return self._send(409, {"message": str(exc)})
         if self.path.split("?")[0].startswith("/banner"):        # the banner under the top bar (D558)
             return self._banner("GET")
         if self.path == "/backups":
@@ -2089,6 +2271,13 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):  # noqa: N802
         if not self._ok():
             return None
+        m = re.match(r"^/containers/([a-z0-9_-]+)/files$", self.path)     # a write in a container's files (R2.18)
+        if m:
+            b = self._body()
+            return self._hostwatch_call(lambda: hostwatch.files_change(m.group(1), b))
+        if self.path == "/alerts/test":                                   # the self-test's pretend stop (R2.19)
+            b = self._body()
+            return self._hostwatch_call(lambda: hostwatch.test_alert(str(b.get("service") or "api")))
         if self.path == "/tests/results/delete":       # test runs' folders (R2.43)
             return self._send(200, testruns.delete_results([str(f) for f in self._body().get("folders") or []]))
         if self.path in ("/tests", "/tests/stop", "/tests/build", "/tests/settings", "/scaling"):   # self-test, scaling
@@ -2135,6 +2324,30 @@ class Handler(BaseHTTPRequestHandler):
             return self._commands_post()
         if self.path.startswith("/banner"):                    # the banner under the top bar (D558)
             return self._banner("POST")
+        if self.path == "/footprint":                          # measure now (R2.22)
+            return self._send(200, footprint.measure(str(self._body().get("label") or "")))
+        if self.path in ("/logs/backup", "/logs/clean"):         # back up or clean the logs (R2.30)
+            try:
+                b = self._body()
+                return self._send(200, logsops.backup(b) if self.path == "/logs/backup" else logsops.clean(b))
+            except (ValueError, OSError) as exc:
+                return self._send(400, {"message": str(exc)})
+            except RuntimeError as exc:
+                return self._send(409, {"message": str(exc)})
+        if self.path == "/persist/delete":                     # delete from persist/ for good (R2.26)
+            try:
+                return self._send(200, commandcentre.persist_delete(self._body()))
+            except ValueError as exc:
+                return self._send(400, {"message": str(exc)})
+            except RuntimeError as exc:
+                return self._send(409, {"message": str(exc)})
+        if self.path == "/ssh/ticket":
+            try:
+                return self._send(200, ssh_ticket(self._body()))
+            except ValueError as exc:
+                return self._send(400, {"message": str(exc)})
+            except (OSError, subprocess.SubprocessError) as exc:
+                return self._send(500, {"message": f"Could not prepare the SSH session: {exc}"})
         if self.path == "/terminal/ticket":
             b = self._body()
             try:
@@ -2362,6 +2575,8 @@ def cli(argv: list[str]) -> int:
       delete-restore <id>                    forget a finished restore and its log
       filesystems                            size, used and free of Docker's disk and the work and backups folders"""
     cmd, args = (argv[0] if argv else "help"), argv[1:]
+    if cmd == "footprint":                # eax footprint (R2.22): measured, kept in work/footprint
+        return footprint.cli(args)
     if cmd == "test":                     # eax test (phase 36.1, D367)
         return testruns.cli(args)
     if cmd in ("update", "rollback"):      # eax update / eax rollback (phase 36, D417)
@@ -2513,6 +2728,26 @@ import testruns  # noqa: E402 - test runs (phase 36.1, D367)
 commandcentre.hooks.update(docker=docker, me=updates._me, read_config=_read_config, tickets=_tickets, tlock=_tlock,
                            idle_minutes=idle_minutes)
 import deploys  # noqa: E402 - deploying EA Explorer elsewhere from the page (phase 36, D555)
+import logsops  # noqa: E402 - the logs on disk: written every minute, read, backed up and cleaned (R2.30 to R2.32)
+
+logsops.hooks.update(containers=containers)
+import footprint  # noqa: E402 - how much each container takes (R2.22)
+
+footprint.hooks.update(stats=stats, docker=docker)
+import estate_ops  # noqa: E402 - the estate's diagrams (R2.33)
+
+estate_ops.hooks.update(containers=containers, docker=docker)
+import hostwatch  # noqa: E402 - the Docker engine, the mounts, files in a container, container alerts (R2.16 to R2.19)
+
+
+def _me_image() -> str:
+    return json.loads(docker("inspect", socket.gethostname(), timeout=30))[0]["Config"]["Image"]
+
+
+hostwatch.hooks.update(docker=docker, containers=containers, stats=stats, filesystems=filesystems, host_cpus=host_cpus,
+                       console_on=console_on, values=lambda: _values(_read_config()), me_image=_me_image,
+                       volume_sizes=_volume_sizes, maintenance=maintenance, restarting=lambda: bool(state.get("restarting")),
+                       restart_service=lambda svc: docker("restart", hostwatch._cid(svc), timeout=180), token=TOKEN)
 
 scaling.bind(globals())
 testruns.bind(globals())
@@ -2546,6 +2781,8 @@ if __name__ == "__main__":
     scaling.start()                       # the scaling rules, looked at every minute (D526)
     threading.Thread(target=testruns.auto_build_loop, daemon=True).start()   # the test runner built when missing (D570)
     threading.Thread(target=start_after_setup_loop, daemon=True).start()     # Reports after its set-up (R2.23)
+    logsops.start()                       # every container's log to its file of the day, every minute (R2.32)
+    threading.Thread(target=hostwatch.loop, daemon=True).start()   # container alerts, every minute (R2.19)
     terminals = ThreadingHTTPServer(("0.0.0.0", TERMINAL_PORT), TerminalHandler)
     terminals.daemon_threads = True
     threading.Thread(target=terminals.serve_forever, daemon=True).start()

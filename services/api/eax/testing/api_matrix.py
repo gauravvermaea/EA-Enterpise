@@ -37,6 +37,8 @@ def call(base: str, method: str, path: str, token: str | None = None, timeout: i
     """The HTTP status of one call and the start of its answer, its first `size` bytes (None: the whole answer); a
     writing call sends an empty JSON body."""
     data = b"{}" if method.upper() in ("POST", "PUT", "PATCH") else None
+    from ..service_split import route
+    base = route(base, path)            # a service's path goes to its own container (R2.27 part 2, R2.53)
     req = urllib.request.Request(base + path, data=data, method=method.upper(),
                                  headers={"Content-Type": "application/json", "Accept": "application/json",
                                           **({"Authorization": f"Bearer {token}"} if token else {})})
@@ -228,7 +230,23 @@ def run(base: str, spec: dict, tokens: dict[str, str], ids: dict[str, str], othe
 
 
 def fetch_spec(base: str) -> dict:
+    """The main API's OpenAPI document, with the paths of the services of its own beside it (R2.27 part 2, R2.53):
+    each one's own document, when the main API's container is called directly and the service answers."""
     with urllib.request.urlopen(f"{base}/api/openapi.json", timeout=30) as r:
-        return json.load(r)
+        spec = json.load(r)
+    from ..service_split import SERVICES, route
+    for s in SERVICES.values():
+        other = route(base, s["prefix"])
+        if other.rstrip("/") == base.rstrip("/"):
+            continue
+        try:
+            with urllib.request.urlopen(f"{other}/api/openapi.json", timeout=30) as r:
+                theirs = json.load(r)
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+            continue
+        for p, ops in (theirs.get("paths") or {}).items():
+            if p.startswith(s["prefix"]):
+                spec.setdefault("paths", {})[p] = ops
+    return spec
 
 

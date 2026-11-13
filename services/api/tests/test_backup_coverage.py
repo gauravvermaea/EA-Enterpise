@@ -213,7 +213,7 @@ class _Conn:
         q = str(sql)
         if "information_schema.columns" in q:
             return _Rows([(c, t) for c, t in self.cols.get(params["t"], {}).items()])
-        m = re.search(r"FROM (core|proj)\.(\w+)", q)
+        m = re.search(r"FROM (core|proj|personal)\.(\w+)", q)
         if q.lstrip().startswith("SELECT") and m:
             return _Rows(self.tables.get(m.group(2), []))
         self.writes.append((q, params))
@@ -225,13 +225,14 @@ def test_the_organisation_part_round_trip(monkeypatch):
     from eax import mayan
     from eax import projects as pj
     monkeypatch.setattr(pj, "_rows", lambda conn, sql, **k: conn.execute(sql).mappings().all())
-    core = _Conn({"viewpoints": [{"id": 9, "code": "my-view", "guid": "g1", "name": "Mine", "spec": {"a": 1}}]},
-                 {"viewpoints": {"id": "int4", "code": "text", "guid": "uuid", "name": "text", "spec": "jsonb"}})
-    pc = _Conn({"user_skills": [{"username": "thandi", "skills": ["ArchiMate"]}],
-                "board_members": [{"username": "sipho", "role": "chair"}],
+    core = _Conn({"viewpoints": [{"id": 9, "code": "my-view", "guid": "g1", "name": "Mine", "spec": {"a": 1}}],
+                  "user_skills": [{"username": "thandi", "skills": ["ArchiMate"]}]},          # personal schema (R2.53)
+                 {"viewpoints": {"id": "int4", "code": "text", "guid": "uuid", "name": "text", "spec": "jsonb"},
+                  "user_skills": {"username": "text", "skills": "jsonb"}})
+    pc = _Conn({"board_members": [{"username": "sipho", "role": "chair"}],
                 "project_templates": [{"code": "ours", "name": "Ours", "builtin": False}],
                 "org_ref_entries": [{"id": 1, "guid": "e1", "mayan_document_id": 77, "file_name": "policy.pdf"}]},
-               {"user_skills": {"username": "text", "skills": "jsonb"}, "board_members": {"username": "text", "role": "text"},
+               {"board_members": {"username": "text", "role": "text"},
                 "project_templates": {"code": "text", "name": "text", "builtin": "bool"}})
     monkeypatch.setattr(lc, "export_org", lambda: {"format": "eax-library-org/1", "folders": [], "entries": [{"title": "Home"}]})
     monkeypatch.setattr(mayan, "download", lambda doc_id: (b"%PDF", "application/pdf", "policy.pdf"))
@@ -250,7 +251,7 @@ def test_the_organisation_part_round_trip(monkeypatch):
     assert problems == [] and msg.startswith("Organisation:")
     inserts = [q for q, _p in core2.writes + pc2.writes if q.lstrip().startswith("INSERT")]
     assert any("core.viewpoints" in q and "ON CONFLICT (code)" in q and "CAST(:spec AS jsonb)" in q for q in inserts)
-    assert any("proj.user_skills" in q and "ON CONFLICT (username)" in q for q in inserts)
+    assert any("personal.user_skills" in q and "ON CONFLICT (username)" in q for q in inserts)   # R2.53, D632
     assert any("proj.project_templates" in q for q in inserts)
     assert not any("org_ref" in q for q in inserts)                       # carried, put back by an infrastructure restore
     vp = next(p for q, p in core2.writes if "core.viewpoints" in q)

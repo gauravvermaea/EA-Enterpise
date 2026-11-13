@@ -20,6 +20,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from sqlalchemy import text
 
+from . import databases
 from . import health as hc
 
 STARTED = time.time()            # when this API server started
@@ -33,6 +34,8 @@ PARTS = [  # key, name, what it is, its check, its containers (in start order)
     ("drawio", "Diagrams", "draw.io", hc.check_drawio, ["drawio"]),
     ("library", "Library", "the library service", hc.check_library, ["library"]),
     ("views", "Drawn views", "the views service", hc.check_views, ["views"]),
+    ("operations", "Operations", "the operations service (R2.27)", hc.check_operations, ["operations"]),
+    ("personal", "Personal data", "the personal data service (R2.53)", hc.check_personal, ["personal"]),
 ]
 CORE = ["db", "setup", "proxy", "web", "keycloak", "api"]     # the first tier: started before anyone can sign in
 
@@ -69,9 +72,9 @@ def _containers() -> list[dict] | None:
 
 def _later(conn) -> dict | None:
     try:
-        r = conn.execute(text("""SELECT part, name, state, done, total, detail, started_at, finished_at,
+        r = databases.on("operations", conn).execute(text("""SELECT part, name, state, done, total, detail, started_at, finished_at,
                                         updated_at < now() - make_interval(mins => :m) AS stale
-                                   FROM core.startup_parts WHERE part = 'later'"""), {"m": STALE_MINUTES}).mappings().first()
+                                   FROM operations.startup_parts WHERE part = 'later'"""), {"m": STALE_MINUTES}).mappings().first()
     except Exception:  # noqa: BLE001 - before the migration
         return None
     if not r:
@@ -145,11 +148,11 @@ def status(conn, fresh: bool = False) -> dict:
 
 def _packs(conn) -> dict | None:
     """The industry packs shipped with this version going into Documents (D584): "loading n of N", then up. From the
-    loader's own row (core.startup_parts 'packs', written file by file, R2.23); before a loader has run, from the files
+    loader's own row (operations.startup_parts 'packs', written file by file, R2.23); before a loader has run, from the files
     not in Documents yet. None when no packs are shipped or the table is not there yet."""
     try:
-        r = conn.execute(text("""SELECT state, done, total, detail, updated_at < now() - make_interval(mins => :m) AS stale
-                                   FROM core.startup_parts WHERE part = 'packs'"""), {"m": STALE_MINUTES}).mappings().first()
+        r = databases.on("operations", conn).execute(text("""SELECT state, done, total, detail, updated_at < now() - make_interval(mins => :m) AS stale
+                                   FROM operations.startup_parts WHERE part = 'packs'"""), {"m": STALE_MINUTES}).mappings().first()
     except Exception:  # noqa: BLE001 - before the migration
         r = None
     if r:

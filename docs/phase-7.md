@@ -55,7 +55,7 @@ Goal: work with many records at once, for content and for the metamodel, and fin
 ## Upgrading from phase 6
 
 `.\eax clean-restart`. New API: `/api/v1/models/<model>/grids/...`, `/metamodel/batch`, `/api/v1/search`,
-`/api/v1/saved-views`, `/api/v1/favourites`.
+`/api/v1/me/saved-views`, `/api/v1/me/favourites`.
 
 ## Not in phase 7
 

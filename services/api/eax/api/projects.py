@@ -105,6 +105,7 @@ from ..db import get_projects_engine
 from ..mayan import MayanError
 from ..metamodel_edit import EditError
 from .models import Free, FreeIn
+from .personal import blp as personal_blp
 
 log = logging.getLogger(__name__)
 blp = Blueprint("projects", __name__, url_prefix="/api/v1", description="Architecture projects")
@@ -156,8 +157,9 @@ class Projects(MethodView):
     @blp.response(200, Free)
     @require_auth()
     def get(self):
-        """The architecture projects you are on (a Super Admin sees all)"""
-        return _run(lambda c: {"projects": pj.listing(c, g.user), "may_create": pj.may_create(g.user), "setup": pj.setup_state(c),
+        """The architecture projects you are on (a Super Admin sees all); ?test_data=1 adds the self-test's (R2.11)"""
+        td = request.args.get("test_data") in ("1", "true", "yes")
+        return _run(lambda c: {"projects": pj.listing(c, g.user, td), "may_create": pj.may_create(g.user), "setup": pj.setup_state(c),
                                "may_manage": perms.allowed(g.user.roles, "projects.library")})
 
     @blp.doc(security=SECURITY)
@@ -281,19 +283,19 @@ class OrgSkills(MethodView):
         return _run(lambda c: sk.repository(c, g.user))
 
 
-@blp.route("/me/skills")
+@personal_blp.route("/skills")
 class MySkills(MethodView):
-    @blp.doc(security=SECURITY)
-    @blp.response(200, Free)
+    @personal_blp.doc(security=SECURITY)
+    @personal_blp.response(200, Free)
     @require_auth()
     def get(self):
         """Your own skills (D353), and the skills others use, to offer as you type"""
         from .. import skills as sk
         return _run(lambda c: sk.mine(c, g.user))
 
-    @blp.doc(security=SECURITY)
-    @blp.arguments(FreeIn)
-    @blp.response(200, Free)
+    @personal_blp.doc(security=SECURITY)
+    @personal_blp.arguments(FreeIn)
+    @personal_blp.response(200, Free)
     @require_auth()
     def put(self, data):
         """{skills: [tags]}: your skills, replaced (free tags, at most 40)"""

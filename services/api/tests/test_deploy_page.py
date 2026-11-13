@@ -152,7 +152,7 @@ def test_every_deploy_route_needs_it_or_super_admin():
     assert P.allowed(["it-admin"], "system.operate") and P.allowed(["super-admin"], "system.operate")
     for role in ("user", "model-creator", "user-admin", "library-admin"):
         assert not P.allowed([role], "system.operate"), role
-    assert 'url_prefix="/api/v1/deploys"' in src and "deploys_blp" in (REPO / "services/api/eax/app.py").read_text()
+    assert 'url_prefix="/api/v1/operations/deploys"' in src and "deploys_blp" in (REPO / "services/api/eax/app.py").read_text()
 
 
 def test_the_api_passes_secrets_apart_and_never_keeps_them():
@@ -185,7 +185,14 @@ def test_the_history_table_is_rows_only():
 def test_the_page_and_its_help():
     page = (REPO / "services/web/src/Deploy.jsx").read_text()
     admin = (REPO / "services/web/src/Admin.jsx").read_text()
-    assert '["deploy", "Deploy", () => can("system.operate")' in admin and "Show the plan (runs nothing)" in page
+    farm = (REPO / "services/web/src/Farm.jsx").read_text()
+    menu = (REPO / "services/web/src/menu.js").read_text()
+    # R2.14 (owner, 11 Nov 2026: "deploy needs to goto server farm menu"): Deploy is in the site picker; the old address
+    # opens the new place; it is no longer a System admin tab
+    assert '["deploy", "Deploy"' not in admin and 'tab === "deploy") { window.location.replace("#/farm/deploy")' in admin
+    assert 'route.startsWith("#/farm/deploy")' in farm and 'can("system.operate")' in farm and "<Deploy />" in farm
+    assert '{ label: "Deploy EA Explorer", href: "#/farm/deploy", ok: ops }' in menu and '"#/admin/deploy"' not in menu
+    assert "Show the plan (runs nothing)" in page
     assert "Retry this step" in page and "Back to the answers" in page and "Quit" in page
     cat = json.loads((REPO / "services/web/src/help/catalogue.json").read_text())
     assert "tab:Deploy" in cat and "button:Retry this step" in cat

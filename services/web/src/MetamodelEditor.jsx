@@ -5,6 +5,7 @@
 //   FailingChecks      every entity failing a check, with filters, CSV and links to fix them
 //   LockControl        model locks: metamodel, metamodel and content, maintenance (D67)
 // The server decides (and the database enforces) what may be changed; the screens only offer it.
+import { elementTypes } from "./elements.js";
 import { AreaChecks, areaList, areaText } from "./CfAreaPicker";
 import { REPO_AREAS } from "./cfAreas";
 import { RowActions } from "./DataEntry";
@@ -271,8 +272,13 @@ const lookFields = (t) => [
   { name: "fill_colour", label: "Fill colour (optional)", initial: t?.fill_colour || "", sendEmpty: !!t, placeholder: "RRGGBB, e.g. ECD678",
     help: "Empty: the domain's ArchiMate colour" },
 ];
-export function entityTypeSpec(domains, t = null) {
+export function entityTypeSpec(domains, t = null, types = null) {
   const domainOptions = domains.map((l) => [l.id, l.name]);
+  // derived from another type of this metamodel (R2.9, D629): it gets that type's attributes and allowed relationships
+  const all = types || domains.flatMap((l) => elementTypes(l)).filter((x) => x.status !== "retired");
+  const baseField = { name: "base", label: "Derived from (optional)", type: "select", options: all.filter((x) => !t || x.id !== t.id).map((x) => [x.id, x.name]),
+    initial: t?.base_id || "", sendEmpty: !!t, blank: "Not derived",
+    help: "It gets the base type's attributes and allowed relationships, plus its own; a change to the base flows down. Each entity keeps its own values." };
   if (t) {
     return {
       title: `Change entity type ${t.name}`, op: "entity_type.update", fixed: { id: t.id },
@@ -287,6 +293,7 @@ export function entityTypeSpec(domains, t = null) {
           blank: `Built in: ${t.repository_default || "Architecture Landscape"}`, options: REPO_AREAS.map((r) => [r, r]),
           help: "The part of the Architecture Repository every entity of this type is filed in (set on the type, not on each entity)." },
         ...lookFields(t),
+        baseField,
         { name: "description", label: "Description", type: "textarea", initial: t.description, sendEmpty: true },
       ],
     };
@@ -304,6 +311,7 @@ export function entityTypeSpec(domains, t = null) {
       { name: "repository_area", label: "Repository area", type: "select", blank: "Built in (from its content framework area)", options: REPO_AREAS.map((r) => [r, r]),
         help: "The part of the Architecture Repository every entity of this type is filed in." },
       ...lookFields(null),
+      baseField,
       { name: "description", label: "Description", type: "textarea" },
     ],
   };

@@ -75,7 +75,8 @@ class ModelList(MethodView):
         With their properties (owner, active or archived, industry and version for reference
         models), parent and source, and counts. Filter by text, kind, or leave out archived ones.
         """
-        return _call(repo.list_models, query["search"], query["kind"], query["archived"])
+        return _call(repo.list_models, query["search"], query["kind"], query["archived"],
+                     query.get("test_data") or repo.sees_test_data(g.user.username))
 
 
 class LibraryQuery(Schema):

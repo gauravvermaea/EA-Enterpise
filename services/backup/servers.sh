@@ -3,7 +3,7 @@
 # setting puts it on a server of its own (not the shared one, $PGHOST:$PGPORT). backup.sh dumps those from there and
 # restore.sh puts them back there; the rest are on the shared server. Each server is reached as postgres with the
 # superuser password, as the library's and the views' have been (D410).
-#   EA Explorer's own (connection strings):  EAX_<CHANGELOG|PROJECTS|TESTS|OPERATIONS|PERSONAL|LIBRARY_MODELS|ARCHIVE>_DB_URL
+#   EA Explorer's own (connection strings):  EAX_<CHANGELOG|PROJECTS|TESTS|OPERATIONS|PERSONAL|LIBRARY_MODELS|ARCHIVE|FILES|FARM>_DB_URL
 #   the services' (hosts):                   EAX_<LIBRARY|VIEWS|KEYCLOAK|SUPERSET|MAYAN>_DB_HOST (and _PORT)
 url_part() {   # url_part <url> host|port|db
   _rest=${1#*://}; _rest=${_rest#*@}; _hp=${_rest%%/*}; _db=${_rest#*/}; _db=${_db%%\?*}
@@ -14,7 +14,7 @@ url_part() {   # url_part <url> host|port|db
   esac
 }
 own_servers() {
-  for KIND in CHANGELOG PROJECTS TESTS OPERATIONS PERSONAL LIBRARY_MODELS ARCHIVE; do
+  for KIND in CHANGELOG PROJECTS TESTS OPERATIONS PERSONAL LIBRARY_MODELS ARCHIVE FILES FARM; do
     eval U=\${EAX_${KIND}_DB_URL:-}
     [ -n "$U" ] || continue
     H=$(url_part "$U" host); P=$(url_part "$U" port); N=$(url_part "$U" db)

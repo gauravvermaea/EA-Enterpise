@@ -29,7 +29,7 @@ def test_the_core_seed_leaves_the_sample_for_later():
     main = (ROOT / "eax" / "seed" / "__main__.py").read_text()
     assert "with_sample=False" in main and "test_models_sql" not in main
     later = (ROOT / "eax" / "seed" / "later.py").read_text()
-    for what in ("Sample insurance model", "test_model_steps", "versions_demo", "first_measurements", "core.startup_parts"):
+    for what in ("Sample insurance model", "test_model_steps", "versions_demo", "first_measurements", "operations.startup_parts"):
         assert what in later
     entry = (ROOT / "entrypoint.sh").read_text()
     assert "python -m eax.startup once later -- python -m eax.seed.later &" in entry

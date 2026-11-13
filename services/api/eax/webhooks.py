@@ -32,8 +32,9 @@ class HookError(Exception):
 
 def queue(conn, nid: int) -> int:
     """Queues one notification for every enabled webhook that wants its category."""
+    from . import personal as P
     from .notify import payload
-    n = _one(conn, "SELECT category FROM core.notifications WHERE id = :n", n=nid)
+    n = P.one(conn, "SELECT category FROM personal.notifications WHERE id = :n", n=nid)
     body = json.dumps(payload(conn, nid), default=str)
     return conn.execute(text("""
         INSERT INTO core.webhook_deliveries (webhook_id, notification_id, payload)

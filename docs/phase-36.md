@@ -39,7 +39,7 @@ Decisions D500 to D506, building on D372, D416, D457 and D498. The updates part 
   config never replaced.
 
 ## Deploy from the application (D555 to D557)
-- **System admin › Deploy:** `services/web/src/Deploy.jsx`, the API `/api/v1/deploys` (system.operate), and the
+- **System admin › Deploy:** `services/web/src/Deploy.jsx`, the API `/api/v1/operations/deploys` (system.operate), and the
   history in core.deployments (migration 0043).
 - **The operations helper:** `services/ops/deploys.py` and `eaxcli/deploy_runner.py`.
 - **The deployer image:** `deploy/deployer/Dockerfile`.

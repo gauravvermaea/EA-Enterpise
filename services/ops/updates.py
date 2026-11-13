@@ -346,6 +346,12 @@ def _launch(channel: str, pick, by: str, run_id: str = "") -> dict:
     req = {"id": run_id, "by": by, "channel": channel, "to": pick.version, "url": settings()["git_url"],
            "steps": list(pick.steps), "notes": notes, "asked": _now()}
     _write(os.path.join(run_id, "request.json"), req)
+    try:                                   # the logs first, where an update cannot lose them (R2.30)
+        import logsops
+        if logsops.K is not None and logsops.LOGS.is_dir():
+            logsops.K.backup(logsops.LOGS, logsops.WORK / "logs", logsops.K.kept_backups(logsops.LOGS), "before-update")
+    except Exception as exc:  # noqa: BLE001 - a log backup never stops an update
+        print(f"updates: the logs could not be backed up first ({exc})", flush=True)
     name = _start_container(run_id, ["run", "--id", run_id])
     return {"started": True, "id": run_id, "container": name, "to": pick.version, "steps": list(pick.steps)}
 

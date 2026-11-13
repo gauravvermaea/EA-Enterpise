@@ -85,3 +85,71 @@ def read_json(path: Path | str, default: dict) -> tuple[dict, str]:
         except (OSError, ValueError):
             pass
         return dict(default), f"{path.name} could not be read ({exc}) and there is no good copy; nothing from it is used."
+
+
+# ---------------------------------------------------------------- what is there, and deleting it (R2.26)
+WHAT = {
+    "schedules.json": "scheduled eax commands (none once deleted)",
+    "banner.json": "the banner under the top bar and its history (no banner once deleted)",
+    "settings.json": "the Self-test page's settings (the defaults once deleted)",
+    "test-results": "the reset-survival test's results",
+}
+
+
+def _size(p: Path) -> int:
+    if p.is_file():
+        return p.stat().st_size
+    return sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
+
+
+def items(root: Path | str | None = None) -> list[dict]:
+    """What persist/ holds, one item per settings file (with its .bak) and per safety backup: name, kind, size in
+    bytes, when changed, what it is."""
+    base = folder(root)
+    out: list[dict] = []
+    if not base.is_dir():
+        return out
+    for p in sorted(base.iterdir()):
+        if p.name.endswith((".bak", ".tmp")) or ".tmp" in p.name:
+            continue
+        if p.name == "safety-backups" and p.is_dir():
+            for b in sorted(p.iterdir()):
+                out.append({"name": f"safety-backups/{b.name}", "kind": "folder" if b.is_dir() else "file",
+                            "size": _size(b), "changed": b.stat().st_mtime,
+                            "what": "the record of commands run from the web" if b.name == "commands" else
+                            "a safety backup taken before a command that deletes everything"})
+            continue
+        bak = p.with_name(p.name + ".bak")
+        out.append({"name": p.name, "kind": "folder" if p.is_dir() else "file",
+                    "size": _size(p) + (bak.stat().st_size if bak.exists() else 0), "changed": p.stat().st_mtime,
+                    "what": WHAT.get(p.name, "kept across resets")})
+    return out
+
+
+def delete(name: str, root: Path | str | None = None) -> list[str]:
+    """Deletes one item of items() for good (a file with its .bak, or a folder with all in it); returns what went.
+    Only what items() lists: nothing outside persist/."""
+    base = folder(root).resolve()
+    known = {i["name"] for i in items(root)}
+    if name not in known:
+        raise ValueError(f"persist/ has no {name!r}. There: {', '.join(sorted(known)) or 'nothing'}.")
+    target = (base / name).resolve()
+    if base not in target.parents:
+        raise ValueError("Only what is in persist/ can be deleted.")
+    gone = []
+    for p in (target, target.with_name(target.name + ".bak")):
+        if p.is_dir():
+            shutil.rmtree(p)
+            gone.append(str(p.relative_to(base)))
+        elif p.exists():
+            p.unlink()
+            gone.append(str(p.relative_to(base)))
+    return gone
+
+
+def delete_all(root: Path | str | None = None) -> list[str]:
+    """Every item of items(), for good."""
+    gone: list[str] = []
+    for i in items(root):
+        gone += delete(i["name"], root)
+    return gone

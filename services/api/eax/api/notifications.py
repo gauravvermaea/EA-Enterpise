@@ -1,16 +1,18 @@
-"""Notifications, requests, webhooks, metamodel push-down and change documents (build phase 8.1, D84, D209).
+"""Notifications, requests, webhooks, metamodel push-down and change documents (build phase 8.1, D84, D209). The
+notifications and requests are each person's own: their routes are on the personal data service's blueprint (/api/v1/me,
+R2.53, D632), the rest on the main API.
 
-GET    /notifications                          mine: ?show=open|actions|resolved|all&category=&model=&q=&limit=&offset=
-GET    /notifications/counts                   unread, open actions, open requests sent to me (the bell)
-POST   /notifications/read                     mark read {ids} (none: all)
-POST   /notifications/<n>/dismiss              put an information notification away
-POST   /notifications/<n>/resolve              resolve one that needs action {note}
-GET    /requests                               ?box=received|sent&status=active|closed|all|<status>&q=
-POST   /requests                               send one {to, subject, body}
-GET    /requests/people                        who a request can go to ?q=
-GET    /requests/<r>                           one request with its comments (sender and receiver only)
-POST   /requests/<r>/comments                  {body}
-POST   /requests/<r>/status                    {status: in_progress|done|declined|open, note}
+GET    /me/notifications                          mine: ?show=open|actions|resolved|all&category=&model=&q=&limit=&offset=
+GET    /me/notifications/counts                   unread, open actions, open requests sent to me (the bell)
+POST   /me/notifications/read                     mark read {ids} (none: all)
+POST   /me/notifications/<n>/dismiss              put an information notification away
+POST   /me/notifications/<n>/resolve              resolve one that needs action {note}
+GET    /me/requests                               ?box=received|sent&status=active|closed|all|<status>&q=
+POST   /me/requests                               send one {to, subject, body}
+GET    /me/requests/people                        who a request can go to ?q=
+GET    /me/requests/<r>                           one request with its comments (sender and receiver only)
+POST   /me/requests/<r>/comments                  {body}
+POST   /me/requests/<r>/status                    {status: in_progress|done|declined|open, note}
 GET    /models/<m>/pushdown                    what this model can push down, to whom; pushes made; packages arrived
 POST   /models/<m>/pushdown                    push {mode: forced|offered, fill_defaults, note} (Model Admin)
 POST   /models/<m>/pushdown/<t>/decide         accept or reject an offered package {accept, note} (Model Admin)
@@ -33,6 +35,7 @@ from ..auth import require_auth
 from ..db import get_engine
 from ..metamodel_edit import EditError, _db_message
 from .models import Free, FreeIn
+from .personal import blp as personal_blp
 
 blp = Blueprint("notifications", __name__, url_prefix="/api/v1",
                 description="Notifications, requests, webhooks, metamodel push-down and change documents (phase 8.1)")
@@ -82,10 +85,10 @@ def _write(fn, action: str | None = None, object_type: str = "", object_id: str 
 
 
 # ---------------------------------------------------------------- notifications
-@blp.route("/notifications")
+@personal_blp.route("/notifications")
 class Notifications(MethodView):
-    @blp.doc(security=SECURITY)
-    @blp.response(200, Free)
+    @personal_blp.doc(security=SECURITY)
+    @personal_blp.response(200, Free)
     @require_auth()
     def get(self):
         """My notifications: open (action ones not resolved, information ones not dismissed), actions, resolved or all"""
@@ -95,52 +98,52 @@ class Notifications(MethodView):
                                               offset=int(a.get("offset", 0))), join=True)
 
 
-@blp.route("/notifications/counts")
+@personal_blp.route("/notifications/counts")
 class NotificationCounts(MethodView):
-    @blp.doc(security=SECURITY)
-    @blp.response(200, Free)
+    @personal_blp.doc(security=SECURITY)
+    @personal_blp.response(200, Free)
     @require_auth()
     def get(self):
         """The bell: unread notifications, open actions and open requests sent to me"""
         return _read(lambda c: notify.counts(c, g.user.username), join=True)
 
 
-@blp.route("/notifications/read")
+@personal_blp.route("/notifications/read")
 class NotificationsRead(MethodView):
-    @blp.doc(security=SECURITY)
-    @blp.arguments(FreeIn)
-    @blp.response(200, Free)
+    @personal_blp.doc(security=SECURITY)
+    @personal_blp.arguments(FreeIn)
+    @personal_blp.response(200, Free)
     @require_auth()
     def post(self, data):
         """Mark some ({ids}) or all of my notifications read"""
         return _write(lambda c: {"marked": notify.mark_read(c, g.user.username, (data or {}).get("ids"))})
 
 
-@blp.route("/notifications/dismiss-all")
+@personal_blp.route("/notifications/dismiss-all")
 class NotificationDismissAll(MethodView):
-    @blp.doc(security=SECURITY)
-    @blp.response(200, Free)
+    @personal_blp.doc(security=SECURITY)
+    @personal_blp.response(200, Free)
     @require_auth()
     def post(self):
         """Put away every information notification of mine, ?category= one kind only (those needing action stay open)"""
         return _write(lambda c: notify.dismiss_all(c, g.user.username, request.args.get("category", "")))
 
 
-@blp.route("/notifications/<uuid:nid>/dismiss")
+@personal_blp.route("/notifications/<uuid:nid>/dismiss")
 class NotificationDismiss(MethodView):
-    @blp.doc(security=SECURITY)
-    @blp.response(200, Free)
+    @personal_blp.doc(security=SECURITY)
+    @personal_blp.response(200, Free)
     @require_auth()
     def post(self, nid):
         """Put away an information notification (only for me)"""
         return _write(lambda c: notify.dismiss(c, g.user.username, nid))
 
 
-@blp.route("/notifications/<uuid:nid>/resolve")
+@personal_blp.route("/notifications/<uuid:nid>/resolve")
 class NotificationResolve(MethodView):
-    @blp.doc(security=SECURITY)
-    @blp.arguments(FreeIn)
-    @blp.response(200, Free)
+    @personal_blp.doc(security=SECURITY)
+    @personal_blp.arguments(FreeIn)
+    @personal_blp.response(200, Free)
     @require_auth()
     def post(self, data, nid):
         """Resolve a notification that needs action, with a note of what was done: resolved for everyone who got it"""
@@ -149,10 +152,10 @@ class NotificationResolve(MethodView):
 
 
 # ---------------------------------------------------------------- requests
-@blp.route("/requests")
+@personal_blp.route("/requests")
 class Requests(MethodView):
-    @blp.doc(security=SECURITY)
-    @blp.response(200, Free)
+    @personal_blp.doc(security=SECURITY)
+    @personal_blp.response(200, Free)
     @require_auth()
     def get(self):
         """Requests sent to me (box=received) or by me (box=sent): status active, closed, all or one status"""
@@ -175,9 +178,9 @@ class Requests(MethodView):
             out["counts"][key] = (out["counts"][key] or 0) + out["counts"][f"signoff_{key}"]
         return out
 
-    @blp.doc(security=SECURITY)
-    @blp.arguments(FreeIn)
-    @blp.response(200, Free)
+    @personal_blp.doc(security=SECURITY)
+    @personal_blp.arguments(FreeIn)
+    @personal_blp.response(200, Free)
     @require_auth()
     def post(self, data):
         """Send a request to another person {to, subject, body}: private to the two of you"""
@@ -187,10 +190,10 @@ class Requests(MethodView):
                       "request.send", "request", "", lambda out: {"number": out["number"], "to": out["receiver"]})
 
 
-@blp.route("/requests/people")
+@personal_blp.route("/requests/people")
 class RequestPeople(MethodView):
-    @blp.doc(security=SECURITY)
-    @blp.response(200, Free)
+    @personal_blp.doc(security=SECURITY)
+    @personal_blp.response(200, Free)
     @require_auth()
     def get(self):
         """People a request can be sent to (?q= part of a username)"""
@@ -198,32 +201,32 @@ class RequestPeople(MethodView):
                                            if r["username"] != g.user.username.lower()]})
 
 
-@blp.route("/requests/<rid>")
+@personal_blp.route("/requests/<rid>")
 class RequestOne(MethodView):
-    @blp.doc(security=SECURITY)
-    @blp.response(200, Free)
+    @personal_blp.doc(security=SECURITY)
+    @personal_blp.response(200, Free)
     @require_auth()
     def get(self, rid):
         """One request (by number or id) with its comments: its sender and receiver only"""
         return _read(lambda c: tickets.get(c, g.user.username, rid))
 
 
-@blp.route("/requests/<rid>/comments")
+@personal_blp.route("/requests/<rid>/comments")
 class RequestComment(MethodView):
-    @blp.doc(security=SECURITY)
-    @blp.arguments(FreeIn)
-    @blp.response(200, Free)
+    @personal_blp.doc(security=SECURITY)
+    @personal_blp.arguments(FreeIn)
+    @personal_blp.response(200, Free)
     @require_auth()
     def post(self, data, rid):
         """Comment on a request {body}"""
         return _write(lambda c: tickets.comment(c, g.user.username, rid, (data or {}).get("body", "")))
 
 
-@blp.route("/requests/<rid>/status")
+@personal_blp.route("/requests/<rid>/status")
 class RequestStatus(MethodView):
-    @blp.doc(security=SECURITY)
-    @blp.arguments(FreeIn)
-    @blp.response(200, Free)
+    @personal_blp.doc(security=SECURITY)
+    @personal_blp.arguments(FreeIn)
+    @personal_blp.response(200, Free)
     @require_auth()
     def post(self, data, rid):
         """Move a request along {status, note}: the receiver to in progress, done or declined (a note for the last two);

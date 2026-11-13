@@ -43,6 +43,7 @@ start when something is wrong. It is a numbered menu that says what to do in pla
 
 ## Contents
 
+- [The groups, the menu and colours](#the-groups-the-menu-and-colours): eax menu, did you mean, --no-color
 - [Starting and stopping](#starting-and-stopping): up (run), stop (down), restart, status
 - Help and documentation: help, document (above)
 - [Where things live](#where-things-live)
@@ -55,6 +56,36 @@ start when something is wrong. It is a numbered menu that says what to do in pla
 - [The console](#the-console): the menu item by item, the command prompt, the console against another installation
 - [What is recorded](#what-is-recorded)
 - [Remote machines and the cloud (later)](#remote-machines-and-the-cloud-later)
+
+## The groups, the menu and colours
+
+(R2.10, R2.29, D636.) `eax help` lists the commands in these groups, each with one line:
+
+| Group | Commands |
+|---|---|
+| Start and stop | up (run), stop (down), restart, cleanup, clean-restart, clean-run, maintenance |
+| Status and logs | status, url, logins, logs, diag, footprint, databases, persist |
+| Backups and restores | backup, backups, restore, restores, restore-log, delete-backup, delete-restore, stop-backup, app-backup, restore-model, restore-app, schedule |
+| Updates | update, rollback, packs, import |
+| Test | check, test |
+| Settings and services | services, service, servers, standby, secrets, trust |
+| Site and deploy | init, deploy, console |
+| Developer | debug, clean-debug |
+| Help and documentation | help, menu, document |
+
+**`eax menu`**, or `eax` with no command in a terminal, opens a numbered menu: choose a group, then a command; each of
+its options is asked for in turn (a choice by number, a flag by y or n, a value typed; Enter leaves an optional one
+out); the whole command is shown (`Will run: ./eax.sh restore latest --yes`) and runs only when you answer y. Piped or
+in a script, `eax` with no command still prints the help. eax.sh and eax.ps1 hand the menu to the Python program, which
+runs the chosen command in the same form you typed.
+
+**Did you mean**: a command that does not exist shows the nearest ones, for example
+`ERROR: unknown command 'stauts'. Did you mean: status? Run ./eax.sh help, or ./eax.sh menu to pick one.`
+
+**Colours**: in a terminal, `eax status` shows each container in its state's colour (green up, yellow starting, red
+down, unhealthy, restarting or out of memory, grey a finished set-up step), and errors (red), warnings (yellow) and
+headings (cyan) are coloured. `--no-color` anywhere on the line, or `NO_COLOR=1`, `EAX_NO_COLOR=1` or `CI=1`, turns
+colour off; output sent to a file or to another program is always plain, and the logs never hold colour codes.
 
 ## Starting and stopping
 
@@ -512,3 +543,5 @@ each cloud machine runs our Docker stack, so the console, logs, backups and rest
 Passwords can be kept in a key vault (`eax secrets`). Several hosts and scaling out: 36.3.
 
 `eax databases` lists every database EA Explorer uses, where it lives and whether it answers (R2.50, D611; docs/databases.md).
+
+New on 13 Nov 2026: `eax persist` (R2.26), `eax logs backup | clean` (R2.30), `eax footprint` (R2.22), `eax test ui-review` (R2.12), `eax databases copy tests | operations` (R2.27, R2.28); `eax status` starts with the release and build (R2.47).

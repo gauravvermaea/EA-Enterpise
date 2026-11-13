@@ -26,7 +26,7 @@ analyse; Merge requests; Change log; **Model library** and **Project library**, 
 sub-menus; Models; Model hierarchy; Metamodel drafts; Model library), **Project Admin** (Wizards; Projects; Project bases;
 Templates and libraries; Principles; Surveys and maturity), **Repository & Content Framework** (the **Architecture Repository** and its parts,
 the **Content framework**: content metamodel, model hierarchy, metamodel drafts; the libraries) and **System Admin**
-(Wizards, Settings, Users and roles, Running, Backups and restores, Updates and deploy, Tools, Machine access, AI
+(Wizards, Settings, Users and roles, Running, Backups and restores, Updates, Tools, Machine access, AI
 activity); then on the right the **Menu | Classic** toggle, **the person's own menu** (their name and role: Home, My
 tasks, Surveys to answer, Notifications, Recent and pinned, Search everything, My profile and skills, My tokens and keys,
 Sign out) and **?** (help for this page, every document, getting started, release notes, the command line, MCP, the
@@ -281,6 +281,9 @@ Built ([operations.md](operations.md), [command-line-and-console.md](command-lin
   and whether it answers; backups follow each one ([databases.md](databases.md)).
 - **The self-test's data in its own database** (R2.28, D613): runs, results and screenshots apart from the
   architecture; tables made and kept in line at every start; `eax databases copy tests` moves earlier runs.
+- **Operations data in its own database** (R2.27, D614); **persist/ emptied from the web or eax** (D618); **logs kept by day,
+  backed up and cleaned** (D619); **the footprint measured** (D620); **the UI review's screenshots** (D621); **the release
+  and build at the top left** (D616).
 - **Every optional service can be switched off** (reports, documents, draw.io, MCP, change log, backups, library),
   with a dated copy of the configuration kept.
 - **Operations insight** (phase 35, [phase-35.md](phase-35.md)): who uses what and how often, models' use and size,

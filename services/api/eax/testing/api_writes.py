@@ -23,6 +23,8 @@ def call(base: str, method: str, path: str, token: str | None, body: dict | None
          timeout: int = 60) -> tuple[int, dict | str]:
     """One call with a JSON body; the answer as JSON when it is JSON."""
     data = json.dumps(body if body is not None else {}).encode() if method.upper() in ("POST", "PUT", "PATCH") else None
+    from ..service_split import route
+    base = route(base, path)            # a service's path goes to its own container (R2.27 part 2, R2.53)
     req = urllib.request.Request(base + path, data=data, method=method.upper(),
                                  headers={"Content-Type": "application/json", "Accept": "application/json",
                                           **({"Authorization": f"Bearer {token}"} if token else {})})
@@ -49,6 +51,8 @@ def upload(base: str, path: str, token: str | None, name: str, content: bytes, t
     boundary = "eaxselftest" + str(int(time.time() * 1000))
     body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{name}\"\r\n"
             "Content-Type: application/octet-stream\r\n\r\n").encode() + content + f"\r\n--{boundary}--\r\n".encode()
+    from ..service_split import route
+    base = route(base, path)
     req = urllib.request.Request(base + path, data=body, method="POST",
                                  headers={"Content-Type": f"multipart/form-data; boundary={boundary}", "Accept": "application/json",
                                           **({"Authorization": f"Bearer {token}"} if token else {})})

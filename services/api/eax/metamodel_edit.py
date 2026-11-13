@@ -10,8 +10,9 @@ Every change is one operation (`op`) with its fields, applied in one transaction
 With dry_run the transaction is rolled back, so the screen can show the impact before saving.
 
 Operations (payload fields in brackets; ids are guids; "type" means an entity type):
-  entity_type.create   name, domain, [code, id_prefix, description, aspect]
-  entity_type.update   id, [name, description, domain, id_prefix, aspect, notation, fill_colour]  (look on drawn views, D354)
+  entity_type.create   name, domain, [code, id_prefix, description, aspect, base]
+  entity_type.update   id, [name, description, domain, id_prefix, aspect, notation, fill_colour, base]  (look on drawn views, D354;
+                       base: the type it is derived from, '' = not derived, R2.9, D629)
   entity_type.retire / entity_type.restore   id   (retired: no new entities, its entities read-only, D87)
   attribute.create     (entity_type | relationship_type), name, data_type,
                        [code, description, unit, pick_list | values, is_required, section, help_text,
@@ -260,7 +261,12 @@ def _op_entity_type_create(conn, m, p):
              m=mid, l=domain["id"], c=code, n=p["name"].strip(), d=p.get("description", ""), a=p.get("aspect", ""),
              p=prefix, t=table, s=sort, ca=clean_area(p.get("content_area")), ra=clean_repo(p.get("repository_area")),
              no=nota, fc=fill)
-    return {"id": r["guid"], "code": code}, f"Added entity type {p['name'].strip()}", []
+    based = ""
+    if p.get("base"):                           # derived from another type of this metamodel (R2.9, D629)
+        from . import derived_types as dt
+        tid = _one(conn, "SELECT id FROM core.entity_types WHERE guid = :g", g=r["guid"])["id"]
+        based = f", derived from {dt.set_base(conn, mid, tid, p['base'], lambda ref: _type_by_ref(conn, mid, ref))}"
+    return {"id": r["guid"], "code": code}, f"Added entity type {p['name'].strip()}{based}", []
 
 
 def _op_entity_type_update(conn, m, p):
@@ -282,11 +288,22 @@ def _op_entity_type_update(conn, m, p):
             fields["fill_colour"] = notation.clean_colour(p["fill_colour"])
     except ValueError as exc:
         raise EditError(str(exc)) from exc
-    if not fields:
+    based = None
+    cur_base = t.get("base_type_id")
+    if "base" in p and not p["base"] and not cur_base:
+        p = {k: v for k, v in p.items() if k != "base"}           # not derived, and not asked to be: nothing to do
+    if "base" in p and p["base"] and cur_base and _type_by_ref(conn, m["_id"], p["base"])["id"] == cur_base:
+        p = {k: v for k, v in p.items() if k != "base"}           # the same base as now
+    if "base" in p:                             # derived from another type (R2.9, D629); '' = no longer derived
+        from . import derived_types as dt
+        based = dt.set_base(conn, m["_id"], t["id"], p["base"], lambda ref: _type_by_ref(conn, m["_id"], ref))
+    if not fields and based is None:
         raise EditError("Nothing to change.")
-    sets = ", ".join(f"{k} = :{k}" for k in fields)
-    _exec(conn, f"UPDATE core.entity_types SET {sets} WHERE id = :id", id=t["id"], **fields)
-    return {"id": t["guid"]}, f"Changed entity type {fields.get('name', t['name'])}", [t["id"]]
+    if fields:
+        sets = ", ".join(f"{k} = :{k}" for k in fields)
+        _exec(conn, f"UPDATE core.entity_types SET {sets} WHERE id = :id", id=t["id"], **fields)
+    extra = "" if based is None else f", derived from {based}" if based else ", no longer derived (what it had from its base is its own now)"
+    return {"id": t["guid"]}, f"Changed entity type {fields.get('name', t['name'])}{extra}", [t["id"]]
 
 
 def _op_entity_type_status(conn, m, p, status):
@@ -899,6 +916,10 @@ def apply(conn, model: Any, op: str, payload: dict, actor: str, dry_run: bool = 
         # history rows of this change are labelled "metamodel vN"; the note goes on the version row
         version = conn.execute(text("SELECT core.publish_metamodel_version(:m, '')"), {"m": mid}).scalar_one()
         result, note, touched = OPS[op](conn, m, payload)
+        from . import derived_types
+        flowed = derived_types.sync(conn, mid)   # what the base types have flows down to the derived ones (R2.9, D629)
+        if any(flowed.values()):
+            result = {**result, "derived_types": flowed} if isinstance(result, dict) else result
         conn.execute(text("UPDATE core.metamodel_versions SET note = :n WHERE model_id = :m AND version = :v"),
                      {"n": note, "m": mid, "v": version})
         _record_change(conn, mid, version, 1, op, payload, result, note)

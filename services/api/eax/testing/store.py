@@ -1,4 +1,4 @@
-"""Self-test runs and their results (core.test_runs, core.test_results, core.test_fixtures; D522), in the tests
+"""Self-test runs and their results (tests.test_runs, tests.test_results, tests.test_fixtures; D522), in the tests
 database (R2.28, D613): the shared PostgreSQL unless EAX_TESTS_DB_URL gives it one of its own (databases.py).
 
 Code that reads or writes only these tables uses engine(); code that also touches the architecture (a fixture's model,
@@ -36,10 +36,8 @@ def separate() -> bool:
 def tests(conn) -> Iterator[Any]:
     """The test tables beside a repository connection: conn itself when they share a database, else a transaction of
     the tests database (committed when the block ends)."""
-    if not separate():
-        yield conn
-        return
-    with engine().begin() as tc:
+    from ..databases import beside
+    with beside("tests", conn) as tc:
         yield tc
 
 
@@ -101,7 +99,7 @@ def create_run(conn, by: str, trigger: str, suites: list[str], folder: str = "",
                role: str = "", area: str = "", watch: bool = False, journeys: list[str] | None = None,
                pages_only: bool = False, repeat_of: int | None = None, repeat_warnings: bool = False) -> int:
     return int(conn.execute(text("""
-        INSERT INTO core.test_runs (started_by, trigger, suites, folder, version, level, role, area, watch, journeys, pages_only,
+        INSERT INTO tests.test_runs (started_by, trigger, suites, folder, version, level, role, area, watch, journeys, pages_only,
                                     repeat_of, repeat_warnings)
         VALUES (:by, :trigger, :suites, :folder, :version, :level, :role, :area, :watch, :journeys, :pages_only, :repeat_of,
                 :repeat_warnings) RETURNING id"""),
@@ -117,7 +115,7 @@ def repeat_options(conn, of: int | None, with_warnings: bool = False) -> dict[st
     of = of or repeat.latest(conn)
     if not of:
         raise ValueError("There is no finished self-test to repeat.")
-    row = conn.execute(text("SELECT id, state, level, role, area, suites FROM core.test_runs WHERE id = :id"),
+    row = conn.execute(text("SELECT id, state, level, role, area, suites FROM tests.test_runs WHERE id = :id"),
                        {"id": of}).mappings().first()
     if not row:
         raise ValueError(f"No self-test run {of}.")
@@ -139,7 +137,7 @@ def repeat_options(conn, of: int | None, with_warnings: bool = False) -> dict[st
 def set_fixture_ids(conn, run_id: int, ids: dict[str, str]) -> None:
     """The ids the run's fixtures have (a repeat matches pages of the run's own model by them, R2.36)."""
     from .repeat import ID_KEYS
-    conn.execute(text("UPDATE core.test_runs SET fixture_ids = CAST(:i AS jsonb) WHERE id = :id"),
+    conn.execute(text("UPDATE tests.test_runs SET fixture_ids = CAST(:i AS jsonb) WHERE id = :id"),
                  {"i": json.dumps({k: str(v) for k, v in ids.items() if k in ID_KEYS and v}), "id": run_id})
 
 
@@ -186,7 +184,7 @@ def short(run_guid: str) -> str:
 
 
 def add_fixture(conn, run_id: int, kind: str, ident: str, name: str) -> None:
-    conn.execute(text("INSERT INTO core.test_fixtures (run_id, kind, ident, name) VALUES (:r, :k, :i, :n) "
+    conn.execute(text("INSERT INTO tests.test_fixtures (run_id, kind, ident, name) VALUES (:r, :k, :i, :n) "
                       "ON CONFLICT (kind, ident) DO NOTHING"), {"r": run_id, "k": kind, "i": str(ident), "n": name})
 
 
@@ -197,7 +195,7 @@ def fixtures(conn, run_id: int | None = None, include_purged: bool = False) -> l
         rows = [dict(r) for r in tc.execute(text(f"""
             SELECT f.id, f.run_id, r.run_guid::text AS run_guid, r.state AS run_state, f.kind, f.ident, f.name, f.created_at,
                    f.purged_at, f.purged_by
-              FROM core.test_fixtures f JOIN core.test_runs r ON r.id = f.run_id
+              FROM tests.test_fixtures f JOIN tests.test_runs r ON r.id = f.run_id
              WHERE (CAST(:run AS bigint) IS NULL OR f.run_id = :run) {"" if include_purged else "AND f.purged_at IS NULL"}
              ORDER BY f.run_id DESC, f.kind, f.name"""), {"run": run_id}).mappings().all()]
     guids = [r["ident"] for r in rows if r["kind"] == "model"]
@@ -230,16 +228,16 @@ def set_state(conn, run_id: int, state: str | None = None, step: str | None = No
             sets.append(f"{key} = :{key}")
             params[key] = value[:2000] if key == "message" else value
     if sets:
-        conn.execute(text(f"UPDATE core.test_runs SET {', '.join(sets)} WHERE id = :id"), params)
+        conn.execute(text(f"UPDATE tests.test_runs SET {', '.join(sets)} WHERE id = :id"), params)
 
 
 def set_browser(conn, run_id: int, data: dict) -> None:
-    conn.execute(text("UPDATE core.test_runs SET browser = browser || CAST(:b AS jsonb) WHERE id = :id"),
+    conn.execute(text("UPDATE tests.test_runs SET browser = browser || CAST(:b AS jsonb) WHERE id = :id"),
                  {"b": json.dumps(data), "id": run_id})
 
 
 def ask_stop(conn, run_id: int, by: str) -> bool:
-    return bool(conn.execute(text("UPDATE core.test_runs SET stop_asked = :by WHERE id = :id AND state IN ('queued', 'running') "
+    return bool(conn.execute(text("UPDATE tests.test_runs SET stop_asked = :by WHERE id = :id AND state IN ('queued', 'running') "
                                   "RETURNING id"), {"by": by or "unknown", "id": run_id}).first())
 
 
@@ -249,7 +247,7 @@ def add_result(conn, run_id: int, suite: str, name: str, outcome: str, detail: s
     if outcome not in OUTCOMES:
         raise ValueError(outcome)
     conn.execute(text("""
-        INSERT INTO core.test_results (run_id, suite, name, outcome, detail, duration_ms, screenshot, video, request, response,
+        INSERT INTO tests.test_results (run_id, suite, name, outcome, detail, duration_ms, screenshot, video, request, response,
                                        browser)
         VALUES (:run, :suite, :name, :outcome, :detail, :ms, :shot, :video, :req, :resp, :browser)"""),
         {"run": run_id, "suite": suite, "name": name[:400], "outcome": outcome, "detail": (detail or "")[:20000],
@@ -258,7 +256,7 @@ def add_result(conn, run_id: int, suite: str, name: str, outcome: str, detail: s
 
 
 def tally(conn, run_id: int) -> dict[str, int]:
-    rows = conn.execute(text("SELECT outcome, count(*) AS n FROM core.test_results WHERE run_id = :id GROUP BY outcome"),
+    rows = conn.execute(text("SELECT outcome, count(*) AS n FROM tests.test_results WHERE run_id = :id GROUP BY outcome"),
                         {"id": run_id}).mappings().all()
     out = {o: 0 for o in OUTCOMES}
     out.update({r["outcome"]: int(r["n"]) for r in rows})
@@ -270,13 +268,13 @@ def progress(conn, run: dict[str, Any], done: int) -> dict[str, Any]:
     in the screen"): a repeat has as many as it repeats; any other run as many as the newest finished run of the same
     level, suites, role and area had. None known: the first run of its kind."""
     if run.get("repeat_of"):
-        total = conn.execute(text("SELECT count(DISTINCT (suite, name)) FROM core.test_results WHERE run_id = :id "
+        total = conn.execute(text("SELECT count(DISTINCT (suite, name)) FROM tests.test_results WHERE run_id = :id "
                                   "AND outcome = ANY(:o)"), {"id": run["repeat_of"],
                                   "o": ["failed", "warning"] if run.get("repeat_warnings") else ["failed"]}).scalar()
         how = f"the failed checks of run {run['repeat_of']}"
     else:
-        row = conn.execute(text("""SELECT r.id, (SELECT count(*) FROM core.test_results x WHERE x.run_id = r.id) AS n
-                                     FROM core.test_runs r
+        row = conn.execute(text("""SELECT r.id, (SELECT count(*) FROM tests.test_results x WHERE x.run_id = r.id) AS n
+                                     FROM tests.test_runs r
                                     WHERE r.id <> :id AND r.state IN ('passed', 'failed') AND r.level = :l AND r.repeat_of IS NULL
                                       AND r.suites = CAST(:s AS text[]) AND r.role = :ro AND r.area = :a
                                     ORDER BY r.id DESC LIMIT 1"""),
@@ -298,28 +296,28 @@ def finish(conn, run_id: int, error: str = "", stopped: str = "") -> str:
     state = "stopped" if stopped else "error" if error else ("failed" if t["failed"] else "passed")
     counts = f"{t['passed']} passed, {t['failed']} failed, {t['skipped']} skipped, {t['warning']} warnings"
     msg = f"Stopped by {stopped}: {counts} before it stopped" if stopped else error[:2000] if error else counts
-    conn.execute(text("""UPDATE core.test_runs SET passed = :p, failed = :f, skipped = :s, state = :state, step = '',
+    conn.execute(text("""UPDATE tests.test_runs SET passed = :p, failed = :f, skipped = :s, state = :state, step = '',
                          message = :msg, finished_at = now() WHERE id = :id"""),
                  {"p": t["passed"], "f": t["failed"], "s": t["skipped"] + t["warning"], "state": state, "msg": msg, "id": run_id})
     return state
 
 
-_LIVE = "CASE WHEN r.state IN ('queued', 'running') THEN (SELECT count(*) FROM core.test_results x WHERE x.run_id = r.id AND x.outcome {o}) ELSE r.{c} END AS {c}"
+_LIVE = "CASE WHEN r.state IN ('queued', 'running') THEN (SELECT count(*) FROM tests.test_results x WHERE x.run_id = r.id AND x.outcome {o}) ELSE r.{c} END AS {c}"
 _RUN_COLS = ("r.id, r.run_guid::text AS run_guid, r.started_by, r.trigger, r.suites, r.state, r.step, r.folder, r.version, "
              "r.level, r.role, r.area, r.watch, r.journeys, r.pages_only, r.repeat_of, r.repeat_warnings, r.followed_up_by, r.stop_asked, r.message, r.purged_at, r.purged_by, r.queued_at, r.started_at, "
-             "r.finished_at, (SELECT count(*) FROM core.test_fixtures f WHERE f.run_id = r.id AND f.purged_at IS NULL) AS fixtures, "
+             "r.finished_at, (SELECT count(*) FROM tests.test_fixtures f WHERE f.run_id = r.id AND f.purged_at IS NULL) AS fixtures, "
              + ", ".join(_LIVE.format(o=o, c=c) for o, c in (("= 'passed'", "passed"), ("= 'failed'", "failed"),
                                                              ("IN ('skipped', 'warning')", "skipped"))))
 
 
 def runs(conn, limit: int = 30) -> list[dict[str, Any]]:
-    rows = conn.execute(text(f"SELECT {_RUN_COLS} FROM core.test_runs r ORDER BY r.queued_at DESC, r.id DESC LIMIT :n"),
+    rows = conn.execute(text(f"SELECT {_RUN_COLS} FROM tests.test_runs r ORDER BY r.queued_at DESC, r.id DESC LIMIT :n"),
                         {"n": max(1, min(200, limit))}).mappings().all()
     return [{**dict(r), "command": command_line(dict(r))} for r in rows]
 
 
 def run_row(conn, run_id: int) -> dict[str, Any] | None:
-    row = conn.execute(text(f"SELECT {_RUN_COLS}, r.browser FROM core.test_runs r WHERE r.id = :id"), {"id": run_id}).mappings().first()
+    row = conn.execute(text(f"SELECT {_RUN_COLS}, r.browser FROM tests.test_runs r WHERE r.id = :id"), {"id": run_id}).mappings().first()
     return dict(row) if row else None
 
 
@@ -338,11 +336,11 @@ def run_detail(conn, run_id: int, outcome: str = "", suite: str = "") -> dict[st
     results = conn.execute(text(f"""
         SELECT id, suite, name, outcome, detail, duration_ms, (screenshot IS NOT NULL) AS has_screenshot, video, request,
                response, browser, recorded_at
-          FROM core.test_results WHERE {' AND '.join(where)}
+          FROM tests.test_results WHERE {' AND '.join(where)}
          ORDER BY CASE outcome WHEN 'failed' THEN 0 WHEN 'warning' THEN 1 WHEN 'skipped' THEN 2 ELSE 3 END, suite, id"""),
         params).mappings().all()
     from . import health
-    every = [dict(r) for r in conn.execute(text("SELECT suite, name, outcome FROM core.test_results WHERE run_id = :id"),
+    every = [dict(r) for r in conn.execute(text("SELECT suite, name, outcome FROM tests.test_results WHERE run_id = :id"),
                                           {"id": run_id}).mappings().all()]
     from . import repeat
     return {"run": run, "results": [dict(r) for r in results], "tally": tally(conn, run_id),
@@ -352,11 +350,11 @@ def run_detail(conn, run_id: int, outcome: str = "", suite: str = "") -> dict[st
 
 
 def screenshot(conn, result_id: int) -> bytes | None:
-    row = conn.execute(text("SELECT screenshot FROM core.test_results WHERE id = :id"), {"id": result_id}).first()
+    row = conn.execute(text("SELECT screenshot FROM tests.test_results WHERE id = :id"), {"id": result_id}).first()
     return bytes(row[0]) if row and row[0] is not None else None
 
 
-_re_choice = __import__("re").compile(r"^  (smoke|full|backup|failed|delete|clean)\s{2,}(.*)$")
+_re_choice = __import__("re").compile(r"^  (smoke|full|backup|ui-review|failed|delete|clean)\s{2,}(.*)$")
 
 
 def test_entry(help_text: str) -> dict:

@@ -97,6 +97,7 @@ class AuditQuery(Schema):
 
 class ModelOut(Schema):
     id = fields.UUID()
+    is_test_data = fields.Boolean(metadata={"description": "Made by a self-test run (R2.11); removed when the run ends"})
     name = fields.String()
     description = fields.String()
     kind = fields.String(metadata={"description": "template, reference or project"})
@@ -143,6 +144,7 @@ class ModelListQuery(Schema):
     search = fields.String(load_default=None, metadata={"description": "Text in the name, description, owner or industry"})
     kind = fields.String(load_default=None, metadata={"description": "template, reference or project"})
     archived = fields.Boolean(load_default=True, metadata={"description": "Include archived models"})
+    test_data = fields.Boolean(load_default=False, metadata={"description": "Include the self-test's models (test data)"})
 
 
 class TypeCountOut(Schema):
@@ -237,6 +239,8 @@ class AttributeOut(Schema):
     section = fields.String()
     pick_list = fields.String(allow_none=True)
     pick_list_values = fields.List(fields.String())
+    inherited = fields.Boolean(metadata={"description": "Got from the base type: follows its changes (R2.9, D629)"})
+    retired = fields.Boolean(metadata={"description": "No longer on the base type: kept with its values (D629)"})
 
 
 class RuleOut(Schema):
@@ -285,6 +289,9 @@ class EntityTypeDetail(Schema):
     fill_colour = fields.String(metadata={"description": "Its own fill colour (RRGGBB); empty: its domain's"})
     is_connector = fields.Boolean(metadata={"description": "A junction: not an element (D397)"})
     drawio = fields.Dict(metadata={"description": "draw.io styles: box, shape (forms) and colour (phase 28)"})
+    base_id = fields.UUID(allow_none=True, metadata={"description": "The type it is derived from (ArchiMate Specialization, R2.9)"})
+    base_name = fields.String(allow_none=True)
+    derived = fields.List(fields.Dict(), metadata={"description": "The types derived from it: {id, name}"})
     attributes = fields.List(fields.Nested(AttributeOut))
     rules = fields.List(fields.Nested(RuleOut))
     outgoing = fields.List(fields.Nested(AllowedOut), metadata={"description": "this type -> other type"})
@@ -751,6 +758,7 @@ class DiagramTypeOut(Schema):
     domain = fields.String()
     colour = fields.String()
     entity_count = fields.Integer()
+    base_id = fields.UUID(allow_none=True, metadata={"description": "The type it is derived from (R2.9, D629)"})
     attributes = fields.List(fields.Nested(DiagramAttributeOut))
 
 
@@ -768,6 +776,7 @@ class MetamodelDiagram(Schema):
     entity_types = fields.List(fields.Nested(DiagramTypeOut))
     relationship_types = fields.List(fields.Nested(RelationshipTypeOut))
     links = fields.List(fields.Nested(DiagramLinkOut))
+    specializations = fields.List(fields.Dict(), metadata={"description": "A derived type (source) and its base (target), R2.9"})
 
 
 class MermaidQuery(Schema):

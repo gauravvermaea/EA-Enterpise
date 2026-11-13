@@ -20,7 +20,7 @@ const cellType = (dt) => (dt === "url" ? "links" : dt === "list" ? "select" : dt
 // ---------------------------------------------------------------- saved views (columns, filter, sort)
 export function ViewPicker({ model, kind, target, config, onApply }) {
   const params = new URLSearchParams({ kind, target: target || "", ...(model ? { model } : {}) });
-  const { data: views } = useApi(`/api/v1/saved-views?${params}`);
+  const { data: views } = useApi(`/api/v1/me/saved-views?${params}`);
   const [saving, setSaving] = useState(false);
   const [chosen, setChosen] = useState("");
   const current = (views || []).find((v) => v.id === chosen);
@@ -46,7 +46,7 @@ function SaveViewDialog({ model, kind, target, config, existing, onClose, onSave
   return (
     <Modal title="Save view" onClose={onClose} actions={<button className="ed-btn" disabled={!name.trim()} onClick={async () => {
       try {
-        const out = await apiFetch("/api/v1/saved-views", { method: "POST", body: JSON.stringify({
+        const out = await apiFetch("/api/v1/me/saved-views", { method: "POST", body: JSON.stringify({
           id: replace && existing ? existing.id : null, name, view_kind: kind, model, target: target || "", config, shared }) });
         refreshAll(); onSaved(out.id);
       } catch (err) { setMsg(err.message); }
@@ -72,6 +72,7 @@ export function SearchPage({ route }) {
   const [type, setType] = useState(qs.get("type") || "");
   const [attribute, setAttribute] = useState(qs.get("attribute") || "");
   const [tag, setTag] = useState(qs.get("tag") || "");
+  const [archived, setArchived] = useState(qs.get("archived") === "1");   // Include archived (R2.41)
   const [run, setRun] = useState(qs.toString());
   const { data: models_ } = useApi("/api/v1/models?archived=false");
   const models = models_ && liveModels(models_);   // never a frozen or archived model (D360)
@@ -80,7 +81,7 @@ export function SearchPage({ route }) {
     e?.preventDefault();
     const p = new URLSearchParams();
     if (q) p.set("q", q); if (model) p.set("model", model); if (type) p.set("type", type);
-    if (attribute) p.set("attribute", attribute); if (tag) p.set("tag", tag);
+    if (attribute) p.set("attribute", attribute); if (tag) p.set("tag", tag); if (archived && !model) p.set("archived", "1");
     setRun(p.toString());
     window.history.replaceState(null, "", `#/search?${p}`);
   }
@@ -96,6 +97,8 @@ export function SearchPage({ route }) {
         <input placeholder="Entity type" value={type} onChange={(e) => setType(e.target.value)} style={{ width: 150 }} title="For example Application Component" />
         <input placeholder="In attribute" value={attribute} onChange={(e) => setAttribute(e.target.value)} style={{ width: 130 }} title="Only values of this attribute, for example Vendor" />
         <input placeholder="Tag" value={tag} onChange={(e) => setTag(e.target.value)} style={{ width: 110 }} />
+        <label title="Also the archived models and projects you may see (read from the archive)">
+          <input type="checkbox" checked={archived} disabled={!!model} onChange={(e) => setArchived(e.target.checked)} /> Include archived</label>
         <button className="ed-btn" type="submit">Search</button>
       </form>
       {error && <p className="status bad">{error}</p>}
@@ -117,6 +120,23 @@ export function SearchPage({ route }) {
               {!data.results.length && <tr><td colSpan="5" className="quiet">Nothing found.</td></tr>}
             </tbody>
           </table>
+          {data.archived && (
+            <section className="archived-results" aria-label="In the archive">
+              <h2>In the archive ({data.archived.length})</h2>
+              {data.archived_error && <p className="status bad">{data.archived_error}</p>}
+              {data.archived.length === 0 ? <p className="quiet">Nothing archived matches.</p> : (
+                <table className="grid-table">
+                  <thead><tr><th>Archived</th><th>Kind</th><th>Found</th><th>Moved</th></tr></thead>
+                  <tbody>{data.archived.map((a) => (
+                    <tr key={a.archive_id}>
+                      <td><a href={a.link}>{a.name}</a> <span className="quiet small">archived</span></td>
+                      <td>{a.kind}</td>
+                      <td className="small">{a.matches.length ? a.matches.join("; ") : (a.description || "in its name")}</td>
+                      <td className="small nowrap">{a.moved_at ? String(a.moved_at).slice(0, 10) : ""}</td>
+                    </tr>))}</tbody>
+                </table>)}
+              <p className="quiet small">Archived models and projects are read only; their admins bring them back from the Archive.</p>
+            </section>)}
         </>
       )}
     </section>

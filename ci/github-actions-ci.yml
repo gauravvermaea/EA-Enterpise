@@ -26,7 +26,11 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements-dev.txt
       - run: ruff check .
-      - run: pytest -q
+      - run: pytest -q --cov=eax --cov-report=term --cov-report=html:coverage-html   # the unit tests' coverage (D642)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-coverage
+          path: services/api/coverage-html
 
   web:
     name: Web - build

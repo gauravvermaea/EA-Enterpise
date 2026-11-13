@@ -43,7 +43,7 @@ _MODEL_SQL = """
            m.owner, m.lifecycle, m.industry, m.version_label,
            m.lock_level, m.lock_reason, m.locked_at, m.locked_by, m.frozen_at, m.frozen_by, m.frozen_note,
            m.library_state, m.copy_state, m.copy_note, m.history_from_source, m.is_draft, m.approval_state, m.published_at, m.published_by,
-           m.created_at, m.created_by, m.modified_at, m.modified_by,
+           m.created_at, m.created_by, m.modified_at, m.modified_by, m.content_schema, m.is_test_data,
            CASE WHEN ic.library IS NOT NULL THEN 'lib:' || ic.library WHEN ic.data IS NOT NULL THEN 'upload' END AS icon,
            CAST(extract(epoch FROM ic.set_at) AS bigint) AS icon_version,
            (SELECT count(*) FROM core.entity_types t WHERE t.model_id = m.id AND NOT t.is_deleted AND NOT t.is_connector) AS entity_type_count,
@@ -58,17 +58,66 @@ _MODEL_SQL = """
      WHERE NOT m.is_deleted AND core.can_read_model(m.id)"""
 
 
+def _library_parts(rows: list[dict]) -> list[dict]:
+    """The counts and icon of library models (their content in the library schema, R2.42, D633), read there in one
+    query, for lists made on the repository's connection."""
+    from . import library_models as lm
+    lib = [r for r in rows if r.get("content_schema") == lm.SCHEMA]
+    if not lib or lm.routed():
+        return rows
+    ids = [r["_id"] for r in lib]
+    try:
+        with lm.connect() as lc:
+            got = {r["model_id"]: dict(r) for r in lc.execute(text("""
+                SELECT m.id AS model_id,
+                       (SELECT count(*) FROM core.entity_types t WHERE t.model_id = m.id AND NOT t.is_deleted AND NOT t.is_connector) AS etc,
+                       (SELECT count(*) FROM core.entities e JOIN core.entity_types t ON t.id = e.entity_type_id
+                         WHERE e.model_id = m.id AND NOT e.is_deleted AND NOT t.is_connector) AS ec,
+                       (SELECT count(*) FROM core.relationships r WHERE r.model_id = m.id AND NOT r.is_deleted) AS rc,
+                       (SELECT CASE WHEN ic.library IS NOT NULL THEN 'lib:' || ic.library WHEN ic.data IS NOT NULL THEN 'upload' END
+                          FROM core.model_icons ic WHERE ic.model_id = m.id) AS icon,
+                       (SELECT CAST(extract(epoch FROM ic.set_at) AS bigint) FROM core.model_icons ic WHERE ic.model_id = m.id) AS iv
+                  FROM core.models m WHERE m.id = ANY(:i)"""), {"i": ids}).mappings()}
+    except Exception:  # noqa: BLE001 - the library schema away: the list still shows the models, without counts
+        return rows
+    for r in lib:
+        g = got.get(r["_id"])
+        if g:
+            r.update(entity_type_count=g["etc"], entity_count=g["ec"], relationship_count=g["rc"],
+                     icon=g["icon"] or r.get("icon"), icon_version=g["iv"] or r.get("icon_version"))
+    return rows
+
+
 def list_models(conn, search: str | None = None, kind: str | None = None,
-                include_archived: bool = True) -> list[dict]:
+                include_archived: bool = True, test_data: bool | None = None) -> list[dict]:
     """Every readable model: templates first, then reference models, then project models.
-    search matches the name, description, owner or industry; kind is template, reference or project."""
-    return _rows(conn, _MODEL_SQL + """
+    search matches the name, description, owner or industry; kind is template, reference or project. The self-test's
+    models (is_test_data, R2.11) are left out unless test_data is asked for; the self-test's own accounts see them."""
+    if test_data is None:
+        test_data = sees_test_data()
+    return _library_parts(_rows(conn, _MODEL_SQL + """
        AND (CAST(:kind AS text) IS NULL OR m.kind_code = :kind)
        AND (:archived OR m.lifecycle = 'active')
+       AND (:test_data OR NOT m.is_test_data)
        AND (CAST(:q AS text) IS NULL OR concat_ws(' ', m.name, m.description, m.owner, m.industry) ILIKE :q)
      ORDER BY CASE m.kind_code WHEN 'template' THEN 1 WHEN 'reference' THEN 2
               WHEN 'project' THEN 3 ELSE 4 END, m.name, m.version_label DESC""",
-                 kind=kind or None, archived=include_archived, q=f"%{search.strip()}%" if search and search.strip() else None)
+                 kind=kind or None, archived=include_archived, test_data=bool(test_data), q=f"%{search.strip()}%" if search and search.strip() else None))
+
+
+def sees_test_data(username: str | None = None) -> bool:
+    """The self-test's own accounts (svc-self-test-<run>-<role>) see the test data they work in (R2.11, D637)."""
+    if username is None:
+        from . import permissions as perms
+        p = perms.current.get()
+        username = getattr(p, "username", "") if p else ""
+        if not username:
+            try:
+                from flask import g, has_request_context
+                username = getattr(getattr(g, "user", None), "username", "") if has_request_context() else ""
+            except Exception:  # noqa: BLE001 - outside a request
+                username = ""
+    return str(username or "").lower().startswith("svc-self-test-")
 
 
 def get_library(conn, include_withdrawn: bool = False) -> list[dict]:
@@ -90,26 +139,33 @@ def get_library(conn, include_withdrawn: bool = False) -> list[dict]:
             root, up = src, src
         m["is_top"] = top(m)
         m["built_on"] = root["name"] if root else (None if top(m) else m["name"] if m["kind"] == "template" else None)
-        m["counts_by_type"] = _rows(conn, """
-            SELECT et.name AS entity_type, l.name AS domain, l.colour, count(e.id) AS count
-              FROM core.entity_types et
-              JOIN core.layers l ON l.id = et.layer_id
-              LEFT JOIN core.entities e ON e.entity_type_id = et.id AND NOT e.is_deleted
-             WHERE et.model_id = :m AND NOT et.is_deleted AND NOT et.is_connector
-             GROUP BY et.name, l.name, l.colour, l.sort_order, et.sort_order
-             HAVING count(e.id) > 0 OR :tpl
-             ORDER BY count(e.id) DESC, l.sort_order, et.sort_order""", m=m["_id"], tpl=m["kind"] == "template")
-        m["relationship_counts"] = _rows(conn, """
-            SELECT rt.name AS relationship_type, count(*) AS count
-              FROM core.relationships r JOIN core.relationship_types rt ON rt.id = r.relationship_type_id
-             WHERE r.model_id = :m AND NOT r.is_deleted
-             GROUP BY rt.name, rt.sort_order ORDER BY count(*) DESC, rt.sort_order""", m=m["_id"])
-        m["domains"] = _rows(conn, """SELECT l.name, l.colour, count(et.id) AS types FROM core.layers l
-              LEFT JOIN core.entity_types et ON et.layer_id = l.id AND NOT et.is_deleted AND NOT et.is_connector
-             WHERE l.model_id = :m GROUP BY l.name, l.colour, l.sort_order ORDER BY l.sort_order""", m=m["_id"])
-        m["relationship_type_count"] = _rows(conn, "SELECT count(*) AS n FROM core.relationship_types WHERE model_id = :m AND NOT is_deleted",
-                                             m=m["_id"])[0]["n"]
+        from . import library_models as lm
+        with lm.reading(conn, m["_id"]) as rc:       # a library model's content is in the library schema (R2.42)
+            _library_counts(rc, m)
     return models
+
+
+def _library_counts(conn, m: dict) -> None:
+    """A library-page model's counts by entity type, relationship type and domain, on the connection that reads it."""
+    m["counts_by_type"] = _rows(conn, """
+        SELECT et.name AS entity_type, l.name AS domain, l.colour, count(e.id) AS count
+          FROM core.entity_types et
+          JOIN core.layers l ON l.id = et.layer_id
+          LEFT JOIN core.entities e ON e.entity_type_id = et.id AND NOT e.is_deleted
+         WHERE et.model_id = :m AND NOT et.is_deleted AND NOT et.is_connector
+         GROUP BY et.name, l.name, l.colour, l.sort_order, et.sort_order
+         HAVING count(e.id) > 0 OR :tpl
+         ORDER BY count(e.id) DESC, l.sort_order, et.sort_order""", m=m["_id"], tpl=m["kind"] == "template")
+    m["relationship_counts"] = _rows(conn, """
+        SELECT rt.name AS relationship_type, count(*) AS count
+          FROM core.relationships r JOIN core.relationship_types rt ON rt.id = r.relationship_type_id
+         WHERE r.model_id = :m AND NOT r.is_deleted
+         GROUP BY rt.name, rt.sort_order ORDER BY count(*) DESC, rt.sort_order""", m=m["_id"])
+    m["domains"] = _rows(conn, """SELECT l.name, l.colour, count(et.id) AS types FROM core.layers l
+          LEFT JOIN core.entity_types et ON et.layer_id = l.id AND NOT et.is_deleted AND NOT et.is_connector
+         WHERE l.model_id = :m GROUP BY l.name, l.colour, l.sort_order ORDER BY l.sort_order""", m=m["_id"])
+    m["relationship_type_count"] = _rows(conn, "SELECT count(*) AS n FROM core.relationship_types WHERE model_id = :m AND NOT is_deleted",
+                                         m=m["_id"])[0]["n"]
 
 
 def get_model(conn, model: Any) -> dict:
@@ -121,7 +177,7 @@ def get_model(conn, model: Any) -> dict:
         rows = _rows(conn, _MODEL_SQL + " AND lower(m.name) = lower(:m)", m=str(model))
     if not rows:
         raise NotFound(f"No model {model!r}, or you may not read it.")
-    return rows[0]
+    return _library_parts(rows)[0]
 
 
 # ---------------------------------------------------------------- metamodel
@@ -178,8 +234,12 @@ def _find_type(conn, model_id: int, entity_type: Any) -> dict:
     rows = _rows(conn, f"""
         SELECT et.id AS _id, et.guid AS id, et.code, et.name, et.description, et.aspect, et.content_area, et.repository_area, et.id_prefix,
                et.table_name, l.name AS domain, l.guid AS domain_id, l.colour, et.status_code AS status,
-               et.notation, et.fill_colour, et.is_connector, l.colour AS domain_colour
+               et.notation, et.fill_colour, et.is_connector, l.colour AS domain_colour,
+               b.guid AS base_id, b.name AS base_name,
+               (SELECT coalesce(json_agg(json_build_object('id', d.guid, 'name', d.name) ORDER BY d.name), '[]')
+                  FROM core.entity_types d WHERE d.base_type_id = et.id AND NOT d.is_deleted) AS derived
           FROM core.entity_types et JOIN core.layers l ON l.id = et.layer_id
+          LEFT JOIN core.entity_types b ON b.id = et.base_type_id AND NOT b.is_deleted
          WHERE {where} AND et.model_id = :m AND NOT et.is_deleted""", t=guid or str(entity_type), m=model_id)
     if not rows:
         raise NotFound(f"No entity type {entity_type!r} in this model.")
@@ -212,6 +272,7 @@ def get_entity_type(conn, model: Any, entity_type: Any) -> dict:
         SELECT ia.guid AS item_id, at.guid AS attribute_id, at.code, at.name, at.description, at.column_name,
                at.data_type_code AS data_type, dt.name AS data_type_name, at.unit, ia.is_required, ia.section,
                ia.default_value, ia.help_text, pl.guid AS pick_list_id,
+               (ia.inherited_from IS NOT NULL) AS inherited, (ia.status_code = 'retired') AS retired,
                at.quality_weight AS attribute_quality_weight, ia.quality_weight AS item_quality_weight,
                coalesce(ia.quality_weight, at.quality_weight, CASE WHEN ia.is_required THEN 3 ELSE 1 END) AS quality_weight,
                pl.name AS pick_list,
@@ -269,8 +330,10 @@ def get_metamodel_diagram(conn, model: Any) -> dict:
         SELECT et.id AS _id, et.guid AS id, et.code, et.name, et.table_name, et.id_prefix,
                l.guid AS domain_id, l.name AS domain, l.colour,
                (SELECT count(*) FROM core.entities e
-                 WHERE e.entity_type_id = et.id AND NOT e.is_deleted) AS entity_count
+                 WHERE e.entity_type_id = et.id AND NOT e.is_deleted) AS entity_count,
+               b.guid AS base_id
           FROM core.entity_types et JOIN core.layers l ON l.id = et.layer_id
+          LEFT JOIN core.entity_types b ON b.id = et.base_type_id AND NOT b.is_deleted
          WHERE et.model_id = :m AND NOT et.is_deleted
          ORDER BY l.sort_order, et.sort_order, et.name""", m=mid)
     attributes = _rows(conn, """
@@ -308,8 +371,10 @@ def get_metamodel_diagram(conn, model: Any) -> dict:
          WHERE ar.model_id = :m AND NOT ar.is_deleted
          GROUP BY s.guid, t.guid, s.sort_order, t.sort_order
          ORDER BY s.sort_order, t.sort_order""", m=mid)
+    # a derived type and its base (R2.9, D629): ArchiMate's Specialization, drawn as its own line
+    specializations = [{"source": str(t["id"]), "target": str(t["base_id"])} for t in types if t.get("base_id")]
     return {"model": m, "domains": domains, "entity_types": types,
-            "relationship_types": rel_types, "links": links}
+            "relationship_types": rel_types, "links": links, "specializations": specializations}
 
 
 def metamodel_mermaid(conn, model: Any, **scope) -> dict:

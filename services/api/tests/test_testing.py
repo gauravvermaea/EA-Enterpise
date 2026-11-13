@@ -242,7 +242,7 @@ def test_compose_has_the_runner_and_the_scale_out_files():
     proxy = compose["services"]["proxy"]["environment"]
     assert proxy["EAX_API_UPSTREAM"] == "${EAX_API_UPSTREAM:-api:8000}"
     tpl = (REPO / "deploy/proxy/templates/default.conf.template").read_text()
-    assert "http://api:8000;" not in tpl and tpl.count("http://${EAX_API_UPSTREAM};") == 3
+    assert "http://api:8000;" not in tpl and tpl.count("http://${EAX_API_UPSTREAM};") == 6   # and the exact /api/v1/me in each block (D644)
     scale = REPO / "deploy" / "compose" / "scale"
     names = sorted(p.name.removeprefix("docker-compose.").removesuffix(".yml") for p in scale.glob("docker-compose.*.yml"))
     assert names == ["api-host", "library-elsewhere", "library-host", "primary", "shared-storage", "standby"]
@@ -294,7 +294,7 @@ def test_build_command_in_every_form():
     assert '$RestArgs -contains "--build"' in ps
     helptext = (REPO / "eaxcli/help.txt").read_text()
     # --build still works for scripts but is no longer shown (R2.0.1, D592): the help shows smoke, full and clean
-    assert "### test [smoke|full|backup|failed [run] [--warnings]|delete <run|all> [--older-than DAYS]|clean]" in helptext and "$ {eax} test full" in helptext and "$ {eax} test clean" in helptext
+    assert "### test [smoke|full|backup|ui-review|failed [run] [--warnings]|delete <run|all> [--older-than DAYS]|clean]" in helptext and "$ {eax} test full" in helptext and "$ {eax} test clean" in helptext
     sys.path.insert(0, str(REPO))
     from eaxcli import commands as C
     assert C.check_argv(["test", "--build"]) == ["test", "--build"]
@@ -373,7 +373,7 @@ def test_the_runner_gets_the_test_data_when_the_helper_starts_it():
 def test_a_run_does_not_depend_on_the_sample_data():
     """Owner, 12 Nov 2026: "Smoke test should not depend upon sample data ... Neither is critical for function of the
     app": a run makes its own models, project and accounts, and neither waits for nor checks the sample data or the
-    industry packs (the work after the start, core.startup_parts)."""
+    industry packs (the work after the start, operations.startup_parts)."""
     here = Path(__file__).resolve().parents[1] / "eax" / "testing"
     for f in here.glob("*.py"):
         src = f.read_text(encoding="utf-8")

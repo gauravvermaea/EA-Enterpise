@@ -9,8 +9,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import text
-
+from . import personal as P
 from . import projects as pj
 from .metamodel_edit import EditError
 
@@ -37,13 +36,13 @@ def of(conn, usernames) -> dict[str, list[str]]:
     names = sorted({(u or "").lower() for u in usernames if u})
     if not names:
         return {}
-    return {r["username"]: list(r["skills"] or []) for r in _rows(
-        conn, "SELECT username, skills FROM proj.user_skills WHERE username = ANY (CAST(:u AS text[]))", u=names)}
+    return {r["username"]: list(r["skills"] or []) for r in P.rows(
+        conn, "SELECT username, skills FROM personal.user_skills WHERE username = ANY (CAST(:u AS text[]))", u=names)}
 
 
 def all_tags(conn) -> list[str]:
     """Every skill anyone has, spelled as most people spell it."""
-    rows = _rows(conn, """SELECT k, count(*) AS n FROM proj.user_skills, unnest(skills) AS k GROUP BY k""")
+    rows = P.rows(conn, """SELECT k, count(*) AS n FROM personal.user_skills, unnest(skills) AS k GROUP BY k""")
     best: dict[str, tuple[int, str]] = {}
     for r in rows:
         key = r["k"].lower()
@@ -53,7 +52,7 @@ def all_tags(conn) -> list[str]:
 
 
 def mine(conn, user) -> dict:
-    r = _one(conn, "SELECT skills, modified_at FROM proj.user_skills WHERE username = :u", u=user.username.lower())
+    r = P.one(conn, "SELECT skills, modified_at FROM personal.user_skills WHERE username = :u", u=user.username.lower())
     return {"username": user.username.lower(), "skills": list((r or {}).get("skills") or []),
             "modified_at": str(getattr(r["modified_at"], "isoformat", lambda: r["modified_at"])()) if r and r.get("modified_at") else None,
             "suggestions": all_tags(conn)}
@@ -61,10 +60,9 @@ def mine(conn, user) -> dict:
 
 def set_mine(conn, user, skills) -> dict:
     tags = clean(skills)
-    conn.execute(text("""INSERT INTO proj.user_skills (username, skills, modified_by) VALUES (:u, CAST(:s AS text[]), :u)
-                          ON CONFLICT (username) DO UPDATE SET skills = EXCLUDED.skills, modified_by = EXCLUDED.modified_by,
-                                                               modified_at = now()"""),
-                 {"u": user.username.lower(), "s": tags})
+    P.run(conn, """INSERT INTO personal.user_skills (username, skills, modified_by) VALUES (:u, CAST(:s AS text[]), :u)
+                    ON CONFLICT (username) DO UPDATE SET skills = EXCLUDED.skills, modified_by = EXCLUDED.modified_by,
+                                                         modified_at = now()""", u=user.username.lower(), s=tags)
     return {"skills": tags, "message": f"Your skills are saved ({len(tags)})." if tags else "Your skills are cleared."}
 
 

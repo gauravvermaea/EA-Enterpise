@@ -23,6 +23,7 @@ from ..auth import require_auth
 from ..db import get_engine
 from ..metamodel_edit import EditError, _db_message
 from .models import Free
+from .personal import blp as personal_blp
 
 blp = Blueprint("grids", __name__, url_prefix="/api/v1",
                 description="Grids for content and metamodel, search, saved views and favourites (phase 7)")
@@ -161,55 +162,65 @@ class Search(MethodView):
     @blp.response(200, Free)
     @require_auth()
     def get(self):
-        """Search every model you may read: ?q=text&model=&type=&attribute=&tag=&status=&limit="""
+        """Search every model you may read: ?q=text&model=&type=&attribute=&tag=&status=&limit=; &archived=1 (Include
+        archived, R2.41): also the archived models and projects you may see, read from the archive database"""
         a = request.args
-        return _read(lambda c: workspace.search(c, a.get("q", ""), a.get("model") or None, a.get("type", ""),
-                                                a.get("attribute", ""), a.get("tag", ""), a.get("status", ""),
-                                                int(a.get("limit", 100))))
+
+        def go(c):
+            out = workspace.search(c, a.get("q", ""), a.get("model") or None, a.get("type", ""), a.get("attribute", ""),
+                                   a.get("tag", ""), a.get("status", ""), int(a.get("limit", 100)))
+            if a.get("archived") in ("1", "true", "yes") and not a.get("model"):
+                from .. import archive
+                try:
+                    out["archived"] = archive.search(c, g.user, a.get("q", ""))
+                except Exception as exc:  # noqa: BLE001 - the archive database away: the working results still answer
+                    out["archived"], out["archived_error"] = [], f"The archive could not be searched ({exc})."
+            return out
+        return _read(go)
 
 
 # ---------------------------------------------------------------- saved views and favourites
-@blp.route("/saved-views")
+@personal_blp.route("/saved-views")
 class Views(MethodView):
-    @blp.doc(security=SECURITY)
-    @blp.response(200, Free)
+    @personal_blp.doc(security=SECURITY)
+    @personal_blp.response(200, Free)
     @require_auth()
     def get(self):
         """Your saved views and those shared with you: ?model=&kind=&target="""
         a = request.args
         return _read(lambda c: workspace.list_views(c, g.user.username, a.get("model") or None, a.get("kind", ""), a.get("target", "")))
 
-    @blp.doc(security=SECURITY)
-    @blp.arguments(ViewIn)
-    @blp.response(200, Free)
+    @personal_blp.doc(security=SECURITY)
+    @personal_blp.arguments(ViewIn)
+    @personal_blp.response(200, Free)
     @require_auth()
     def post(self, body):
         """Save a view (with id: change your own view)"""
         return _write(lambda c: workspace.save_view(c, g.user.username, body), "view.save", body.get("model") or "", {"name": body["name"]})
 
 
-@blp.route("/saved-views/<string:view_id>")
+@personal_blp.route("/saved-views/<string:view_id>")
 class View(MethodView):
-    @blp.doc(security=SECURITY)
-    @blp.response(200, Free)
+    @personal_blp.doc(security=SECURITY)
+    @personal_blp.response(200, Free)
     @require_auth()
     def delete(self, view_id):
         """Delete one of your views"""
         return _write(lambda c: workspace.delete_view(c, g.user.username, view_id), "view.delete", "", {"view": view_id})
 
 
-@blp.route("/favourites")
+@personal_blp.route("/favourites")
 class Favourites(MethodView):
-    @blp.doc(security=SECURITY)
-    @blp.response(200, Free)
+    @personal_blp.doc(security=SECURITY)
+    @personal_blp.response(200, Free)
     @require_auth()
     def get(self):
         """Your favourites: entities, models and views"""
         return _read(lambda c: workspace.list_favourites(c, g.user.username))
 
-    @blp.doc(security=SECURITY)
-    @blp.arguments(FavouriteIn)
-    @blp.response(200, Free)
+    @personal_blp.doc(security=SECURITY)
+    @personal_blp.arguments(FavouriteIn)
+    @personal_blp.response(200, Free)
     @require_auth()
     def post(self, body):
         """Mark (favourite: true) or unmark something as a favourite"""

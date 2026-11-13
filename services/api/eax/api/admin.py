@@ -12,6 +12,7 @@ from pathlib import Path
 from flask import g, request
 from flask.views import MethodView
 from flask_smorest import Blueprint, abort
+from sqlalchemy import text
 
 from .. import audit
 from .. import services as sv
@@ -78,6 +79,131 @@ class Databases(MethodView):
         its own) and, for EA Explorer's own, whether it answers. Passwords are never shown"""
         from .. import databases as dbs
         return {"databases": dbs.status(), "guide": "docs/databases.md"}
+
+
+@blp.route("/admin/logs/files")
+class LogFiles(MethodView):
+    @blp.doc(security=[{"bearerAuth": []}])
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def get(self):
+        """The containers' logs kept on disk, one file a day (R2.32): ?service= for one container"""
+        from urllib.parse import quote
+        return _ops("GET", f"/logs/files?service={quote(request.args.get('service', ''))}", timeout=30)
+
+
+@blp.route("/admin/logs/read")
+class LogRead(MethodView):
+    @blp.doc(security=[{"bearerAuth": []}])
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def get(self):
+        """A day of one or several containers' logs, merged by time (R2.31): ?services=api,db&day=YYYY-MM-DD&level=
+        (debug|info|warning|error: that and worse)&q=&since=HH:MM&until=HH:MM&page=N (1,000 lines a page); secrets masked"""
+        from urllib.parse import urlencode
+        keep = {k: request.args.get(k, "") for k in ("services", "day", "level", "q", "since", "until", "page")}
+        return _ops("GET", "/logs/read?" + urlencode(keep), timeout=60)
+
+
+@blp.route("/admin/logs/own")
+class LogOwn(MethodView):
+    @blp.doc(security=[{"bearerAuth": []}])
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def get(self):
+        """eax's own logs (work/logs) and the log backups (R2.31): listed; ?name= reads one of eax's logs, ?backup= lists a
+        backup's files and &member= reads one; &q= words, &page=N (1,000 lines a page); secrets masked"""
+        from urllib.parse import urlencode
+        keep = {k: request.args.get(k, "") for k in ("name", "backup", "member", "q", "page") if request.args.get(k)}
+        return _ops("GET", "/logs/own" + (f"?{urlencode(keep)}" if keep else ""), timeout=60)
+
+
+@blp.route("/admin/logs/<any(backup, clean):what>")
+class LogKeep(MethodView):
+    @blp.doc(security=[{"bearerAuth": []}])
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def post(self, data, what):
+        """backup {tag}: the containers' logs and eax's own in one zip in work/backups/logs; clean {days}: those and the
+        log backups older than `days` deleted for good (R2.30). In the audit trail"""
+        data = data or {}
+        if what == "clean":
+            try:
+                days = int(data.get("days") or 0)
+            except (TypeError, ValueError):
+                abort(400, message="days is a whole number of days.")
+            if days < 1:
+                abort(400, message="Clean the logs older than 1 day or more.")
+            out = _ops("POST", "/logs/clean", {"days": days, "by": g.user.username}, timeout=120)
+        else:
+            out = _ops("POST", "/logs/backup", {"tag": str(data.get("tag") or "")[:40], "by": g.user.username}, timeout=300)
+        with get_engine().begin() as conn:
+            audit.record(conn, actor=g.user.username, action=f"logs.{what}", object_type="logs", object_id=what,
+                         details={k: v for k, v in out.items() if k != "deleted"} | {"deleted": len(out.get("deleted") or [])})
+        return out
+
+
+@blp.route("/admin/footprint")
+class Footprint(MethodView):
+    @blp.doc(security=[{"bearerAuth": []}])
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def get(self):
+        """How much each container takes (R2.22): the newest measurement and the one before (image, own disk, volumes,
+        memory, CPU, start-up seconds), as `eax footprint` keeps them in work/footprint"""
+        return _ops("GET", "/footprint", timeout=30)
+
+    @blp.doc(security=[{"bearerAuth": []}])
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def post(self, data):
+        """Measures now {label}; kept beside the ones before"""
+        return _ops("POST", "/footprint", {"label": str((data or {}).get("label") or "")[:60]}, timeout=180)
+
+
+@blp.route("/admin/estate")
+class Estate(MethodView):
+    @blp.doc(security=[{"bearerAuth": []}])
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def get(self):
+        """EA Explorer's own estate (R2.33): the logical diagram (components and who calls whom) and the physical one of
+        this installation as it runs (containers, images, networks, published ports, volumes and folders), as nodes and
+        edges"""
+        return _ops("GET", "/estate", timeout=60)
+
+
+@blp.route("/admin/persist")
+class Persist(MethodView):
+    @blp.doc(security=[{"bearerAuth": []}])
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def get(self):
+        """What persist/ holds (R2.26): the settings that survive every reset (schedules, banner, Self-test settings),
+        the safety backups and the reset-survival results; name, size, when changed, what each is"""
+        return _ops("GET", "/persist", timeout=30)
+
+
+@blp.route("/admin/persist/delete")
+class PersistDelete(MethodView):
+    @blp.doc(security=[{"bearerAuth": []}])
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def post(self, data):
+        """Deletes an item of persist/ for good {item} or everything {all: true, confirm: "DELETE"} (R2.26); a deleted
+        settings file falls back to its default. In the audit trail"""
+        data = data or {}
+        if data.get("confirm") != "DELETE":
+            abort(400, message="Type DELETE to confirm: what is deleted from persist/ cannot be brought back.")
+        body = {"all": True} if data.get("all") else {"item": str(data.get("item") or "")}
+        out = _ops("POST", "/persist/delete", {**body, "by": g.user.username}, timeout=60)
+        with get_engine().begin() as conn:
+            audit.record(conn, actor=g.user.username, action="persist.deleted", object_type="persist",
+                         object_id="all" if body.get("all") else body["item"][:200], details={"deleted": out.get("deleted")})
+        return out
 
 
 @blp.route("/admin/first-run")
@@ -280,6 +406,15 @@ def record_terminal_ends() -> int:
         return record_command_ends()
     with get_engine().begin() as conn:
         for x in done:
+            if x.get("kind") == "ssh":         # an SSH session to a remote instance's host (R2.2): its row completed
+                from .. import databases
+                databases.on("operations", conn).execute(text(
+                    """UPDATE operations.ssh_sessions SET ended_at = to_timestamp(:e), reason = :r, bytes = :b
+                        WHERE session = :s"""), {"e": x.get("ended") or 0, "r": str(x.get("reason") or "")[:300],
+                                                 "b": int(x.get("bytes") or 0), "s": x.get("id")})
+                audit.record(conn, actor=x.get("user") or "?", action="remote.ssh.close", object_type="remote_instance",
+                             object_id=x.get("service") or "", details={"session": x.get("id"), "reason": x.get("reason")})
+                continue
             audit.record(conn, actor=x.get("user") or "?", action="container.terminal.close", object_type="container",
                          object_id=x.get("service") or "", details={"session": x.get("id"), "reason": x.get("reason"),
                          "minutes": round(((x.get("ended") or 0) - (x.get("started") or 0)) / 60, 1),
@@ -454,3 +589,243 @@ class ConfigRestore(MethodView):
             audit.record(conn, actor=g.user.username, action="system.config_restore", object_type="system", object_id="config",
                          details={"name": name})
         return _ops("POST", "/config-restore", {"name": name, "by": g.user.username}, timeout=30)
+
+
+# ---------------------------------------------------------------- the engine, the mounts, container files, alerts
+# (Release 2: R2.16 to R2.19, D638 to D641) all through the operations helper; IT Admins and Super Admins
+def _looked(action: str, object_id: str, details: dict | None = None) -> None:
+    with get_engine().begin() as conn:
+        audit.record(conn, actor=g.user.username, action=action, object_type="container", object_id=object_id[:200],
+                     details=details or {}, request_id=getattr(g, "request_id", None))
+
+
+@blp.route("/admin/hosts")
+class Hosts(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def get(self):
+        """The Docker engine EA Explorer runs on (R2.16): OS, kernel, Docker and Compose versions, CPUs and their use, load,
+        memory (EA Explorer's and the rest), disks and Docker's own disk, containers, uptime, the levels (green, amber,
+        red by EAX_HOST_WARN_* and EAX_HOST_ALERT_*) and the day's history, one sample a minute"""
+        return _ops("GET", "/hosts", timeout=90)
+
+
+@blp.route("/admin/mounts")
+class Mounts(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def get(self):
+        """Every volume and bind mount the containers use (R2.17): which containers use it, where, read only or not, its
+        size, and warnings (read only where it must be writable, a container that could not start with it)"""
+        return _ops("GET", "/mounts", timeout=90)
+
+
+@blp.route("/admin/mounts/<mid>")
+class MountDetail(MethodView):
+    @blp.doc(security=SECURITY, parameters=[{"in": "query", "name": "path", "schema": {"type": "string"}}])
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def get(self, mid):
+        """One mount, looked into read only: its size, free space, files, largest folders and files, newest and oldest
+        (or, with ?path=, one folder in it). Every look is in the audit trail"""
+        path = request.args.get("path", "")
+        _looked("mount.look", mid, {"path": path or "/"})
+        from urllib.parse import quote
+        return _ops("GET", f"/mounts/{mid}" + (f"?path={quote(path)}" if path else ""), timeout=240)
+
+
+@blp.route("/admin/mounts/<mid>/search")
+class MountSearch(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def get(self, mid):
+        """Files in a mount by name (?name=), size (?min_mb=) or age (?days=, changed in the last N days); up to 500"""
+        from urllib.parse import urlencode
+        q = {k: request.args[k] for k in ("name", "min_mb", "days") if request.args.get(k)}
+        _looked("mount.search", mid, q)
+        return _ops("GET", f"/mounts/{mid}/search?{urlencode(q)}", timeout=240)
+
+
+@blp.route("/admin/containers/<service>/files")
+class ContainerFiles(MethodView):
+    @blp.doc(security=SECURITY, parameters=[{"in": "query", "name": "path", "schema": {"type": "string"}}])
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def get(self, service):
+        """A folder in a container (R2.18): name, size, date, owner and permissions, the mounts marked; secrets and keys
+        are not shown. Off with EAX_CONTAINER_CONSOLE=off"""
+        from urllib.parse import quote
+        return _ops("GET", f"/containers/{service}/files?path={quote(request.args.get('path', '/'))}", timeout=60)
+
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def post(self, data, service):
+        """A change in a container's files {op: write|upload|mkdir|rename|move|copy|delete, path, to, content, sha256,
+        files: [{name, content (base64)}], overwrite, confirm, confirm_path}: an edit is refused when the file changed
+        since it was opened (sha256); a delete needs the full path typed again; a database's data folder needs
+        confirm "database"; the helper's own files, secrets and Docker's socket are never written. Every change is in
+        the audit trail (an edit with its before and after)"""
+        data = data or {}
+        out = _ops("POST", f"/containers/{service}/files", data, timeout=300)
+        _looked(f"container.files.{str(data.get('op') or '?')[:20]}", service,
+                {k: out.get(k) for k in ("path", "to", "files", "bytes", "before", "after") if out.get(k) is not None})
+        return {k: v for k, v in out.items() if k not in ("before", "after")}
+
+
+@blp.route("/admin/containers/<service>/files/content")
+class ContainerFileContent(MethodView):
+    @blp.doc(security=SECURITY, parameters=[{"in": "query", "name": "path", "schema": {"type": "string"}}])
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def get(self, service):
+        """A text file in a container (up to 2 MB), with its sha256 for a safe edit; a binary file: its size only"""
+        from urllib.parse import quote
+        path = request.args.get("path", "")
+        _looked("container.files.view", service, {"path": path})
+        return _ops("GET", f"/containers/{service}/files/content?path={quote(path)}", timeout=120)
+
+
+@blp.route("/admin/containers/<service>/files/download")
+class ContainerFileDownload(MethodView):
+    @blp.doc(security=SECURITY, parameters=[{"in": "query", "name": "path", "schema": {"type": "string"}}])
+    @require_auth("system.operate")
+    def get(self, service):
+        """A file from a container, or a folder as a zip"""
+        import base64
+        from urllib.parse import quote
+
+        from flask import Response
+        path = request.args.get("path", "")
+        out = _ops("GET", f"/containers/{service}/files/download?path={quote(path)}", timeout=300)
+        _looked("container.files.download", service, {"path": path, "name": out.get("name")})
+        name = str(out.get("name") or "file").replace('"', "")
+        return Response(base64.b64decode(out.get("content") or ""), mimetype="application/octet-stream",
+                        headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+@blp.route("/admin/alerts")
+class Alerts(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def get(self):
+        """Containers not working now and the history of alerts and recoveries (R2.19), from the operations helper's
+        watcher (it looks every minute, also while the API is down)"""
+        import time
+        for attempt in (1, 2, 3):             # a moment while ops starts again (a restart, an update) is not an alert
+            try:
+                return _ops_raw("GET", "/alerts", timeout=15)
+            except Exception:  # noqa: BLE001
+                if attempt < 3:
+                    time.sleep(2)
+        return {"open": [{"service": "ops", "kind": "stopped",
+                          "text": "The operations helper (the ops container) is not answering: Containers, Hosts, backups "
+                                  "and the alerts wait for it",
+                          "since": None}], "history": [], "helper": False}
+
+
+@blp.route("/admin/alerts/test")
+class AlertTest(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def post(self, data):
+        """A test alert {service}: the watcher tells it as if that container had stopped, then its recovery notice on
+        the next look (the self-test uses it; nothing is stopped)"""
+        _looked("container.alert.test", str((data or {}).get("service") or "api"))
+        return _ops("POST", "/alerts/test", {"service": str((data or {}).get("service") or "api")})
+
+
+@blp.route("/internal/container-alerts")
+class ContainerAlertsIn(MethodView):
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    def post(self, data):
+        """For the operations helper only (X-Ops-Token): alerts, reminders and recoveries from its watcher become
+        notifications for the IT Admins and Super Admins (an alert needs action) and go to the webhooks (R2.19)"""
+        import hmac
+        token = os.environ.get("EAX_OPS_TOKEN", "")
+        if not token or not hmac.compare_digest(request.headers.get("X-Ops-Token", ""), token):
+            abort(403, message="Not allowed.")
+        from .. import container_alerts
+        with get_engine().begin() as conn:
+            return {"told": container_alerts.tell(conn, (data or {}).get("events") or [])}
+
+
+@blp.route("/admin/coverage")
+class Coverage(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def get(self):
+        """Code coverage of the API since it started (D642; EAX_COVERAGE=on): the share of EA Explorer's lines run, by
+        area and by file (the least covered first). The self-test keeps it with its run"""
+        from .. import coverage_probe
+        return coverage_probe.report()
+
+
+# ---------------------------------------------------------------- the sites (R2.1, D646)
+def _sites_call(fn):
+    from .. import sites
+    try:
+        with get_engine().begin() as conn:
+            return fn(conn, sites)
+    except EditError as exc:
+        abort(exc.status, message=str(exc))
+
+
+@blp.route("/sites")
+class Sites(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def get(self):
+        """Every EA Explorer site (Local first) with its health (green, amber, red) from its public heartbeat, every 5
+        minutes; anyone signed in sees them and opens one to sign in there (R2.1)"""
+        return _sites_call(lambda c, s: {"sites": s.listing(c), "may_change": "super-admin" in (g.user.roles or ())})
+
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(201, Free)
+    @require_auth()
+    def post(self, data):
+        """Add a site {name, url, note} (Super Admins)"""
+        def go(c, s):
+            out = s.create(c, g.user, data or {})
+            audit.record(c, actor=g.user.username, action="site.add", object_type="site", object_id=str(out["id"]),
+                         details={"name": out["name"], "url": out["url"]})
+            return out
+        return _sites_call(go)
+
+
+@blp.route("/sites/<sid>")
+class Site(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth()
+    def put(self, data, sid):
+        """Change a site's name, address or note (Super Admins; Local's address comes from its settings)"""
+        def go(c, s):
+            out = s.update(c, g.user, sid, data or {})
+            audit.record(c, actor=g.user.username, action="site.change", object_type="site", object_id=sid,
+                         details={k: (data or {}).get(k) for k in ("name", "url", "note") if k in (data or {})})
+            return out
+        return _sites_call(go)
+
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def delete(self, sid):
+        """Remove a site from the list (Super Admins; nothing happens to the site itself; Local stays)"""
+        def go(c, s):
+            out = s.delete(c, g.user, sid)
+            audit.record(c, actor=g.user.username, action="site.remove", object_type="site", object_id=sid, details={})
+            return out
+        return _sites_call(go)

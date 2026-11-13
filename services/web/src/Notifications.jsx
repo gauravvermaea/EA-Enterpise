@@ -17,7 +17,7 @@ export function Bell({ route }) {
   const [c, setC] = useState(null);
   useEffect(() => {
     let live = true;
-    apiFetch("/api/v1/notifications/counts").then((x) => live && setC(x)).catch(() => {});
+    apiFetch("/api/v1/me/notifications/counts").then((x) => live && setC(x)).catch(() => {});
     return () => { live = false; };
   }, [route]);   // read again when a page opens (D209: no live push)
   const n = c ? c.unread + c.open_requests : 0;
@@ -35,9 +35,9 @@ export default function NotificationsPage({ route }) {
   const parts = route.replace(/^#\/notifications\/?/, "").split(/[/?]/).filter(Boolean);
   const view = parts[0] || "inbox";
   const go = (p) => { window.location.hash = `#/notifications${p ? `/${p}` : ""}`; };
-  const { data: counts } = useApi("/api/v1/notifications/counts");
-  const { data: reqs } = useApi("/api/v1/requests?box=received&status=active");
-  const { data: taskNotes } = useApi("/api/v1/notifications?show=open&category=task&limit=200");
+  const { data: counts } = useApi("/api/v1/me/notifications/counts");
+  const { data: reqs } = useApi("/api/v1/me/requests?box=received&status=active");
+  const { data: taskNotes } = useApi("/api/v1/me/notifications?show=open&category=task&limit=200");
   const unreadTasks = (taskNotes?.items || []).filter((n) => !n.read_at).length;
   const tabs = [
     ["inbox", `Notifications${counts?.unread ? ` (${counts.unread})` : ""}`],
@@ -76,18 +76,18 @@ function Inbox({ fixed = "" }) {
   const [q, setQ] = useState("");
   const [resolving, setResolving] = useState(null);
   const [err, setErr] = useState("");
-  const path = `/api/v1/notifications?show=${show}&category=${category}&q=${encodeURIComponent(q)}`;
+  const path = `/api/v1/me/notifications?show=${show}&category=${category}&q=${encodeURIComponent(q)}`;
   const { data, error } = useApi(path);
   // seen on screen: mark the unread ones read (the bell goes down when the next page opens)
   useEffect(() => {
     const unread = (data?.items || []).filter((n) => !n.read_at).map((n) => n.id);
-    if (unread.length) apiFetch("/api/v1/notifications/read", { method: "POST", body: JSON.stringify({ ids: unread }) }).catch(() => {});
+    if (unread.length) apiFetch("/api/v1/me/notifications/read", { method: "POST", body: JSON.stringify({ ids: unread }) }).catch(() => {});
   }, [data]);
   async function act(fn) {
     setErr("");
     try { await fn(); refreshAll(); } catch (e) { setErr(e.message); }
   }
-  const dismiss = (n) => act(() => apiFetch(`/api/v1/notifications/${n.id}/dismiss`, { method: "POST" }));
+  const dismiss = (n) => act(() => apiFetch(`/api/v1/me/notifications/${n.id}/dismiss`, { method: "POST" }));
   return (
     <div className="merge-step">
       <div className="row-gap filters">
@@ -102,7 +102,7 @@ function Inbox({ fixed = "" }) {
         <input type="search" placeholder="Search" value={q} onChange={(e) => setQ(e.target.value)} />
         {data && <span className="quiet small">{data.total} notification{data.total === 1 ? "" : "s"} · {data.counts.open_actions} waiting for action</span>}
         {data && data.items.some((n) => !n.needs_action && !n.dismissed_at) && <button className="push-right" title="Put away every notification that needs no action (those waiting for action stay)"
-          onClick={() => act(() => apiFetch(`/api/v1/notifications/dismiss-all?category=${category}`, { method: "POST" }))}>{fixed === "task" ? "Clear them all" : "Dismiss all"}</button>}
+          onClick={() => act(() => apiFetch(`/api/v1/me/notifications/dismiss-all?category=${category}`, { method: "POST" }))}>{fixed === "task" ? "Clear them all" : "Dismiss all"}</button>}
       </div>
       {error && <p className="status bad">{error}</p>}
       {err && <p className="status bad">{err}</p>}
@@ -141,7 +141,7 @@ function ResolveDialog({ n, onClose }) {
   const [err, setErr] = useState("");
   async function save() {
     try {
-      await apiFetch(`/api/v1/notifications/${n.id}/resolve`, { method: "POST", body: JSON.stringify({ note }) });
+      await apiFetch(`/api/v1/me/notifications/${n.id}/resolve`, { method: "POST", body: JSON.stringify({ note }) });
       refreshAll(); onClose();
     } catch (e) { setErr(e.message); }
   }
@@ -160,7 +160,7 @@ function ResolveDialog({ n, onClose }) {
 function RequestList({ box }) {
   const [status, setStatus] = useState("active");
   const [q, setQ] = useState("");
-  const { data, error } = useApi(`/api/v1/requests?box=${box}&status=${status}&q=${encodeURIComponent(q)}`);
+  const { data, error } = useApi(`/api/v1/me/requests?box=${box}&status=${status}&q=${encodeURIComponent(q)}`);
   return (
     <div className="merge-step">
       <div className="row-gap filters">
@@ -202,13 +202,13 @@ function NewRequest() {
   const [body, setBody] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
-  const { data: people } = useApi(`/api/v1/requests/people?q=${encodeURIComponent(to)}`);
+  const { data: people } = useApi(`/api/v1/me/requests/people?q=${encodeURIComponent(to)}`);
   const me = (currentUser()?.preferred_username || "").toLowerCase();
   const note = !!me && to.trim().toLowerCase() === me;
   async function send() {
     setBusy(true); setErr("");
     try {
-      const r = await apiFetch("/api/v1/requests", { method: "POST", body: JSON.stringify({ to, subject, body }) });
+      const r = await apiFetch("/api/v1/me/requests", { method: "POST", body: JSON.stringify({ to, subject, body }) });
       refreshAll();
       window.location.hash = `#/notifications/requests/${r.number}`;
     } catch (e) { setErr(e.message); }
@@ -235,7 +235,7 @@ function NewRequest() {
 }
 
 function RequestPage({ id }) {
-  const { data: r, error } = useApi(`/api/v1/requests/${id}`);
+  const { data: r, error } = useApi(`/api/v1/me/requests/${id}`);
   const [text, setText] = useState("");
   const [closing, setClosing] = useState(null);   // "done" | "declined" | "open"
   const [err, setErr] = useState("");
@@ -243,7 +243,7 @@ function RequestPage({ id }) {
   if (!r) return <p className="quiet">Loading...</p>;
   async function post(path, payload) {
     setErr("");
-    try { await apiFetch(`/api/v1/requests/${r.number}/${path}`, { method: "POST", body: JSON.stringify(payload) }); setText(""); refreshAll(); }
+    try { await apiFetch(`/api/v1/me/requests/${r.number}/${path}`, { method: "POST", body: JSON.stringify(payload) }); setText(""); refreshAll(); }
     catch (e) { setErr(e.message); }
   }
   const closed = r.status === "done" || r.status === "declined";

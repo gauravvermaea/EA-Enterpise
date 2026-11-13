@@ -16,6 +16,8 @@ from typing import Any
 
 from sqlalchemy import text
 
+from . import personal as P
+
 CATEGORIES = ("commit", "metamodel", "request", "model", "system", "task")
 
 # audit action -> (kind, category, needs action, title template); {actor} {model} {detail}
@@ -82,15 +84,14 @@ def create(conn, *, kind: str, category: str, title: str, actor: str, body: str 
     if not people and not hooks and not (model_id and recipients is None):
         return None
     to_sa = bool(model_id) and recipients is None    # everyone on the model, Super Admins included (global role)
-    nid = conn.execute(text("""
-        INSERT INTO core.notifications (kind, category, needs_action, model_id, title, body, link, ref_kind, ref_id, actor,
-                                        to_super_admins)
-        VALUES (:k, :c, :na, :m, :t, :b, :l, :rk, :ri, :a, :sa) RETURNING id"""),
-        {"k": kind, "c": category, "na": needs_action, "m": model_id, "t": title[:300], "b": body[:4000], "l": link,
-         "rk": ref_kind, "ri": ref_id, "a": actor or "system", "sa": to_sa}).scalar_one()
-    for p in people:
-        conn.execute(text("INSERT INTO core.notification_recipients (notification_id, username) VALUES (:n, :u) "
-                          "ON CONFLICT DO NOTHING"), {"n": nid, "u": p})
+    n = {"kind": kind, "category": category, "needs_action": needs_action, "model_id": model_id, "title": title[:300],
+         "body": body[:4000], "link": link, "ref_kind": ref_kind, "ref_id": ref_id, "actor": actor or "system",
+         "to_super_admins": to_sa}
+    try:     # into the personal data service's schema (R2.53, D632)
+        nid = P.write_notification(conn, n, people)
+    except P.Unavailable as exc:   # it cannot be reached: the notification waits and is sent when it is back
+        P.queue(conn, {"notification": n, "people": people}, str(exc))
+        return None
     if hooks:
         from . import webhooks as _hooks
         _hooks.queue(conn, nid)
@@ -100,20 +101,23 @@ def create(conn, *, kind: str, category: str, title: str, actor: str, body: str 
 def join_super_admin(conn, username: str) -> int:
     """A Super Admin has a role on every model (a global role, not in core.model_users): the model notifications made
     for everyone on a model become theirs when they look (except their own doings)."""
-    return conn.execute(text("""
-        INSERT INTO core.notification_recipients (notification_id, username)
-        SELECT n.id, lower(:u) FROM core.notifications n
+    return P.run(conn, """
+        INSERT INTO personal.notification_recipients (notification_id, username)
+        SELECT n.id, lower(:u) FROM personal.notifications n
          WHERE n.to_super_admins AND lower(n.actor) <> lower(:u)
            AND n.created_at > now() - interval '180 days'
-        ON CONFLICT DO NOTHING"""), {"u": username}).rowcount
+        ON CONFLICT DO NOTHING""", u=username).rowcount
 
 
 def resolve_ref(conn, ref_kind: str, ref_id: int, by: str, note: str) -> int:
     """Resolves the open action notifications about one thing (a request closed, a push decided)."""
-    return conn.execute(text("""
-        UPDATE core.notifications SET resolved_at = now(), resolved_by = :b, resolution = :n
-         WHERE needs_action AND resolved_at IS NULL AND ref_kind = :k AND ref_id = :i"""),
-        {"b": by, "n": note[:4000], "k": ref_kind, "i": ref_id}).rowcount
+    try:
+        return P.run(conn, """
+            UPDATE personal.notifications SET resolved_at = now(), resolved_by = :b, resolution = :n
+             WHERE needs_action AND resolved_at IS NULL AND ref_kind = :k AND ref_id = :i""",
+            b=by, n=note[:4000], k=ref_kind, i=ref_id).rowcount
+    except P.Unavailable:
+        return 0
 
 
 def on_audit(conn, *, actor: str, action: str, object_type: str | None, object_id: str | None, details: dict | None) -> None:
@@ -132,10 +136,13 @@ def on_audit(conn, *, actor: str, action: str, object_type: str | None, object_i
         detail = f" ({d['name']}, {d.get('changes', 0)} changes)"
     body = str(d.get("note") or d.get("message") or "")
     if action in RESOLVES_COMMIT_REQUESTS:
-        conn.execute(text("""
-            UPDATE core.notifications SET resolved_at = now(), resolved_by = :b, resolution = :n
-             WHERE kind = 'commit.requested' AND model_id = :m AND resolved_at IS NULL"""),
-            {"b": actor, "m": m["id"], "n": f"{RESOLVES_COMMIT_REQUESTS[action]} by {actor}" + (f": {body}" if body else "")})
+        try:
+            P.run(conn, """
+                UPDATE personal.notifications SET resolved_at = now(), resolved_by = :b, resolution = :n
+                 WHERE kind = 'commit.requested' AND model_id = :m AND resolved_at IS NULL""",
+                  b=actor, m=m["id"], n=f"{RESOLVES_COMMIT_REQUESTS[action]} by {actor}" + (f": {body}" if body else ""))
+        except P.Unavailable:
+            pass
     link = LINKS.get(category, "#/metamodel/{m}").format(m=m["guid"])
     doc_id = None
     if action in ("changes.commit", "merge.apply"):
@@ -151,56 +158,72 @@ def on_audit(conn, *, actor: str, action: str, object_type: str | None, object_i
 # ---------------------------------------------------------------- reading and acting (the person's own)
 
 def _visible(username: str) -> str:
-    return "EXISTS (SELECT 1 FROM core.notification_recipients r WHERE r.notification_id = n.id AND r.username = lower(:u))"
+    return "EXISTS (SELECT 1 FROM personal.notification_recipients r WHERE r.notification_id = n.id AND r.username = lower(:u))"
 
 
 def counts(conn, username: str) -> dict:
-    r = _one(conn, """
+    r = P.one(conn, """
         SELECT count(*) FILTER (WHERE r.read_at IS NULL AND r.dismissed_at IS NULL AND n.resolved_at IS NULL) AS unread,
                count(*) FILTER (WHERE n.needs_action AND n.resolved_at IS NULL) AS open_actions
-          FROM core.notifications n JOIN core.notification_recipients r ON r.notification_id = n.id AND r.username = lower(:u)""",
-               u=username)
-    req = _one(conn, "SELECT count(*) AS n FROM core.requests WHERE receiver = lower(:u) AND status IN ('open', 'in_progress')",
-               u=username)
+          FROM personal.notifications n JOIN personal.notification_recipients r ON r.notification_id = n.id AND r.username = lower(:u)""",
+              u=username)
+    req = P.one(conn, "SELECT count(*) AS n FROM personal.requests WHERE receiver = lower(:u) AND status IN ('open', 'in_progress')",
+                u=username)
     return {"unread": r["unread"], "open_actions": r["open_actions"], "open_requests": req["n"]}
+
+
+def _tasks(conn, ids) -> dict[int, dict]:
+    """The background tasks notifications refer to, from the repository: their id and their newest result file."""
+    ids = sorted({int(i) for i in ids if i is not None})
+    if not ids:
+        return {}
+    return {int(r["id"]): dict(r) for r in conn.execute(text("""
+        SELECT tt.id, tt.guid, (SELECT f.name FROM core.task_files f WHERE f.task_id = tt.id AND f.role = 'result'
+                                   AND f.created_at > now() - interval '24 hours' ORDER BY f.id DESC LIMIT 1) AS file
+          FROM core.tasks tt WHERE tt.id = ANY(:i)"""), {"i": ids}).mappings()}
 
 
 def listing(conn, username: str, *, show: str = "open", category: str = "", model: str = "", q: str = "",
             limit: int = 100, offset: int = 0) -> dict:
-    """show: open (unresolved actions and undismissed information), actions, resolved, all."""
+    """show: open (unresolved actions and undismissed information), actions, resolved, all. The model and task each
+    refers to are looked up in the repository (no join across schemas, D632)."""
     where = [_visible(username)]
     p: dict[str, Any] = {"u": username, "lim": min(max(limit, 1), 500), "off": max(offset, 0)}
     if show == "open":
         where.append("""((n.needs_action AND n.resolved_at IS NULL) OR (NOT n.needs_action AND NOT EXISTS (
-                          SELECT 1 FROM core.notification_recipients r2 WHERE r2.notification_id = n.id
+                          SELECT 1 FROM personal.notification_recipients r2 WHERE r2.notification_id = n.id
                              AND r2.username = lower(:u) AND r2.dismissed_at IS NOT NULL)))""")
     elif show == "actions":
         where.append("n.needs_action AND n.resolved_at IS NULL")
     elif show == "resolved":
-        where.append("(n.resolved_at IS NOT NULL OR EXISTS (SELECT 1 FROM core.notification_recipients r2 "
+        where.append("(n.resolved_at IS NOT NULL OR EXISTS (SELECT 1 FROM personal.notification_recipients r2 "
                      "WHERE r2.notification_id = n.id AND r2.username = lower(:u) AND r2.dismissed_at IS NOT NULL))")
     if category in CATEGORIES:
         where.append("n.category = :c")
         p["c"] = category
     if model:
-        where.append("m.guid = CAST(:m AS uuid)")
-        p["m"] = model
+        mid = P.model_ids_by_guid(conn, [model]).get(str(model))
+        where.append("n.model_id = :m")
+        p["m"] = mid if mid is not None else -1
     if q:
         where.append("(n.title ILIKE :q OR n.body ILIKE :q)")
         p["q"] = f"%{q}%"
     w = " AND ".join(where)
-    rows = _rows(conn, f"""
+    rows = P.rows(conn, f"""
         SELECT n.guid AS id, n.kind, n.category, n.needs_action, n.title, n.body, n.link, n.actor, n.created_at,
-               n.resolved_at, n.resolved_by, n.resolution, m.guid AS model_id, m.name AS model_name,
-               r.read_at, r.dismissed_at, tt.guid AS task_id,
-               (SELECT f.name FROM core.task_files f WHERE f.task_id = tt.id AND f.role = 'result'
-                   AND f.created_at > now() - interval '24 hours' ORDER BY f.id DESC LIMIT 1) AS task_file
-          FROM core.notifications n LEFT JOIN core.models m ON m.id = n.model_id
-          LEFT JOIN core.tasks tt ON n.ref_kind = 'task' AND tt.id = n.ref_id
-          JOIN core.notification_recipients r ON r.notification_id = n.id AND r.username = lower(:u)
+               n.resolved_at, n.resolved_by, n.resolution, n.model_id AS _model, n.ref_kind AS _rk, n.ref_id AS _ri,
+               r.read_at, r.dismissed_at
+          FROM personal.notifications n
+          JOIN personal.notification_recipients r ON r.notification_id = n.id AND r.username = lower(:u)
          WHERE {w} ORDER BY (n.needs_action AND n.resolved_at IS NULL) DESC, n.id DESC LIMIT :lim OFFSET :off""", **p)
-    total = _one(conn, f"""SELECT count(*) AS n FROM core.notifications n LEFT JOIN core.models m ON m.id = n.model_id
-                            WHERE {w}""", **p)["n"]
+    total = P.one(conn, f"SELECT count(*) AS n FROM personal.notifications n WHERE {w}", **p)["n"]
+    models = P.models_by_id(conn, [x["_model"] for x in rows])
+    tasks = _tasks(conn, [x["_ri"] for x in rows if x["_rk"] == "task"])
+    for x in rows:
+        m, t = models.get(x.pop("_model") or -1), tasks.get(x["_ri"] or -1) if x["_rk"] == "task" else None
+        x.pop("_rk"), x.pop("_ri")
+        x["model_id"], x["model_name"] = (m["guid"], m["name"]) if m else (None, None)
+        x["task_id"], x["task_file"] = (t["guid"], t["file"]) if t else (None, None)
     return {"items": rows, "total": total, "counts": counts(conn, username)}
 
 
@@ -209,8 +232,8 @@ class NotFound(Exception):
 
 
 def _mine(conn, username: str, guid) -> dict:
-    n = _one(conn, f"""SELECT n.* FROM core.notifications n WHERE n.guid = CAST(:g AS uuid) AND {_visible(username)}""",
-             g=str(guid), u=username)
+    n = P.one(conn, f"""SELECT n.* FROM personal.notifications n WHERE n.guid = CAST(:g AS uuid) AND {_visible(username)}""",
+              g=str(guid), u=username)
     if not n:
         raise NotFound("No such notification for you.")
     return n
@@ -218,31 +241,31 @@ def _mine(conn, username: str, guid) -> dict:
 
 def mark_read(conn, username: str, guids: list | None = None) -> int:
     """Marks some (or, without guids, all) of the person's notifications read."""
-    sql = "UPDATE core.notification_recipients r SET read_at = now() WHERE r.username = lower(:u) AND r.read_at IS NULL"
+    sql = "UPDATE personal.notification_recipients r SET read_at = now() WHERE r.username = lower(:u) AND r.read_at IS NULL"
     p: dict[str, Any] = {"u": username}
     if guids:
-        sql += " AND r.notification_id IN (SELECT id FROM core.notifications WHERE guid = ANY (CAST(:g AS uuid[])))"
+        sql += " AND r.notification_id IN (SELECT id FROM personal.notifications WHERE guid = ANY (CAST(:g AS uuid[])))"
         p["g"] = [str(x) for x in guids]
-    return conn.execute(text(sql), p).rowcount
+    return P.run(conn, sql, **p).rowcount
 
 
 def dismiss(conn, username: str, guid) -> dict:
     n = _mine(conn, username, guid)
     if n["needs_action"] and n["resolved_at"] is None:
         raise ValueError("This one needs action: resolve it with a note of what you did.")
-    conn.execute(text("""UPDATE core.notification_recipients SET dismissed_at = now(), read_at = coalesce(read_at, now())
-                          WHERE notification_id = :n AND username = lower(:u)"""), {"n": n["id"], "u": username})
+    P.run(conn, """UPDATE personal.notification_recipients SET dismissed_at = now(), read_at = coalesce(read_at, now())
+                    WHERE notification_id = :n AND username = lower(:u)""", n=n["id"], u=username)
     return {"dismissed": True}
 
 
 def dismiss_all(conn, username: str, category: str = "") -> dict:
     """Every information notification of mine (of one kind, or all) put away and read at once, so the bell and the lists
     stop showing them (owner, 8 Nov 2026); those needing action stay open until resolved."""
-    r = conn.execute(text("""UPDATE core.notification_recipients nr SET dismissed_at = now(), read_at = coalesce(read_at, now())
-                               FROM core.notifications n
-                              WHERE n.id = nr.notification_id AND nr.username = lower(:u) AND nr.dismissed_at IS NULL
-                                AND NOT (n.needs_action AND n.resolved_at IS NULL) AND (:c = '' OR n.category = :c)"""),
-                     {"u": username, "c": category or ""})
+    r = P.run(conn, """UPDATE personal.notification_recipients nr SET dismissed_at = now(), read_at = coalesce(read_at, now())
+                         FROM personal.notifications n
+                        WHERE n.id = nr.notification_id AND nr.username = lower(:u) AND nr.dismissed_at IS NULL
+                          AND NOT (n.needs_action AND n.resolved_at IS NULL) AND (:c = '' OR n.category = :c)""",
+              u=username, c=category or "")
     return {"dismissed": r.rowcount}
 
 
@@ -254,20 +277,19 @@ def resolve(conn, username: str, guid, note: str) -> dict:
         raise ValueError(f"Already resolved by {n['resolved_by']}.")
     if not (note or "").strip():
         raise ValueError("Say what you did: resolving needs a note.")
-    conn.execute(text("""UPDATE core.notifications SET resolved_at = now(), resolved_by = :b, resolution = :r WHERE id = :n"""),
-                 {"b": username, "r": note.strip()[:4000], "n": n["id"]})
-    conn.execute(text("UPDATE core.notification_recipients SET read_at = coalesce(read_at, now()) WHERE notification_id = :n"),
-                 {"n": n["id"]})
+    P.run(conn, "UPDATE personal.notifications SET resolved_at = now(), resolved_by = :b, resolution = :r WHERE id = :n",
+          b=username, r=note.strip()[:4000], n=n["id"])
+    P.run(conn, "UPDATE personal.notification_recipients SET read_at = coalesce(read_at, now()) WHERE notification_id = :n", n=n["id"])
     return {"resolved": True}
 
 
 def payload(conn, nid: int) -> dict:
     """The plain JSON a webhook receives (D209)."""
-    n = _one(conn, """SELECT n.*, m.guid AS model_guid, m.name AS model_name FROM core.notifications n
-                       LEFT JOIN core.models m ON m.id = n.model_id WHERE n.id = :n""", n=nid)
+    n = P.one(conn, "SELECT n.* FROM personal.notifications n WHERE n.id = :n", n=nid)
+    m = P.models_by_id(conn, [n["model_id"]]).get(n["model_id"] or -1)
     return {"id": str(n["guid"]), "kind": n["kind"], "category": n["category"], "needs_action": n["needs_action"],
             "title": n["title"], "body": n["body"], "link": n["link"], "actor": n["actor"],
-            "model": {"id": str(n["model_guid"]), "name": n["model_name"]} if n["model_guid"] else None,
+            "model": {"id": str(m["guid"]), "name": m["name"]} if m else None,
             "created_at": n["created_at"].isoformat() if hasattr(n["created_at"], "isoformat") else n["created_at"]}
 
 

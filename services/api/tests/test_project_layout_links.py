@@ -45,7 +45,7 @@ def test_architecture_work_has_tabs_views_filters_and_pins():
     s = (WEB / "Areas.jsx").read_text()
     assert "Projects <span" in s and "Models <span" in s
     assert "eax-work-view" in s and "work-tiles" in s and "grid-table" in s
-    assert "pinned only" in s and "/api/v1/favourites" in s
+    assert "pinned only" in s and "/api/v1/me/favourites" in s
 
 
 def test_project_page_layout():

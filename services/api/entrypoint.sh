@@ -6,6 +6,7 @@
 #                           the job runner, the change log shipper (on one server only) and the MCP
 #                           server (uvicorn, port 8001) side by side; the change log and the MCP server only when
 #                           switched on (EAX_SERVICE_CHANGE_LOG, EAX_SERVICE_MCP; on by default, D191).
+#   EAX_SERVE=operations|personal: the operations or the personal data service only (R2.27 part 2, R2.53)
 #   any other command:      run it as given (the setup service uses: python -m eax.setup).
 set -eu
 cd /app
@@ -13,6 +14,19 @@ cd /app
 if [ "$#" -gt 0 ]; then
   exec "$@"
 fi
+
+# a service of its own (R2.27 part 2, R2.53): the operations or the personal data API, nothing else; the main API's
+# container runs the migrations and the seed, so the service waits for them, then serves its prefix (eax/service_split.py)
+case "${EAX_SERVE:-all}" in
+  operations|personal)
+    python -m eax.wait_for_db
+    python -m eax.service_split ready
+    PORT=$(python -c "from eax.service_split import SERVICES, serving; print(SERVICES[serving()]['port'])")
+    echo "EA Explorer: starting the ${EAX_SERVE} service on port ${PORT}"
+    exec gunicorn --bind 0.0.0.0:"${PORT}" --workers "${EAX_SERVICE_WORKERS:-2}" --timeout "${EAX_API_TIMEOUT:-120}" \
+         --access-logfile - "eax.wsgi:app"
+    ;;
+esac
 
 python -m eax.wait_for_db
 # several API and job servers may start together (D249): the upgrade and the seed run on one at a time
@@ -37,7 +51,7 @@ else
 fi
 # the second tier of the start-up (D255): the sample and laptop test models, the demo estate and the first data quality
 # measurement, in the background, one step at a time, so the API is healthy at once and people can sign in; it logs each
-# step, records how far it has got (core.startup_parts, shown to everyone) and never stops the container
+# step, records how far it has got (operations.startup_parts, shown to everyone) and never stops the container
 # (eax/seed/later.py). With several servers one runs it.
 python -m eax.startup once later -- python -m eax.seed.later &
 MCP_PID=""

@@ -15,7 +15,7 @@ from ..db import get_engine
 from .admin import _ops, _ops_raw
 from .models import Free, FreeIn
 
-blp = Blueprint("updates", __name__, url_prefix="/api/v1/updates",
+blp = Blueprint("updates", __name__, url_prefix="/api/v1/operations/updates",
                 description="Updating to a new release from git (phase 36, D417)")
 SECURITY = [{"bearerAuth": []}]
 

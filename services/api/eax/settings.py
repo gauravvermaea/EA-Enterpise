@@ -51,7 +51,10 @@ REGISTRY: dict[str, tuple] = {
                           "Signed out after this long whatever happens; applied to Keycloak at once."),
     "log_level": ("system", "Log level", "choice", "INFO", ["DEBUG", "INFO", "WARNING", "ERROR"],
                   "How much the API, the job runner and the change log write to their logs (eax logs api); applied at once. "
-                  "DEBUG is very verbose: use it only while looking into a problem."),
+                  "The default by deployment (R2.30): DEBUG on a laptop, ERROR on a server or in the cloud."),
+    "logs_keep_days": ("system", "Delete logs older than (days)", "int", 14, (0, 3650),
+                       "eax's own logs (work/logs), the log backups and the containers' daily log files are deleted when "
+                       "older, every night (R2.30); the default by deployment: 14 on a laptop, 90 on a server; 0 keeps them."),
     # the parts of EA Explorer an organisation uses (owner, 8 Nov 2026, phase 13.3, D329): off hides a part's screens, menus,
     # API, MCP tools and background work; its data is kept and comes back when it is switched on again
     "part_projects": ("system", "Projects", "bool", True, None,
@@ -79,8 +82,22 @@ _lock = threading.Lock()
 CACHE_SECONDS = 15
 
 
+# defaults that depend on the deployment (owner, 12 Nov 2026, R2.30: "Laptop mode should be debug other can be error")
+BY_DEPLOYMENT = {"log_level": {"laptop": "DEBUG", "*": "ERROR"}, "logs_keep_days": {"laptop": 14, "*": 90}}
+
+
+def default_of(key: str) -> Any:
+    """A setting's default: by deployment (EAX_DEPLOYMENT) where BY_DEPLOYMENT says, else the registry's."""
+    import os
+    by = BY_DEPLOYMENT.get(key)
+    if by:
+        kind = (os.environ.get("EAX_DEPLOYMENT") or "laptop").strip().lower()
+        return by.get(kind, by["*"])
+    return REGISTRY[key][3]
+
+
 def _default_values() -> dict[str, Any]:
-    return {k: v[3] for k, v in REGISTRY.items()}
+    return {k: default_of(k) for k in REGISTRY}
 
 
 def values(conn=None) -> dict[str, Any]:
@@ -141,8 +158,8 @@ def describe(conn) -> dict:
     v = values(conn)
     rows = {r["key"]: r for r in conn.execute(text("SELECT key, modified_at, modified_by FROM core.settings")).mappings()}
     out: dict[str, list] = {"application": [], "system": []}
-    for k, (group, label, typ, default, choices, help_) in REGISTRY.items():
-        out[group].append({"key": k, "label": label, "type": typ, "value": v[k], "default": default,
+    for k, (group, label, typ, _default, choices, help_) in REGISTRY.items():
+        out[group].append({"key": k, "label": label, "type": typ, "value": v[k], "default": default_of(k),
                            "choices": choices if isinstance(choices, list) else None,
                            "range": list(choices) if isinstance(choices, tuple) else None, "help": help_,
                            "modified_at": rows.get(k, {}).get("modified_at") if _by_person(rows.get(k, {})) else None,

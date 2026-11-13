@@ -68,7 +68,7 @@ def test_plan_makes_and_aligns_the_tables():
 def test_the_test_tables_are_reached_only_through_the_tests_database():
     """Every module that reads or writes core.test_* does it through store.engine() or store.tests(conn)."""
     from eax import databases as dbs
-    assert dbs.TABLES["tests"] == ("core.test_runs", "core.test_results", "core.test_fixtures")
+    assert dbs.TABLES["tests"] == ("tests.test_runs", "tests.test_results", "tests.test_fixtures")
     for f in sorted(API.rglob("*.py")):
         src = f.read_text()
         if "core.test_" not in src or "migrations" in str(f):

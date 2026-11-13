@@ -168,6 +168,26 @@ def insight(conn, days: int = 30) -> dict:
             "credentials": _clean(creds)}
 
 
+def _library_use(rows: list[dict]) -> list[dict]:
+    """The library models' counts read in the library schema, where their content is (R2.42, D633)."""
+    from . import library_models as lm
+    try:
+        with lm.connect() as lc:
+            got = {str(r["guid"]): dict(r) for r in lc.execute(text("""
+                SELECT m.guid, (SELECT count(*) FROM core.entities e WHERE e.model_id = m.id AND NOT e.is_deleted) AS entities,
+                       (SELECT count(*) FROM core.relationships r WHERE r.model_id = m.id AND NOT r.is_deleted) AS relationships,
+                       (SELECT max(e.modified_at) FROM core.entities e WHERE e.model_id = m.id) AS last_changed,
+                       (SELECT count(*) FROM history.row_versions h WHERE h.model_id = m.id) AS versions
+                  FROM core.models m WHERE m.content_schema = 'library_models' AND NOT m.is_deleted""")).mappings()}
+    except Exception:  # noqa: BLE001 - the library schema away: shown without its counts
+        return rows
+    for r in rows:
+        g = got.get(str(r["guid"]))
+        if g:
+            r.update({k: g[k] for k in ("entities", "relationships", "last_changed", "versions")})
+    return rows
+
+
 def model_use(conn, since: str) -> list[dict]:
     rows = _rows(conn, """
         SELECT m.guid, m.name, m.kind_code AS kind, m.status_code AS status,
@@ -180,6 +200,7 @@ def model_use(conn, since: str) -> list[dict]:
                (SELECT count(DISTINCT u.username) FROM core.usage_daily u WHERE u.model_guid = m.guid::text AND u.day >= CAST(:s AS date)) AS people,
                (SELECT max(u.day) FROM core.usage_daily u WHERE u.model_guid = m.guid::text) AS last_used
           FROM core.models m WHERE NOT m.is_deleted ORDER BY m.name""", s=since)
+    rows = _library_use(rows)
     out = []
     for r in rows:
         r = {k: _iso(v) for k, v in r.items()}
@@ -434,10 +455,10 @@ _FIND: dict[str, tuple[str, str]] = {
     "task_files": ("core.task_files", """SELECT f.id, f.created_at, NULL::bigint AS model_id, f.name AS summary,
                                              to_jsonb(f) - 'content' AS data, f.content AS content
                                         FROM core.task_files f WHERE f.created_at < :cut ORDER BY f.id LIMIT :n"""),
-    "notifications": ("core.notifications", """SELECT n.id, n.created_at, n.model_id, n.title AS summary,
+    "notifications": ("personal.notifications", """SELECT n.id, n.created_at, n.model_id, n.title AS summary,
                          to_jsonb(n) || jsonb_build_object('recipients', (SELECT coalesce(jsonb_agg(to_jsonb(r)), '[]')
-                                 FROM core.notification_recipients r WHERE r.notification_id = n.id)) AS data, NULL::bytea AS content
-                         FROM core.notifications n WHERE n.created_at < :cut AND (NOT n.needs_action OR n.resolved_at IS NOT NULL)
+                                 FROM personal.notification_recipients r WHERE r.notification_id = n.id)) AS data, NULL::bytea AS content
+                         FROM personal.notifications n WHERE n.created_at < :cut AND (NOT n.needs_action OR n.resolved_at IS NOT NULL)
                         ORDER BY n.id LIMIT :n"""),
     "webhook_deliveries": ("core.webhook_deliveries", """SELECT d.id, d.created_at, NULL::bigint AS model_id,
                          'webhook ' || d.webhook_id || ': ' || d.status AS summary, to_jsonb(d) AS data, NULL::bytea AS content
@@ -454,6 +475,11 @@ _COUNT: dict[str, str] = {
 }
 
 
+def _personal(conn):
+    from . import personal
+    return personal.on(conn)
+
+
 def run(conn, actor: str, dry_run: bool) -> dict:
     """One housekeeping run over every rule. A real run needs a confirmed dry run of the rules as they are."""
     if not dry_run and not state(conn)["confirmed"]:
@@ -468,7 +494,8 @@ def run(conn, actor: str, dry_run: bool) -> dict:
         res = {"action": action, "after_days": days, "found": 0, "archived": 0, "deleted": 0, "note": ""}
         if code in _FIND:
             table, sql = _FIND[code]
-            rows = _rows(conn, sql, cut=cut, n=BATCH)
+            mine = conn if not table.startswith("personal.") else _personal(conn)   # its own schema (R2.53, D632)
+            rows = [dict(r) for r in mine.execute(text(sql), {"cut": cut, "n": BATCH}).mappings()]
             res["found"] = len(rows)
             if len(rows) == BATCH:
                 res["note"] = f"More than {BATCH}: the rest goes on the next run."
@@ -486,7 +513,7 @@ def run(conn, actor: str, dry_run: bool) -> dict:
                     res["archived"] = len(ids)
                 else:
                     res["deleted"] = len(ids)
-                conn.execute(text(f"DELETE FROM {table} WHERE id = ANY(:ids)"), {"ids": ids})
+                mine.execute(text(f"DELETE FROM {table} WHERE id = ANY(:ids)"), {"ids": ids})
         elif code == "history_versions":
             res.update(history_due(conn, cut, action, dry_run, actor))
         else:

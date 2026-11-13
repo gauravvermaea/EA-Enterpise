@@ -35,6 +35,19 @@ class Activity(MethodView):
             abort(422, message=str(exc))
 
 
+@blp.route("/tools")
+class McpTools(MethodView):
+    @blp.doc(security=[{"bearerAuth": []}])
+    @blp.response(200, Free)
+    @require_auth()
+    def get(self):
+        """Every MCP tool and what it does (R2.54): area, name, description, parameters, whether it changes anything;
+        read from the tools' own code"""
+        from .. import mcp_catalogue
+        t = mcp_catalogue.tools()
+        return {"tools": t, "count": len(t)}
+
+
 @blp.route("/connector")
 class Connector(MethodView):
     @blp.doc(security=SECURITY)

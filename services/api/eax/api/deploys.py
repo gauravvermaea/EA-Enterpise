@@ -17,7 +17,7 @@ from ..db import get_engine
 from .admin import _ops, _ops_raw
 from .models import Free, FreeIn
 
-blp = Blueprint("deploys", __name__, url_prefix="/api/v1/deploys",
+blp = Blueprint("deploys", __name__, url_prefix="/api/v1/operations/deploys",
                 description="Deploying EA Explorer to another place (phase 36, D555)")
 SECURITY = [{"bearerAuth": []}]
 

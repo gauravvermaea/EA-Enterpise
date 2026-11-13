@@ -611,6 +611,7 @@ function FixturesTab({ runs }) {
   const [typed, setTyped] = useState("");
   const [task, setTask] = useState(null);
   const [err, setErr] = useState("");
+  const [dry, setDry] = useState(null);          // the dry run: what would go, nothing deleted (R2.11)
   const load = () => apiFetch(`/api/v1/admin/tests/fixtures${run ? `?run=${run}` : ""}`).then((x) => setRows(x.fixtures)).catch((e) => setErr(e.message));
   useEffect(() => { load(); setSel(new Set()); }, [run]);
   useEffect(() => {
@@ -629,6 +630,12 @@ function FixturesTab({ runs }) {
     } catch (e) { setErr(e.message); }
   };
   const chosen = rows.filter((r) => sel.has(r.id));
+  const dryRun = (ids) => {
+    setDry({ loading: true });
+    apiFetch("/api/v1/admin/tests/fixtures/purge", { method: "POST", body: JSON.stringify({ fixtures: ids, dry_run: true }) })
+      .then(setDry).catch((e) => setDry({ text: e.message }));
+  };
+  const askFor = (ids) => { setSel(new Set(ids)); setAsk(true); dryRun(ids); };
   return (
     <section className="self-test-fixtures" aria-label="Test fixtures">
       <div className="toolbar">
@@ -637,16 +644,19 @@ function FixturesTab({ runs }) {
             .map((id) => <option key={id} value={id}>{id}</option>)}</select></label>
         <button onClick={() => setSel(new Set(rows.map((r) => r.id)))} disabled={!rows.length}>{run ? "All of this run" : "All runs"}</button>
         <button onClick={() => setSel(new Set())} disabled={!sel.size}>None</button>
-        <button className="danger" disabled={!sel.size} onClick={() => setAsk(true)}>Delete selected ({sel.size})</button>
+        <button disabled={!sel.size} onClick={() => dryRun([...sel])}>Dry run ({sel.size})</button>
+        <button className="danger" disabled={!sel.size} onClick={() => askFor([...sel])}>Delete selected ({sel.size})</button>
         {/* one click for all of it, as `eax test clean` (R2.0.1, D593); each run also removes what earlier runs left */}
-        {!run && <button className="danger" disabled={!rows.length} onClick={() => { setSel(new Set(rows.map((r) => r.id))); setAsk(true); }}>
+        {!run && <button className="danger" disabled={!rows.length} onClick={() => askFor(rows.map((r) => r.id))}>
           Delete all test data</button>}
         {err && <span className="small bad-text">{err}</span>}
       </div>
       {task && <p className={`small ${task.status === "failed" ? "bad-text" : ""}`}>Purging: {task.status}{task.progress != null ? ` ${task.progress}%` : ""}
         {task.note ? ` · ${task.note}` : ""}{task.message ? ` · ${task.message}` : ""}</p>}
-      <p className="quiet small">Every test run removes the test data earlier runs left before it starts; delete it here at any time
-        (the same as <code>eax test clean</code>).</p>
+      <p className="quiet small">Every test run removes its own test data when it ends (passed, failed or stopped) and what earlier
+        runs left before it starts; the model and project lists leave test data out. Delete it here at any time (the same as
+        <code>eax test clean</code>; Dry run, as <code>eax test clean --dry-run</code>, only lists what would go).</p>
+      {dry && !ask && <pre className="small dry-run" aria-label="Dry run">{dry.loading ? "Working out what would be deleted..." : dry.text}</pre>}
       {rows.length === 0 ? <p className="quiet">No test data: nothing to remove.</p> : (
         <table className="grid-table">
           <thead><tr><th><span className="sr-only">Choose</span></th><th>Run</th><th>Kind</th><th>Name</th><th>Made</th><th>Size</th></tr></thead>
@@ -671,6 +681,7 @@ function FixturesTab({ runs }) {
             measurements, drawn views), the projects with their documents, and the test accounts and credentials are removed.
             Only fixtures the self-test recorded are touched; the runs' reports stay.</p>
           <p className="small">{[...new Set(chosen.map((f) => f.run_id))].length} run(s): {chosen.slice(0, 6).map((f) => f.name).join(", ")}{chosen.length > 6 ? "…" : ""}</p>
+          {dry && <pre className="small dry-run" aria-label="What would be deleted">{dry.loading ? "Working out what would be deleted..." : dry.text}</pre>}
           <label>Type DELETE to confirm <input value={typed} onChange={(e) => setTyped(e.target.value)} autoFocus /></label>
         </Modal>)}
     </section>

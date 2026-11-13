@@ -108,16 +108,20 @@ def metamodel_spec(conn, model: Any) -> dict:
                                   i.is_required AS required, i.section, i.default_value AS "default", i.help_text AS help,
                                   i.quality_weight
                              FROM core.item_attributes i JOIN core.attribute_types a ON a.id = i.attribute_type_id
-                            WHERE i.model_id = :m AND NOT i.is_deleted ORDER BY i.sort_order, a.name""", m=mid)
+                            WHERE i.model_id = :m AND NOT i.is_deleted AND i.inherited_from IS NULL
+                            ORDER BY i.sort_order, a.name""", m=mid)     # what a derived type gets from its base is not repeated (D629)
     types = _rows(conn, """SELECT t.id AS _id, t.code, t.name, l.code AS domain, t.id_prefix, t.aspect, t.description,
                                   t.status_code AS status, t.content_area, t.repository_area, t.notation, t.fill_colour,
-                                  t.is_connector AS connector
+                                  t.is_connector AS connector, b.code AS base
                              FROM core.entity_types t JOIN core.layers l ON l.id = t.layer_id
+                             LEFT JOIN core.entity_types b ON b.id = t.base_type_id AND NOT b.is_deleted
                             WHERE t.model_id = :m AND NOT t.is_deleted ORDER BY l.sort_order, t.sort_order, t.name""", m=mid)
     rels = _rows(conn, """SELECT id AS _id, code, name, verb, category, is_directed AS directed, description, status_code AS status
                             FROM core.relationship_types WHERE model_id = :m AND NOT is_deleted ORDER BY sort_order, name""", m=mid)
     strip = lambda i: {k: v for k, v in i.items() if not k.startswith("_")}  # noqa: E731
     for t in types:
+        if not t["base"]:
+            del t["base"]
         t["attributes"] = [strip(i) for i in items if i["_t"] == t["_id"]]
         del t["_id"]
     for r in rels:
@@ -129,7 +133,7 @@ def metamodel_spec(conn, model: Any) -> dict:
                                JOIN core.entity_types s ON s.id = a.source_type_id
                                JOIN core.entity_types t ON t.id = a.target_type_id
                                JOIN core.relationship_types rt ON rt.id = a.relationship_type_id
-                              WHERE a.model_id = :m AND NOT a.is_deleted ORDER BY 2, 3, 4""", m=mid)
+                              WHERE a.model_id = :m AND NOT a.is_deleted AND a.inherited_from IS NULL ORDER BY 2, 3, 4""", m=mid)
     # the attributes limited to one allowed relationship (D564), with their own "required" there
     limited = _rows(conn, """SELECT x.allowed_relationship_id AS _a, at.code AS attribute, x.is_required AS required
                                FROM core.item_attribute_mappings x JOIN core.item_attributes i ON i.id = x.item_attribute_id
@@ -229,6 +233,15 @@ def validate_spec(conn, spec: dict) -> list[dict]:
         if prefix and prefix in prefixes:
             err(f"entity_types.{code}", f"Display ID prefix {prefix} is also used by {prefixes[prefix]}.", "warning")
         prefixes.setdefault(prefix, t.get("name", code))
+        if t.get("base") and str(t["base"]).lower() not in types:
+            err(f"entity_types.{code}", f"Base type {t['base']!r} is not in the metamodel (a derived type's base is in the same one).")
+        seen, cur = {code}, str(t.get("base") or "").lower()
+        while cur and cur in types:                     # no type derives from itself at any depth (R2.9, D629)
+            if cur in seen:
+                err(f"entity_types.{code}", "This type derives from itself (through its bases).")
+                break
+            seen.add(cur)
+            cur = str(types[cur].get("base") or "").lower()
     for owner_section, owners in (("entity_types", types), ("relationship_types", rels)):
         for code, o in owners.items():
             for i in o.get("attributes") or []:
@@ -547,7 +560,8 @@ def apply_spec(conn, model_id: int, spec: dict, mode: str = "new", remove_missin
             WHERE model_id = :m AND NOT is_deleted AND status_code <> 'retired' AND NOT (id = ANY (:k))""",
                                    m=model_id, k=list(keep_rels)).rowcount
         for a in _rows(conn, """SELECT id, relationship_type_id AS r, source_type_id AS s, target_type_id AS t
-                                  FROM core.allowed_relationships WHERE model_id = :m AND NOT is_deleted""", m=model_id):
+                                  FROM core.allowed_relationships WHERE model_id = :m AND NOT is_deleted
+                                   AND inherited_from IS NULL""", m=model_id):
             if (a["r"], a["s"], a["t"]) not in wanted:
                 _exec(conn, "UPDATE core.allowed_relationships SET is_deleted = true WHERE id = :i", i=a["id"])
                 counts["removed"] += 1
@@ -555,6 +569,19 @@ def apply_spec(conn, model_id: int, spec: dict, mode: str = "new", remove_missin
             if k not in wanted_rules:
                 _exec(conn, "UPDATE core.validation_rules SET is_deleted = true WHERE id = :i", i=r["id"])
                 counts["removed"] += 1
+    # derived types (R2.9, D629): each one's base, then what the bases have flows down to them
+    from . import derived_types
+    for t in spec.get("entity_types") or []:
+        if "base" in t or mode == "new":
+            tid = ids["entity_types"][t["code"].lower()]
+            base = ids["entity_types"].get(str(t.get("base") or "").lower())
+            if t.get("base") and base is None:
+                raise EditError(f"Entity type {t['code']}: its base {t['base']!r} is not an entity type of this metamodel.")
+            if base:
+                derived_types.check_base(conn, model_id, tid, base)
+            _exec(conn, "UPDATE core.entity_types SET base_type_id = :b WHERE id = :i", b=base, i=tid)
+    flowed = derived_types.sync(conn, model_id)
+    counts["added"] += flowed["attributes_added"] + flowed["allowed_added"]
     refresh_typed_views(conn)   # the typed report views follow the metamodel (D139)
     return counts
 
@@ -596,11 +623,18 @@ def _create_row(conn, *, name: str, kind: str, source_id: int | None, parent_id:
 
 
 def copy_into(conn, src_id: int, dst_id: int, content: bool) -> dict:
-    """Copies src's metamodel (and with content its entities, values and relationships) into dst."""
+    """Copies src's metamodel (and with content its entities, values and relationships) into dst. From a library model
+    (its content in the library schema, R2.42, D633) the copy goes across schemas, as a package upload does."""
+    from . import library_models as lm
+    if lm.is_library(src_id):
+        src_guid = str(conn.execute(text("SELECT guid FROM core.models WHERE id = :i"), {"i": src_id}).scalar())
+        return lm.copy_from_library(conn, src_guid, dst_id, content)
     try:
         counts = conn.execute(text("SELECT core.copy_model(:s, :d, :c)"), {"s": src_id, "d": dst_id, "c": content}).scalar_one()
     except DBAPIError as exc:
         raise EditError(_db_message(exc), 409) from exc
+    from . import derived_types  # each derived type's base, and what it has from it (R2.9, D629)
+    derived_types.copied(conn, src_id, dst_id)
     # where each entity type sits in the content framework comes with the copy (D299)
     conn.execute(text("""UPDATE core.entity_types d SET content_area = s.content_area
                            FROM core.entity_types s
@@ -774,12 +808,19 @@ def run_copy(conn, source: str, target: str, actor: str, publish: bool = False) 
     _label(conn, f"Copied from {src['name']}")
     counts = copy_into(conn, src["id"], dst["id"], src["kind_code"] != "template")
     if dst.get("history_from_source") and src["kind_code"] != "template":
-        counts["history_rows"] = load_history(conn, dst["id"], history_portable(conn, src["id"]), f"Before the copy, in {src['name']}")
+        from . import library_models as lm
+        with lm.reading(conn, src["id"]) as rc:       # a library model's history is in the library schema (R2.42)
+            hist = history_portable(rc, src["id"])
+        counts["history_rows"] = load_history(conn, dst["id"], hist, f"Before the copy, in {src['name']}")
     note = "Copied from {}: {}".format(src["name"], ", ".join(f"{v} {k.replace('_', ' ')}" for k, v in counts.items() if v))
     _exec(conn, "UPDATE core.models SET copy_state = '', copy_note = :n WHERE id = :i", i=dst["id"], n=note[:500])
     if dst.get("parent_model_id"):  # a child's starting point, which merging back compares with (D423)
         from . import merge_back
         merge_back.mark_start(conn, str(dst["guid"]), actor)
+    if dst.get("kind_code") == "reference":        # a library model: its content into the library schema (R2.42, D633)
+        from . import library_models as lm
+        lm.move_in(conn, dst["id"], actor)
+        lm.drop_core_history(conn)
     # nothing is published straight away (D131, D134): a copy is a draft, published by request and approval
     return counts
 
@@ -949,10 +990,15 @@ def delete_model(conn, model: Any, confirm_name: str, actor: str, backup_dir: st
         import os
         data, filename, _ = export_package(conn, model, "zip")
         stamp = dt.datetime.now(dt.UTC).strftime("%Y%m%d-%H%M%S")
-        os.makedirs(backup_dir, exist_ok=True)
-        backup = os.path.join(backup_dir, f"deleted-{stamp}-{filename}")
-        with open(backup, "wb") as f:
-            f.write(data)
+        from . import filestore
+        if filestore.in_database():                  # no local file system (R2.44, D635): the package in the store
+            filestore.put("exports", f"deleted-{stamp}-{filename}", data)
+            backup = f"file store: exports/deleted-{stamp}-{filename}"
+        else:
+            os.makedirs(backup_dir, exist_ok=True)
+            backup = os.path.join(backup_dir, f"deleted-{stamp}-{filename}")
+            with open(backup, "wb") as f:
+                f.write(data)
     try:
         _label(conn, f"Deleted model {m['name']}")
         _exec(conn, "UPDATE core.models SET is_deleted = true WHERE id = :i", i=m["_id"])

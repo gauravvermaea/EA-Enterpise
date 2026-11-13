@@ -69,7 +69,7 @@ Each run gets an id (the first 12 characters of a guid) and makes its own **fixt
 | `self_test_<id>_3` | a project that uses `_1` |
 | `svc-self-test-<id>-<role>` | a test account per role, with a token valid for one day (revoked when the run ends) |
 
-Every fixture is recorded in `core.test_fixtures` with its run. The tests change only these; standard screens and other
+Every fixture is recorded in `tests.test_fixtures` with its run. The tests change only these; standard screens and other
 models are only read. Runs can be repeated as often as you like: new ids, new fixtures. Fixtures are hidden from model
 lists (tick **Show self-test runs** to see them), from quality measures and from KPIs. Usage figures and backups still
 count them until they are purged.

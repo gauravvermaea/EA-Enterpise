@@ -245,7 +245,7 @@ def test_the_deploy_page_offers_commands_and_needs_its_key(tmp_path, monkeypatch
             call("/api/commands", key="wrong")
         assert e.value.code == 403
         cat = call("/api/commands")
-        assert not cat["remote"] and any(g["title"] == "Starting and stopping" for g in cat["groups"])
+        assert not cat["remote"] and any(g["title"] == "Start and stop" for g in cat["groups"])
         r = call("/api/commands/run", {"argv": ["status"]})
         assert r["where"] == "here" and started[-1][-2:] == ["--", "status"] and "eaxcli.cmdrun" in started[-1]
         for argv in (["deploy"], ["console"], ["ls"], ["status;id"]):

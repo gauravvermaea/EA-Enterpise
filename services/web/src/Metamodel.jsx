@@ -285,7 +285,7 @@ function TypeDetail({ model, m, mm, typeId, holdsContent }) {
           <EditButton model={model} m={m} label="+ Mapping" spec={() => mappingSpec(types, mm.relationship_types, t.id)} />
           <EditButton model={model} m={m} label="+ Rule" spec={() => ruleSpec(t)} />
           <span className="er-spacer" />
-          <EditButton model={model} m={m} label="Change type" spec={() => entityTypeSpec(mm.domains, t)} />
+          <EditButton model={model} m={m} label="Change type" spec={() => entityTypeSpec(mm.domains, t, types)} />
           {retired
             ? <EditButton model={model} m={m} label="Restore" spec={simpleSpec(`Restore ${t.name}`, "entity_type.restore", { id: t.id }, "The type is offered again for new entities and its entities can be changed again.")} />
             : <EditButton model={model} m={m} label="Retire" spec={simpleSpec(`Retire ${t.name}`, "entity_type.retire", { id: t.id },
@@ -296,6 +296,10 @@ function TypeDetail({ model, m, mm, typeId, holdsContent }) {
         SQL <code>eax.get_entity('{t.name}', '{t.table_name}')</code> ·{" "}
         <a href={`#/metamodel/${model}/diagram/${typeId}`}>show in the ER diagram</a>
       </p>
+      {(t.base_name || t.derived?.length > 0) && <p className="quiet">
+        {t.base_name && <>Derived from <a href={`#/metamodel/${model}/type/${t.base_id}`}>{t.base_name}</a>: it has its attributes and allowed relationships, plus its own. </>}
+        {t.derived?.length > 0 && <>Derived from it: {t.derived.map((d, i) => <span key={d.id}>{i > 0 && ", "}<a href={`#/metamodel/${model}/type/${d.id}`}>{d.name}</a></span>)}.</>}
+      </p>}
       {!t.is_connector && <p className="quiet type-look">On drawn views: <span className="drawn-swatch" style={{ background: `#${t.drawio?.colour || t.fill_colour || "E4DED2"}` }} />{" "}
         {t.notation ? t.notation.replace(/([a-z])([A-Z])/g, "$1 $2") : "a plain rounded box"}{t.fill_colour ? ` · its own colour #${t.fill_colour}` : " · the domain's colour"}</p>}
       {holdsContent && <p><a className="button" href={`#/metamodel/${model}/types/${typeId}`} title="The entity grid of this type, with its values">
@@ -314,7 +318,8 @@ function TypeDetail({ model, m, mm, typeId, holdsContent }) {
         <tbody>
           {t.attributes.map((a) => (
             <tr key={a.code}>
-              <td title={a.description}>{a.name}<br /><code className="quiet">{a.column_name}</code></td>
+              <td title={a.description}>{a.name}{a.inherited && <span className="quiet small"> (from {t.base_name})</span>}
+                {a.retired && <span className="sev warning">retired</span>}<br /><code className="quiet">{a.column_name}</code></td>
               <td>{a.data_type_name}{a.unit && ` (${a.unit})`}</td>
               <td>{a.is_required ? "Yes" : ""}</td>
               <td className="quiet">{a.default_value ?? ""}</td>
@@ -405,7 +410,7 @@ function MetamodelView({ model, m, typeId, holdsContent, sub, gridKind }) {
       <span className="quiet">Metamodel <strong>version {m.metamodel_version}</strong>: what may be stored and how it is checked.
         {changeableModel(m) && canOn(model, "model.metamodel") ? " Every change publishes a new version." : ""}</span>
       <span className="er-spacer" />
-      <EditButton model={model} m={m} label="+ Entity type" spec={() => entityTypeSpec(mm.domains)} />
+      <EditButton model={model} m={m} label="+ Entity type" spec={() => entityTypeSpec(mm.domains, null, types)} />
       <EditButton model={model} m={m} label="+ Relationship type" spec={relationshipTypeSpec()} />
       <EditButton model={model} m={m} label="+ Mapping" spec={() => mappingSpec(types, mm.relationship_types)} />
       {holdsContent && <EntityFinder model={model} />}

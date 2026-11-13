@@ -59,6 +59,9 @@ export function scopeDiagram(data, { domains, focus, rels, connected }) {
         target_multiplicities: pick(l.target_multiplicities), mapping_attributes: pick(l.mapping_attributes) };
     })
     .filter((l) => l.relationship_types.length);
+  // a derived type and its base (R2.9, D629): ArchiMate's Specialization, always shown
+  links = links.concat((data.specializations || []).map((x) => ({ source: x.source, target: x.target, specialization: true,
+    relationship_types: ["Specialization"], source_multiplicities: [""], target_multiplicities: [""], mapping_attributes: [""] })));
   let ids;
   if (focus) {
     links = links.filter((l) => l.source === focus || l.target === focus);

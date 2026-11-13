@@ -32,7 +32,7 @@ from .core import (
     version,
 )
 
-DOCKER_COMMANDS = {"check", "up", "start-later", "debug", "status", "logs", "down", "backup", "backups", "restore", "restores", "databases",
+DOCKER_COMMANDS = {"check", "up", "start-later", "debug", "status", "logs", "down", "backup", "backups", "restore", "restores", "databases", "footprint",
                    "restore-log", "delete-backup", "delete-restore", "app-backup", "restore-model", "restore-app",
                    "stop-backup", "services", "service", "import", "update", "rollback", "test", "standby"}
 KEEP = ("tls",)                       # in work/data: the local certificate, kept by cleanup (D107)
@@ -122,6 +122,13 @@ def cleanup(options: list[str]) -> None:
     if not yes and input("Type yes to continue: ").strip() != "yes":
         say("Nothing deleted.")
         return
+    try:                                   # the logs first, where no reset deletes them (R2.30)
+        from . import logkeep
+        base = logkeep.folder(WORK.parent)
+        out = logkeep.backup(base, WORK / "logs", logkeep.kept_backups(base), "before-cleanup")
+        say(f"Logs backed up first: {logkeep.kept_backups(base) / out['file']}")
+    except Exception as exc:  # noqa: BLE001 - a log backup never stops the cleanup
+        say(f"The logs could not be backed up first: {exc}", "yellow")
     if ENV_FILE.exists():
         attached(compose_args(["down", "-v", "--remove-orphans"] if all_ else ["down", "--remove-orphans"]))
     elif all_:
@@ -274,7 +281,24 @@ def init(rest: list[str]) -> None:
     if kind_ == "laptop":
         info.show_logins()
     else:
+        _ask_backup_folder()
         say(f"Now replace every change-me value in {ENV_REL} with your own passwords before {EAX} up.")
+
+
+def _ask_backup_folder() -> None:
+    """A server or platform keeps its backups in a mounted folder (R2.44, D635): asked here, kept as EAX_BACKUP_DIR;
+    no backups are taken until it is set."""
+    import sys
+    if not sys.stdin.isatty():
+        say(f"Set EAX_BACKUP_DIR in {ENV_REL} to the mounted folder for backups: no backups are taken until it is set.")
+        return
+    folder = input("Folder for backups: a mounted network share or volume (empty: set EAX_BACKUP_DIR later): ").strip()
+    if not folder:
+        say(f"No backups are taken until EAX_BACKUP_DIR is set in {ENV_REL}.")
+        return
+    text_ = ENV_FILE.read_text(encoding="utf-8").replace("\nEAX_BACKUP_DIR=\n", f"\nEAX_BACKUP_DIR={folder}\n", 1)
+    ENV_FILE.write_text(text_, encoding="utf-8", newline="\n")
+    say(f"Backups go to {folder} (EAX_BACKUP_DIR).")
 
 
 def check() -> None:
@@ -334,8 +358,13 @@ def dispatch(command: str, rest: list[str], wait_all: bool) -> None:
     elif command == "diag":
         diagnostics()
     elif command == "status":
-        compose(["ps", "-a"])
+        from . import core as _core
+        _core.heading(f"EA Explorer {_core.release()}, build {_core.build_id()}")
+        _core.say_status_lines(_core.compose_out(["ps", "-a"]))    # each container in its state's colour (R2.10)
         stack.show_filesystems()
+    elif command == "logs" and rest[:1] in (["backup"], ["clean"]):   # back up and clean the logs (R2.30)
+        from . import logs_cli
+        return logs_cli.main(rest)
     elif command == "logs":
         attached(compose_args(["logs", "-f", "--tail=100", *rest]))
     elif command == "down":
@@ -347,6 +376,8 @@ def dispatch(command: str, rest: list[str], wait_all: bool) -> None:
     elif command == "backups":
         stack.backup_helpers()
         stack.interactive([*ops, "list"], rest)
+    elif command == "footprint":        # how much each container takes (R2.22): kept in work/footprint
+        stack.interactive([*ops, "footprint"], rest)
     elif command == "stop-backup":
         stack.backup_helpers()
         stack.interactive([*ops, "stop-backup"], [])
@@ -431,11 +462,19 @@ def dispatch(command: str, rest: list[str], wait_all: bool) -> None:
             raise Failure(f"No {ENV_REL} yet: run {EAX} init first.")
         info.trust(rest)
     else:
-        raise Failure(f"Unknown command '{command}'. Run {EAX} help")
+        raise Failure(help_.unknown(command, EAX))
 
 
 def main(argv: list[str]) -> int:
-    command = argv[0] if argv else "help"
+    if "--no-color" in argv:                  # plain text, wherever it is typed (R2.10)
+        from . import core as _core
+        _core.no_colour()
+        argv = [a for a in argv if a != "--no-color"]
+    command = argv[0] if argv else ""
+    if command == "menu" or (not command and sys.stdin.isatty()):   # the numbered menu (R2.29)
+        from . import menu
+        return menu.main(argv[1:])
+    command = command or "help"
     rest = [a for a in argv[1:] if a]
     if command in ("help", "-h", "--help", "/?"):
         return show_help(rest[0] if rest else "", rest[1] if len(rest) > 1 else "")
@@ -461,6 +500,9 @@ def main(argv: list[str]) -> int:
         if command == "document":
             document(rest)
             return 0
+        if command == "persist":                # what persist/ holds, and deleting it (R2.26): every form
+            from . import persist_cli
+            return persist_cli.main(rest)
         if command == "schedule":               # scheduled eax commands (D559): persist/schedules.json, every form
             from . import schedule_cli
             return schedule_cli.main(rest)

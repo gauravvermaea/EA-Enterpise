@@ -55,6 +55,8 @@ def scope(data: dict, domains: Iterable[str] | None = None, entity_type: str | N
             if limited:   # attributes of these allowed relationships only (D564)
                 item["mapping_attributes"] = limited
             links.append(item)
+    for x in data.get("specializations") or []:   # a derived type and its base (R2.9, D629), always shown
+        links.append({"source": str(x["source"]), "target": str(x["target"]), "relationship_types": ["Specialization"]})
 
     if entity_type:
         focus = next((t for t in data["entity_types"]

@@ -104,6 +104,8 @@ ACTIONS: dict[str, tuple[str, str]] = {
     "container.exec": ("Ran a command in a container", "Container"),
     "container.terminal.open": ("Opened a terminal in a container", "Container"),
     "container.terminal.close": ("A terminal in a container ended", "Container"),
+    "remote.ssh.open": ("An SSH session to a remote instance's host opened", "Remote instance"),
+    "remote.ssh.close": ("An SSH session to a remote instance's host ended", "Remote instance"),
     "webhook.change": ("Changed a webhook", "Webhook"),
     "webhook.delete": ("Deleted a webhook", "Webhook"),
     "library.promoted": ("Promoted to the library", "Model"),

@@ -7,7 +7,7 @@ While a run is queued or running (and not left open too long, STALE_HOURS, so a 
   * the screens, from the heartbeat's test_in_progress, show a person signing in "Environment test in progress" and let
     them in when it ends; Super Admins and IT Admins sign in as usual and see only the Self-test page meanwhile;
   * the test's own accounts (svc-self-test-*) and machine credentials made by it are never affected.
-State is the run's row (core.test_runs); nothing is kept anywhere else (D248)."""
+State is the run's row (tests.test_runs); nothing is kept anywhere else (D248)."""
 
 from __future__ import annotations
 
@@ -23,12 +23,12 @@ TEST_ACCOUNT = "svc-self-test-"
 def active(conn) -> dict[str, Any] | None:
     """The run in progress, if any: id, when it started, its step and how far it is (R2.40)."""
     row = conn.execute(text(f"""SELECT id, state, started_by, coalesce(started_at, queued_at) AS since, step, level, suites
-                                  FROM core.test_runs WHERE state IN ('queued', 'running')
+                                  FROM tests.test_runs WHERE state IN ('queued', 'running')
                                    AND queued_at > now() - interval '{STALE_HOURS} hours'
                                  ORDER BY id DESC LIMIT 1""")).mappings().first()
     if not row:
         return None
-    done = conn.execute(text("SELECT count(*) FROM core.test_results WHERE run_id = :id"), {"id": row["id"]}).scalar() or 0
+    done = conn.execute(text("SELECT count(*) FROM tests.test_results WHERE run_id = :id"), {"id": row["id"]}).scalar() or 0
     return {"id": row["id"], "state": row["state"], "by": row["started_by"], "since": row["since"], "step": row["step"] or "",
             "level": row["level"], "done": int(done)}
 

@@ -12,16 +12,18 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 def test_routes_are_declared_and_registered():
     src = (ROOT / "eax" / "api" / "notifications.py").read_text(encoding="utf-8")
-    for path in ("/notifications", "/notifications/counts", "/requests", "/requests/<rid>", "/models/<uuid:model_id>/pushdown",
-                 "/change-documents/<ref>", "/admin/webhooks"):
+    for path in ("/notifications", "/notifications/counts", "/requests", "/requests/<rid>"):
+        assert f'@personal_blp.route("{path}")' in src, path        # the personal data service's (/api/v1/me, R2.53)
+    for path in ("/models/<uuid:model_id>/pushdown", "/change-documents/<ref>", "/admin/webhooks"):
         assert f'@blp.route("{path}")' in src, path
+    assert "personal_blp" in (ROOT / "eax" / "app.py").read_text(encoding="utf-8")
     assert "notifications_blp" in (ROOT / "eax" / "app.py").read_text(encoding="utf-8")
 
 
 def test_every_route_needs_sign_in():
     src = (ROOT / "eax" / "api" / "notifications.py").read_text(encoding="utf-8")
     assert src.count("@blp.route(") > 0
-    for block in src.split("    @blp.doc(security=SECURITY)")[1:]:
+    for block in src.replace("@personal_blp.doc(security=SECURITY)", "@blp.doc(security=SECURITY)").split("    @blp.doc(security=SECURITY)")[1:]:
         assert "@require_auth(" in block.split("def ")[0], block[:120]
 
 

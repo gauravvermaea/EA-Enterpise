@@ -11,7 +11,7 @@ import logging
 from procrastinate import App, PsycopgConnector
 from sqlalchemy import text
 
-from . import audit
+from . import audit, databases
 from .config import get_settings
 from .db import get_engine, get_projects_engine
 
@@ -34,9 +34,9 @@ def record_heartbeat(context, note: str, requested_by: str) -> None:
     """Sample job for phase 0: records a heartbeat row and an audit event."""
     job_id = context.job.id if context and context.job else None
     with get_engine().begin() as conn:
-        conn.execute(
+        databases.on("operations", conn).execute(
             text(
-                "INSERT INTO core.heartbeat_logs (source, note, requested_by, job_id) "
+                "INSERT INTO operations.heartbeat_logs (source, note, requested_by, job_id) "
                 "VALUES ('job', :note, :by, :job_id)"
             ),
             {"note": note, "by": requested_by, "job_id": job_id},
@@ -148,6 +148,40 @@ def deliver_webhooks(timestamp: int) -> None:
         log.info("webhooks: %s", out)
 
 
+@app.periodic(cron="* * * * *")
+@app.task(name="eax.personal_flush", queue="default", queueing_lock="personal_flush")
+def personal_flush(timestamp: int) -> None:
+    """R2.53 (D632): the notifications made while the personal data service could not be reached, sent now it is back."""
+    from . import personal
+    with get_engine().begin() as conn:
+        if not conn.execute(text("SELECT EXISTS (SELECT 1 FROM core.personal_outbox)")).scalar():
+            return
+        out = personal.flush(conn)
+    log.info("personal data service: %s", out)
+
+
+@app.periodic(cron="*/5 * * * *")
+@app.task(name="eax.library_models_move", queue="default", queueing_lock="library_models_move")
+def library_models_move(timestamp: int) -> None:
+    """R2.42 (D633): a library model made since (published, uploaded, an industry pack) has its content moved into the
+    library schema; nothing to do most of the time."""
+    from . import library_models
+    done = library_models.move_all(by="system")
+    if done:
+        log.info("library models moved into their schema: %s", done)
+
+
+@app.periodic(cron="*/5 * * * *")
+@app.task(name="eax.sites_health", queue="default", queueing_lock="sites_health")
+def sites_health(timestamp: int) -> None:
+    """R2.1 (D646): each site's health (green, amber, red) from its public heartbeat; sites deployed since are added."""
+    from . import deploys, sites
+    with get_engine().begin() as conn:
+        added = sites.from_deployments(conn, deploys.history(conn))
+        n = sites.check_all(conn)
+    log.info("sites: %s checked, %s added from deployments", n, added)
+
+
 # ---------------------------------------------------------------- backups (phase 8.4, D216, D222)
 @app.periodic(cron="* * * * *")
 @app.task(name="eax.announce_restores", queue="default", queueing_lock="announce_restores")
@@ -167,13 +201,17 @@ def announce_restores(timestamp: int) -> None:
 @app.periodic(cron="* * * * *")
 @app.task(name="eax.backup_scheduler", queue="default", queueing_lock="backup_scheduler")
 def backup_scheduler(timestamp: int) -> None:
-    """Every minute: the backups due on their schedules (core.backup_schedules, set on Administration > Backups) start.
+    """Every minute: the backups due on their schedules (operations.backup_schedules, set on Administration > Backups) start.
     Infrastructure: in the operations helper; application: here, as the system. The oldest beyond 'keep' go after each."""
-    from . import __version__, services
+    from . import __version__, backup_folder, services
     from . import backup_schedule as bs
     from . import backups as bk
     from . import permissions as perms
     from .api.admin import _ops_raw
+    ok, why = backup_folder.ready()
+    if not ok:                         # a server or platform with no folder for backups yet (R2.44, D635)
+        log.info("scheduled backups: %s", why)
+        return
     with get_engine().begin() as conn:
         due = bs.due(conn)
     for s in due:
@@ -368,7 +406,7 @@ def industry_packs(timestamp: int) -> None:
     from . import industry_packs as ip
     try:
         with get_engine().connect() as conn:
-            state = conn.execute(text("SELECT state FROM core.startup_parts WHERE part = :p"), {"p": ip.PART}).scalar()
+            state = databases.on("operations", conn).execute(text("SELECT state FROM operations.startup_parts WHERE part = :p"), {"p": ip.PART}).scalar()
             if state in ("up", "skipped") or (state is None and not ip.missing_shipped(conn)):
                 return
         log.info("industry packs: %s", ip.load_shipped_each("system:job")["message"])
@@ -403,6 +441,28 @@ def housekeeping(timestamp: int) -> None:
     if out:
         log.info("housekeeping %s: %s", "dry run" if out["dry_run"] else "run",
                  {k: v["archived"] + v["deleted"] for k, v in out["results"].items()})
+
+
+# ---------------------------------------------------------------- the logs (R2.30)
+@app.periodic(cron="43 2 * * *")
+@app.task(name="eax.logs_clean", queue="default", queueing_lock="logs_clean")
+def logs_clean(timestamp: int) -> None:
+    """Every night: the containers' daily log files, eax's own logs and the log backups older than the days set in
+    System Admin > Settings ("Delete logs older than"; 0 keeps them) deleted by the operations helper; in the audit trail."""
+    from . import settings as st
+    from .api.admin import _ops_raw
+    from .db import get_engine
+    days = int(st.values().get("logs_keep_days") or 0)
+    if days <= 0:
+        return
+    try:
+        out = _ops_raw("POST", "/logs/clean", {"days": days, "by": "nightly"}, timeout=300) or {}
+    except Exception:  # noqa: BLE001 - the operations helper is not there: tomorrow
+        return
+    if out.get("deleted"):
+        with get_engine().begin() as conn:
+            audit.record(conn, actor="system", action="logs.clean", object_type="logs", object_id="nightly",
+                         details={"days": days, "deleted": len(out["deleted"])})
 
 
 # ---------------------------------------------------------------- the typed report views (D139)

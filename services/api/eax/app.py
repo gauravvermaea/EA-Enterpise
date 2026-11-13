@@ -43,12 +43,25 @@ def create_app(testing: bool = False) -> Flask:
     )
 
     api = Api(app)
+    from . import service_split
+
+    class _Only:
+        """The blueprints this container serves (EAX_SERVE, R2.27 part 2): the main API, a service, or all."""
+        def __init__(self, api):
+            self.api, self.spec = api, api.spec
+
+        def register_blueprint(self, blp, **kw):
+            if service_split.wanted(blp.name):
+                self.api.register_blueprint(blp, **kw)
+    real_api = api
+    api = _Only(real_api)
     api.spec.components.security_scheme(
         "bearerAuth", {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}
     )
 
     from .api.access import blp as access_blp
     from .api.admin import blp as admin_blp
+    from .api.archive import blp as archive_blp
     from .api.audit import blp as audit_blp
     from .api.backups import blp as backups_blp
     from .api.break_glass import blp as break_glass_blp
@@ -89,6 +102,7 @@ def create_app(testing: bool = False) -> Flask:
     from .api.operations import blp as operations_blp
     api.register_blueprint(machine_access_blp)
     api.register_blueprint(operations_blp)
+    api.register_blueprint(archive_blp)               # archived and deleted models (R2.41)
     # merging a child into its parent, dedupe, sample documents (phases 19, 20, 21, 15.3; F1 of batch 1)
     from .api.merge_back import blp as merge_back_blp
     api.register_blueprint(merge_back_blp)
@@ -132,6 +146,13 @@ def create_app(testing: bool = False) -> Flask:
         blp as selftest_session_blp,  # the self-test's browser sign-in (D529)
     )
     api.register_blueprint(selftest_session_blp)
+    # remote instances (R2.2): the list on the personal data service, the SSH session on the main API
+    from .api.remote_instances import blp as remote_ssh_blp
+    api.register_blueprint(remote_ssh_blp)
+    # each person's own data (R2.53): its routes are defined beside the code they use (notifications, grids, projects,
+    # remote instances) on this one blueprint, which only the personal data service serves (EAX_SERVE=personal)
+    from .api.personal import blp as personal_blp
+    api.register_blueprint(personal_blp)
     api.spec.components.security_scheme("apiKey", {"type": "apiKey", "in": "header", "name": "X-API-Key"})
     try:   # the OData feed's Basic sign-in takes a token or API key as the password (phase 24, D433)
         from . import machine_access as _ma
@@ -145,6 +166,23 @@ def create_app(testing: bool = False) -> Flask:
     @app.before_request
     def _request_id() -> None:
         g.request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex
+
+    @app.before_request
+    def _library_route() -> None:
+        """A request about a library model reads its content from the library schema (R2.42, D633): its path's model
+        (or ?model=) decides; a request that makes something from one (a copy, a comparison) reads each side where it
+        is (eax/library_models.py reading())."""
+        from . import library_models
+        model = library_models.model_of(request.view_args, request.args)
+        if model and library_models.is_library(model):
+            g.library_route = library_models.set_route(True)
+
+    @app.teardown_request
+    def _library_route_end(_exc) -> None:
+        token = g.pop("library_route", None)
+        if token is not None:
+            from . import library_models
+            library_models.reset_route(token)
 
     @app.before_request
     def _log_level():
@@ -237,6 +275,23 @@ def create_app(testing: bool = False) -> Flask:
         """Liveness check for Docker: the process is up (does not touch the database)."""
         return {"status": "ok"}
 
+    role = service_split.serving()
+    if role in service_split.SERVICES:          # a service of its own (R2.27 part 2, R2.53): its health, by its prefix
+        svc = service_split.SERVICES[role]
+
+        def service_health():
+            """The service is up and reaches its schema (public, like /api/health)."""
+            from sqlalchemy import text as _t
+
+            from . import databases
+            try:
+                with databases.engine_for(role).connect() as c:
+                    c.execute(_t("SELECT 1"))
+                return {"status": "ok", "service": role, "what": svc["what"], "version": __version__}
+            except Exception as exc:  # noqa: BLE001 - answered, not raised
+                return {"status": "down", "service": role, "message": str(exc).splitlines()[0][:200]}, 503
+        app.add_url_rule(f"{svc['prefix']}/health", f"{role}_health", service_health)
+
     @app.get("/api/startup")
     def startup_public():
         """The start-up status without signing in (D255): each part up, starting, down or off; nothing more."""
@@ -247,6 +302,14 @@ def create_app(testing: bool = False) -> Flask:
             return {"overall": "starting", "parts": [], "message": str(exc)[:200]}
 
     log.info("EA Explorer API %s started (%s deployment)", __version__, settings.deployment)
+    from .personal import Unavailable as _PersonalAway
+
+    @app.errorhandler(_PersonalAway)
+    def _personal_away(exc):
+        """The personal data service's schema cannot be reached (R2.53): the screens show "not available right now"."""
+        return {"code": 503, "status": "Service Unavailable", "unavailable": "personal",
+                "message": f"Your personal data is not available right now: {exc}"}, 503
+
     @app.errorhandler(Exception)
     def _server_error(exc):
         """A server error answers as JSON with its kind and the request's id, and its traceback goes to the API's log

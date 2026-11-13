@@ -2555,3 +2555,54 @@ label.block input, label.block textarea { display: block; width: 100%; margin-to
 .test-progress { margin: 8px 0; }
 .test-progress-bar { height: 8px; border-radius: 4px; background: var(--line, #d9dde3); overflow: hidden; max-width: 520px; }
 .test-progress-bar > span { display: block; height: 100%; background: var(--accent, #3b5bab); }
+
+/* the release and its build beside the name (R2.47) */
+.version-tag { order: 0; font-size: 11px; color: var(--muted, #667); white-space: nowrap; margin-left: 6px; align-self: center; cursor: default; }
+@media (max-width: 720px) { .version-tag { display: none; } }
+
+/* log lines by level (R2.31) */
+.ct-log .log-error { color: #d2453b; }
+.ct-log .log-warning { color: #c58a00; }
+.ct-log .log-debug { opacity: .7; }
+.ct-log mark { background: #ffe58a; color: inherit; }
+
+/* the SQL workspace (R2.57) */
+.sql-workspace { display: grid; grid-template-columns: minmax(180px, 260px) 1fr; gap: 12px; align-items: start; }
+@media (max-width: 800px) { .sql-workspace { grid-template-columns: 1fr; } }
+.sql-side { border: 1px solid var(--line); border-radius: 8px; padding: 6px; max-height: 70vh; overflow: auto; background: var(--card); }
+.sql-tree input[type=search] { width: 100%; margin-bottom: 6px; }
+.sql-tree ul { list-style: none; margin: 0 0 4px 12px; padding: 0; }
+.sql-tree .tree-schema, .sql-tree .tree-obj { background: none; border: 0; padding: 2px 4px; cursor: pointer; text-align: left; width: 100%; font: inherit; font-size: 13px; color: var(--ink); }
+.sql-tree .tree-obj.on { background: var(--accent-soft, #e8f0fe); border-radius: 4px; }
+.sql-main { min-width: 0; }
+.sql-tabs .tab { display: inline-flex; align-items: center; gap: 2px; }
+.sql-tabs .tab button { background: none; border: 0; font: inherit; cursor: pointer; color: inherit; }
+.sql-tabs .tab-close { opacity: .6; }
+.sql-editor { position: relative; }
+.sql-editor .sql-colour, .sql-editor .sql-text { font: 13px/1.45 ui-monospace, Consolas, monospace; padding: 10px; margin: 0 0 8px; white-space: pre-wrap; word-wrap: break-word; }
+.sql-editor .sql-colour { position: absolute; inset: 0; overflow: hidden; pointer-events: none; border: 1px solid transparent; color: var(--ink); }
+.sql-editor .sql-text { position: relative; background: transparent; color: transparent; caret-color: var(--ink); }
+.sq-kw { color: #0550ae; font-weight: 600; } .sq-str { color: #0a7a3e; } .sq-num { color: #953800; } .sq-cm { color: #6e7781; font-style: italic; } .sq-id { color: #8250df; }
+.sql-suggest { position: absolute; z-index: 5; list-style: none; margin: 0; padding: 4px; background: var(--card, #fff); border: 1px solid var(--line); border-radius: 6px; top: 40px; left: 20px; max-height: 220px; overflow: auto; }
+.sql-suggest button { background: none; border: 0; font: 13px ui-monospace, Consolas, monospace; cursor: pointer; padding: 2px 6px; }
+.sql-plan { border: 1px solid var(--line); border-radius: 8px; padding: 8px; margin: 8px 0; background: var(--card); }
+.plan-node { font-size: 13px; padding: 2px 0; }
+th.sortable { cursor: pointer; }
+
+/* System Admin › Estate (R2.33) */
+.estate-picture { overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: #fff; max-height: 75vh; }
+.estate-picture img { display: block; max-width: none; }
+
+/* Hosts, Mounts, container Files and the container alert banner (R2.16 to R2.19) */
+.alert-banner { padding: 6px 12px; background: var(--bad-bg, #fde8e8); color: var(--bad, #a40000); border-bottom: 1px solid currentColor; font-size: 0.9rem; }
+.alert-banner a { color: inherit; text-decoration: underline; }
+.spark { vertical-align: middle; margin-left: 8px; color: var(--accent, #2a5db0); }
+.host-card table th { text-align: left; width: 9rem; }
+.warn-row td { background: var(--warn-bg, #fff4e0); }
+.mount-detail .cols3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 12px; }
+.ct-files .toolbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 6px; }
+.ct-file-text { max-height: 28rem; overflow: auto; white-space: pre-wrap; font-size: 0.8rem; }
+.ct-file-edit { width: 100%; font-family: monospace; font-size: 0.8rem; }
+.ct-purpose { min-width: 14rem; max-width: 26rem; }
+.tree-about { margin: 0 0 4px 22px; line-height: 1.25; }
+.alert-banner.warn { background: var(--warn-bg, #fff4e0); color: #7a4f00; }

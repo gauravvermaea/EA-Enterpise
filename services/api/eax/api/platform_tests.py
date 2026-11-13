@@ -104,7 +104,7 @@ class Tests(MethodView):
         # current (layer cache) and rebuilds it when the code or version changed, so no one builds it by hand
         build_first = data.get("build_first", True) is not False
         with get_engine().begin() as conn, store.tests(conn) as tc:
-            busy = tc.execute(text("SELECT id FROM core.test_runs WHERE state IN ('queued', 'running') "
+            busy = tc.execute(text("SELECT id FROM tests.test_runs WHERE state IN ('queued', 'running') "
                                    "AND queued_at > now() - interval '3 hours' ORDER BY id DESC LIMIT 1")).scalar()
             if busy:
                 abort(409, message=f"Self-test {busy} is going on: stop it or wait for it to finish.")
@@ -115,6 +115,13 @@ class Tests(MethodView):
                                   "journeys": journeys, "pages_only": pages_only})
         body = {"run_id": run_id, "level": level, "suites": suites, "role": role, "area": area, "watch": watch,
                 "journeys": journeys, "pages_only": pages_only, "by": g.user.username}
+        from ..testing import waiter
+        if waiter.platform_managed():          # no Docker socket (R2.44, D635): the always-on runner service takes it
+            with store.engine().begin() as conn:
+                store.set_state(conn, run_id, step=f"{waiter.WAITING} (the platform runs it; the security scanners need "
+                                                   "the Docker socket and are left out)")
+            lo, hi = store.estimate_minutes(level, suites, watch)
+            return {"run_id": run_id, "message": f"Queued for the test runner service: about {lo} to {hi} minutes."}
         try:
             if build_first:                     # the helper prepares (builds) the runner, then starts this run
                 _ops_raw("POST", "/tests/build", {"by": g.user.username, "then": body}, timeout=60)
@@ -219,8 +226,13 @@ class TestDelete(MethodView):
             abort(400, message=str(exc))
         if not ids:
             return {"runs": 0, "message": "No finished test runs to delete for that."}
-        out = cleanup.delete(get_engine(), ids, g.user.username,
-                             lambda folders: _ops_raw("POST", "/tests/results/delete", {"folders": folders}, timeout=120))
+        from .. import filestore
+
+        def drop_folders(folders):
+            if filestore.in_database():              # no local file system: the runs' files are in the store (R2.44)
+                return {"removed": [f for f in folders if filestore.delete("tests", f) >= 0], "left": []}
+            return _ops_raw("POST", "/tests/results/delete", {"folders": folders}, timeout=120)
+        out = cleanup.delete(get_engine(), ids, g.user.username, drop_folders)
         with get_engine().begin() as conn:
             audit.record(conn, actor=g.user.username, action="selftest.delete", object_type="test_run",
                          object_id=",".join(map(str, ids))[:200], details={k: v for k, v in out.items() if k != "notes"})
@@ -247,6 +259,11 @@ class TestRun(MethodView):
             d["browser"] = {"ticket": b["ticket"], "journeys": b.get("journeys") or [], "roles": sorted((b.get("tokens") or {}).keys()),
                             # the page sweep in this browser (D575): where it starts, what it skips, the run's own ids
                             "pages": b.get("pages") or [], "pages_skip": b.get("pages_skip") or {}, "scope": b.get("scope") or []}
+        from .. import filestore
+        if filestore.in_database() and d["run"]["folder"]:       # its files are in the store (R2.44, D635)
+            pre = f"{d['run']['folder']}/"
+            d["files"] = [x["name"][len(pre):] for x in filestore.listing("tests", pre)]
+            return d
         folder = WORK_TESTS / d["run"]["folder"] if d["run"]["folder"] else None
         d["files"] = sorted(str(p.relative_to(folder)) for p in folder.rglob("*") if p.is_file()) if folder and folder.is_dir() else []
         return d
@@ -264,7 +281,7 @@ class TestRepeat(MethodView):
         data = data or {}
         warnings = bool(data.get("warnings"))
         with get_engine().begin() as conn, store.tests(conn) as tc:
-            busy = tc.execute(text("SELECT id FROM core.test_runs WHERE state IN ('queued', 'running') "
+            busy = tc.execute(text("SELECT id FROM tests.test_runs WHERE state IN ('queued', 'running') "
                                    "AND queued_at > now() - interval '3 hours' ORDER BY id DESC LIMIT 1")).scalar()
             if busy:
                 abort(409, message=f"Self-test {busy} is going on: stop it or wait for it to finish.")
@@ -278,6 +295,12 @@ class TestRepeat(MethodView):
                          details={"repeat_of": run_id, "warnings": warnings, "checks": o["checks"]})
         body = {"run_id": new_id, "level": o["level"], "suites": o["suites"], "role": o["role"], "area": o["area"],
                 "repeat": run_id, "warnings": warnings, "by": g.user.username}
+        from ..testing import waiter
+        if waiter.platform_managed():          # no Docker socket (R2.44): the always-on runner service takes it
+            with store.engine().begin() as conn:
+                store.set_state(conn, new_id, step=f"{waiter.WAITING} (the failed checks again)")
+            return {"run_id": new_id, "checks": o["checks"],
+                    "message": f"Queued: the {o['checks']} failed check(s) of self-test {run_id} again, by the test runner service."}
         try:
             _ops_raw("POST", "/tests/build", {"by": g.user.username, "then": body}, timeout=60)
             with store.engine().begin() as conn:
@@ -365,7 +388,7 @@ class TestScreenshot(MethodView):
     def get(self, run_id, result_id):
         """A failed browser journey's screenshot (PNG)"""
         with store.engine().connect() as conn:
-            ok = conn.execute(text("SELECT 1 FROM core.test_results WHERE id = :r AND run_id = :run"),
+            ok = conn.execute(text("SELECT 1 FROM tests.test_results WHERE id = :r AND run_id = :run"),
                               {"r": result_id, "run": run_id}).first()
             png = store.screenshot(conn, result_id) if ok else None
         if not png:
@@ -380,9 +403,19 @@ class TestFile(MethodView):
     def get(self, run_id, name):
         """A file of the run from work/tests/<folder>: run.log, a failed journey's video, the ZAP and Trivy reports"""
         with store.engine().connect() as conn:
-            folder = conn.execute(text("SELECT folder FROM core.test_runs WHERE id = :id"), {"id": run_id}).scalar()
+            folder = conn.execute(text("SELECT folder FROM tests.test_runs WHERE id = :id"), {"id": run_id}).scalar()
         if not folder:
             abort(404, message=f"No files for self-test run {run_id}.")
+        from .. import filestore
+        if filestore.in_database():                  # no local file system: the run's files are in the store (R2.44)
+            try:
+                data = filestore.get("tests", f"{folder}/{name}")
+            except ValueError:
+                data = None
+            if data is None:
+                abort(404, message="No such file in this run.")
+            return send_file(io.BytesIO(data), mimetype=filestore.kind_of(name), as_attachment=True,
+                             download_name=name.rsplit("/", 1)[-1])
         base = (WORK_TESTS / folder).resolve()
         path = (base / name).resolve()
         if base not in path.parents or not path.is_file():
@@ -411,21 +444,40 @@ class FixturesPurge(MethodView):
     @require_auth("system.operate")
     def post(self, data):
         """Purges self-test fixtures, for good (cannot be undone) {runs: [ids] or "all", fixtures: [fixture ids] (or every
-        fixture of those runs), confirm: "DELETE"}: a background task, run by run; only what each run recorded"""
+        fixture of those runs), confirm: "DELETE"}: a background task, run by run; only what each run recorded.
+        {dry_run: true}: what would be removed (each fixture, its run, and a model's entities, relationships and history
+        versions), at once; nothing is deleted and no confirm is needed (R2.11)"""
         data = data or {}
+        if data.get("dry_run"):
+            with store.engine().connect() as conn:
+                if data.get("runs") == "all":
+                    runs = [r[0] for r in conn.execute(text("SELECT DISTINCT run_id FROM tests.test_fixtures "
+                                                            "WHERE purged_at IS NULL ORDER BY run_id")).all()]
+                else:
+                    runs = sorted({int(x) for x in data.get("runs") or []})
+                picked = {int(x) for x in data.get("fixtures") or []}
+                if picked:
+                    runs = sorted(set(runs) | {r[0] for r in conn.execute(text(
+                        "SELECT DISTINCT run_id FROM tests.test_fixtures WHERE id = ANY(:i)"), {"i": list(picked)}).all()})
+            from ..testing import fixtures as fx
+            with get_engine().connect() as conn:
+                p = fx.preview(conn, runs)
+            if picked:
+                p["fixtures"] = [f for f in p["fixtures"] if f["id"] in picked]
+            return {"dry_run": True, **p, "text": fx.preview_text(p)}
         if data.get("confirm") != "DELETE":
             abort(400, message='Type DELETE to confirm: the fixtures are removed for good and cannot be brought back.')
         with store.engine().connect() as conn:
             if data.get("runs") == "all":
                 runs = [r[0] for r in conn.execute(text(
-                    "SELECT DISTINCT run_id FROM core.test_fixtures WHERE purged_at IS NULL ORDER BY run_id")).all()]
+                    "SELECT DISTINCT run_id FROM tests.test_fixtures WHERE purged_at IS NULL ORDER BY run_id")).all()]
             else:
                 runs = sorted({int(x) for x in data.get("runs") or []})
             picked = [int(x) for x in data.get("fixtures") or []]
             if picked:
                 runs = sorted(set(runs) | {r[0] for r in conn.execute(text(
-                    "SELECT DISTINCT run_id FROM core.test_fixtures WHERE id = ANY(:i)"), {"i": picked}).all()})
-            busy = conn.execute(text("SELECT id FROM core.test_runs WHERE id = ANY(:r) AND state IN ('queued', 'running')"),
+                    "SELECT DISTINCT run_id FROM tests.test_fixtures WHERE id = ANY(:i)"), {"i": picked}).all()})
+            busy = conn.execute(text("SELECT id FROM tests.test_runs WHERE id = ANY(:r) AND state IN ('queued', 'running')"),
                                 {"r": runs}).scalar()
         if not runs:
             abort(400, message="Choose fixtures or runs to purge.")

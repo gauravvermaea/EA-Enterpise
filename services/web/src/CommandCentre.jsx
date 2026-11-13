@@ -11,6 +11,7 @@
 //             reset (D558); presets (every night, every week, every hour, once) or a cron expression, in the
 //             installation's time zone; a wipe command needs a Super Admin and the strong confirm once; the one-click
 //             demo reset (clean-restart laptop every night at 02:00, with a banner).
+import PlatformNotice from "./PlatformNotice";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch, can } from "./auth";
 import { fmtDateTime } from "./fmt";
@@ -28,6 +29,7 @@ export default function CommandCentre({ route }) {
   if (!can("system.operate")) return <p className="quiet">The Command centre is for IT Admins and Super Admins.</p>;
   return (
     <div className="cc">
+      <PlatformNotice />
       <div className="tabs sub" role="tablist" aria-label="Command centre">
         {[["commands", "Commands"], ["console", "Console"], ["history", "History"], ["schedules", "Schedules"]].map(([k, l]) => (
           <a key={k} href={`#/admin/commands/${k}`} role="tab" aria-selected={sub === k} className={`tab${sub === k ? " on" : ""}`}>{l}</a>

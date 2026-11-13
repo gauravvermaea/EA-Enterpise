@@ -197,6 +197,20 @@ def check_views() -> dict:
     return _http("Drawn views", "Views (ours)", host, 8110, "/api/views/v1/health")
 
 
+def check_operations() -> dict:
+    """The operations service (R2.27 part 2): housekeeping, usage, deployments and updates in their own container."""
+    import os
+    host = (os.environ.get("EAX_OPERATIONS_INTERNAL_URL", "http://operations:8120").split("//")[-1].split(":")[0]) or "operations"
+    return _http("Operations", "Operations (ours)", host, 8120, "/api/v1/operations/health")
+
+
+def check_personal() -> dict:
+    """The personal data service (R2.53): notifications, requests, favourites, saved views, skills, settings."""
+    import os
+    host = (os.environ.get("EAX_PERSONAL_INTERNAL_URL", "http://personal:8130").split("//")[-1].split(":")[0]) or "personal"
+    return _http("Personal data", "Personal (ours)", host, 8130, "/api/v1/me/health")
+
+
 def check_web() -> dict:
     return _http("Web screens", "nginx (ours)", "web", 8080, "/")
 
@@ -278,7 +292,7 @@ def check_break_glass() -> dict:
 
 CHECKS = [check_api, check_database, check_jobs, check_keycloak, check_web, check_proxy, check_reports,
           check_dms, check_dms_broker, check_drawio, check_mcp, check_backup, check_library, check_views,
-          check_break_glass]
+          check_operations, check_personal, check_break_glass]
 
 
 def check_all() -> dict:

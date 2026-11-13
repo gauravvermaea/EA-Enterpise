@@ -38,8 +38,12 @@ const SelfTest = lazy(() => import("./TestRuns"));
 const Updates = lazy(() => import("./Updates"));
 const CommandCentre = lazy(() => import("./CommandCentre"));
 const BannerAdmin = lazy(() => import("./AdminBanner").then((m) => ({ default: m.BannerAdmin })));
-const Deploy = lazy(() => import("./Deploy"));
 const DatabasesPage = lazy(() => import("./Databases"));
+const PersistPage = lazy(() => import("./Persist"));
+const FootprintPage = lazy(() => import("./Footprint"));
+const EstatePage = lazy(() => import("./Estate"));
+const HostsPage = lazy(() => import("./Hosts").then((m) => ({ default: m.HostsPage })));
+const MountsPage = lazy(() => import("./Hosts").then((m) => ({ default: m.MountsPage })));
 const QualityAdmin = lazy(() => import("./Quality").then((x) => ({ default: x.QualityAdmin })));
 
 const TABS = [
@@ -49,7 +53,12 @@ const TABS = [
   ["users", "Users", () => can("users.read"), ["user-admin", "super-admin"]],
   ["health", "Health", () => true, null],
   ["containers", "Containers", () => can("system.operate"), ["it-admin", "super-admin"]],
+  ["hosts", "Hosts", () => can("system.operate"), ["it-admin", "super-admin"]],           // the Docker engine (R2.16)
+  ["mounts", "Mounts", () => can("system.operate"), ["it-admin", "super-admin"]],         // volumes and bind mounts (R2.17)
   ["databases", "Databases", () => can("system.operate"), ["it-admin", "super-admin"]],   // where each lives (R2.50)
+  ["persist", "Persist", () => can("system.operate"), ["it-admin", "super-admin"]],       // what survives resets (R2.26)
+  ["footprint", "Footprint", () => can("system.operate"), ["it-admin", "super-admin"]],   // how much each takes (R2.22)
+  ["estate", "Estate", () => can("system.operate"), ["it-admin", "super-admin"]],         // its own diagrams (R2.33)
   ["scaling", "Scaling", () => can("system.operate"), ["it-admin", "super-admin"]],
   ["self-test", "Self-test", () => can("system.operate"), ["it-admin", "super-admin"]],
   ["backups", "Backups", () => can("system.operate"), ["it-admin", "super-admin"]],
@@ -61,7 +70,6 @@ const TABS = [
   ["updates", "Updates", () => can("system.operate"), ["it-admin", "super-admin"]],
   ["commands", "Command centre", () => can("system.operate"), ["it-admin", "super-admin"]],
   ["banner", "Banner", () => can("system.operate"), ["it-admin", "super-admin"]],
-  ["deploy", "Deploy", () => can("system.operate"), ["it-admin", "super-admin"]],
   ["licences", "Licences", () => true, null],
 ];
 
@@ -74,6 +82,7 @@ export function adminTab(route) {
 export default function Admin({ route }) {
   const [tab, inner] = adminTab(route);
   if (tab === "projects") { window.location.replace("#/project-admin/library"); return null; }   // moved to Project admin (D285)
+  if (tab === "deploy") { window.location.replace("#/farm/deploy"); return null; }   // moved to the site picker (R2.14)
   const t = TABS.find(([k]) => k === tab) || TABS[0];
   return (
     <div className="admin">
@@ -90,7 +99,12 @@ export default function Admin({ route }) {
             : t[0] === "users" ? <Users route={inner} />
               : t[0] === "health" ? <Heartbeat />
                 : t[0] === "containers" ? <ContainerConsole />
+                : t[0] === "hosts" ? <HostsPage />
+                : t[0] === "mounts" ? <MountsPage />
                 : t[0] === "databases" ? <DatabasesPage />
+                : t[0] === "persist" ? <PersistPage />
+                : t[0] === "footprint" ? <FootprintPage />
+                : t[0] === "estate" ? <EstatePage />
                   : t[0] === "backups" ? <AdminBackups />
                     : t[0] === "restores" ? <RestoresPage route={route} />
                     : t[0] === "quality" ? <QualityAdmin />
@@ -102,7 +116,6 @@ export default function Admin({ route }) {
                   : t[0] === "updates" ? <Updates />
                   : t[0] === "commands" ? <CommandCentre route={route} />
                   : t[0] === "banner" ? <BannerAdmin />
-                  : t[0] === "deploy" ? <Deploy />
                   : t[0] === "licences" ? <Licences />
                     : <Settings group={t[0]} />}
         </Suspense>

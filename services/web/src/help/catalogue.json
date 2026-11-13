@@ -2508,7 +2508,6 @@
   "field:Help": "Help shown with the question.",
   "field:Introduction": "What the survey is about and why it matters, shown first.",
   "field:Keep the newest (pinned ones are always kept)": "How many backups to keep; pinned ones are never removed.",
-  "field:Label (optional)": "A short name; optional.",
   "field:Message (optional; shown on a failure)": "Shown when the rule fails; optional.",
   "field:Minutes": "Minutes.",
   "field:Relationship and the type at the other end": "The relationship and the type it leads to.",
@@ -3062,6 +3061,7 @@
   "field:Run": "Show the fixtures of one self-test run, or of every run.",
   "button:Delete for good": "Purge the chosen self-test fixtures now: they cannot be brought back.",
   "button:Delete selected (": "Purge the ticked self-test fixtures (asks you to type DELETE first).",
+  "button:Dry run (": "Lists what deleting the ticked test data would remove (each model with its entities, relationships and history versions); deletes nothing (R2.11).",
   "button:Download report (HTML)": "The run's report as one HTML page with every check, its timings and the failures' screenshots.",
   "button:Keep running": "Leave the self-test running.",
   "button:Results so far": "The results the running self-test has recorded so far.",
@@ -3072,7 +3072,7 @@
       "Answer where and how (the same questions as eax deploy), paste or choose the SSH private key, and give the cloud credentials when a machine is to be created.",
       "Show the plan first: it lists every step and command and runs nothing. Then Deploy.",
       "Follow the steps and the log; a step that fails asks Retry, Back to the answers, or Quit. The run goes on if you leave the page.",
-      "Targets lists every place deployed to; Every deployment lists plans and deployments. Managing many installations together comes in release 2."
+      "Targets lists every place deployed to; Every deployment lists plans and deployments. Deploy is in the site picker at the top left, with the other sites (R2.14); the old System Admin address opens it."
     ],
     "example": "Deploy v0.19.0 to a new DigitalOcean Droplet for ea.fynbos-mutual.example, after checking the plan."
   },
@@ -3211,11 +3211,12 @@
     "example": "Type 'backups' for System Admin › Backups and restores › Backups, or 'claims' for the models, projects and entities called Claims."
   },
   "page:#/farm": {
-    "title": "Farm Admin",
-    "what": "For Super Admins: the other EA Explorer sites (installations) this one knows and connects to. The screens come in Release 2 (R2.1 sites, R2.2 connecting to a site).",
+    "title": "Sites",
+    "what": "Every EA Explorer site, the same list for everyone (R2.1): Local first, then the others, each with a green, amber or red health from its public heartbeat, checked every 5 minutes.",
     "how": [
-      "Today: put EA Explorer on another machine with System Admin › Updates and deploy › Deploy.",
-      "Open another site in its own browser tab and sign in there."
+      "Open a site to sign in there; you work with the role you have on that site.",
+      "Super Admins add, change or remove sites; a site deployed from Deploy EA Explorer is added when it is ready.",
+      "Your own extra list of instances is under My remote instances."
     ]
   },
   "button:Menu": "The menu bar: Architecture Work, Model Admin, Project Admin, Repository & Content Framework and System Admin across the top, your own menu and ? on the right, page tabs in groups.",
@@ -3321,5 +3322,192 @@
       "The same list on the command line: eax databases."
     ],
     "example": "tests: shared server; archive: dbarchive:5432/eaxarchive (its own), answers."
-  }
+  },
+  "tab:Persist": {
+    "what": "What persist/ holds: the settings that survive every reset (schedules, banner, Self-test settings), the safety backups taken before a command that deletes everything, and the reset-survival results.",
+    "how": [
+      "Delete removes one item for good (a settings file with its last good copy, or a safety backup); Delete everything empties persist/. Both ask you to type DELETE.",
+      "A deleted settings file falls back to its default: no schedules, no banner.",
+      "The same on the command line: eax persist, eax persist delete <item>."
+    ],
+    "example": "Delete safety-backups/20261101T020000Z once you no longer need that backup."
+  },
+  "popup:Confirm delete": {
+    "what": "Asks you to type DELETE before something is removed for good.",
+    "how": [
+      "Type DELETE in capitals and press Delete, or Cancel to keep it."
+    ],
+    "example": "Type DELETE, then Delete."
+  },
+  "button:Delete everything": "Deletes every item listed here for good, after you type DELETE; settings fall back to their defaults.",
+  "tab:Last lines": {
+    "what": "The container's last log lines as Docker has them now.",
+    "how": [
+      "Choose how many lines; tick Live to see new ones every 5 seconds; Filter keeps the lines with those words."
+    ],
+    "example": "Last 300 lines, Live, filter error."
+  },
+  "tab:Kept by day": {
+    "what": "Every container's log kept on disk, one file a day, across restarts and updates (R2.32).",
+    "how": [
+      "Pick one or several containers (merged by time), a day, a level and a time of day; search words or a request id.",
+      "Back up logs zips them into work/backups/logs; Clean logs deletes those older than the days you give."
+    ],
+    "example": "api and db, today, warnings and errors, 09:00 to 10:00."
+  },
+  "field:Containers": "The containers whose logs to show; pick several (Ctrl or Cmd) to see them merged by time.",
+  "field:Filter (words or a request id)": "Keeps the lines that contain these words; a server error's request id finds its lines.",
+  "field:Words or a request id": "Keeps the lines that contain these words (highlighted); press Enter to search the whole day.",
+  "button:Back up logs": "Zips every container's kept logs and eax's own logs into work/backups/logs (the same as eax logs backup).",
+  "button:Clean logs": "Deletes the kept logs and log backups older than the days you give, for good (the same as eax logs clean).",
+  "button:Later ›": "The next page of lines (1,000 a page).",
+  "button:‹ Earlier": "The page of lines before this one.",
+  "tab:Footprint": {
+    "what": "How much each container takes: image, its own disk, volumes, memory, CPU and seconds to start, beside the measurement before.",
+    "how": [
+      "Measure now, before and after a change; the change since the one before is in brackets.",
+      "The same on the command line: eax footprint [label], kept in work/footprint."
+    ],
+    "example": "Measure now with the label before-slim, change the images, measure again."
+  },
+  "button:Measure now": "Measures every container now and keeps it beside the measurements before.",
+  "field:Label": "A word to tell this one apart from the others, e.g. before-slim.",
+  "field:Label (optional)": "A word to tell this measurement apart, e.g. before-slim.",
+  "tab:Rows": {
+    "what": "A table's rows, 200 a page, as the database login may read them.",
+    "how": [
+      "Click a column's heading to sort by it; choose a column and type words to filter; Earlier and Later move between pages.",
+      "Read only here: change rows with a query and Keep the changes."
+    ],
+    "example": "core.models sorted by name, filtered where name contains self_test."
+  },
+  "tab:Structure": {
+    "what": "A table's columns, indexes and constraints, and a view's definition.",
+    "how": [
+      "Each column with its type, whether it may be empty, its default and its description."
+    ],
+    "example": "core.entities: its columns, the indexes that speed it up, its foreign keys."
+  },
+  "field:Contains": "Words the chosen column must contain (press Enter).",
+  "field:Filter column": "The column to filter the rows by.",
+  "field:Find a table": "Narrows the tree to the tables and views whose names have these letters.",
+  "field:History": "Your last 50 queries in this browser; choose one to put it back in the box.",
+  "field:SQL": "The statements to run. Ctrl+Enter runs (the selection only, when there is one); Ctrl+Space completes a table or column name.",
+  "field:Saved queries": "Queries you saved with a name, in this browser; choose one to open it.",
+  "button:+ Query": "Opens another query tab.",
+  "button:Close *": "Closes this tab.",
+  "button:Connect": "Signs in to the database with the login above and shows its schemas, tables and views.",
+  "button:Export CSV": "The query's rows as a CSV file (up to 100,000 rows), rolled back.",
+  "button:Export Excel": "The query's rows as an Excel workbook (up to 100,000 rows), rolled back.",
+  "button:Save query": "Keeps this query under a name, in this browser.",
+  "field:Find a tool": "Narrows the list to the MCP tools whose name or description has these words.",
+  "tab:Estate": {
+    "what": "Diagrams of EA Explorer itself: the logical one (its components and who calls whom) and the physical one of this installation as it runs.",
+    "how": [
+      "Logical and Physical switch between them; Download draw.io or SVG keeps a copy.",
+      "The same from docker-compose.yml is in the documentation: estate.md."
+    ],
+    "example": "Physical: the proxy publishing 443, the API on the frontend and backend networks, the database's volume."
+  },
+  "tab:Logical": {
+    "what": "The components of EA Explorer and who calls whom.",
+    "how": [
+      "Each box is a component; each line says what one asks of another."
+    ],
+    "example": "The screens call the API; the API reads and writes PostgreSQL."
+  },
+  "tab:Physical": {
+    "what": "This installation's containers, Docker networks, published ports, volumes and folders, as they run.",
+    "how": [
+      "A band per Docker network; the published ports at the top; the volumes and folders at the bottom, with dashed lines to the containers that use them."
+    ],
+    "example": "The proxy publishes 443; the database keeps its data in the eax-pgdata volume."
+  },
+  "button:Download draw.io": "This diagram as a .drawio file to open and change in draw.io.",
+  "button:Download SVG": "This diagram as an SVG picture.",
+  "tab:eax and log backups": {
+    "what": "eax's own logs (up, start-later, test, backups...) and the log backups, opened like a container's log.",
+    "how": [
+      "Choose a log, or a log backup and then a file in it; search words or a request id; Download keeps what is shown."
+    ],
+    "example": "eax-20261110-222713-backup.log, searched for ERROR."
+  },
+  "field:File in the backup": "The file in the log backup to read: a container's day or one of eax's logs.",
+  "field:Log": "eax's own log, or a log backup, to read.",
+  "page:#/archive": {
+    "what": "Models taken out of the working database, kept whole in the archive database (R2.41).",
+    "how": [
+      "Bring back makes the model again from its file, for its admins.",
+      "Super Admins also see the deleted ones and may purge them for good.",
+      "Download keeps its backup file."
+    ],
+    "example": "A project's models from 2025, archived when it finished."
+  },
+  "popup:Move * to the archive": {
+    "what": "Takes the model out of the working database, whole with its history, into the archive.",
+    "how": [
+      "What refers to it is listed first; a model another derives from, or a project uses, cannot move.",
+      "Type its name to confirm. A Super Admin may delete it instead (kept until purged)."
+    ],
+    "example": "Move to the archive, why: project finished."
+  },
+  "field:e.g. Project finished in 2026": "Why the model is moved: shown in the archive.",
+  "field:Derived from (optional)": "The entity type this one is derived from (ArchiMate Specialization): it gets that type's attributes and allowed relationships, plus its own, and a change to the base flows down when the metamodel changes. Each entity keeps its own values. Not derived: leave it empty.",
+  "field:Private key for this session only (optional: leave empty to type the host's password)": "A private key used for this SSH session only and removed when it ends (EAX_REMOTE_SSH_AUTH=ask). Leave it empty to type the host's password in the terminal.",
+  "field:Private key to keep (encrypted)": "Your private key for this instance's host, kept encrypted with EAX_REMOTE_SECRET_KEY (EAX_REMOTE_SSH_AUTH=stored). Paste a new one to replace it.",
+  "field:SSH host": "The host name or address of the server the instance runs on, for an SSH session from the browser (Super Admins).",
+  "field:SSH port": "The SSH port of the host (22 by default).",
+  "field:SSH user": "The user to sign in as on the host.",
+  "field:e.g. Staging": "A name for the instance, as it shows in the site picker at the top left.",
+  "field:e.g. eaxadmin": "The user to sign in as on the host.",
+  "field:ea-host.example.com": "The host name or address of the server the instance runs on.",
+  "field:https://ea.example.com": "The instance's web address: Open goes there in a new tab, where you sign in its own way.",
+  "button:+ Add an instance": "Adds a remote EA Explorer instance to your own list (and the site picker at the top left).",
+  "button:SSH": "Opens an SSH session to the instance's host in the browser (Super Admins). It is recorded.",
+  "field:e.g. Study finished": "Why the project is moved: shown in the archive.",
+  "button:Move to the archive": "Moves the project, with its documents and the models only it uses, out of the working databases into the archive (Administration > Archive), where it can be brought back. Asks for the project's name first.",
+  "button:Purge": "Removes it from the archive for good, after you type DELETE (Super Admins).",
+  "page:#/farm/deploy": {
+    "title": "Deploy EA Explorer",
+    "what": "Deploying EA Explorer to another laptop, server or cloud, beside the other sites (R2.14). Super Admins and IT Admins.",
+    "how": [
+      "The same steps as before: answer where and how, show the plan (runs nothing), then deploy.",
+      "The command line is unchanged: eax deploy."
+    ]
+  },
+  "tab:Hosts": {
+    "what": "The Docker engine EA Explorer runs on (R2.16): operating system and kernel, Docker and Compose versions, CPUs and their use, memory (EA Explorer's and the rest of the machine's), the disks and Docker's own disk, containers and uptime, with the day's history.",
+    "how": [
+      "Green, amber and red follow EAX_HOST_WARN_* and EAX_HOST_ALERT_* in System settings; red also raises an alert to IT and Super Admins.",
+      "It refreshes every minute; Refresh reads it now."
+    ]
+  },
+  "tab:Mounts": {
+    "what": "Every Docker volume and bind mount EA Explorer's containers use (R2.17): which containers use it, where, read only or not, its size and warnings.",
+    "how": [
+      "Look into a mount to see its files, free space, largest, newest and oldest files and folders; it is attached read only, so nothing changes.",
+      "A warning says when a mount is read only where it must be writable, or a container could not start with it.",
+      "Every look is in the audit trail."
+    ]
+  },
+  "tab:Files": {
+    "what": "A file explorer in the container (R2.18): browse folders, view and edit text files, download a file or a folder as a zip, upload, new folder, rename, move, copy and delete.",
+    "how": [
+      "Every change asks first and is in the audit trail (an edit with its before and after).",
+      "Secrets, keys, Docker's socket and the operations helper's own files are never changed; a database's data folder asks you to confirm.",
+      "Switched off with EAX_CONTAINER_CONSOLE=off, as the terminal."
+    ]
+  },
+  "field:At least MB": "Only files at least this many megabytes.",
+  "field:Changed in the last days": "Only files changed in the last this many days.",
+  "field:Edit *": "The file's text; Save replaces the file, and is refused if it changed since you opened it.",
+  "field:Filter this folder": "Shows only the files and folders whose name has these letters.",
+  "field:Name has": "Only files whose name has these letters.",
+  "field:Upload": "Choose files to put into this folder of the container.",
+  "button:Look into": "Look into this mount, read only: its size, free space, largest, newest and oldest files and folders.",
+  "button:Move": "Move this file or folder to another path in the container (asks where).",
+  "button:New folder": "Make a folder here (asks its name).",
+  "button:Refresh": "Read it again now.",
+  "button:Add a site": "Add an EA Explorer site to everyone's list (Super Admins): its name, its web address and a note.",
+  "field:Include archived": "Also the archived models and projects you may see, fetched from the archive database (read only)."
 }

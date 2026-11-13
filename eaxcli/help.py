@@ -145,6 +145,39 @@ def commands() -> set[str]:
     return names | {n for n, _ in doc["internal"]}
 
 
+def _distance(a: str, b: str) -> int:
+    prev = list(range(len(b) + 1))
+    for i, x in enumerate(a, 1):
+        cur = [i]
+        for j, y in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (x != y)))
+        prev = cur
+    return prev[-1]
+
+
+def suggest(word: str) -> list[str]:
+    """Did you mean (R2.29): up to three listed commands close to a mistyped one. A command that starts with the word
+    comes first, then those one or two letters away (one for a word of three letters or fewer). eax.sh and eax.ps1
+    use the same rule (tests/test_eax_help.py)."""
+    word = word.lower()
+    doc = parse(SOURCE.read_text(encoding="utf-8"), TAGS)
+    names = sorted({n for s in doc["sections"] for c in s["commands"] for n in c["names"]})
+    most = 1 if len(word) <= 3 else 2
+    scored = []
+    for n in names:
+        score = 0 if len(word) >= 2 and n.startswith(word) else _distance(word, n)
+        if score <= most:
+            scored.append((score, n))
+    return [n for _, n in sorted(scored)[:3]]
+
+
+def unknown(word: str, eax: str) -> str:
+    """The message for a command nobody knows, the same in every form."""
+    near = suggest(word)
+    hint = f" Did you mean: {', '.join(near)}?" if near else ""
+    return f"unknown command '{word}'.{hint} Run {eax} help, or {eax} menu to pick one."
+
+
 def document_html(form: str, eax: str, windows: bool) -> str:
     """eax document --web: the page (document.html) with help.txt copied in as it is; the page reads it the same way.
     eax.ps1 and eax.sh make the same file byte for byte (tests/test_eax_help.py)."""

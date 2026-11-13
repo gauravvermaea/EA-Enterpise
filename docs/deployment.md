@@ -315,3 +315,20 @@ To move an installation or to use your own certificate, run `eax deploy` on the 
 found. The page shows the **targets** deployed to and **every deployment**.
 
 Managing many installations together (a fleet or farm: one dashboard, pushing updates to them) is **release 2**.
+
+
+## On a container platform (R2.44, D635)
+
+EA Explorer runs the same code on one laptop, a server, or a container platform (Docker Swarm or another orchestrator)
+where there is no local file system and no Docker socket. Four settings in eaexplorer.env (or the platform's config and
+secrets, with the same names):
+
+| Setting | Laptop and server | Container platform |
+|---|---|---|
+| `EAX_FILE_STORE` | `folder`: the work folder | `database`: the files schema (`EAX_FILES_DB_URL`, empty = the repository's database) keeps the self-test's run folders and the exports of deleted models |
+| `EAX_PLATFORM` | `compose`: the operations helper starts the test runner and manages the containers through the Docker socket | `managed`: run the `testrunner-service` (compose profile `platform`), which takes the self-tests the API queues; the Command centre and Containers pages show the platform's commands instead |
+| `EAX_BACKUP_DIR` | a laptop: empty (work/backups) | a mounted network share or volume; `eax init` asks for it, and no backup is taken until it is set |
+| passwords | eaexplorer.env | Docker secrets of the same name (`/run/secrets/EAX_DB_PASSWORD`, or `EAX_DB_PASSWORD_FILE`) |
+
+The security scanners (ZAP and Trivy) are containers started through the Docker socket, so a self-test on a platform
+leaves them out and says so.

@@ -333,9 +333,9 @@ def _projects_beside(conn):
     """The projects' connection with this task's repository connection beside it (D266): the same connection while proj
     is in the repository's database, so what the task copied is seen."""
     from . import tasks as tasks_mod
-    from .db import get_engine, get_projects_engine
+    from .db import base_engine, get_projects_engine
     peng = get_projects_engine()
-    if peng is get_engine():
+    if peng is base_engine():
         yield conn
         return
     pc = peng.connect()
@@ -558,6 +558,36 @@ def project_repo_revert(conn, t: dict, user) -> tuple[str, dict]:
     return out["message"], {"project": p["project"], "message": out["message"]}
 
 
+def archive_move(conn, t: dict, user) -> tuple[str, dict]:
+    """R2.41: a model out of the working database into the archive (archived or deleted)."""
+    from . import archive as ar
+    p = t["params"]
+    out = ar.move_model(conn, user, p["model"], p["state"], p.get("note") or "", progress=tk.progress)
+    return out["message"], {k: v for k, v in out.items() if k != "message"}
+
+
+def archive_project_move(conn, t: dict, user) -> tuple[str, dict]:
+    """R2.41: a project with its documents and its own models out of the working databases into the archive."""
+    from . import archive as ar
+    p = t["params"]
+    with _projects_beside(conn) as pc:
+        out = ar.move_project(pc, user, p["project"], p["state"], p.get("note") or "", progress=tk.progress)
+    return out["message"], {k: v for k, v in out.items() if k != "message"}
+
+
+def archive_restore(conn, t: dict, user) -> tuple[str, dict]:
+    """R2.41: a model back from the archive, made again from its file."""
+    from . import archive as ar
+    if t["params"].get("kind") == "project":
+        tk.progress(20, "Making the project again from its file, with its own models and documents")
+        with _projects_beside(conn) as pc:
+            out = ar.bring_back_project(pc, user, int(t["params"]["id"]))
+        return out["message"], {k: v for k, v in out.items() if k != "message"}
+    tk.progress(20, "Making the model again from its file")
+    out = ar.bring_back(conn, user, int(t["params"]["id"]))
+    return out["message"], {k: v for k, v in out.items() if k != "message"}
+
+
 WORK: dict[str, Any] = {
     "merge.analyse": merge_analyse, "merge.apply": merge_apply, "merge.sample": merge_sample,
     "package.analyse": package_analyse, "package.uploaded": package_import, "model.downloaded": package_export,
@@ -574,6 +604,7 @@ WORK: dict[str, Any] = {
     "wizard.merge": wizard_merge, "wizard.split": wizard_split, "wizard.extend": wizard_extend,
     "common.create": common_create, "common.refresh": common_refresh, "common.suggestions": common_suggestions,
     "common.tag": common_tag, "common.make_model": common_make_model, "common.download": common_download,
+    "archive.move": archive_move, "archive.restore": archive_restore, "archive.project_move": archive_project_move,
 }
 KINDS = {
     "merge.analyse": "Plan a merge", "merge.apply": "Apply a merge", "merge.sample": "Make a merge test file",
@@ -593,6 +624,8 @@ KINDS = {
     "common.create": "Make a common analysis", "common.refresh": "Compare a common analysis again",
     "common.suggestions": "Match close names", "common.tag": "Tag the common elements",
     "common.make_model": "Make a model of the common part", "common.download": "Download a common analysis",
+    "archive.move": "Archive or delete a model", "archive.restore": "Bring back from the archive",
+    "archive.project_move": "Archive or delete a project",
 }
 tk.WORK.update(WORK)
 tk.KINDS.update(KINDS)

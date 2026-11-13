@@ -83,6 +83,8 @@ services:
       EAX_API_UPSTREAM: ${EAX_API_UPSTREAM:-api:8000}
       EAX_LIBRARY_UPSTREAM: ${EAX_LIBRARY_UPSTREAM:-library:8100}
       EAX_VIEWS_UPSTREAM: ${EAX_VIEWS_UPSTREAM:-views:8110}
+      EAX_OPERATIONS_UPSTREAM: ${EAX_OPERATIONS_UPSTREAM:-operations:8120}   # R2.27 part 2
+      EAX_PERSONAL_UPSTREAM: ${EAX_PERSONAL_UPSTREAM:-personal:8130}         # R2.53
       NGINX_ENVSUBST_FILTER: "^EAX_"
     volumes:
       - ./deploy/proxy/templates:/etc/nginx/templates:ro
@@ -117,8 +119,13 @@ services:
     env_file: work/eaexplorer.env
     environment:
       EAX_ROLE: api            # entrypoint runs migrations, then the web API and the job runner
+      EAX_SERVE: core          # the main API: what the operations and personal data services serve is theirs (R2.27, R2.53)
       EAX_OPS_URL: http://ops:8090                       # the operations helper (phase 10, D183)
       EAX_OPS_TOKEN: ${EAX_OPS_TOKEN:-eax-ops-laptop}
+      # the build shown top left with the release (R2.47): set by eax from git when it starts the stack, or by CI
+      EAX_BUILD: ${EAX_BUILD:-dev}
+      EAX_BUILT_AT: ${EAX_BUILT_AT:-}
+      EAX_COMMIT: ${EAX_COMMIT:-}
     depends_on:
       db:
         condition: service_healthy
@@ -127,7 +134,7 @@ services:
       # set EAX_IMPORT_DIR to a host folder to map it to SFTP or a share
       - ${EAX_IMPORT_DIR:-eax-imports}:/data/imports
       - ${EAX_EXPORT_DIR:-eax-exports}:/data/exports
-      - ./work/backups:/data/backups   # every backup is in work/backups (mount a share there to keep them elsewhere, D226)
+      - ${EAX_BACKUP_DIR:-./work/backups}:/data/backups   # every backup: work/backups, or the mounted folder EAX_BACKUP_DIR (D226, R2.44)
       - ./work:/eax-work:ro      # services.env: which optional services are on (D191); maintenance.json while restoring
       # the project library's template files (phase 13, D262): library/templates, or the folder EAX_LIBRARY_DIR names;
       # the TOGAF files you download are kept there and never committed (library/templates/togaf/.gitignore)
@@ -164,7 +171,7 @@ services:
       db:
         condition: service_healthy
     volumes:              # every named volume with state (D410); tests/test_backup_coverage.py keeps this list whole
-      - ./work/backups:/backups
+      - ${EAX_BACKUP_DIR:-./work/backups}:/backups
       - ${EAX_DOCS_DIR:-eax-docs}:/mayan           # written only by a restore (D216)
       - ${EAX_TLS_DIR:-eax-tls}:/tls               # the certificate, backed up and restored with the rest
       - eax-superset-home:/superset-home           # Superset's home: its secret key and uploads
@@ -226,6 +233,53 @@ services:
       retries: 10
       start_period: 30s
 
+  # The operations service (R2.27 part 2; owner, 12 and 13 Nov 2026): the running of the installation, its own
+  # container and API (/api/v1/operations: housekeeping, retention, usage, deployments, updates) and its own schema
+  # (operations, EAX_OPERATIONS_DB_URL, D630). The API's code and image, started with EAX_SERVE=operations; the front
+  # door sends its prefix here. It waits for the main API to bring the database up to date.
+  operations:
+    image: eaexplorer/api:${EAX_VERSION:-dev}
+    <<: [*restart, *logging]
+    env_file: work/eaexplorer.env
+    environment:
+      EAX_SERVE: operations
+      EAX_OPS_URL: http://ops:8090
+      EAX_OPS_TOKEN: ${EAX_OPS_TOKEN:-eax-ops-laptop}
+      EAX_BUILD: ${EAX_BUILD:-dev}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./work:/eax-work:ro      # updates and deployments read the work folder as the API does
+    networks: [frontend, backend]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8120/api/v1/operations/health').status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+  # The personal data service (R2.53; owner, 12 and 13 Nov 2026): each person's notifications, requests, favourites,
+  # saved views, skills and settings, its own container and API (/api/v1/me/...) and its own schema (personal,
+  # EAX_PERSONAL_DB_URL, D630). When it is down the rest keeps working; notifications made meanwhile wait and are sent.
+  personal:
+    image: eaexplorer/api:${EAX_VERSION:-dev}
+    <<: [*restart, *logging]
+    env_file: work/eaexplorer.env
+    environment:
+      EAX_SERVE: personal
+      EAX_BUILD: ${EAX_BUILD:-dev}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [frontend, backend]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8130/api/v1/me/health').status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
   # The test runner (phase 36.1, D367, D523): the API's code with pytest, Playwright and Chromium, and pip-audit. Only for a
   # test run (profile "test"): `eax test` builds and runs it; the Health page asks the operations helper, which starts it
   # with the api container's settings. It makes its own test database (EAX_TEST_DB_NAME, default eaxtest) and its own
@@ -247,6 +301,20 @@ services:
     networks: [frontend, backend]
     <<: *logging
 
+  # The test runner as an always-on service (R2.44, D635): on a container platform with no Docker socket
+  # (EAX_PLATFORM=managed, profile "platform") it waits for the runs the API queues and runs them itself; the security
+  # scanners need the socket and are left out there. On a laptop or server the operations helper starts the runner.
+  testrunner-service:
+    profiles: ["platform"]
+    image: eaexplorer/testrunner:${EAX_VERSION:-dev}
+    <<: [*restart, *logging]
+    entrypoint: ["python", "-m", "eax.testing.waiter"]
+    env_file: work/eaexplorer.env
+    environment:
+      EAX_PLATFORM: managed
+      EAX_TEST_DATA: /testdata
+    networks: [frontend, backend]
+
   # ---------------------------------------------------------------- data (out of the box)
   # Operations helper (phase 10, D183): restarts the system when a Super Admin asks in the administration console.
   # It reaches the Docker engine (its socket), so it is only on the internal network, publishes no port, and every
@@ -267,7 +335,10 @@ services:
       # the settings that survive resets (D558): schedules, the banner, the safety backups; outside work/, so no
       # cleanup, clean-run or clean-restart deletes them (EAX_PERSIST_DIR: another folder)
       - ${EAX_PERSIST_DIR:-./persist}:/eax-persist
-      - ./work/backups:/backups   # infrastructure backups: listed, pinned, cleaned, restored (D216, D226)
+      # every container's log, one file a day (R2.32): a folder outside work/ (no reset empties it); a mounted disk on a
+      # server (EAX_LOGS_DIR)
+      - ${EAX_LOGS_DIR:-./logs}:/eax-logs
+      - ${EAX_BACKUP_DIR:-./work/backups}:/backups   # infrastructure backups: listed, pinned, cleaned, restored (D216, D226, R2.44)
       - ./docker-compose.yml:/eax-repo/docker-compose.yml:ro   # kept in each backup with the release and image versions
       - ./deploy:/eax-repo/deploy:ro
       - ./eaxcli:/eax-repo/eaxcli:ro                      # updates (phase 36, D417): the channels, versions and plan

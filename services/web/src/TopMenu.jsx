@@ -18,6 +18,18 @@ function useDynamic(kind, open) {
   const [rows, setRows] = useState(null);
   useEffect(() => {
     if (!open || !kind || rows) return;
+    if (kind === "farm-sites") { // the shared list of sites (R2.1): a health dot, Local here, the others in a new tab
+      const dot = { green: "🟢", amber: "🟠", red: "🔴" };
+      apiFetch("/api/v1/sites").then((r) => setRows((r.sites || []).map((x) => (x.source === "local"
+        ? { label: `${dot[x.health] || "⚪"} ${x.name} (this site)`, href: "#/" }
+        : { label: `${dot[x.health] || "⚪"} ${x.name} ↗`, href: x.url })))).catch(() => setRows([]));
+      return;
+    }
+    if (kind === "sites") {      // my remote EA Explorer instances (R2.2): each opens in a new tab, signed in there
+      apiFetch("/api/v1/me/remote-instances").then((r) => setRows((r.items || []).map((x) => ({ label: `${x.name} ↗`, href: x.url }))))
+        .catch(() => setRows([]));
+      return;
+    }
     const url = kind === "projects" ? "/api/v1/projects" : "/api/v1/models?archived=false";
     apiFetch(url).then((r) => {
       const list = kind === "projects" ? (r.projects || []).filter((x) => !x.is_library || (x.my_roles || []).length) // a library project is in Project library

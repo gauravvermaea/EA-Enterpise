@@ -4,53 +4,6 @@ import { config } from "./config";
 import { fmtDateTime } from "./fmt";
 import { useApi } from "./ModelViews";
 
-const TOOLS = [
-  ["list_models", "Every model you may read, with counts"],
-  ["list_library", "The model library: reference models with industry, version and counts by type"],
-  ["get_metamodel", "A model's domains, entity types and relationship types"],
-  ["describe_entity_type", "Attributes, rules and allowed relationships of one type"],
-  ["allowed_relationships", "Which relationships the metamodel allows from one type to another"],
-  ["get_metamodel_diagram", "The metamodel (domains, or one type and its neighbours) as a Mermaid ER diagram"],
-  ["list_entities", "Every entity of a model, or of one type"],
-  ["get_entity", "One entity with its attribute values and relationships"],
-  ["get_entity_table", "One type as a table, one column per attribute (eax.get_entity)"],
-  ["list_relationships", "Every relationship of a model, or of one type, marked allowed or not"],
-  ["list_relationship_types", "Relationship types with how often each is used"],
-  ["check_entities", "One type's entities with their values and validation errors and warnings"],
-  ["get_entity_history", "Every change to an entity, its values and relationships"],
-  ["get_neighbourhood", "An entity and everything connected to it; or one way only (impact, dependencies)"],
-  ["get_entity_rules", "Every rule applied to an entity and its relationships: passed, failed or not applicable"],
-  ["get_entity_as_of", "An entity as it was at a point in its history, beside now"],
-  ["get_metamodel_history", "Every metamodel version: what changed, who and when"],
-  ["compare_metamodel_versions", "What differs between two metamodel versions"],
-  ["list_failing_checks", "Every entity failing a check, with counts by type, rule and severity"],
-  ["find_paths", "The shortest chains connecting two entities"],
-  ["get_family_tree", "An entity's parents up to the top and its parts below"],
-  ["search_entities", "Find entities by name, display ID or description"],
-  ["get_metamodel_spec", "A model's whole metamodel as one document (eax-metamodel/1), to start a draft from"],
-  ["start_metamodel_draft", "Start a metamodel draft: a new root metamodel (empty or from a copy) or changes to a model, optionally from a whole document"],
-  ["draft_set_item", "Add or change one item in a draft: a domain, pick list, attribute, entity type, relationship type, allowed relationship or rule"],
-  ["draft_remove_item", "Take one item out of a draft"],
-  ["draft_replace", "Replace a draft's whole metamodel document in one go"],
-  ["get_metamodel_draft", "A draft with its checks, differences, review comments, changes since the last review and history"],
-  ["list_metamodel_drafts", "Metamodel drafts: waiting for review, sent back for changes, applied or rejected"],
-  ["comment_on_metamodel_draft", "Comment on a draft or on one of its items"],
-  ["resolve_draft_comment", "Mark a review comment fixed"],
-  ["resubmit_metamodel_draft", "Send a fixed draft for review again: a new round"],
-];
-
-// phases 26/27 (D458, D459): what an assistant can do; every change is previewed, confirmed and tagged first
-const GROUPS = [
-  ["Model operations", "copy_model, find_duplicates, compare_duplicates, merge_duplicates, override_parent, refresh_from_parent, list_merge_requests, get_merge_request, decide_merge_request, model_wizard, common_analysis, tag_model, compare_models"],
-  ["Cleaning up", "change_entities (bulk fixes), tidy_names, find_orphans, suggest_quality_fix, why_commit_blocked"],
-  ["Building from material", "add_entities, add_relationships, start_metamodel_draft, prompts build_from_material and fill_a_model"],
-  ["Analysis", "impact_analysis, application_rationalisation, cost_rollup_analysis, technology_risk_analysis, single_points_of_failure, heat_map_data, what_changed, kpi_trend"],
-  ["Views", "create_drawn_view, get_drawn_view, list_drawn_views, prompt draw_a_view"],
-  ["Writing", "save_report_document (a Word document on the project's Repository tab), prompt write_a_report"],
-  ["Projects and governance", "principles_and_standards, create_project, add_project_step, prompts governance_check and plan_an_adm_project"],
-  ["Surveys and maturity", "list_surveys, create_survey, survey_action, survey_results, maturity_overview (Super Admins)"],
-  ["Administration", "usage_insight, housekeeping_dry_run (Super Admins and IT Admins), add_own_kpi (Model Admins)"],
-];
 const KINDS = [["", "Every kind"], ["read", "Read"], ["preview", "Preview"], ["change", "Change"], ["refused", "Refused"], ["error", "Error"]];
 
 function Activity() {
@@ -172,20 +125,7 @@ export default function Mcp() {
         {tabs.map(([k, n]) => <a key={k} role="tab" aria-selected={tab === k} className={`tab${tab === k ? " on" : ""}`} href={`#/mcp/${k}`}>{n}</a>)}
       </div>
       {tab === "activity" && <Activity />}
-      {tab === "tools" && (
-        <>
-          <h2>What an assistant can do</h2>
-          <p className="quiet">Every tool acts with your own rights. A tool that changes something answers first with a preview and a
-            confirm token; the change is made only when the assistant calls it again with that token, after you agree, and the
-            model is tagged first so it can be restored.</p>
-          <table className="grid-table"><tbody>{GROUPS.map(([g, t]) => <tr key={g}><th>{g}</th><td><code className="small">{t}</code></td></tr>)}</tbody></table>
-          <h2>Reading tools</h2>
-          <table className="grid-table">
-            <tbody>{TOOLS.map(([n, d]) => <tr key={n}><th><code>{n}</code></th><td>{d}</td></tr>)}</tbody>
-          </table>
-          <p className="quiet">Try asking: "Make a copy of the demo estate and remove all duplicates as you see fit", then "Override its parent with it".</p>
-        </>
-      )}
+      {tab === "tools" && <ToolList />}
       {tab === "connect" && <>
       <p className="quiet">
         Connect your own language model to the repository through the Model Context Protocol. No model is
@@ -217,5 +157,37 @@ export default function Mcp() {
       {!laptop && <Connector url={url} />}
       </>}
     </section>
+  );
+}
+
+// every MCP tool and what it does (owner, 13 Nov 2026, R2.54: "list all MCP tools and what they do on the MCP page"),
+// read from the tools' own code by the API, so the list is always the server's
+function ToolList() {
+  const { data, error } = useApi("/api/v1/mcp/tools");
+  const [find, setFind] = useState("");
+  if (error) return <p className="status bad">{error}</p>;
+  if (!data) return <p>Loading...</p>;
+  const shown = data.tools.filter((t) => !find || `${t.name} ${t.what}`.toLowerCase().includes(find.toLowerCase()));
+  const areas = [...new Set(shown.map((t) => t.area))];
+  return (
+    <>
+      <p className="quiet">The {data.count} tools an assistant can use. Each acts with your own rights; those marked <b>changes</b> preview the
+        change and make it only after you agree.</p>
+      <input type="search" placeholder="Find a tool" value={find} onChange={(e) => setFind(e.target.value)} aria-label="Find a tool" />
+      {areas.map((a) => (
+        <div key={a}>
+          <h2>{a}</h2>
+          <table className="grid-table">
+            <tbody>{shown.filter((t) => t.area === a).map((t) => (
+              <tr key={t.name}>
+                <th><code>{t.name}</code>{t.changes && <span className="badge"> changes</span>}</th>
+                <td>{t.what}
+                  {t.params.length > 0 && <div className="quiet small">{t.params.map((p) => (
+                    <span key={p.name}><code>{p.name}</code>{p.required ? "" : ` (default ${p.default})`}{" "}</span>))}</div>}
+                </td>
+              </tr>))}</tbody>
+          </table>
+        </div>))}
+    </>
   );
 }

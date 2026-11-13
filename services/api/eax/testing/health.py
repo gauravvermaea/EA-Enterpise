@@ -12,7 +12,8 @@ The **functional health** of the run:
   Degraded     no critical check failed, but more non-critical ones did, or a critical one warns
   Not healthy  a critical check failed
 Security findings never make a run Not healthy: they are shown beside it (the report's Security count).
-The list and the limit were set by the owner's request; change them here (and in docs/testing.md).
+The list and the limit of 10 were decided on 13 Nov 2026 (D645, the owner asked us to decide): kept as built, with the
+coverage line, the alert check and the UI review's notes non-critical; change them here (and in docs/testing.md).
 """
 
 from __future__ import annotations
@@ -23,12 +24,17 @@ from typing import Any
 NON_CRITICAL_LIMIT = 10
 OUTCOMES = ("passed", "failed", "warning", "skipped")
 NON_CRITICAL_DB = ("speed", "an index")
+# decided 13 Nov 2026 (the owner: "take a decision"): measurements and the watchers around the application, not the
+# application itself: the code coverage line (D642), the container alert check (D641) and the UI review's notes (D621)
+NON_CRITICAL_PREFIXES = ("coverage:", "alerts:", "ui review")
 
 
 def importance(suite: str, name: str) -> str:
     """critical or non-critical, for one check (its suite and its name)."""
     n = (name or "").lower()
     if suite == "security":
+        return "non-critical"
+    if n.startswith(NON_CRITICAL_PREFIXES):
         return "non-critical"
     if suite == "db" and any(x in n for x in NON_CRITICAL_DB):
         return "non-critical"

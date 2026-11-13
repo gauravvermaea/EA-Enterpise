@@ -218,6 +218,10 @@ USER_SKILLS = {
 
 def user_skills(conn) -> None:
     """Made once per user: a user who already has skills keeps them."""
-    for user, tags in USER_SKILLS.items():
-        conn.execute(text("""INSERT INTO proj.user_skills (username, skills, modified_by) VALUES (:u, CAST(:s AS text[]), :u)
-                              ON CONFLICT (username) DO NOTHING"""), {"u": user, "s": tags})
+    from .. import personal as P
+    for user, tags in USER_SKILLS.items():      # in the personal schema (R2.53, D632)
+        P.run(conn, """INSERT INTO personal.user_skills (username, skills, modified_by) VALUES (:u, CAST(:s AS text[]), :u)
+                        ON CONFLICT (username) DO NOTHING""", u=user, s=tags)
+    # a personal setting, so the personal data service's settings show something (R2.53): made once
+    P.run(conn, """INSERT INTO personal.settings (username, key, value) VALUES ('user_architect', 'grid.page-size', '100')
+                    ON CONFLICT (username, key) DO NOTHING""")

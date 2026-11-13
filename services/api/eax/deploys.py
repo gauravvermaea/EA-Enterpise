@@ -1,11 +1,13 @@
 """Deploying EA Explorer elsewhere from System admin > Deploy (phase 36, D555 to D557): the history of deployment
-targets, copied into core.deployments from the operations helper's runs (services/ops/deploys.py). Secrets never
+targets, copied into operations.deployments from the operations helper's runs (services/ops/deploys.py). Secrets never
 reach the API: the SSH key and cloud credentials go straight through to the helper, which keeps them only for the run
 (or, when asked, in its own store, never shown again)."""
 
 from __future__ import annotations
 
 from sqlalchemy import text
+
+from . import databases
 
 STATUSES = ("running", "failed", "done", "planned", "quit", "back")
 SECRET_FIELDS = ("aws_access_key_id", "aws_secret_access_key", "do_token", "spaces_key", "spaces_secret",
@@ -28,22 +30,28 @@ def sync(conn, runs: list[dict]) -> int:
         row = _row(r)
         if not row["run_id"] or row["kind"] not in ("server", "aws", "azure", "digitalocean"):
             continue
-        conn.execute(text("""
-            INSERT INTO core.deployments (run_id, target, kind, plan, version, status, started_by, started_at, finished_at,
+        databases.on("operations", conn).execute(text("""
+            INSERT INTO operations.deployments (run_id, target, kind, plan, version, status, started_by, started_at, finished_at,
                                           address, failed_step, kept_credentials)
             VALUES (:run_id, :target, :kind, :plan, :version, :status, :started_by, COALESCE(CAST(:started_at AS timestamptz), now()),
                     CAST(:finished_at AS timestamptz), :address, :failed_step, :kept)
             ON CONFLICT (run_id) DO UPDATE SET status = EXCLUDED.status, finished_at = EXCLUDED.finished_at,
                 address = EXCLUDED.address, failed_step = EXCLUDED.failed_step, recorded_at = now()
-            WHERE (core.deployments.status, core.deployments.finished_at, core.deployments.address)
+            WHERE (operations.deployments.status, operations.deployments.finished_at, operations.deployments.address)
                   IS DISTINCT FROM (EXCLUDED.status, EXCLUDED.finished_at, EXCLUDED.address)"""), row)
         n += 1
+    if n:
+        try:                                     # a finished deployment's site goes into the sites list (R2.1, D646)
+            from . import sites
+            sites.from_deployments(conn, history(conn))
+        except Exception:  # noqa: BLE001 - the sites job adds it within 5 minutes anyway
+            pass
     return n
 
 
 def history(conn, limit: int = 200) -> list[dict]:
-    rows = conn.execute(text("""SELECT run_id, target, kind, plan, version, status, started_by, started_at, finished_at, address,
-                                       failed_step, kept_credentials FROM core.deployments
+    rows = databases.on("operations", conn).execute(text("""SELECT run_id, target, kind, plan, version, status, started_by, started_at, finished_at, address,
+                                       failed_step, kept_credentials FROM operations.deployments
                                  ORDER BY started_at DESC LIMIT :n"""), {"n": limit}).mappings().all()
     return [dict(r) for r in rows]
 

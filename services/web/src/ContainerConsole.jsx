@@ -2,9 +2,10 @@
 // health checks, properties (image, mounts, ports, networks, environment in clear text, restart policy, limits), what
 // it uses now, its logs, an interactive terminal (D214) and a command line (IT and Super Admins; EAX_CONTAINER_CONSOLE=off
 // switches both off). Every command, and the start and end of every terminal, is in the audit trail.
+import PlatformNotice from "./PlatformNotice";
 import { useEffect, useRef, useState } from "react";
 import { StartupCell, StartupLine, TONE, WORD, containerStartup } from "./StartupStatus";
-import { apiFetch, can } from "./auth";
+import { apiDownload, apiFetch, can } from "./auth";
 import { fmtDateTime } from "./fmt";
 import { useApi } from "./ModelViews";
 
@@ -12,17 +13,61 @@ const mb = (b) => (b == null ? "" : b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `$
 
 const SUMMARY = "";
 
+// what each container is for (owner, 13 Nov 2026: "add what each container is for in the table"), in plain words
+export const PURPOSE = {
+  db: "PostgreSQL: the database (models, projects, settings, sign-in, reports, documents' index)",
+  "db-standby": "A copy of the database kept in step, ready to take over (scale-out)",
+  "dms-broker": "Valkey: the queue Documents uses for its background work",
+  keycloak: "Keycloak: sign-in, users and roles",
+  api: "The EA Explorer API and its job runner: everything the screens, MCP and eax ask for",
+  operations: "The operations service: housekeeping, deployments and updates (/api/v1/operations)",
+  personal: "The personal data service: notifications, requests, favourites, settings (/api/v1/me)",
+  library: "The reference and enterprise libraries' service",
+  views: "The drawn views' service (pictures of a model)",
+  reports: "Reports (Superset): dashboards and charts",
+  "reports-init": "Sets up Reports once at the start, then stops (a stop here is normal)",
+  dms: "Documents (Mayan EDMS): the project documents and their files",
+  drawio: "draw.io: the diagram editor for drawn views",
+  web: "The screens (the web pages people use)",
+  backup: "Backups and restores, on request and on schedule",
+  proxy: "The front door (nginx): HTTPS, and which address goes to which service",
+  ops: "The operations helper: reaches Docker for Containers, restarts, backups, the terminal and alerts",
+  setup: "Makes the certificates and first settings at the start, then stops (a stop here is normal)",
+  testrunner: "The self-test, started when a test runs",
+  "testrunner-service": "The self-test runner that waits for runs on a managed platform",
+};
+// only current and relevant containers unless asked (owner, 13 Nov 2026: "Dead are not unless asked for"): running or
+// starting ones, and any that stopped with an error (a problem to see); a set-up step that finished, a switched-off
+// service and Docker's dead containers only with "Show stopped"
+export function isCurrent(c) {
+  const st = containerStartup(c);
+  if ((c.state || "").toLowerCase() === "dead") return false;
+  if (ONE_SHOT_DONE(c)) return false;
+  return st !== "off";
+}
+const ONE_SHOT_DONE = (c) => ["setup", "reports-init"].includes(c.service) && (c.state || "").toLowerCase() === "exited"
+  && (c.exit_code ?? 0) === 0;
+
+export const purposeOf = (c) => PURPOSE[c.service] || PURPOSE[String(c.key || "").replace(/-\d+$/, "")] || "";
+
 export default function ContainerConsole() {
   const { data, error } = useApi("/api/v1/admin/containers");
   const [pick, setPick] = useState(SUMMARY);
-  const list = data?.containers || [];
+  const [showAll, setShowAll] = useState(false);
+  const every = data?.containers || [];
+  const list = showAll ? every : every.filter(isCurrent);
+  const hidden = every.length - every.filter(isCurrent).length;
   return (
     <div className="containers">
+      <PlatformNotice />
       <p className="quiet">Every container of this installation. Choose one to see its properties and logs, open a terminal in it
         or run a command (IT and Super Admins; recorded in the audit trail).</p>
       {error && <p className="status bad">{error}</p>}
       <StartupLine />
       <ApiServers />
+      <label className="small" title="Set-up steps that finished, switched-off services and Docker's dead containers">
+        <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} /> Show stopped
+        {hidden > 0 ? ` (${hidden} hidden)` : ""}</label>
       <div className="ct-layout">
         <ul className="ct-list" role="listbox" aria-label="Containers">
           <li role="option" aria-selected={pick === SUMMARY} className={`ct-summary-item${pick === SUMMARY ? " on" : ""}`}>
@@ -37,7 +82,7 @@ export default function ContainerConsole() {
             </li>
           ))}
         </ul>
-        <div className="ct-main">{pick === SUMMARY ? <Summary onPick={setPick} /> : <ContainerView key={pick} service={pick} />}</div>
+        <div className="ct-main">{pick === SUMMARY ? <Summary onPick={setPick} showAll={showAll} /> : <ContainerView key={pick} service={pick} />}</div>
       </div>
     </div>
   );
@@ -91,7 +136,7 @@ function FileSystems({ h }) {
   );
 }
 
-function Summary({ onPick }) {
+function Summary({ onPick, showAll = false }) {
   const [h, setH] = useState(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -101,7 +146,7 @@ function Summary({ onPick }) {
     setBusy(false);
   }
   useEffect(() => { load(); }, []);
-  const cs = h?.containers || [];
+  const cs = (h?.containers || []).filter((c) => showAll || isCurrent(c));
   const run = cs.filter((c) => c.state === "running");
   const sum = (k) => run.reduce((a, c) => a + (c[k] || 0), 0);
   const limit = Math.max(0, ...run.map((c) => c.memory_limit_bytes || 0));   // without limits each one shows the machine's memory
@@ -126,7 +171,7 @@ function Summary({ onPick }) {
         <div className="table-scroll">
           <h3>Containers</h3>
           <table className="grid-table ct-sum">
-            <thead><tr><th>Container</th><th title="Start-up (D255): up, starting or down; 1st: starts first (needed to sign in), 2nd: after it, in the background">Start-up</th><th>Health</th><th>State</th><th>Docker health</th><th className="num">CPU</th>
+            <thead><tr><th>Container</th><th>What it is for</th><th title="Start-up (D255): up, starting or down; 1st: starts first (needed to sign in), 2nd: after it, in the background">Start-up</th><th>Health</th><th>State</th><th>Docker health</th><th className="num">CPU</th>
               <th className="num">Memory</th><th className="num">% of limit</th><th className="num">Processes</th>
               <th className="num">Disk (own layer)</th><th className="num">Volumes</th><th>Up for</th><th className="num">Restarts</th></tr></thead>
             <tbody>
@@ -136,6 +181,7 @@ function Summary({ onPick }) {
                 return (
                   <tr key={c.id}>
                     <td><button className="linkish" onClick={() => onPick(c.key || c.service)} title={c.name}>{c.key || c.service}</button></td>
+                    <td className="small ct-purpose">{purposeOf(c)}</td>
                     <td><StartupCell c={c} /></td>
                     <td><span className={`rag ${lv}`}>{txt}</span></td>
                     <td className={up ? "" : "quiet"}>{c.state}{!up && c.exit_code ? ` (exit ${c.exit_code})` : ""}{c.oom_killed ? <span className="bad-text"> · out of memory</span> : null}</td>
@@ -155,7 +201,7 @@ function Summary({ onPick }) {
             <tfoot>
               <tr>
                 <th>Total</th>
-                <th colSpan="4">{run.length} of {cs.length} running</th>
+                <th colSpan="5">{run.length} of {cs.length} running</th>
                 <th className="num" title={h.host_cpus ? `${sum("cpu_cores").toFixed(2)} of ${h.host_cpus} cores in use` : ""}>{sum("cpu_percent").toFixed(1)}%{h.host_cpus ? <div className="small quiet">{sum("cpu_cores").toFixed(1)} of {h.host_cpus} cores</div> : null}</th>
                 <th className="num">{mb(sum("memory_bytes"))}</th>
                 <th className="num">{limit ? `${((sum("memory_bytes") / limit) * 100).toFixed(1)}%` : ""}</th>
@@ -184,8 +230,9 @@ function ContainerView({ service }) {
     <div>
       <h3>{service} {d && <span className={`ct-state ${d.state.running ? "up" : "down"}`}>{d.state.status}</span>}
         {d && d.health.status !== "none" && <span className={`ct-state ${d.health.status === "healthy" ? "up" : "warn"}`}>{d.health.status}</span>}</h3>
+      {purposeOf({ service, key: service }) && <p className="quiet small">{purposeOf({ service, key: service })}</p>}
       <div className="tabs small-tabs" role="tablist">
-        {[["properties", "Properties"], ["logs", "Logs"], ["terminal", "Terminal"]].map(([k, l]) => (
+        {[["properties", "Properties"], ["logs", "Logs"], ["terminal", "Terminal"], ["files", "Files"]].map(([k, l]) => (
           <button key={k} role="tab" aria-selected={view === k} className={view === k ? "tab on" : "tab"} onClick={() => setView(k)}>{l}</button>
         ))}
       </div>
@@ -193,6 +240,8 @@ function ContainerView({ service }) {
       {view === "properties" && (d ? <Properties d={d} /> : !error && <p className="quiet">Loading...</p>)}
       {view === "logs" && <Logs service={service} />}
       {view === "terminal" && <Terminal service={service} on={d?.console} running={d?.state.running} />}
+      {view === "files" && (d?.state.running === false ? <p className="quiet">The container is not running: start it to see its files.</p>
+        : <Files service={service} on={d?.console} />)}
     </div>
   );
 }
@@ -249,11 +298,26 @@ function Properties({ d }) {
 }
 
 function Logs({ service }) {
+  const [mode, setMode] = useState("now");     // now: Docker's last lines; kept: the daily files on disk (R2.31, R2.32)
+  return (
+    <div>
+      <div className="row-gap small-tabs" role="tablist" aria-label="Which logs">
+        <button role="tab" aria-selected={mode === "now"} className={mode === "now" ? "tab on" : "tab"} onClick={() => setMode("now")}>Last lines</button>
+        <button role="tab" aria-selected={mode === "kept"} className={mode === "kept" ? "tab on" : "tab"} onClick={() => setMode("kept")}>Kept by day</button>
+        <button role="tab" aria-selected={mode === "own"} className={mode === "own" ? "tab on" : "tab"} onClick={() => setMode("own")}>eax and log backups</button>
+      </div>
+      {mode === "now" ? <LastLines service={service} /> : mode === "kept" ? <KeptLogs service={service} /> : <OwnLogs />}
+    </div>
+  );
+}
+
+function LastLines({ service }) {
   const [tail, setTail] = useState(300);
   const [q, setQ] = useState("");
   const [data, setData] = useState(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const [live, setLive] = useState(false);
   const box = useRef(null);
   async function load() {
     setBusy(true); setErr("");
@@ -261,6 +325,11 @@ function Logs({ service }) {
     setBusy(false);
   }
   useEffect(() => { load(); }, [tail]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {                        // live: new lines every 5 seconds, until paused (R2.31)
+    if (!live) return undefined;
+    const t = setInterval(load, 5000);
+    return () => clearInterval(t);
+  }, [live, tail]);                        // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (box.current) box.current.scrollTop = box.current.scrollHeight; }, [data]);
   const lines = (data?.lines || []).filter((l) => !q || l.toLowerCase().includes(q.toLowerCase()));
   return (
@@ -269,12 +338,169 @@ function Logs({ service }) {
         <select value={tail} onChange={(e) => setTail(Number(e.target.value))} aria-label="Lines">
           {[100, 300, 1000, 5000].map((n) => <option key={n} value={n}>Last {n} lines</option>)}
         </select>
-        <input type="search" placeholder="Filter" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input type="search" placeholder="Filter (words or a request id)" value={q} onChange={(e) => setQ(e.target.value)} />
         <button onClick={load} disabled={busy}>{busy ? "Reading..." : "↻ Refresh"}</button>
+        <label className="small"><input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} /> Live</label>
+        <button onClick={() => download(`${service}-last-${tail}.log`, lines)} disabled={!lines.length}>Download</button>
         <span className="quiet small">{lines.length} line{lines.length === 1 ? "" : "s"}</span>
       </div>
       {err && <p className="status bad">{err}</p>}
-      <pre className="ct-log" ref={box}>{lines.join("\n")}</pre>
+      <pre className="ct-log" ref={box}>{lines.map((l, i) => <LogLine key={i} line={l} q={q} />)}</pre>
+    </div>
+  );
+}
+
+function download(name, lines) {
+  const url = URL.createObjectURL(new Blob([lines.join("\n") + "\n"], { type: "text/plain" }));
+  const a = document.createElement("a");
+  a.href = url; a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+const LEVEL_CLASS = { error: "log-error", warning: "log-warning", debug: "log-debug", info: "" };
+function levelOf(line) {
+  const l = line.toLowerCase();
+  if (/\b(error|exception|traceback|critical|fatal|failed)\b/.test(l)) return "error";
+  if (/\b(warn|warning)\b/.test(l)) return "warning";
+  if (/\bdebug\b/.test(l)) return "debug";
+  return "info";
+}
+
+// one line, coloured by its level, the words searched for highlighted
+function LogLine({ line, q, level, service }) {
+  const lv = level || levelOf(line);
+  const text = service ? `${service.padEnd(10)} ${line}` : line;
+  if (!q) return <div className={LEVEL_CLASS[lv]}>{text}</div>;
+  const i = text.toLowerCase().indexOf(q.toLowerCase());
+  if (i < 0) return <div className={LEVEL_CLASS[lv]}>{text}</div>;
+  return <div className={LEVEL_CLASS[lv]}>{text.slice(0, i)}<mark>{text.slice(i, i + q.length)}</mark>{text.slice(i + q.length)}</div>;
+}
+
+// eax's own logs (work/logs) and the log backups (work/backups/logs), opened the same way (R2.31)
+function OwnLogs() {
+  const { data: list, error } = useApi("/api/v1/admin/logs/own");
+  const [pick, setPick] = useState("");            // "own:<name>" or "zip:<name>"
+  const [member, setMember] = useState("");
+  const [q, setQ] = useState("");
+  const [page, setPage] = useState(0);
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState("");
+  const [asked, setAsked] = useState(0);            // Enter in the search: read again with the words
+  useEffect(() => {
+    if (!pick) return;
+    setErr("");
+    const [kind, name] = [pick.slice(0, 3), pick.slice(4)];
+    const url = kind === "own" ? `/api/v1/admin/logs/own?name=${encodeURIComponent(name)}`
+      : `/api/v1/admin/logs/own?backup=${encodeURIComponent(name)}${member ? `&member=${encodeURIComponent(member)}` : ""}`;
+    apiFetch(`${url}&q=${encodeURIComponent(q)}&page=${page}`).then(setData).catch((e) => setErr(e.message));
+  }, [pick, member, page, asked]);   // eslint-disable-line react-hooks/exhaustive-deps
+  if (error) return <p className="status bad">{error}</p>;
+  if (!list) return <p>Loading...</p>;
+  const lines = data?.lines || [];
+  return (
+    <div>
+      <div className="row-gap filters">
+        <select aria-label="Log" value={pick} onChange={(e) => { setPick(e.target.value); setMember(""); setPage(0); setData(null); }}>
+          <option value="">Choose a log…</option>
+          <optgroup label="eax's own logs (work/logs)">{list.own.map((f) => <option key={f.name} value={`own:${f.name}`}>{f.name}</option>)}</optgroup>
+          <optgroup label="Log backups (work/backups/logs)">{list.backups.map((f) => <option key={f.name} value={`zip:${f.name}`}>{f.name}</option>)}</optgroup>
+        </select>
+        {data?.members && <select aria-label="File in the backup" value={member} onChange={(e) => { setMember(e.target.value); setPage(0); }}>
+          <option value="">Choose a file…</option>{data.members.map((m) => <option key={m} value={m}>{m}</option>)}</select>}
+        <input type="search" placeholder="Words or a request id" value={q} onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { setPage(0); setAsked((n) => n + 1); } }} />
+        <button onClick={() => download(`${(pick || "log").slice(4)}${member ? `-${member.replace(/\//g, "_")}` : ""}.log`, lines.map((l) => l.line))} disabled={!lines.length}>Download</button>
+      </div>
+      {err && <p className="status bad">{err}</p>}
+      {data && data.total !== undefined && <p className="quiet small">{data.total} line(s){data.pages > 1 && <> · page {data.page + 1} of {data.pages}{" "}
+        <button className="small" disabled={data.page === 0} onClick={() => setPage(data.page - 1)}>‹ Earlier</button>{" "}
+        <button className="small" disabled={data.page >= data.pages - 1} onClick={() => setPage(data.page + 1)}>Later ›</button></>}</p>}
+      <pre className="ct-log">{lines.map((l, i) => <LogLine key={i} line={l.line} level={l.level} q={q} />)}</pre>
+    </div>
+  );
+}
+
+// the logs kept on disk, one file a day per container (R2.31, R2.32): one or several containers merged by time, by level
+// and time of day, the words searched for highlighted, a page of 1,000 lines at a time, live, downloaded; and the logs
+// backed up or cleaned (R2.30)
+function KeptLogs({ service }) {
+  const { data: files } = useApi("/api/v1/admin/logs/files");
+  const all = [...new Set((files?.files || []).map((f) => f.service))].sort();
+  const days = [...new Set((files?.files || []).map((f) => f.day))].sort().reverse();
+  const [pick, setPick] = useState([service]);
+  const [day, setDay] = useState("");
+  const [level, setLevel] = useState("");
+  const [q, setQ] = useState("");
+  const [since, setSince] = useState("");
+  const [until, setUntil] = useState("");
+  const [page, setPage] = useState(null);       // null: the last page
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState("");
+  const [live, setLive] = useState(false);
+  const [note, setNote] = useState("");
+  const theDay = day || days[0] || "";
+  async function load(p = page) {
+    if (!theDay || !pick.length) return;
+    setErr("");
+    const ask = (n) => apiFetch(`/api/v1/admin/logs/read?services=${encodeURIComponent(pick.join(","))}&day=${theDay}`
+      + `&level=${level}&q=${encodeURIComponent(q)}&since=${since}&until=${until}&page=${n}`);
+    try {
+      let d = await ask(p === null ? 0 : p);
+      if (p === null && d.pages > 1) d = await ask(d.pages - 1);
+      setData(d);
+    } catch (e) { setErr(e.message); }
+  }
+  useEffect(() => { load(); }, [theDay, pick.join(","), level, since, until, page]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!live) return undefined;
+    const t = setInterval(() => load(null), 5000);
+    return () => clearInterval(t);
+  }, [live, theDay, pick.join(","), level, q, since, until]);   // eslint-disable-line react-hooks/exhaustive-deps
+  async function keep(what) {
+    setNote("");
+    if (what === "clean") {
+      const d = window.prompt("Delete the logs and log backups older than how many days? (cannot be undone)", "30");
+      if (!d) return;
+      try { const o = await apiFetch("/api/v1/admin/logs/clean", { method: "POST", body: JSON.stringify({ days: Number(d) }) });
+        setNote(`Deleted ${o.deleted.length} file(s) older than ${o.kept_days} days.`); } catch (e) { setNote(e.message); }
+      return;
+    }
+    try { const o = await apiFetch("/api/v1/admin/logs/backup", { method: "POST", body: "{}" });
+      setNote(`Backed up ${o.files} file(s) to work/backups/logs/${o.file}.`); } catch (e) { setNote(e.message); }
+  }
+  const lines = data?.lines || [];
+  if (files && !(files.files || []).length) {
+    return <p className="quiet">No logs kept on disk yet: the operations helper writes every container's log here once a minute (logs/, or EAX_LOGS_DIR).</p>;
+  }
+  return (
+    <div>
+      <div className="row-gap filters">
+        <select multiple value={pick} onChange={(e) => setPick([...e.target.selectedOptions].map((o) => o.value))}
+          aria-label="Containers" size={Math.min(4, Math.max(2, all.length))}>
+          {all.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <select value={theDay} onChange={(e) => { setDay(e.target.value); setPage(null); }} aria-label="Day">
+          {days.map((d) => <option key={d} value={d}>{d}</option>)}
+        </select>
+        <select value={level} onChange={(e) => { setLevel(e.target.value); setPage(null); }} aria-label="Level">
+          <option value="">Every level</option><option value="info">Info and worse</option>
+          <option value="warning">Warnings and errors</option><option value="error">Errors only</option>
+        </select>
+        <input type="time" value={since} onChange={(e) => setSince(e.target.value)} aria-label="Since" title="Since" />
+        <input type="time" value={until} onChange={(e) => setUntil(e.target.value)} aria-label="Until" title="Until" />
+        <input type="search" placeholder="Words or a request id" value={q} onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { setPage(null); load(null); } }} />
+        <label className="small"><input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} /> Live</label>
+        <button onClick={() => download(`${pick.join("+")}-${theDay}.log`, lines.map((l) => `${l.service} ${l.line}`))} disabled={!lines.length}>Download</button>
+        <button onClick={() => keep("backup")}>Back up logs</button>
+        <button onClick={() => keep("clean")}>Clean logs…</button>
+      </div>
+      {note && <p className="status">{note}</p>}
+      {err && <p className="status bad">{err}</p>}
+      {data && <p className="quiet small">{data.total} line(s){data.pages > 1 && <> · page {data.page + 1} of {data.pages}{" "}
+        <button className="small" disabled={data.page === 0} onClick={() => setPage(data.page - 1)}>‹ Earlier</button>{" "}
+        <button className="small" disabled={data.page >= data.pages - 1} onClick={() => setPage(data.page + 1)}>Later ›</button></>}</p>}
+      <pre className="ct-log">{lines.map((l, i) => <LogLine key={i} line={l.line} level={l.level} q={q} service={pick.length > 1 ? l.service : ""} />)}</pre>
     </div>
   );
 }
@@ -400,5 +626,105 @@ function ApiServers() {
         ))}</tbody>
       </table>
     </section>
+  );
+}
+
+// Files (R2.18; owner, 11 Nov 2026: "a file explorer into each docker container in its tab (read write)"): browse, view,
+// download (a folder as a zip), upload, edit (refused when the file changed meanwhile), new folder, rename, move, copy and
+// delete. Every write asks first and is in the audit trail; secrets, Docker's socket and the helper's own files are never
+// written; a database's data folder warns strongly. Off with EAX_CONTAINER_CONSOLE=off, as the terminal.
+function Files({ service, on }) {
+  const [path, setPath] = useState("/");
+  const [d, setD] = useState(null);
+  const [err, setErr] = useState("");
+  const [file, setFile] = useState(null);
+  const [edit, setEdit] = useState(null);
+  const [find, setFind] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = (p = path) => { setErr(""); apiFetch(`/api/v1/admin/containers/${service}/files?path=${encodeURIComponent(p)}`).then((x) => { setD(x); setPath(x.path); }).catch((e) => setErr(e.message)); };
+  useEffect(() => { if (on !== false) load("/"); }, [service, on]);
+  if (!can("system.operate")) return <p className="quiet">The file explorer is for IT and Super Admins.</p>;
+  if (on === false) return <p className="quiet">The file explorer is switched off on this installation (EAX_CONTAINER_CONSOLE=off in the config file).</p>;
+  const join = (name) => `${path.replace(/\/$/, "")}/${name}`;
+  const change = async (body, sure) => {
+    if (sure && !window.confirm(sure)) return;
+    setBusy(true); setErr("");
+    try {
+      let out;
+      try { out = await apiFetch(`/api/v1/admin/containers/${service}/files`, { method: "POST", body: JSON.stringify(body) }); }
+      catch (e) {
+        if (/database's data folder/.test(e.message) && window.confirm(`${e.message}\n\nGo on anyway?`)) {
+          out = await apiFetch(`/api/v1/admin/containers/${service}/files`, { method: "POST", body: JSON.stringify({ ...body, confirm: "database" }) });
+        } else throw e;
+      }
+      load(); return out;
+    } catch (e) { setErr(e.message); return null; } finally { setBusy(false); }
+  };
+  const view = (f) => apiFetch(`/api/v1/admin/containers/${service}/files/content?path=${encodeURIComponent(f.path)}`).then((x) => { setFile(x); setEdit(null); }).catch((e) => setErr(e.message));
+  const download = (f) => apiDownload(`/api/v1/admin/containers/${service}/files/download?path=${encodeURIComponent(f.path)}`,
+    f.dir ? `${f.name}.zip` : f.name).catch((e) => setErr(e.message));
+  const upload = async (list) => {
+    const files = await Promise.all([...list].map((f) => new Promise((ok) => { const r = new FileReader(); r.onload = () => ok({ name: f.name, content: String(r.result).split(",")[1] || "" }); r.readAsDataURL(f); })));
+    const overwrite = window.confirm(`Upload ${files.length} file(s) into ${path}? OK replaces files of the same name; Cancel keeps them (the upload then stops at a clash).`);
+    change({ op: "upload", path, files, overwrite });
+  };
+  const ask = (what, f) => {
+    if (what === "delete") {
+      const typed = window.prompt(`Delete ${f.path}${f.dir ? " and everything in it" : ""} for good? Type its full path to confirm:`);
+      if (typed) change({ op: "delete", path: f.path, confirm_path: typed });
+      return;
+    }
+    const to = window.prompt(what === "rename" ? "New name:" : `${what === "copy" ? "Copy" : "Move"} to (full path):`, what === "rename" ? f.name : f.path);
+    if (!to) return;
+    change({ op: what === "copy" ? "copy" : "move", path: f.path, to: what === "rename" ? join(to) : to });
+  };
+  const shown = (d?.entries || []).filter((e) => !find || e.name.toLowerCase().includes(find.toLowerCase()));
+  return (
+    <div className="ct-files" aria-label={`Files in ${service}`}>
+      <div className="toolbar">
+        <label>Folder <input value={path} onChange={(e) => setPath(e.target.value)} onKeyDown={(e) => e.key === "Enter" && load(path)} /></label>
+        <button onClick={() => load(path.split("/").slice(0, -1).join("/") || "/")} disabled={path === "/"}>Up</button>
+        <button onClick={() => load(path)}>Refresh</button>
+        <input placeholder="Filter" value={find} onChange={(e) => setFind(e.target.value)} aria-label="Filter this folder" />
+        {!d?.read_only_reason && <>
+          <button disabled={busy} onClick={() => { const n = window.prompt("New folder name:"); if (n) change({ op: "mkdir", path: join(n) }); }}>New folder</button>
+          <label className="button">Upload<input type="file" multiple hidden onChange={(e) => e.target.files.length && upload(e.target.files)} /></label></>}
+      </div>
+      {d?.read_only_reason && <p className="quiet small">Read only here: {d.read_only_reason}</p>}
+      {d?.mount && <p className="small">This folder is a mount: <code>{d.mount.source}</code>{d.mount.read_only ? " (read only)" : ""}.</p>}
+      {err && <p className="status bad">{err}</p>}
+      {!d ? !err && <p>Loading...</p> : (
+        <table className="grid-table">
+          <thead><tr><th>Name</th><th>Size</th><th>Changed</th><th>Owner</th><th>Permissions</th><th /></tr></thead>
+          <tbody>{shown.map((f) => (
+            <tr key={f.path}>
+              <td>{f.dir ? <button className="linkish" onClick={() => load(f.path)}>{f.name}/</button> : <button className="linkish" onClick={() => view(f)}>{f.name}</button>}
+                {f.mount && <span className="quiet small"> mount: {f.mount.source}{f.mount.read_only ? " (read only)" : ""}</span>}</td>
+              <td>{f.dir ? "" : mb(f.bytes) || `${f.bytes} B`}</td>
+              <td className="small nowrap">{f.modified ? fmtDateTime(new Date(f.modified * 1000).toISOString()) : ""}</td>
+              <td className="small">{f.owner}</td><td className="small"><code>{f.permissions}</code></td>
+              <td className="nowrap small">
+                <button className="linkish" onClick={() => download(f)}>Download</button>
+                {!d.read_only_reason && <> · <button className="linkish" onClick={() => ask("rename", f)}>Rename</button>
+                  {" "}· <button className="linkish" onClick={() => ask("move", f)}>Move</button>
+                  {" "}· <button className="linkish" onClick={() => ask("copy", f)}>Copy</button>
+                  {" "}· <button className="linkish bad-text" onClick={() => ask("delete", f)}>Delete</button></>}
+              </td>
+            </tr>))}</tbody>
+        </table>)}
+      {file && (
+        <div className="card ct-file">
+          <h4><code>{file.path}</code> · {file.bytes} bytes <button className="linkish" onClick={() => { setFile(null); setEdit(null); }}>Close</button></h4>
+          {file.binary ? <p className="quiet">Not a text file: download it instead.</p>
+            : edit == null ? <>
+              {!file.read_only_reason && <button onClick={() => setEdit(file.text)}>Edit</button>}
+              {file.read_only_reason && <p className="quiet small">Read only: {file.read_only_reason}</p>}
+              <pre className="ct-file-text">{file.text}</pre></>
+              : <>
+                <textarea className="ct-file-edit" value={edit} onChange={(e) => setEdit(e.target.value)} rows={24} aria-label={`Edit ${file.path}`} />
+                <button disabled={busy} onClick={async () => { const out = await change({ op: "write", path: file.path, content: edit, sha256: file.sha256 }, `Save your changes to ${file.path}? The file is replaced (the before and after go into the audit trail).`); if (out) view(file); }}>Save</button>
+                <button onClick={() => setEdit(null)}>Cancel</button></>}
+        </div>)}
+    </div>
   );
 }

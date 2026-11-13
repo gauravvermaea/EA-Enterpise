@@ -304,6 +304,13 @@ testbench/                  the test bench: the self-test's tests run from outsi
 docs/                       phase guides, operations, decisions; requirements and build plan
 ```
 
+## Contributing
+
+Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first: an issue before a pull request, every
+commit signed off (Developer Certificate of Origin), contributions under AGPL-3.0, and the rules every change keeps.
+Everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md); report security problems privately
+([SECURITY.md](SECURITY.md)).
+
 ## Licence
 
 AGPL-3.0 (see [LICENSE](LICENSE)). The open-source products it runs keep their own licences

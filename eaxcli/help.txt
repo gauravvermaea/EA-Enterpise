@@ -16,8 +16,8 @@ EA Explorer helper. Usage: {eax} <command> [options]
 [py](The launcher fetches uv into work/tools the first time and runs this Python program with it; D331)
 First time: {eax} init, then {eax} up.   Every day: {eax} up to start, {eax} stop to stop (your data is kept).
 
-## Starting and stopping
-: To delete the data as well, see "Deleting everything and starting again" below (cleanup, clean-restart).
+## Start and stop
+: cleanup, clean-restart and clean-run DELETE data. To stop without deleting anything, use stop.
 
 ### up|run [service...] [--wait-all]
 > Starts EA Explorer. Keeps the databases, documents and settings from last time.
@@ -47,94 +47,26 @@ Use it when something is stuck. Each step writes its own log. To start again wit
 clean-restart instead.
 $ {eax} restart
 
-### status
-> Lists every container with its state and health, then the disks. Changes nothing.
-Stopped containers are listed too. Then the file systems: Docker's disk, the work and backups folders, and this
-computer's drive (size, used, free).
-$ {eax} status
+### cleanup [--all] [--yes] [--certificate]
+> Stops EA Explorer and DELETES the work folder (config, logs, backups); --all: the databases too.
+Deletes: the config file, every log, the laptop data folders, and every backup and restore log. With --all it also
+deletes the Docker volumes, so the databases and documents start empty. Keeps: the local certificate
+(work/data/tls; --certificate deletes it too) and work/tools. Asks you to type yes unless --yes is given.
+$ {eax} cleanup
+$ {eax} cleanup --all
 
-## Getting started (the first time)
+### clean-restart [laptop|server] [--wait-all]
+> Stops EA Explorer, DELETES everything (databases included) and starts fresh. Does not ask.
+For testing a new version: stop (down), then cleanup --all --yes, init and up. Rebuilds our images and starts with
+empty databases and the sample data, the industry packs, the documentation and (in the background) the test runner:
+nothing else to run before testing. The trusted certificate and persist/ are kept.
+$ {eax} clean-restart
+$ {eax} clean-restart --wait-all
 
-### init [laptop|server]
-> Creates the config file work/eaexplorer.env and the work folders. Never overwrites a config file.
-Made from the template for the deployment kind (laptop if not given). Nothing is generated: on a laptop every
-password is P^55w0rd1234&; on a server, replace every change-me value in work/eaexplorer.env before starting.
-$ {eax} init
-$ {eax} init server
-
-### deploy [--console|--web] [--kind laptop|server|aws|azure|digitalocean] [--plan] [--yes]
-> Guided deployment: this laptop, a server (here or over SSH), AWS, Azure or DigitalOcean.
-The deployment wizard (D498). It first asks whether to carry on here in the console or in a web page it opens in your
-browser (served by eax itself, before EA Explorer is up); --console or --web skip that question. Then it asks where:
-  laptop         this computer: makes the config file if there is none, starts EA Explorer, checks it is healthy.
-  server         a Linux server: this one, or another one over SSH from here (a user who may use sudo, signed in
-                 with your SSH key). Docker is installed if it is missing; the release is downloaded onto it.
-  aws, azure, digitalocean
-                 creates the machine from your cloud credentials (the aws, az or doctl command must be installed
-                 here): the machine, a data disk, the firewall, a fixed address, storage for off-site backups, the
-                 DNS names; or uses a machine you already have, over SSH.
-For a server or a cloud machine it makes the config file with every password generated, your certificate or a
-self-signed one, starts EA Explorer, checks it is healthy and shows the address and the first sign-in. It can also
-keep the passwords in a key vault (see secrets) and move an existing installation there from one of its
-infrastructure backups. Every step is in work/logs/eax-<time>-deploy.log (passwords masked); a step that fails
-asks: retry, back to the answers, or quit. Cloud credentials are used for this run only unless you ask to keep them.
-  --plan         show every step and every command it would run, and run nothing.
-  --kind K       answer the first question; --answers file.json or --set key=value answer others (the answers'
-                 names are shown before it starts); --yes runs without asking (every answer given or default).
-Not set up yet? The installer downloads EA Explorer first and then runs this: see docs/deployment.md.
-$ {eax} deploy
-$ {eax} deploy --web
-$ {eax} deploy --console --kind aws --plan
-$ {eax} deploy --console --kind server --set where=ssh --set ssh_target=ubuntu@203.0.113.10 --set hostname=ea.example.org
-
-### check
-> Checks that Docker is running and the config and compose files are valid. Starts nothing.
-$ {eax} check
-
-## Everyday use
-
-### url
-> Prints the addresses to open (and the logins on a laptop).
-
-### logins
-> Prints every user name and password (laptop only).
-
-### trust [--remove]
-> Makes the browser trust EA Explorer's local certificate (no more warnings on https://localhost).
-[win]It adds work/data/tls/ca.crt to your Windows trusted root certificates.
-[unix]It adds work/data/tls/ca.crt to this computer's trusted certificates (macOS: your login keychain; Linux: it
-[unix]prints the commands, which need sudo).
-Run it once after the first start: clean-run and clean-restart keep the certificate. --remove takes EA Explorer's
-certificates out again.
-$ {eax} trust
-$ {eax} trust --remove
-
-### services
-> Lists the optional services, whether each is on in the config file, and its containers' state.
-The optional services: reports, documents, drawio, mcp, change_log, backups, library, views.
-
-### service <name> on|off
-> Switches one optional service on or off, then starts or stops its containers.
-It keeps a dated copy of the config file in work/config-history first. Everything is on unless switched off
-(D191). Also in System admin > System settings > Services.
-$ {eax} service reports off
-$ {eax} service reports on
-
-### servers [n]
-> Shows how many API and job servers run; with n (1 to 16), sets the number without a restart.
-With n it writes EAX_API_SERVERS (a dated copy of the config file first) and adds or removes servers now; nginx
-spreads the API calls across them (D249). Also on Administration > Containers.
-$ {eax} servers
-$ {eax} servers 3
-
-### standby [status|promote]
-> The database standby (EAX_COMPOSE_EXTRA=standby): how far behind it is, or make it the primary.
-With EAX_COMPOSE_EXTRA=standby and EAX_REPLICATION_PASSWORD in the config file, db-standby follows the primary
-continuously (phase 36.3, D527). status shows the primary's replication and how far behind the standby is. promote
-makes the standby the primary after the primary is lost (it asks you to type PROMOTE); then set EAX_DB_HOST to it
-and run {eax} up. A standby is not a backup: the nightly backups stay.
-$ {eax} standby
-$ {eax} standby promote
+### clean-run [laptop|server] [--wait-all]
+> DELETES everything (databases included), then starts fresh: cleanup --all, init, up. Does not ask.
+$ {eax} clean-run
+$ {eax} clean-run server
 
 ### maintenance on|off
 > Shows (or stops showing) the maintenance page to everyone.
@@ -142,92 +74,32 @@ Served by the proxy. Restores and up (an upgrade) switch it on and off themselve
 $ {eax} maintenance on
 $ {eax} maintenance off
 
-### secrets [show|push|pull] [--to|--from provider:name]
-> Keeps the passwords in a key vault (a file, AWS, Azure) or takes them back from it.
-The passwords and keys in work/eaexplorer.env can be kept in a key vault as well (D504): file:<path> (a file outside
-the installation, readable by its owner only; also on a DigitalOcean Droplet), aws:<secret name> (Secrets Manager,
-one secret holding them all) or azure:<vault name> (Key Vault, one secret each). The config file says which
-(EAX_SECRETS_FROM). Docker Compose still reads them from the config file when it starts.
-  show           where they are kept (the default).
-  push           the config file's values into the vault (eax deploy does this once when you choose a vault).
-  pull           the vault's values into the config file (a dated copy of the file first, in work/config-history),
-                 e.g. after rebuilding the server or rotating a password; then restart.
-$ {eax} secrets
-$ {eax} secrets push --to aws:eaexplorer/prod
-$ {eax} secrets pull
+## Status and logs
 
-### import [source|--all] [--as user]
-> Takes the files other systems dropped in their delivery folders; each waits for review in the screens.
-Without a source it lists every import source (a model's Import and export tab > Deliveries), its folder and how many
-deliveries wait. With a source (its name, folder or id) or --all it takes the files in the source's folder in the
-API's import folder, deliveries/<model>/<source>/incoming (the eax-imports volume, or EAX_IMPORT_DIR, which IT may map
-to SFTP or a share). A CSV set with master.csv becomes one delivery; each workbook, .zip or CSV one each. Each is
-previewed, then a Committer accepts or declines it on the model's Deliveries tab. --as names who took them (the log).
-Needs the api container running. The formats: docs/import-formats.md.
-$ {eax} import
-$ {eax} import "Configuration database"
-$ {eax} import --all
+### status
+> Lists every container with its state and health, then the disks. Changes nothing.
+First the release and its build ("EA Explorer 1.0.0, build 4f2a9c1", as at the top left of the screens). Stopped
+containers are listed too. Then the file systems: Docker's disk, the work and backups folders, and this
+computer's drive (size, used, free).
+$ {eax} status
 
-### schedule [list|add <name> [when] [--off] [--no-backup] [--keep N] [--banner] [--confirm <name>] -- <command>|demo-reset [--at HH:MM] --confirm <name>|on|off|remove|run <id>]
-> Scheduled eax commands: a cron in the platform, e.g. a demo that resets itself every night.
-The same schedules as System admin > Command centre > Schedules, kept in persist/schedules.json, which no reset
-deletes (D558, D559); the operations helper starts what is due, in the installation's time zone (EAX_TIMEZONE). When:
---at HH:MM (every night, the default), --weekly <0-6> (0 Sunday) with --at, --hourly <minute>, --once
-YYYY-MM-DDTHH:MM or --cron "<minute hour day month weekday>". A command that deletes everything (clean-restart,
-clean-run, cleanup) needs --confirm with the installation's name, once; it takes a safety backup first unless
---no-backup (the newest --keep N, default 3, kept in persist/safety-backups/). --banner tells everyone when the demo
-resets. A run missed while the machine was off runs once if found within the hour; one due while another command runs
-waits up to 30 minutes. Every run is in the Command centre's History.
-$ {eax} schedule list
-$ {eax} schedule add "Nightly backup" --at 01:30 -- backup nightly
-$ {eax} schedule add "Weekly smoke test" --weekly 1 --at 06:00 -- test smoke
-$ {eax} schedule demo-reset --at 02:00 --confirm demo-laptop
-$ {eax} schedule off a1b2c3
+### url
+> Prints the addresses to open (and the logins on a laptop).
 
-### packs [auto|source [folder...] [--clear]|load [folder]|reload|status|collect [source...]]
-> The industry packs: the books, workbooks, metamodel Excel and PowerPoints on the library's Pack tab.
-Nothing to run by hand (D584): every up, run, restart, clean-restart and clean-run copies what is new or changed in the
-pack sources into library/industry-packs first (packs auto; quick when nothing changed; nothing to do when no source
-folder is there), and EA Explorer puts them into Documents as it starts (new or changed files only, by checksum; files
-marked not for AI use are never loaded; the start-up status shows "Industry packs loading n of N"). The pack sources:
-persist/settings.json (set with packs source, kept across resets), else EAX_PACKS_SOURCE in the config (several
-separated by ;), else Enterprise_Architecture\Industry Specific Guidance and Sample_Repo (the metamodels and views) in
-your home folder. collect (optional) copies them now; the "complete set" zips are opened, the same file kept once,
-files over 50 MB split into parts below 45 MB (no Git LFS). load (or reload) puts them into Documents now; load
-<folder> loads another folder on this computer. status shows each industry's pack. See docs/industry-packs.md.
-$ {eax} packs status
-$ {eax} packs source "D:\Packs\Industry Specific Guidance" "D:\Packs\Sample_Repo"
-$ {eax} packs source --clear
-$ {eax} packs load "D:\More packs"
+### logins
+> Prints every user name and password (laptop only).
 
-### update [--status] [--retry] [--channel prod|rc|latest] [--to <version>] [--at <time>] [--url <link>] [--yes]
-> Moves to a newer release from the git repository: a full backup first, then one release at a time.
-Without options it is guided: it shows the installed version and the channels, lists the versions above the installed
-one (forward only) with their release notes, and asks which one, now or at a time, and to type YES. Prod (tags vX.Y.Z
-on the release branch) is always offered; RC (tags vX.Y.Z-rc.N) and Latest (every commit on main) only once enabled in
-System admin > Updates. First a full backup (every database, every file, the config file and the code as it is, local
-changes included; pinned), then the maintenance page while each release on the way is built here, started and checked.
-A failed step stops and asks: --retry runs it again, or roll back. The update runs in its own updater container, so it
-carries on while EA Explorer restarts. --status shows the installed version, the update running, the schedule and the
-history. --url sets the repository link (EAX_UPDATE_GIT_URL). --at 22:00 (or a date and time) schedules it; signed-in
-people see a banner beforehand. Also on System admin > Updates (Super Admins and IT Admins).
-$ {eax} update
-$ {eax} update --status
-$ {eax} update --channel prod --to 0.20.0 --at 22:00
-$ {eax} update --retry
-
-### rollback [--yes]
-> Back to the version before the last update: its code and its pre-update backup put back.
-Work done since the update is lost; the current state is backed up first and kept. The failed version is marked in the
-history. Asks you to type YES unless --yes is given.
-$ {eax} rollback
-
-## Finding problems
-
-### logs [service]
-> Follows the logs of every container, or of one. Ctrl+C stops following; nothing is stopped.
+### logs [service|backup|clean] [--older-than N] [--yes]
+> Follows the logs of every container, or of one; or backs up or cleans the logs kept on disk.
+Ctrl+C stops following; nothing is stopped. Every container's log is also kept on disk, one file a day (logs/, or the
+folder EAX_LOGS_DIR names), across clean-restart and updates (R2.32). `logs backup [tag]` zips those and eax's own
+logs (work/logs) into work/backups/logs; `logs clean` deletes them and the log backups when older than N days (default
+14 on a laptop, 90 on a server; also every night, System Admin > Settings "Delete logs older than"), asking first
+(--yes skips it) (R2.30).
 $ {eax} logs
 $ {eax} logs api
+$ {eax} logs backup before-upgrade
+$ {eax} logs clean --older-than 30 --yes
 
 ### diag
 > Saves a diagnostics report into this run's log: the file to send when asking for help.
@@ -235,45 +107,36 @@ Docker versions, memory and disk, image settings, every container's state, the l
 container, and the compose configuration (passwords masked).
 $ {eax} diag
 
-### debug [service...] [--wait-all]
-> Starts like up but does not stop on a failure, then records the containers' output until Ctrl+C.
-It saves a diagnostics report, then keeps recording every container's output to
-work/logs/containers-<date-time>.log. The containers keep running after Ctrl+C. "debug api" starts and records
-the API (and PostgreSQL) only.
-$ {eax} debug
-$ {eax} debug api
+### footprint [label]
+> Measures how much each container takes and keeps it in work/footprint, beside the measurement before.
+Image size, the container's own disk, its volumes, memory and CPU now, and how long it took to start (to healthy).
+work/footprint/latest.md is the table, with the change since the one before in brackets: measure before and after a
+change (label says which). Also System Admin > Footprint (R2.22). Changes nothing.
+$ {eax} footprint
+$ {eax} footprint after-slim-images
 
-### test [smoke|full|backup|failed [run] [--warnings]|delete <run|all> [--older-than DAYS]|clean]
-> Test this installation: smoke or full; only what failed last time; or delete the test data.
-The same two tests as System Admin > Tools > Self-test (owner, 12 Nov 2026, D592: "Smoke or Full. Not too many
-options"); a run started in either place shows in both. Each run first removes any test data earlier runs left
-(D593), starts a test container of its own, makes the models, project and test accounts it needs
-(self_test_<id>_<n>), tests only inside them, writes the report and removes the container. Nothing else changes.
-It prepares the test container first (seconds when it is current; the first time 5 to 15 minutes). Super Admins
-and IT Admins.
-  smoke   (the default) a few minutes: every role signs in, every main area answers, every page opens and the key
-          journeys run once.
-  full    everything: every API endpoint as every role (allowed and refused), the database checks, security, then
-          every page and every journey in a headless browser.
-  backup  only the backup checks (the last part of full): an infrastructure and an application backup, each restored into
-          a scratch copy and counted, then removed; nothing live is touched (R2.45). Until they pass, the Backups page shows
-          these commands instead of its buttons (R2.46)
-  failed  only the checks that failed in the last finished run (or in the run named: failed 12), as the same roles,
-          in fresh test data; --warnings repeats its warnings too. Quicker while fixing; the report shows each check
-          then and now, and when all pass the earlier run is marked as followed up. A full run is still what counts
-          for a release. Also Self-test > History > Run the failed ones again (R2.36).
-  delete  deletes test runs for good: their test data, results and screenshots, reports, logs and videos (R2.43):
-          delete 12, delete all, delete --older-than 30; asks you to type DELETE (--yes skips that). Old runs also go
-          by themselves after the days set on the Self-test page (default 30)
-  clean   deletes the test data of every run, for good (asks you to type DELETE; --yes skips that). The reports stay.
-The report: work/tests/<run>/report.html (and the Self-test page's History). The exit code is 1 when a test failed.
-$ {eax} test
-$ {eax} test full
-$ {eax} test backup
-$ {eax} test failed
-$ {eax} test failed 12 --warnings
-$ {eax} test delete --older-than 30
-$ {eax} test clean
+### databases
+> Lists every database EA Explorer uses: what it holds, where it lives and whether it answers.
+Each has its own setting in work/eaexplorer.env: empty = the shared PostgreSQL; set one to move that database to a
+container or server of its own (docs/databases.md). Also System Admin > Databases (R2.50).
+A database of its own gets its tables at the next start (eax up). `copy tests` brings the self-test runs made
+before it moved (R2.28). `speed` times how the database compares text, and lists where the code does (R2.52).
+$ {eax} databases
+$ {eax} databases copy tests
+$ {eax} databases copy operations
+$ {eax} databases speed
+
+### persist [list|delete] [<item>] [--all] [--yes]
+> Lists what persist/ holds, or deletes an item of it (or everything) for good.
+persist/ survives every reset by design: the schedules, the banner, the Self-test settings, the safety backups taken
+before a command that deletes everything, the reset-survival results. A deleted settings file falls back to its
+default (no schedules, no banner). Asks you to type DELETE (--yes skips it). Also System Admin > Persist (R2.26).
+$ {eax} persist
+$ {eax} persist delete banner.json
+$ {eax} persist delete --all --yes
+
+## Backups and restores
+
 ### backup [tag]
 > Takes an infrastructure backup now: every database, the document files, the certificate and config.
 Also the release and image versions. Into work/backups/infrastructure (D216, D226).
@@ -302,15 +165,6 @@ $ {eax} restore before-upgrade --what db
 ### restores
 > Lists every restore (infrastructure and model) with its status.
 
-### databases
-> Lists every database EA Explorer uses: what it holds, where it lives and whether it answers.
-Each has its own setting in work/eaexplorer.env: empty = the shared PostgreSQL; set one to move that database to a
-container or server of its own (docs/databases.md). Also System Admin > Databases (R2.50).
-A database of its own gets its tables at the next start (eax up). `copy tests` brings the self-test runs made
-before it moved (R2.28).
-$ {eax} databases
-$ {eax} databases copy tests
-
 ### restore-log <id>
 > Shows a restore's whole log (also in work/backups/restores/<id>).
 $ {eax} restore-log 12
@@ -338,34 +192,209 @@ Lists the backups and the models in them to choose from. Needs the api container
 Models no longer there are made again; newer models stay as they are. Needs the api container running.
 $ {eax} restore-app latest
 
-## Deleting everything and starting again
-: These DELETE data. To stop without deleting anything, use stop.
+### schedule [list|add <name> [when] [--off] [--no-backup] [--keep N] [--banner] [--confirm <name>] -- <command>|demo-reset [--at HH:MM] --confirm <name>|on|off|remove|run <id>]
+> Scheduled eax commands: a cron in the platform, e.g. a demo that resets itself every night.
+The same schedules as System admin > Command centre > Schedules, kept in persist/schedules.json, which no reset
+deletes (D558, D559); the operations helper starts what is due, in the installation's time zone (EAX_TIMEZONE). When:
+--at HH:MM (every night, the default), --weekly <0-6> (0 Sunday) with --at, --hourly <minute>, --once
+YYYY-MM-DDTHH:MM or --cron "<minute hour day month weekday>". A command that deletes everything (clean-restart,
+clean-run, cleanup) needs --confirm with the installation's name, once; it takes a safety backup first unless
+--no-backup (the newest --keep N, default 3, kept in persist/safety-backups/). --banner tells everyone when the demo
+resets. A run missed while the machine was off runs once if found within the hour; one due while another command runs
+waits up to 30 minutes. Every run is in the Command centre's History.
+$ {eax} schedule list
+$ {eax} schedule add "Nightly backup" --at 01:30 -- backup nightly
+$ {eax} schedule add "Weekly smoke test" --weekly 1 --at 06:00 -- test smoke
+$ {eax} schedule demo-reset --at 02:00 --confirm demo-laptop
+$ {eax} schedule off a1b2c3
 
-### cleanup [--all] [--yes] [--certificate]
-> Stops EA Explorer and DELETES the work folder (config, logs, backups); --all: the databases too.
-Deletes: the config file, every log, the laptop data folders, and every backup and restore log. With --all it also
-deletes the Docker volumes, so the databases and documents start empty. Keeps: the local certificate
-(work/data/tls; --certificate deletes it too) and work/tools. Asks you to type yes unless --yes is given.
-$ {eax} cleanup
-$ {eax} cleanup --all
+## Updates
 
-### clean-restart [laptop|server] [--wait-all]
-> Stops EA Explorer, DELETES everything (databases included) and starts fresh. Does not ask.
-For testing a new version: stop (down), then cleanup --all --yes, init and up. Rebuilds our images and starts with
-empty databases and the sample data, the industry packs, the documentation and (in the background) the test runner:
-nothing else to run before testing. The trusted certificate and persist/ are kept.
-$ {eax} clean-restart
-$ {eax} clean-restart --wait-all
+### update [--status] [--retry] [--channel prod|rc|latest] [--to <version>] [--at <time>] [--url <link>] [--yes]
+> Moves to a newer release from the git repository: a full backup first, then one release at a time.
+Without options it is guided: it shows the installed version and the channels, lists the versions above the installed
+one (forward only) with their release notes, and asks which one, now or at a time, and to type YES. Prod (tags vX.Y.Z
+on the release branch) is always offered; RC (tags vX.Y.Z-rc.N) and Latest (every commit on main) only once enabled in
+System admin > Updates. First a full backup (every database, every file, the config file and the code as it is, local
+changes included; pinned), then the maintenance page while each release on the way is built here, started and checked.
+A failed step stops and asks: --retry runs it again, or roll back. The update runs in its own updater container, so it
+carries on while EA Explorer restarts. --status shows the installed version, the update running, the schedule and the
+history. --url sets the repository link (EAX_UPDATE_GIT_URL). --at 22:00 (or a date and time) schedules it; signed-in
+people see a banner beforehand. Also on System admin > Updates (Super Admins and IT Admins).
+$ {eax} update
+$ {eax} update --status
+$ {eax} update --channel prod --to 0.20.0 --at 22:00
+$ {eax} update --retry
 
-### clean-run [laptop|server] [--wait-all]
-> DELETES everything (databases included), then starts fresh: cleanup --all, init, up. Does not ask.
-$ {eax} clean-run
-$ {eax} clean-run server
+### rollback [--yes]
+> Back to the version before the last update: its code and its pre-update backup put back.
+Work done since the update is lost; the current state is backed up first and kept. The failed version is marked in the
+history. Asks you to type YES unless --yes is given.
+$ {eax} rollback
 
-### clean-debug [laptop|server] [--wait-all]
-> The same as clean-run, but ends with debug instead of up. Does not ask.
+### packs [auto|source [folder...] [--clear]|load [folder]|reload|status|collect [source...]]
+> The industry packs: the books, workbooks, metamodel Excel and PowerPoints on the library's Pack tab.
+Nothing to run by hand (D584): every up, run, restart, clean-restart and clean-run copies what is new or changed in the
+pack sources into library/industry-packs first (packs auto; quick when nothing changed; nothing to do when no source
+folder is there), and EA Explorer puts them into Documents as it starts (new or changed files only, by checksum; files
+marked not for AI use are never loaded; the start-up status shows "Industry packs loading n of N"). The pack sources:
+persist/settings.json (set with packs source, kept across resets), else EAX_PACKS_SOURCE in the config (several
+separated by ;), else Enterprise_Architecture\Industry Specific Guidance and Sample_Repo (the metamodels and views) in
+your home folder. collect (optional) copies them now; the "complete set" zips are opened, the same file kept once,
+files over 50 MB split into parts below 45 MB (no Git LFS). load (or reload) puts them into Documents now; load
+<folder> loads another folder on this computer. status shows each industry's pack. See docs/industry-packs.md.
+$ {eax} packs status
+$ {eax} packs source "D:\Packs\Industry Specific Guidance" "D:\Packs\Sample_Repo"
+$ {eax} packs source --clear
+$ {eax} packs load "D:\More packs"
 
-## When something is wrong
+### import [source|--all] [--as user]
+> Takes the files other systems dropped in their delivery folders; each waits for review in the screens.
+Without a source it lists every import source (a model's Import and export tab > Deliveries), its folder and how many
+deliveries wait. With a source (its name, folder or id) or --all it takes the files in the source's folder in the
+API's import folder, deliveries/<model>/<source>/incoming (the eax-imports volume, or EAX_IMPORT_DIR, which IT may map
+to SFTP or a share). A CSV set with master.csv becomes one delivery; each workbook, .zip or CSV one each. Each is
+previewed, then a Committer accepts or declines it on the model's Deliveries tab. --as names who took them (the log).
+Needs the api container running. The formats: docs/import-formats.md.
+$ {eax} import
+$ {eax} import "Configuration database"
+$ {eax} import --all
+
+## Test
+
+### check
+> Checks that Docker is running and the config and compose files are valid. Starts nothing.
+$ {eax} check
+
+### test [smoke|full|backup|ui-review|failed [run] [--warnings]|delete <run|all> [--older-than DAYS]|clean]
+> Test this installation: smoke or full; only what failed last time; or delete the test data.
+The same two tests as System Admin > Tools > Self-test (owner, 12 Nov 2026, D592: "Smoke or Full. Not too many
+options"); a run started in either place shows in both. Each run first removes any test data earlier runs left
+(D593), starts a test container of its own, makes the models, project and test accounts it needs
+(self_test_<id>_<n>), tests only inside them, writes the report and removes the container. Nothing else changes.
+It prepares the test container first (seconds when it is current; the first time 5 to 15 minutes). Super Admins
+and IT Admins.
+  smoke   (the default) a few minutes: every role signs in, every main area answers, every page opens and the key
+          journeys run once.
+  full    everything: every API endpoint as every role (allowed and refused), the database checks, security, then
+          every page and every journey in a headless browser.
+  backup  only the backup checks (the last part of full): an infrastructure and an application backup, each restored into
+          a scratch copy and counted, then removed; nothing live is touched (R2.45). Until they pass, the Backups page shows
+          these commands instead of its buttons (R2.46)
+  ui-review  screenshots of every main page as each test role at laptop, large and narrow widths, with notes (page
+          wider than the window, missing titles, unnamed buttons and fields, long text); ui-review.html in the run's
+          folder. It changes nothing: the notes are discussed before any fix (R2.12)
+  failed  only the checks that failed in the last finished run (or in the run named: failed 12), as the same roles,
+          in fresh test data; --warnings repeats its warnings too. Quicker while fixing; the report shows each check
+          then and now, and when all pass the earlier run is marked as followed up. A full run is still what counts
+          for a release. Also Self-test > History > Run the failed ones again (R2.36).
+  delete  deletes test runs for good: their test data, results and screenshots, reports, logs and videos (R2.43):
+          delete 12, delete all, delete --older-than 30; asks you to type DELETE (--yes skips that). Old runs also go
+          by themselves after the days set on the Self-test page (default 30)
+  clean   deletes the test data of every run, for good (asks you to type DELETE; --yes skips that). The reports stay.
+          --dry-run lists what it would delete (models with their counts, projects, accounts) and deletes nothing.
+          Each run removes its own test data when it ends (passed, failed or stopped); lists leave test data out.
+A run can start right after up or clean-restart: it waits only for the services it tests (up to 10 minutes), never
+for the sample data or the industry packs; a switched-off service's checks are skipped.
+The report: work/tests/<run>/report.html (and the Self-test page's History). The exit code is 1 when a test failed.
+$ {eax} test
+$ {eax} test full
+$ {eax} test backup
+$ {eax} test ui-review
+$ {eax} test failed
+$ {eax} test failed 12 --warnings
+$ {eax} test delete --older-than 30
+$ {eax} test clean
+$ {eax} test clean --dry-run
+
+## Settings and services
+
+### services
+> Lists the optional services, whether each is on in the config file, and its containers' state.
+The optional services: reports, documents, drawio, mcp, change_log, backups, library, views.
+
+### service <name> on|off
+> Switches one optional service on or off, then starts or stops its containers.
+It keeps a dated copy of the config file in work/config-history first. Everything is on unless switched off
+(D191). Also in System admin > System settings > Services.
+$ {eax} service reports off
+$ {eax} service reports on
+
+### servers [n]
+> Shows how many API and job servers run; with n (1 to 16), sets the number without a restart.
+With n it writes EAX_API_SERVERS (a dated copy of the config file first) and adds or removes servers now; nginx
+spreads the API calls across them (D249). Also on Administration > Containers.
+$ {eax} servers
+$ {eax} servers 3
+
+### standby [status|promote]
+> The database standby (EAX_COMPOSE_EXTRA=standby): how far behind it is, or make it the primary.
+With EAX_COMPOSE_EXTRA=standby and EAX_REPLICATION_PASSWORD in the config file, db-standby follows the primary
+continuously (phase 36.3, D527). status shows the primary's replication and how far behind the standby is. promote
+makes the standby the primary after the primary is lost (it asks you to type PROMOTE); then set EAX_DB_HOST to it
+and run {eax} up. A standby is not a backup: the nightly backups stay.
+$ {eax} standby
+$ {eax} standby promote
+
+### secrets [show|push|pull] [--to|--from provider:name]
+> Keeps the passwords in a key vault (a file, AWS, Azure) or takes them back from it.
+The passwords and keys in work/eaexplorer.env can be kept in a key vault as well (D504): file:<path> (a file outside
+the installation, readable by its owner only; also on a DigitalOcean Droplet), aws:<secret name> (Secrets Manager,
+one secret holding them all) or azure:<vault name> (Key Vault, one secret each). The config file says which
+(EAX_SECRETS_FROM). Docker Compose still reads them from the config file when it starts.
+  show           where they are kept (the default).
+  push           the config file's values into the vault (eax deploy does this once when you choose a vault).
+  pull           the vault's values into the config file (a dated copy of the file first, in work/config-history),
+                 e.g. after rebuilding the server or rotating a password; then restart.
+$ {eax} secrets
+$ {eax} secrets push --to aws:eaexplorer/prod
+$ {eax} secrets pull
+
+### trust [--remove]
+> Makes the browser trust EA Explorer's local certificate (no more warnings on https://localhost).
+[win]It adds work/data/tls/ca.crt to your Windows trusted root certificates.
+[unix]It adds work/data/tls/ca.crt to this computer's trusted certificates (macOS: your login keychain; Linux: it
+[unix]prints the commands, which need sudo).
+Run it once after the first start: clean-run and clean-restart keep the certificate. --remove takes EA Explorer's
+certificates out again.
+$ {eax} trust
+$ {eax} trust --remove
+
+## Site and deploy
+
+### init [laptop|server]
+> Creates the config file work/eaexplorer.env and the work folders. Never overwrites a config file.
+Made from the template for the deployment kind (laptop if not given). Nothing is generated: on a laptop every
+password is P^55w0rd1234&; on a server, replace every change-me value in work/eaexplorer.env before starting.
+A server asks for the folder for backups (a mounted network share or volume, EAX_BACKUP_DIR): no backups are
+taken until it is given (R2.44). A laptop keeps them in work/backups.
+$ {eax} init
+$ {eax} init server
+
+### deploy [--console|--web] [--kind laptop|server|aws|azure|digitalocean] [--plan] [--yes]
+> Guided deployment: this laptop, a server (here or over SSH), AWS, Azure or DigitalOcean.
+The deployment wizard (D498). It first asks whether to carry on here in the console or in a web page it opens in your
+browser (served by eax itself, before EA Explorer is up); --console or --web skip that question. Then it asks where:
+  laptop         this computer: makes the config file if there is none, starts EA Explorer, checks it is healthy.
+  server         a Linux server: this one, or another one over SSH from here (a user who may use sudo, signed in
+                 with your SSH key). Docker is installed if it is missing; the release is downloaded onto it.
+  aws, azure, digitalocean
+                 creates the machine from your cloud credentials (the aws, az or doctl command must be installed
+                 here): the machine, a data disk, the firewall, a fixed address, storage for off-site backups, the
+                 DNS names; or uses a machine you already have, over SSH.
+For a server or a cloud machine it makes the config file with every password generated, your certificate or a
+self-signed one, starts EA Explorer, checks it is healthy and shows the address and the first sign-in. It can also
+keep the passwords in a key vault (see secrets) and move an existing installation there from one of its
+infrastructure backups. Every step is in work/logs/eax-<time>-deploy.log (passwords masked); a step that fails
+asks: retry, back to the answers, or quit. Cloud credentials are used for this run only unless you ask to keep them.
+  --plan         show every step and every command it would run, and run nothing.
+  --kind K       answer the first question; --answers file.json or --set key=value answer others (the answers'
+                 names are shown before it starts); --yes runs without asking (every answer given or default).
+Not set up yet? The installer downloads EA Explorer first and then runs this: see docs/deployment.md.
+$ {eax} deploy
+$ {eax} deploy --web
+$ {eax} deploy --console --kind aws --plan
+$ {eax} deploy --console --kind server --set where=ssh --set ssh_target=ubuntu@203.0.113.10 --set hostname=ea.example.org
 
 ### console [--server https://host] [--insecure]
 > A numbered menu for getting EA Explorer back up, for anyone (D330).
@@ -377,6 +406,19 @@ on another installation through its API (sign in with Keycloak, your roles).
 $ {eax} console
 $ {eax} console --server https://ea.example.org
 
+## Developer
+
+### debug [service...] [--wait-all]
+> Starts like up but does not stop on a failure, then records the containers' output until Ctrl+C.
+It saves a diagnostics report, then keeps recording every container's output to
+work/logs/containers-<date-time>.log. The containers keep running after Ctrl+C. "debug api" starts and records
+the API (and PostgreSQL) only.
+$ {eax} debug
+$ {eax} debug api
+
+### clean-debug [laptop|server] [--wait-all]
+> The same as clean-run, but ends with debug instead of up. Does not ask.
+
 ## Help and documentation
 
 ### help [command|--all]
@@ -384,6 +426,14 @@ $ {eax} console --server https://ea.example.org
 Also: {eax} <command> --help (or -h, or /?).
 $ {eax} help stop
 $ {eax} help --all
+
+### menu
+> A numbered menu of every command by group: pick one, answer its questions, see it, then run it.
+Also what {eax} with no command opens on a terminal (piped or in a script it prints this overview, as before). Each
+option of the command is asked for in turn; Enter leaves an optional one out. The whole command is shown before it
+runs, and it runs only when you answer y. Typing a command that does not exist shows the nearest ones (did you mean).
+$ {eax}
+$ {eax} menu
 
 ### document [--console|--web]
 > Every command in full, with examples: in the console (page by page) or as a web page in your browser.
@@ -397,6 +447,9 @@ $ {eax} document --console
 @internal start-later Run by up itself: starts Reports, Documents, draw.io and the sample data in the background.
 
 @footer
+Colours: in a terminal, status shows each container in its state's colour (green up, yellow starting, red down or
+failing, grey a finished set-up step) and errors, warnings and headings are coloured. --no-color, NO_COLOR=1 or CI=1
+turn colours off; output sent to a file or another program is always plain.
 {eax} help <command> shows one command in full, with examples. {eax} help --all shows every command in full.
 Every command and the console in detail: docs/command-line-and-console.md.
 Logs: every command except help and cleanup writes its full output to work/logs/eax-<date-time>-<command>.log.

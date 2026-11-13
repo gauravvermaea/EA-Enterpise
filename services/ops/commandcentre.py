@@ -17,6 +17,7 @@ D214) in which eaxcli/webconsole.py takes eax commands only.
   POST /commands/schedules       {name, argv | command+values, cron | preset, backup_first, keep, banner, confirm,
                                   demo: true for the one-click demo reset, by, roles}: a new schedule
   POST /commands/schedules/<id>/on|off|remove|run   {by, roles}
+  GET  /persist                  what persist/ holds (R2.26)   POST /persist/delete {item | all, by}: delete it for good
   GET  /banner?admin=1           the banner a person sees now, or null (D558; eaxcli/banner.py, persist/banner.json)
   GET  /banner/all               the banner, its history and any warning (System admin > Banner)
   POST /banner                   {banner: {...}, by}: set it          POST /banner/clear {by}: clear it
@@ -312,6 +313,22 @@ def scheduler() -> None:
         except Exception as exc:  # noqa: BLE001 - never stops the helper
             print(f"ops: command scheduler: {exc}", flush=True)
         time.sleep(30)
+
+
+# ---------------------------------------------------------------- persist/ (R2.26)
+def persist_list() -> dict:
+    """What persist/ holds (eaxcli/persist.py items), for System Admin > Persist."""
+    _need()
+    from eaxcli import persist as P
+    return {"items": P.items(), "folder": str(P.folder())}
+
+
+def persist_delete(body: dict) -> dict:
+    """{item | all: true, by}: deletes one item of persist/ (a settings file with its .bak, or a safety backup), or all."""
+    _need()
+    from eaxcli import persist as P
+    gone = P.delete_all() if body.get("all") else P.delete(str(body.get("item") or ""))
+    return {"deleted": gone, "items": P.items()}
 
 
 # ---------------------------------------------------------------- the banner (D558)

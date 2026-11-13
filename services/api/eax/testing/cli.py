@@ -5,7 +5,9 @@ in the api container (starting a run goes through the operations helper: service
   python -m eax.testing.cli last                    the last run: its result and every failure
   python -m eax.testing.cli report [run] [--xlsx]   where its report is (work/tests/<folder>/report.html, or .xlsx)
   python -m eax.testing.cli fixtures [run]          every self-test fixture still there, by run
-  python -m eax.testing.cli clean <run|all> [--yes] purge them, for good (asks to type DELETE without --yes)
+  python -m eax.testing.cli clean <run|all> [--yes] [--dry-run]
+                                                    purge them, for good (asks to type DELETE without --yes); --dry-run
+                                                    lists what would go and deletes nothing (R2.11)
   python -m eax.testing.cli delete <run|all> [--older-than DAYS] [--yes]
                                                     delete test runs for good: their data, results, reports, logs and
                                                     videos (R2.43)
@@ -91,17 +93,21 @@ def main(argv: list[str]) -> int:
             return 2
         with teng.connect() as conn:
             if args[0] == "all":
-                ids = [r[0] for r in conn.execute(text("SELECT DISTINCT run_id FROM core.test_fixtures WHERE purged_at IS NULL "
+                ids = [r[0] for r in conn.execute(text("SELECT DISTINCT run_id FROM tests.test_fixtures WHERE purged_at IS NULL "
                                                         "ORDER BY run_id")).all()]
             elif args[0].isdigit():
                 ids = [int(args[0])]
             else:
                 print("Usage: eax test --clean <run|all> [--yes]")
                 return 2
-            n = conn.execute(text("SELECT count(*) FROM core.test_fixtures WHERE purged_at IS NULL AND run_id = ANY(:r)"),
+            n = conn.execute(text("SELECT count(*) FROM tests.test_fixtures WHERE purged_at IS NULL AND run_id = ANY(:r)"),
                              {"r": ids}).scalar()
         if not ids or not n:
             print("No self-test fixtures to remove for that.")
+            return 0
+        if "--dry-run" in args:                       # what would go, nothing deleted (R2.11)
+            with eng.connect() as conn:
+                print(fx.preview_text(fx.preview(conn, ids)))
             return 0
         print(f"This removes {n} self-test fixture(s) of run(s) {', '.join(map(str, ids))} FOR GOOD: the self_test models and "
               "everything in them, the projects, the test accounts and credentials. It cannot be undone. The runs' reports stay.")

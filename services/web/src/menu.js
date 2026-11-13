@@ -7,7 +7,7 @@
 // An item: { label, href?, ok?, part?, items?, action?, dynamic?, note? }
 //   href    where it goes (#/... in EA Explorer, or a full address opened in a new tab)
 //   ok()    may this person use it (default: yes); part: shown only while that part is switched on (D329)
-//   items   a sub-menu; dynamic: "models" | "projects" fills it with the person's own when opened
+//   items   a sub-menu; dynamic: "models" | "projects" | "sites" fills it with the person's own when opened
 //   action  "sign-out" | "help": done in place
 import { can, libraryInfo, myInfo, partOn, roles, signOut } from "./auth";
 import { openHelp } from "./help/help";
@@ -90,6 +90,7 @@ export function menuTree() {
       { label: "Wizards", href: "#/model-admin", items: modelWizards() },
       { label: "Models", href: "#/model-admin/list" },
       { label: "Model hierarchy", href: "#/model-admin/hierarchy" },
+      { label: "Archive", href: "#/archive" },
       { label: "Metamodel drafts", href: "#/model-admin/drafts" },
       { label: "Model library", items: [
         { label: "Every library model", href: "#/library" },
@@ -180,7 +181,12 @@ export function menuTree() {
       { label: "Running", ok: ops, items: [
         { label: "Health", href: "#/admin/health" },
         { label: "Containers", href: "#/admin/containers" },
+        { label: "Hosts", href: "#/admin/hosts" },          // the Docker engine (R2.16)
+        { label: "Mounts", href: "#/admin/mounts" },        // volumes and bind mounts (R2.17)
         { label: "Databases", href: "#/admin/databases" },
+        { label: "Persist", href: "#/admin/persist" },
+        { label: "Footprint", href: "#/admin/footprint" },
+        { label: "Estate", href: "#/admin/estate" },
         { label: "Scaling", href: "#/admin/scaling" },
         { label: "Operations", href: "#/admin/operations" },
         { label: "Data quality", href: "#/admin/quality" },
@@ -189,10 +195,7 @@ export function menuTree() {
         { label: "Backups", href: "#/admin/backups" },
         { label: "Restores", href: "#/admin/restores" },
       ] },
-      { label: "Updates and deploy", ok: ops, items: [
-        { label: "Updates", href: "#/admin/updates" },
-        { label: "Deploy", href: "#/admin/deploy" },
-      ] },
+      { label: "Updates", href: "#/admin/updates", ok: ops },   // Deploy moved to the site picker (R2.14)
       { label: "Tools", ok: ops, items: [
         { label: "Command centre", href: "#/admin/commands" },
         { label: "SQL", href: "#/admin/sql" },
@@ -201,10 +204,14 @@ export function menuTree() {
       { label: "Machine access", href: "#/admin/machine-access" },
       { label: "AI activity (MCP)", href: "#/mcp", ok: () => serviceOn("mcp") },
     ] },
-    { key: "farm", label: "Local", title: "Farm Admin: the EA Explorer sites (instances); this one is Local", place: "left", ok: sup, items: [
-      { label: "● Local (this site)", href: "#/" },
-      { label: "Sites (Farm Admin)", href: "#/farm" },
+    // the site picker (R2.0, R2.2): this site, my remote instances (each opens in a new tab, signed in there), my list
+    { key: "farm", label: "Local", title: "The EA Explorer sites: this one is Local; yours open in a new tab", place: "left", items: [
+      { label: "Sites", href: "#/farm", dynamic: "farm-sites" },   // everyone's list, with a health dot (R2.1)
+      { label: "My remote instances", href: "#/farm/connect", dynamic: "sites" },
       { label: "Connect to a site", href: "#/farm/connect" },
+      { label: "Manage sites", href: "#/farm" },
+      // putting EA Explorer on another laptop, server or cloud belongs with the other sites (R2.14; owner, 11 Nov 2026)
+      { label: "Deploy EA Explorer", href: "#/farm/deploy", ok: ops },
     ] },
   ];
 }

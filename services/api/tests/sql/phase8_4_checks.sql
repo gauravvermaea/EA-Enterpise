@@ -13,19 +13,19 @@ BEGIN
 END $$;
 DO $$
 BEGIN
-    IF (SELECT count(*) FROM core.backup_schedules) <> 2 THEN
+    IF (SELECT count(*) FROM operations.backup_schedules) <> 2 THEN
         RAISE EXCEPTION 'backup schedules missing';
     END IF;
-    IF NOT (SELECT enabled AND cron = '0 1 * * *' AND keep = 7 FROM core.backup_schedules WHERE kind = 'infrastructure') THEN
+    IF NOT (SELECT enabled AND cron = '0 1 * * *' AND keep = 7 FROM operations.backup_schedules WHERE kind = 'infrastructure') THEN
         RAISE EXCEPTION 'nightly infrastructure schedule not set up';
     END IF;
     BEGIN
-        UPDATE core.backup_schedules SET keep = 0 WHERE kind = 'application';
+        UPDATE operations.backup_schedules SET keep = 0 WHERE kind = 'application';
         RAISE EXCEPTION 'keep 0 accepted';
     EXCEPTION WHEN check_violation THEN NULL;
     END;
     BEGIN
-        UPDATE core.backup_schedules SET cron = 'every night' WHERE kind = 'application';
+        UPDATE operations.backup_schedules SET cron = 'every night' WHERE kind = 'application';
         RAISE EXCEPTION 'a bad schedule accepted';
     EXCEPTION WHEN check_violation THEN NULL;
     END;

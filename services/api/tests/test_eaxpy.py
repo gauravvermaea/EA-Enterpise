@@ -82,7 +82,7 @@ def test_maintenance_and_unknown_and_logs(copy):
     assert run("maintenance", "on").returncode == 0 and (root / "work" / "proxy" / "maintenance").exists()
     assert run("maintenance", "off").returncode == 0 and not (root / "work" / "proxy" / "maintenance").exists()
     r = run("nonsense")
-    assert r.returncode == 1 and "Unknown command" in r.stdout
+    assert r.returncode == 1 and "unknown command 'nonsense'" in r.stdout
     logs = list((root / "work" / "logs").glob("eax-*-maintenance.log"))
     assert logs and "maintenance page" in logs[0].read_text(encoding="utf-8")
 

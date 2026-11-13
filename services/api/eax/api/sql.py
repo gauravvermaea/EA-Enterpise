@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from flask import g
+from flask import Response, g
 from flask.views import MethodView
 from flask_smorest import Blueprint, abort
 
 from .. import audit, sqlconsole
 from ..auth import require_auth
 from ..db import get_engine
-from .models import Free
+from .models import Free, FreeIn
 from .schemas import SqlQueryIn, SqlQueryOut
 
 blp = Blueprint(
@@ -65,7 +65,8 @@ class SqlDatabases(MethodView):
         """The databases on this installation's server (EA Explorer's own first)"""
         if not sqlconsole.enabled():
             abort(404, message="The SQL window is turned off on this installation (EAX_SQL_CONSOLE_ENABLED=false).")
-        return {"databases": sqlconsole.databases()}
+        dbs = sqlconsole.databases()
+        return {"databases": dbs, "about": {d: sqlconsole.ABOUT_DATABASES.get(d, "") for d in dbs}}
 
 
 @blp.route("/schema")
@@ -109,3 +110,87 @@ class SqlSchema(MethodView):
         return {"schema": schema, "tables": [{"name": t, "columns": c} for t, c in tables.items()],
                 "joins": [{"from": r["t"], "column": r["c"], "to": r["to_t"], "to_column": r["to_c"],
                            "outside": r["to_schema"] != schema} for r in fks]}
+
+
+# ---------------------------------------------------------------- the database workspace (R2.57)
+def _login(data: dict) -> tuple[str, str, str]:
+    if not sqlconsole.enabled():
+        abort(404, message="The SQL window is turned off on this installation (EAX_SQL_CONSOLE_ENABLED=false).")
+    return str(data.get("database") or ""), str(data.get("username") or ""), str(data.get("password") or "")
+
+
+def _guard(fn, *args, **kw):
+    try:
+        return fn(*args, **kw)
+    except sqlconsole.SqlConsoleError as exc:
+        abort(exc.status, message=str(exc), errors=exc.details)
+
+
+@blp.route("/browse")
+class SqlBrowse(MethodView):
+    @blp.doc(security=[{"bearerAuth": []}])
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def post(self, data):
+        """The tree of a database {database, username, password}: its schemas, tables and views that the login may read,
+        with estimated rows and size (R2.57)"""
+        return _guard(sqlconsole.browse, *_login(data or {}))
+
+
+@blp.route("/describe")
+class SqlDescribe(MethodView):
+    @blp.doc(security=[{"bearerAuth": []}])
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def post(self, data):
+        """A table's or view's structure {database, username, password, schema, table}: columns, indexes, constraints,
+        size, rows, a view's definition (R2.57)"""
+        data = data or {}
+        return _guard(sqlconsole.describe, *_login(data), str(data.get("schema") or ""), str(data.get("table") or ""))
+
+
+@blp.route("/rows")
+class SqlRows(MethodView):
+    @blp.doc(security=[{"bearerAuth": []}])
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def post(self, data):
+        """A page of a table's rows {..., schema, table, page, order, desc, column, contains}: 200 a page, sorted and
+        filtered, with the count; read only (R2.57). In the audit trail"""
+        data = data or {}
+        out = _guard(sqlconsole.table_rows, *_login(data), str(data.get("schema") or ""), str(data.get("table") or ""),
+                     int(data.get("page") or 0), str(data.get("order") or ""), bool(data.get("desc")),
+                     str(data.get("column") or ""), str(data.get("contains") or ""))
+        _audit({**data, "sql": f"rows of {data.get('schema')}.{data.get('table')}"}, "ok", kind="rows")
+        return out
+
+
+@blp.route("/explain")
+class SqlExplain(MethodView):
+    @blp.doc(security=[{"bearerAuth": []}])
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def post(self, data):
+        """A statement's query plan {..., sql, analyze}: EXPLAIN as JSON; with analyze it runs and is rolled back (R2.57)"""
+        data = data or {}
+        out = _guard(sqlconsole.explain, *_login(data), str(data.get("sql") or ""), bool(data.get("analyze")))
+        _audit({**data, "sql": str(data.get("sql") or "")}, "ok", kind="explain", analyze=bool(data.get("analyze")))
+        return out
+
+
+@blp.route("/export")
+class SqlExport(MethodView):
+    @blp.doc(security=[{"bearerAuth": []}])
+    @blp.arguments(FreeIn)
+    @require_auth("system.operate")
+    def post(self, data):
+        """A query's rows as a file {..., sql, format: csv|xlsx}: at most 100,000 rows, rolled back (R2.57)"""
+        data = data or {}
+        fmt = "xlsx" if data.get("format") == "xlsx" else "csv"
+        body, name, mime = _guard(sqlconsole.export, *_login(data), str(data.get("sql") or ""), fmt)
+        _audit({**data, "sql": str(data.get("sql") or "")}, "ok", kind="export", format=fmt)
+        return Response(body, mimetype=mime, headers={"Content-Disposition": f'attachment; filename="{name}"'})

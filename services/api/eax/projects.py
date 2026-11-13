@@ -51,10 +51,10 @@ NOT_FOR_USE = "not_for_use"
 def connections(write: bool = True):
     """The projects' connection with the repository's beside it (conn.info["core"]); one connection, one transaction,
     while proj is in the repository's database (D266)."""
-    from .db import get_engine, get_projects_engine
+    from .db import base_engine, get_engine, get_projects_engine
     eng, peng = get_engine(), get_projects_engine()
     with (eng.begin() if write else eng.connect()) as cconn:
-        if peng is eng:
+        if peng is base_engine():
             yield cconn
         else:
             with (peng.begin() if write else peng.connect()) as pconn:
@@ -266,8 +266,13 @@ def may_create(user) -> bool:
 
 
 # ---------------------------------------------------------------- list and read
-def listing(conn, user) -> list[dict]:
+def listing(conn, user, test_data: bool = False) -> list[dict]:
+    """The projects this person is on (a Super Admin: all); the self-test's projects (is_test_data, R2.11) only when asked
+    for, or for the self-test's own accounts."""
+    from .repository import sees_test_data
+    test_data = bool(test_data) or sees_test_data(user.username)
     rows = _rows(conn, """SELECT p.id AS pk, p.guid::text AS id, p.name, p.purpose, p.description, p.cycle, p.status, p.repo_state, p.created_by,
+                                 p.is_test_data,
                                  p.is_library, (SELECT count(*) FROM proj.documents d WHERE d.project_id = p.id AND d.folder LIKE '05_Reference_Library%'
                                      AND d.deleted_at IS NULL AND d.archived_at IS NULL) AS reference_items,
                                  p.created_at, pp.name AS parent_name, pp.guid::text AS parent_id,
@@ -280,7 +285,8 @@ def listing(conn, user) -> list[dict]:
                                  (SELECT count(*) FROM proj.documents d WHERE d.project_id = p.id
                                      AND d.archived_at IS NULL AND d.deleted_at IS NULL) AS documents
                             FROM proj.projects p LEFT JOIN proj.projects pp ON pp.id = p.parent_id
-                           WHERE p.base_kind = '' ORDER BY p.name""", u=user.username)
+                           WHERE p.base_kind = '' AND (:t OR NOT p.is_test_data) ORDER BY p.name""", u=user.username,
+                 t=test_data)
     if not _super(user):                     # their own projects, and the library projects for anyone with a role
         rows = [r for r in rows if r["my_roles"] or (r["is_library"] and (user.roles or ()))]
     done = completion(conn, [r["pk"] for r in rows])

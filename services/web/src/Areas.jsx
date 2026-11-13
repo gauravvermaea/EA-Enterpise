@@ -12,6 +12,7 @@ import { can, myInfo, needsRole, partOn } from "./auth";
 import { useApi } from "./ModelViews";
 import { fmtDateTime } from "./fmt";
 import { isRetiredModel, isRetiredProject, KindMark, ShowRetired, useShowRetired } from "./ModelMarks";
+import { ArchivedRows } from "./Archive";
 
 const ModelTree = lazy(() => import("./ModelTree"));
 
@@ -95,7 +96,8 @@ export function ArchitectureWork() {
   const { data: pd, error: pe } = useApi(projectsOn ? "/api/v1/projects" : null);
   const { data: models, error: me } = useApi("/api/v1/models");
   const [showRetired, setShowRetired] = useShowRetired();     // frozen and archived out of the way (D360)
-  const { data: favs } = useApi("/api/v1/favourites");
+  const [withArchive, setWithArchive] = useState(false);       // Include archived: fetched from the archive (R2.41)
+  const { data: favs } = useApi("/api/v1/me/favourites");
   const pinned = new Set((favs || []).filter((f) => f.kind === "project" || f.kind === "model").map((f) => `${f.kind}:${f.id}`));
   const mine = new Set((myInfo()?.models || []).map((m) => String(m.id)));
   const super_ = can("models.delete");
@@ -145,6 +147,8 @@ export function ArchitectureWork() {
         <label className="small"><input type="checkbox" checked={onlyPinned} onChange={(e) => setOnlyPinned(e.target.checked)} /> pinned only</label>
         <ShowRetired count={tab === "projects" ? (pd?.projects || []).filter(isRetiredProject).length : allModels.filter(isRetiredModel).length}
           show={showRetired} setShow={setShowRetired} />
+        <label className="small" title="Also the archived ones you may see, read from the archive database">
+          <input type="checkbox" checked={withArchive} onChange={(e) => setWithArchive(e.target.checked)} /> Include archived</label>
         <span className="push-right view-toggle" role="group" aria-label="View">
           <button className={view === "tiles" ? "on" : ""} onClick={() => setV("tiles")} title="Tiles">▦ Tiles</button>
           <button className={view === "list" ? "on" : ""} onClick={() => setV("list")} title="List">☰ List</button>
@@ -181,6 +185,7 @@ export function ArchitectureWork() {
           ))}</tbody>
         </table>}
       </>}
+      {withArchive && <ArchivedRows kind={tab === "projects" ? "project" : "model"} q={q} />}
       {tab === "models" && <>
         {me && <p className="status bad">{me}</p>}
         {models && !ms.length && <p className="quiet">{allModels.length ? "No model matches." : "You have no role on a model yet. A model's Model Admin gives you one."}</p>}

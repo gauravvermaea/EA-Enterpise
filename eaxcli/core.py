@@ -33,6 +33,10 @@ _log = {"file": None, "path": None}
 
 
 def _colour_ok() -> bool:
+    """Colour only on a terminal (R2.10): never when piped or redirected, in CI, or with --no-color / NO_COLOR set,
+    so logs and scripts read the same plain text as before."""
+    if os.environ.get("NO_COLOR") or os.environ.get("EAX_NO_COLOR") or os.environ.get("CI") or "--no-color" in sys.argv:
+        return False
     if not sys.stdout.isatty():
         return False
     if WINDOWS:
@@ -45,6 +49,54 @@ _USE_COLOUR = _colour_ok()
 
 def paint(text: str, colour: str = "") -> str:
     return f"\033[{_COLOURS[colour]}m{text}\033[0m" if colour and _USE_COLOUR else text
+
+
+def no_colour() -> None:
+    """--no-color: plain text from here on (R2.10)."""
+    global _USE_COLOUR
+    _USE_COLOUR = False
+
+
+# the state words of a container line, as the web's start-up chip and Health page colour them (R2.10)
+_RED = ("exited (1", "exited (2", "exited (125", "exited (126", "exited (127", "exited (137", "exited (139", "exited (143",
+        "unhealthy", "dead", "restarting", "oomkilled")
+_AMBER = ("health: starting", "starting", "created", "paused", "removing")
+_GREY_ONE_SHOT = ("setup", "reports-init")
+
+
+def state_colour(line: str) -> str:
+    """The colour of one `docker compose ps` line: red when down or failing, amber while starting, grey for a one-shot
+    set-up container that finished, green when up (and healthy)."""
+    low = line.lower()
+    if any(x in low for x in _GREY_ONE_SHOT) and "exited (0" in low:
+        return "grey"
+    if any(x in low for x in _RED) or ("exited" in low and "exited (0" not in low):
+        return "red"
+    if any(x in low for x in _AMBER):
+        return "yellow"
+    if "up " in low or "running" in low or "(healthy)" in low:
+        return "green"
+    if "exited (0" in low:
+        return "grey"
+    return ""
+
+
+def say_status_lines(lines: list[str]) -> None:
+    """`eax status`'s container lines, each in its state's colour (the header line plain)."""
+    for i, line in enumerate(lines):
+        say(line, "" if i == 0 else state_colour(line))
+
+
+def ok(text: str) -> None:
+    say(text, "green")
+
+
+def warn(text: str) -> None:
+    say(text, "yellow")
+
+
+def heading(text: str) -> None:
+    say(text, "cyan")
 
 
 def say(text: str = "", colour: str = "") -> None:
@@ -183,9 +235,40 @@ def write_setting(name: str, value: str, drop: str = "", section: str = "") -> N
 
 
 # ---------------------------------------------------------------- docker compose
+def build_id() -> str:
+    """The build shown with the release (R2.47): EAX_BUILD as CI sets it, else the commit's short id ("-changed" when
+    files differ from it), "dev" outside git."""
+    if os.environ.get("EAX_BUILD"):
+        return os.environ["EAX_BUILD"]
+    code, c = capture(["git", "rev-parse", "--short", "HEAD"])
+    if code != 0 or not c.strip():
+        return "dev"
+    code, changed = capture(["git", "status", "--porcelain", "--untracked-files=no"])
+    return c.strip() + ("-changed" if code == 0 and changed.strip() else "")
+
+
+def release() -> str:
+    m = re.search(r'^version\s*=\s*"(.*)"', (ROOT / "services/api/version.toml").read_text(encoding="utf-8"), re.M) \
+        if (ROOT / "services/api/version.toml").exists() else None
+    return m.group(1) if m else "?"
+
+
+def _build_env() -> None:
+    """EAX_BUILD, EAX_COMMIT and EAX_BUILT_AT for docker compose (the API shows them, R2.47); the commit's own time, so
+    the API container is made again only when the commit changes."""
+    os.environ["EAX_BUILD"] = build_id()
+    if not os.environ.get("EAX_COMMIT"):
+        code, c = capture(["git", "rev-parse", "HEAD"])
+        os.environ["EAX_COMMIT"] = c.strip() if code == 0 else ""
+    if not os.environ.get("EAX_BUILT_AT"):
+        code, t = capture(["git", "log", "-1", "--format=%cI"])
+        os.environ["EAX_BUILT_AT"] = t.strip() if code == 0 else ""
+
+
 def compose_args(args: list[str]) -> list[str]:
     if not ENV_FILE.exists():
         raise Failure(f"No {ENV_REL} yet: run {EAX} init first.")
+    _build_env()
     # plain progress and no colour codes, so the log reads cleanly
     # scale-out extra files (phase 36.3, D521): EAX_COMPOSE_EXTRA=standby,shared-storage... (deploy/compose/scale)
     extra: list[str] = []

@@ -1,6 +1,6 @@
 """When backups run and how many are kept (phase 8.4, D222).
 
-One row per kind in core.backup_schedules (infrastructure, application): on or off, a schedule (cron: minute hour day
+One row per kind in operations.backup_schedules (infrastructure, application): on or off, a schedule (cron: minute hour day
 month weekday, in the installation's time zone), the tag of the backups it makes, how many to keep, and after how many
 hours without a backup the health check warns. IT and Super Admins change them on Administration > Backups; nothing
 about backups is in the config file. The job runner looks every minute and starts what is due.
@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy import text
 
+from . import databases
 from .metamodel_edit import EditError
 
 log = logging.getLogger(__name__)
@@ -88,14 +89,14 @@ def zone(conn=None) -> zoneinfo.ZoneInfo:
 
 
 def get_all(conn) -> list[dict]:
-    rows = [dict(r) for r in conn.execute(text("SELECT * FROM core.backup_schedules ORDER BY kind DESC")).mappings().all()]
+    rows = [dict(r) for r in databases.on("operations", conn).execute(text("SELECT * FROM operations.backup_schedules ORDER BY kind DESC")).mappings().all()]
     for r in rows:
         r["in_words"] = describe(r["cron"])
     return rows
 
 
 def get(conn, kind: str) -> dict:
-    r = conn.execute(text("SELECT * FROM core.backup_schedules WHERE kind = :k"), {"k": kind}).mappings().first()
+    r = databases.on("operations", conn).execute(text("SELECT * FROM operations.backup_schedules WHERE kind = :k"), {"k": kind}).mappings().first()
     if not r:
         return {"kind": kind, "enabled": False, "cron": "0 1 * * *", "tag": "scheduled", "keep": 7, "warn_after_hours": 36}
     return dict(r)
@@ -125,7 +126,7 @@ def update(conn, kind: str, data: dict, by: str) -> dict:
         raise EditError("Keep between 1 and 365 backups.")
     if not 1 <= new["warn_after_hours"] <= 8760:
         raise EditError("Warn after between 1 and 8760 hours.")
-    conn.execute(text("""UPDATE core.backup_schedules SET enabled = :enabled, cron = :cron, tag = :tag, keep = :keep,
+    databases.on("operations", conn).execute(text("""UPDATE operations.backup_schedules SET enabled = :enabled, cron = :cron, tag = :tag, keep = :keep,
                                 warn_after_hours = :warn_after_hours, updated_by = :by, updated_at = now() WHERE kind = :k"""),
                  {**new, "enabled": bool(new["enabled"]), "by": by.lower(), "k": kind})
     out = get(conn, kind)
@@ -150,11 +151,11 @@ def due(conn, now: datetime | None = None) -> list[dict]:
             last = datetime.fromisoformat(last)
         if last and last.astimezone(now.tzinfo).replace(second=0, microsecond=0) >= now:
             continue
-        conn.execute(text("UPDATE core.backup_schedules SET last_run_at = :t, last_status = 'started' WHERE kind = :k"),
+        databases.on("operations", conn).execute(text("UPDATE operations.backup_schedules SET last_run_at = :t, last_status = 'started' WHERE kind = :k"),
                      {"t": now.astimezone(UTC), "k": s["kind"]})
         out.append(s)
     return out
 
 
 def set_status(conn, kind: str, status: str) -> None:
-    conn.execute(text("UPDATE core.backup_schedules SET last_status = :s WHERE kind = :k"), {"s": status[:300], "k": kind})
+    databases.on("operations", conn).execute(text("UPDATE operations.backup_schedules SET last_status = :s WHERE kind = :k"), {"s": status[:300], "k": kind})

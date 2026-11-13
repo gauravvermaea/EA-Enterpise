@@ -11,7 +11,7 @@ here, in the background, one step at a time, so nobody waits for it to sign in:
   * laptop only, with the sample: key questions in every sample project, in every state (D341), and Business Model
     Canvases in three of them (D344)
   * every model's first data quality measurement (models never measured yet), so highlights show from the start
-Each model appears as soon as its step is done. How far it has got is kept in core.startup_parts (part 'later'), which
+Each model appears as soon as its step is done. How far it has got is kept in operations.startup_parts (part 'later'), which
 the screens show to everyone (Sample data: loading 3 of 9, amber; then green). A failed step is logged and the others
 carry on; the next start tries again (a step already loaded is skipped). Several API servers: one runs it
 (entrypoint.sh: eax.startup single later).
@@ -37,32 +37,34 @@ def _say(msg: str) -> None:
 
 
 class Progress:
-    """The 'later' row of core.startup_parts, written at once (its own connection, autocommit) so screens see each step."""
+    """The 'later' row of operations.startup_parts, written at once (its own connection, autocommit) so screens see each step."""
 
     def __init__(self, conninfo: str, name: str, total: int):
-        self.conn = psycopg.connect(conninfo, autocommit=True)
+        from .. import databases
+        ops = databases.BY_KEY["operations"]          # the start-up status lives in the operations database (R2.27)
+        self.conn = psycopg.connect(databases.setting(ops) if databases.own(ops) else conninfo, autocommit=True)
         self.done, self.total, self.failed = 0, total, []
-        self.conn.execute("""INSERT INTO core.startup_parts (part, name, state, done, total, detail, started_at, finished_at, updated_at)
+        self.conn.execute("""INSERT INTO operations.startup_parts (part, name, state, done, total, detail, started_at, finished_at, updated_at)
                              VALUES (%s, %s, 'starting', 0, %s, 'starting', now(), NULL, now())
                              ON CONFLICT (part) DO UPDATE SET name = EXCLUDED.name, state = 'starting', done = 0,
                                    total = EXCLUDED.total, detail = 'starting', started_at = now(), finished_at = NULL,
                                    updated_at = now()""", (PART, name, total))
 
     def step(self, label: str) -> None:
-        self.conn.execute("UPDATE core.startup_parts SET detail = %s, updated_at = now() WHERE part = %s",
+        self.conn.execute("UPDATE operations.startup_parts SET detail = %s, updated_at = now() WHERE part = %s",
                           (f"loading: {label}", PART))
 
     def finished(self, label: str, ok: bool, why: str = "") -> None:
         self.done += 1
         if not ok:
             self.failed.append(f"{label}: {why}"[:300])
-        self.conn.execute("UPDATE core.startup_parts SET done = %s, detail = %s, updated_at = now() WHERE part = %s",
+        self.conn.execute("UPDATE operations.startup_parts SET done = %s, detail = %s, updated_at = now() WHERE part = %s",
                           (self.done, f"done: {label}" if ok else f"failed: {label}", PART))
 
     def close(self) -> None:
         state = "down" if self.failed else "up"
         detail = ("; ".join(self.failed) + ". The next start tries again.") if self.failed else "everything loaded"
-        self.conn.execute("""UPDATE core.startup_parts SET state = %s, done = total, detail = %s, finished_at = now(),
+        self.conn.execute("""UPDATE operations.startup_parts SET state = %s, done = total, detail = %s, finished_at = now(),
                                     updated_at = now() WHERE part = %s""", (state, detail[:1000], PART))
         self.conn.close()
 
@@ -117,6 +119,7 @@ def plan(settings, with_sample: bool) -> list[tuple[str, object]]:
             give_icons(conn)
             refresh_views(conn)
     steps.append(("Model icons, roles and report views", tidy))
+    steps.append(("Library models into their schema (R2.42)", library_models_in))
 
     if laptop:
         def estate():
@@ -142,6 +145,8 @@ def plan(settings, with_sample: bool) -> list[tuple[str, object]]:
         steps.append(("Sample scenario planning: a scenario committed, one with what-ifs pending, an assessment", sample_scenarios))
         steps.append(("Sample ADM iterations: full, development then transition, governance, custom, none chosen", sample_iterations))
         steps.append(("Sample update history: succeeded, rolled back, not started, scheduled", sample_updates))
+        steps.append(("Sample archive: a model archived and one deleted, a project archived", sample_archive))
+        steps.append(("Sample derived entity types: Server > Windows Server > Database Server", sample_derived))
     if laptop:
         steps.append(("Sample test runs: passed, failed with a screenshot, could not start", sample_tests))
     # the industry packs (D546) are no longer a step here: they load beside these steps, with their own status
@@ -239,6 +244,28 @@ def sample_machine_ops() -> None:
     """Laptop (owner, 10 Nov 2026, phases 25 and 35): machine access and operations in every state, made once."""
     from . import sample_machine_ops as sm
     for line in sm.run():
+        _say(line)
+
+
+def sample_archive() -> None:
+    """Laptop (R2.41): a model archived and one deleted, in the archive database, made once."""
+    from . import sample_archive as sa
+    for line in sa.run():
+        _say(line)
+
+
+def library_models_in() -> None:
+    """R2.42 (D633): every library model whose content is still in core moved into the library_models schema, one model
+    at a time (each all or nothing); made once, a no-op afterwards."""
+    from .. import library_models as lm
+    for line in lm.move_all(lambda _p, note: _say(note)):
+        _say(line)
+
+
+def sample_derived() -> None:
+    """Laptop (R2.9, D629): a metamodel with a type derived from another, two levels deep, made once."""
+    from . import sample_derived as sd
+    for line in sd.run():
         _say(line)
 
 

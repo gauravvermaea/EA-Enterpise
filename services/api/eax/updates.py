@@ -4,7 +4,7 @@ finishes or the installed version is out of support (8.5, D515).
 
 The update itself runs in the updater container (eaxcli/updater.py), started by the operations helper
 (services/ops/updates.py); this module only reads and relays. The host's record (work/updates/history.json) comes
-first: core.update_history is its copy (D248: rows only).
+first: operations.update_history is its copy (D248: rows only).
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import text
 
-from . import notify
+from . import databases, notify
 
 LINK = "#/admin/updates"
 STATUSES = ("running", "failed", "ok", "rolling-back", "rolled-back", "not-started", "scheduled", "cancelled")
@@ -42,7 +42,7 @@ def _row(h: dict) -> dict:
 
 
 def sync(conn, ops_status: dict) -> int:
-    """Copies the host's history and the update running into core.update_history (by id). Returns rows written."""
+    """Copies the host's history and the update running into operations.update_history (by id). Returns rows written."""
     rows = list(ops_status.get("history") or [])
     if ops_status.get("current"):
         rows.append(ops_status["current"])
@@ -51,8 +51,8 @@ def sync(conn, ops_status: dict) -> int:
         r = _row(h)
         if not r["id"]:
             continue
-        conn.execute(text("""
-            INSERT INTO core.update_history (id, kind, status, channel, from_version, from_commit, to_version, failed_version,
+        databases.on("operations", conn).execute(text("""
+            INSERT INTO operations.update_history (id, kind, status, channel, from_version, from_commit, to_version, failed_version,
                                              by_user, started_at, finished_at, backup, error, notes, steps)
             VALUES (:id, :kind, :status, :channel, :from_version, :from_commit, :to_version, :failed_version, :by_user,
                     :started_at, :finished_at, :backup, :error, :notes, CAST(:steps AS jsonb))
@@ -61,15 +61,15 @@ def sync(conn, ops_status: dict) -> int:
                 failed_version = EXCLUDED.failed_version, by_user = EXCLUDED.by_user, started_at = EXCLUDED.started_at,
                 finished_at = EXCLUDED.finished_at, backup = EXCLUDED.backup, error = EXCLUDED.error, notes = EXCLUDED.notes,
                 steps = EXCLUDED.steps, recorded_at = now()
-            WHERE (core.update_history.status, core.update_history.finished_at) IS DISTINCT FROM (EXCLUDED.status, EXCLUDED.finished_at)"""), r)
+            WHERE (operations.update_history.status, operations.update_history.finished_at) IS DISTINCT FROM (EXCLUDED.status, EXCLUDED.finished_at)"""), r)
         n += 1
     return n
 
 
 def history(conn, limit: int = 100) -> list[dict]:
-    out = conn.execute(text("""SELECT id, kind, status, channel, from_version, from_commit, to_version, failed_version, by_user,
+    out = databases.on("operations", conn).execute(text("""SELECT id, kind, status, channel, from_version, from_commit, to_version, failed_version, by_user,
                                       started_at, finished_at, backup, error, notes, steps, sample
-                                 FROM core.update_history ORDER BY started_at DESC NULLS LAST, recorded_at DESC LIMIT :n"""),
+                                 FROM operations.update_history ORDER BY started_at DESC NULLS LAST, recorded_at DESC LIMIT :n"""),
                        {"n": limit}).mappings().all()
     return [dict(r) for r in out]
 
@@ -82,8 +82,8 @@ def _admins(conn) -> list[str]:
 def tell(conn) -> int:
     """Each update that failed, finished or was rolled back is told once to the Super Admins and IT Admins (D515)."""
     told = 0
-    for r in conn.execute(text("""SELECT id, status, to_version, from_version, failed_version, error, by_user, sample
-                                    FROM core.update_history WHERE status IN ('failed', 'ok', 'rolled-back', 'not-started')
+    for r in databases.on("operations", conn).execute(text("""SELECT id, status, to_version, from_version, failed_version, error, by_user, sample
+                                    FROM operations.update_history WHERE status IN ('failed', 'ok', 'rolled-back', 'not-started')
                                      AND notified IS DISTINCT FROM status AND NOT sample""")).mappings().all():
         title, needs = {
             "failed": (f"The update to {r['to_version']} failed: choose Retry or Roll back", True),
@@ -94,7 +94,7 @@ def tell(conn) -> int:
         notify.create(conn, kind=f"update.{r['status']}", category="system", title=title, body=r["error"] or "",
                       link=LINK, actor=r["by_user"] or "system", recipients=_admins(conn), needs_action=needs,
                       include_actor=True)
-        conn.execute(text("UPDATE core.update_history SET notified = status WHERE id = :i"), {"i": r["id"]})
+        databases.on("operations", conn).execute(text("UPDATE operations.update_history SET notified = status WHERE id = :i"), {"i": r["id"]})
         told += 1
     return told
 
@@ -107,7 +107,11 @@ def tell_support(conn, installed: str, releases: list[str]) -> bool:
     if ok:
         return False
     kind = f"update.unsupported.{installed}"
-    if conn.execute(text("SELECT 1 FROM core.notifications WHERE kind = :k"), {"k": kind}).first():
+    from . import personal as P
+    try:
+        if P.one(conn, "SELECT 1 AS x FROM personal.notifications WHERE kind = :k LIMIT 1", k=kind):
+            return False
+    except P.Unavailable:
         return False
     notify.create(conn, kind=kind, category="system", title=f"EA Explorer {installed} is out of support", body=why,
                   link=LINK, actor="system", recipients=_admins(conn), needs_action=True, include_actor=True)
@@ -119,7 +123,7 @@ def notice(conn, ops_status: dict | None) -> dict:
     sched = (ops_status or {}).get("scheduled") or None
     if sched:
         sched = {"at": sched.get("at"), "to": sched.get("to"), "channel": sched.get("channel")}
-    last = conn.execute(text("""SELECT id, to_version, finished_at, notes FROM core.update_history
+    last = databases.on("operations", conn).execute(text("""SELECT id, to_version, finished_at, notes FROM operations.update_history
                                  WHERE kind = 'update' AND status = 'ok' AND finished_at > now() - interval '14 days'
                                  ORDER BY finished_at DESC LIMIT 1""")).mappings().first()
     running = (ops_status or {}).get("current") or None
@@ -131,7 +135,7 @@ def notice(conn, ops_status: dict | None) -> dict:
 def sample(conn) -> list[str]:
     """Laptop sample data (AGENTS.md): an update that succeeded, one that failed and was rolled back, one that did not
     start, and one scheduled; marked sample, never told to anyone."""
-    if conn.execute(text("SELECT 1 FROM core.update_history WHERE sample LIMIT 1")).first():
+    if databases.on("operations", conn).execute(text("SELECT 1 FROM operations.update_history WHERE sample LIMIT 1")).first():
         return []
     now = datetime.now(UTC)
     rows = [
@@ -150,8 +154,8 @@ def sample(conn) -> list[str]:
     ]
     out = []
     for rid, st, ch, frm, to, failed, started, mins, backup, err, notes, steps in rows:
-        conn.execute(text("""
-            INSERT INTO core.update_history (id, kind, status, channel, from_version, to_version, failed_version, by_user,
+        databases.on("operations", conn).execute(text("""
+            INSERT INTO operations.update_history (id, kind, status, channel, from_version, to_version, failed_version, by_user,
                                              started_at, finished_at, backup, error, notes, steps, sample, notified)
             VALUES (:id, 'update', :st, :ch, :frm, :to, :failed, :by, :s, :f, :b, :e, :n, CAST(:steps AS jsonb), true, :st)
             ON CONFLICT (id) DO NOTHING"""),

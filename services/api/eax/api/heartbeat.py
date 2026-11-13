@@ -10,7 +10,7 @@ from flask.views import MethodView
 from flask_smorest import Blueprint
 from sqlalchemy import text
 
-from .. import __version__, audit, health, maintenance
+from .. import __version__, audit, build, databases, health, maintenance
 from ..auth import require_auth
 from ..config import get_settings
 from ..db import get_engine
@@ -66,6 +66,7 @@ class HeartbeatView(MethodView):
             "status": "degraded" if not db["reachable"] else "warning" if warning else "ok",
             "service": "eaexplorer-api",
             "version": __version__,
+            **build(),                                  # the release and its build, top left (R2.47)
             "versions_match": (db["version"] == __version__) if db["reachable"] else None,
             "warning": warning,
             "deployment": settings.deployment,
@@ -83,13 +84,13 @@ class HeartbeatView(MethodView):
     def post(self, data):
         """Record a heartbeat now (signed in)
 
-        Writes a row to core.heartbeat_logs, which the sample Superset dashboard shows.
+        Writes a row to operations.heartbeat_logs, which the sample Superset dashboard shows.
         """
         user = g.user
         with get_engine().begin() as conn:
-            row = conn.execute(
+            row = databases.on("operations", conn).execute(
                 text(
-                    "INSERT INTO core.heartbeat_logs (source, note, requested_by) "
+                    "INSERT INTO operations.heartbeat_logs (source, note, requested_by) "
                     "VALUES ('api', :note, :by) RETURNING id, at, source, note, requested_by"
                 ),
                 {"note": data["note"], "by": user.username},

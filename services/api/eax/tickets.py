@@ -6,9 +6,8 @@ every read and write checks the person is the sender or the receiver. Not passed
 
 from __future__ import annotations
 
-from sqlalchemy import text
-
 from . import notify
+from . import personal as P
 from .notify import _one, _rows
 
 STATUSES = ("open", "in_progress", "done", "declined")
@@ -49,7 +48,7 @@ def _out(r: dict, me: str) -> dict:
 def _get(conn, guid, me: str) -> dict:
     ref = str(guid)
     where = "number = :g" if ref.isdigit() else "guid = CAST(:g AS uuid)"
-    r = _one(conn, f"SELECT * FROM core.requests WHERE {where}", g=int(ref) if ref.isdigit() else ref)
+    r = P.one(conn, f"SELECT * FROM personal.requests WHERE {where}", g=int(ref) if ref.isdigit() else ref)
     if not r or me not in (r["sender"], r["receiver"]):
         raise RequestError("No such request for you.", 404)
     return r
@@ -72,7 +71,7 @@ def send(conn, me: str, receiver: str, subject: str, body: str, via: str = "scre
         raise RequestError("Give the request a subject.")
     if len(subject) > 200:
         raise RequestError("Keep the subject under 200 characters.")
-    r = _one(conn, """INSERT INTO core.requests (subject, body, sender, receiver, via) VALUES (:s, :b, :f, :t, :v) RETURNING *""",
+    r = P.one(conn, """INSERT INTO personal.requests (subject, body, sender, receiver, via) VALUES (:s, :b, :f, :t, :v) RETURNING *""",
              s=subject, b=body[:20000], f=me, t=receiver, v=via if via in ("screen", "api", "mcp") else "api")
     if receiver != me:   # a note to oneself needs no notification
         _notify(conn, r, receiver, me, f"Request #{r['number']} from {me}: {subject}", body[:500], needs_action=True)
@@ -91,18 +90,18 @@ def listing(conn, me: str, box: str = "received", status: str = "active", q: str
         where.append("status = :st")
     if q:
         where.append("(subject ILIKE :q OR body ILIKE :q OR CAST(number AS text) = :n)")
-    rows = _rows(conn, f"""SELECT r.*, (SELECT count(*) FROM core.request_comments c WHERE c.request_id = r.id) AS comment_count
-                            FROM core.requests r WHERE {' AND '.join(where)} ORDER BY updated_at DESC LIMIT 300""",
+    rows = P.rows(conn, f"""SELECT r.*, (SELECT count(*) FROM personal.request_comments c WHERE c.request_id = r.id) AS comment_count
+                            FROM personal.requests r WHERE {' AND '.join(where)} ORDER BY updated_at DESC LIMIT 300""",
                  me=me, st=status, q=f"%{q}%", n=q.strip())
-    counts = _one(conn, """SELECT count(*) FILTER (WHERE receiver = :me AND status IN ('open', 'in_progress')) AS received_active,
+    counts = P.one(conn, """SELECT count(*) FILTER (WHERE receiver = :me AND status IN ('open', 'in_progress')) AS received_active,
                                   count(*) FILTER (WHERE sender = :me AND status IN ('open', 'in_progress')) AS sent_active
-                             FROM core.requests WHERE :me IN (sender, receiver)""", me=me)
+                             FROM personal.requests WHERE :me IN (sender, receiver)""", me=me)
     return {"items": [{**_out(r, me), "comment_count": r["comment_count"]} for r in rows], "counts": counts}
 
 
 def get(conn, me: str, guid) -> dict:
     r = _get(conn, guid, me.lower())
-    comments = _rows(conn, "SELECT author, body, status, created_at FROM core.request_comments WHERE request_id = :r ORDER BY id",
+    comments = P.rows(conn, "SELECT author, body, status, created_at FROM personal.request_comments WHERE request_id = :r ORDER BY id",
                      r=r["id"])
     return _out({**r, "comments": comments}, me.lower())
 
@@ -113,9 +112,9 @@ def comment(conn, me: str, guid, body: str) -> dict:
     body = (body or "").strip()
     if not body:
         raise RequestError("Write the comment first.")
-    conn.execute(text("INSERT INTO core.request_comments (request_id, author, body) VALUES (:r, :a, :b)"),
-                 {"r": r["id"], "a": me, "b": body[:20000]})
-    conn.execute(text("UPDATE core.requests SET updated_at = now() WHERE id = :r"), {"r": r["id"]})
+    P.run(conn, "INSERT INTO personal.request_comments (request_id, author, body) VALUES (:r, :a, :b)",
+          r=r["id"], a=me, b=body[:20000])
+    P.run(conn, "UPDATE personal.requests SET updated_at = now() WHERE id = :r", r=r["id"])
     other = r["receiver"] if me == r["sender"] else r["sender"]
     if other != me:
         _notify(conn, r, other, me, f"{me} commented on request #{r['number']}: {r['subject']}", body[:500])
@@ -139,12 +138,12 @@ def set_status(conn, me: str, guid, status: str, note: str = "") -> dict:
     if status in ("done", "declined") and not note:
         raise RequestError(f"Say why it is {LABEL[status].lower()}: a note is needed.")
     closed = status in ("done", "declined")
-    conn.execute(text("""UPDATE core.requests SET status = :s, close_note = CASE WHEN :c THEN :n ELSE '' END,
-                                closed_at = CASE WHEN :c THEN now() END, updated_at = now() WHERE id = :r"""),
-                 {"s": status, "c": closed, "n": note[:20000], "r": r["id"]})
+    P.run(conn, """UPDATE personal.requests SET status = :s, close_note = CASE WHEN :c THEN :n ELSE '' END,
+                          closed_at = CASE WHEN :c THEN now() END, updated_at = now() WHERE id = :r""",
+          s=status, c=closed, n=note[:20000], r=r["id"])
     trail = note or {"in_progress": "Started", "open": "Opened again"}.get(status, LABEL[status])
-    conn.execute(text("INSERT INTO core.request_comments (request_id, author, body, status) VALUES (:r, :a, :b, :s)"),
-                 {"r": r["id"], "a": me, "b": trail, "s": status})
+    P.run(conn, "INSERT INTO personal.request_comments (request_id, author, body, status) VALUES (:r, :a, :b, :s)",
+          r=r["id"], a=me, b=trail, s=status)
     if closed:
         notify.resolve_ref(conn, "request", r["id"], me, f"{LABEL[status]}: {note}")
     other = r["receiver"] if me == r["sender"] else r["sender"]

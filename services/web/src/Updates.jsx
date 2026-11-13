@@ -17,7 +17,7 @@ const STATUS = {
 };
 
 export default function Updates() {
-  const s = useApi("/api/v1/updates");
+  const s = useApi("/api/v1/operations/updates");
   const [channel, setChannel] = useState("prod");
   const [editing, setEditing] = useState(false);
   const running = s.data?.current && ["running", "rolling-back"].includes(s.data.current.status);
@@ -71,7 +71,7 @@ function Current({ c }) {
   const [confirm, setConfirm] = useState(false);
   const act = async (what, body) => {
     setBusy(what); setErr("");
-    try { await apiFetch(`/api/v1/updates/${what}`, { method: "POST", body: JSON.stringify(body || {}) }); refreshAll(); }
+    try { await apiFetch(`/api/v1/operations/updates/${what}`, { method: "POST", body: JSON.stringify(body || {}) }); refreshAll(); }
     catch (e) { setErr(String(e.message || e)); }
     setBusy(""); setConfirm(false);
   };
@@ -107,7 +107,7 @@ function Current({ c }) {
 function Scheduled({ sc }) {
   const [err, setErr] = useState("");
   const cancel = async () => {
-    try { await apiFetch("/api/v1/updates/schedule/cancel", { method: "POST" }); refreshAll(); }
+    try { await apiFetch("/api/v1/operations/updates/schedule/cancel", { method: "POST" }); refreshAll(); }
     catch (e) { setErr(String(e.message || e)); }
   };
   return (
@@ -119,7 +119,7 @@ function Scheduled({ sc }) {
 }
 
 function Offered({ channel, installed }) {
-  const v = useApi(`/api/v1/updates/versions/${channel}`);
+  const v = useApi(`/api/v1/operations/updates/versions/${channel}`);
   const [pick, setPick] = useState(null);
   if (v.error) return <p className="status bad">{v.error}</p>;
   if (!v.data) return <p><span className="spinner" aria-hidden="true" /> Reading the repository…</p>;
@@ -156,7 +156,7 @@ function UpdateDialog({ r, rows, channel, installed, onClose }) {
   const go = async () => {
     setBusy(true); setErr("");
     try {
-      await apiFetch("/api/v1/updates/start", { method: "POST",
+      await apiFetch("/api/v1/operations/updates/start", { method: "POST",
         body: JSON.stringify({ channel, to: channel === "latest" ? r.ref : r.version, at: when === "later" ? new Date(at).toISOString() : "", confirm: true }) });
       refreshAll(); onClose();
     } catch (e) { setErr(String(e.message || e)); setBusy(false); }
@@ -243,7 +243,7 @@ function SettingsDialog({ s, onClose }) {
   const [err, setErr] = useState("");
   const save = async () => {
     try {
-      await apiFetch("/api/v1/updates/settings", { method: "PUT", body: JSON.stringify({ git_url: url.trim(), rc, latest }) });
+      await apiFetch("/api/v1/operations/updates/settings", { method: "PUT", body: JSON.stringify({ git_url: url.trim(), rc, latest }) });
       refreshAll(); onClose();
     } catch (e) { setErr(String(e.message || e)); }
   };
@@ -270,7 +270,7 @@ export function UpdateNotice() {
   const [hide, setHide] = useState(false);
   useEffect(() => {
     let live = true;
-    const load = () => apiFetch("/api/v1/updates/notice").then((x) => { if (live) setN(x); }).catch(() => {});
+    const load = () => apiFetch("/api/v1/operations/updates/notice").then((x) => { if (live) setN(x); }).catch(() => {});
     load();
     const t = setInterval(load, 5 * 60 * 1000);
     return () => { live = false; clearInterval(t); };

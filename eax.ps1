@@ -12,11 +12,25 @@ Everything local lives in the work folder, which is never committed: the config 
 #>
 # No param() block on purpose: options such as --all, --yes and --scratch must reach the script as
 # plain text, and an advanced-script parameter block would reject them as unknown parameters.
-$Command = if ($args.Count -gt 0) { [string]$args[0] } else { "help" }
+# --no-color anywhere: plain text (R2.10). Colour only in a console: never with NO_COLOR or CI set, never redirected.
+$AllArgs = @($args | ForEach-Object { [string]$_ })
+$script:NoColor = ($AllArgs -contains "--no-color") -or [bool]$env:NO_COLOR -or [bool]$env:EAX_NO_COLOR -or [bool]$env:CI -or
+                  [Console]::IsOutputRedirected
+$AllArgs = @($AllArgs | Where-Object { $_ -ne "--no-color" })
+if ($script:NoColor) {
+    # every Write-Host in this script, without its colours
+    function Write-Host {
+        param([Parameter(Position = 0, ValueFromRemainingArguments = $true)][object[]]$Object, [object]$ForegroundColor,
+              [object]$BackgroundColor, [switch]$NoNewline, [object]$Separator = " ")
+        Microsoft.PowerShell.Utility\Write-Host -Object (@($Object) -join [string]$Separator) -NoNewline:$NoNewline
+    }
+}
+# no command in a console: the numbered menu (R2.29); redirected or in a script: the help, as before
+$Command = if ($AllArgs.Count -gt 0) { $AllArgs[0] } elseif ([Console]::IsInputRedirected) { "help" } else { "menu" }
 $AskedFor = $Command          # as typed, for <command> --help
 if ($Command -eq "run") { $Command = "up" }   # run: the everyday start, the same as up
 if ($Command -eq "stop") { $Command = "down" }   # stop: the same as down (the data is kept)
-$Rest = @($args | Select-Object -Skip 1 | ForEach-Object { [string]$_ })
+$Rest = @($AllArgs | Select-Object -Skip 1)
 $ErrorActionPreference = "Stop"
 Set-Location -Path $PSScriptRoot
 $WorkDir = Join-Path $PSScriptRoot "work"
@@ -72,17 +86,65 @@ function Hide-Secrets([string]$Line) {
 function Invoke-Logged([string]$Exe, [string[]]$Arguments, [switch]$Quiet, [switch]$Mask) {
     if ($script:Log) { $script:Log.WriteLine(""); $script:Log.WriteLine("> $Exe $($Arguments -join ' ')") }
     $old = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    $n = 0
     try {
         & $Exe @Arguments 2>&1 | ForEach-Object {
             $line = if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.Exception.Message } else { "$_" }
             if ($Mask) { $line = Hide-Secrets $line }
-            if (-not $Quiet) { Write-Host $line }
+            if (-not $Quiet) {
+                $c = if ($script:StatusColours -and $n++ -gt 0) { Get-StateColour $line } else { "" }
+                if ($c) { Write-Host $line -ForegroundColor $c } else { Write-Host $line }
+            }
             if ($script:Log) { $script:Log.WriteLine($line) }
         }
         $code = $LASTEXITCODE
     } finally { $ErrorActionPreference = $old }
     if ($script:Log) { $script:Log.WriteLine("< exit $code") }
     return $code
+}
+
+# the colour of one `docker compose ps` line (R2.10; the same rule as eaxcli/core.py state_colour): red when down or
+# failing, yellow while starting, grey for a finished set-up step, green when up
+function Get-StateColour([string]$Line) {
+    $low = $Line.ToLowerInvariant()
+    if (($low.Contains("setup") -or $low.Contains("reports-init")) -and $low.Contains("exited (0")) { return "DarkGray" }
+    foreach ($w in @("unhealthy", "dead", "restarting", "oomkilled")) { if ($low.Contains($w)) { return "Red" } }
+    if ($low.Contains("exited (0")) { return "DarkGray" }
+    if ($low.Contains("exited")) { return "Red" }
+    foreach ($w in @("health: starting", "starting", "created", "paused", "removing")) { if ($low.Contains($w)) { return "Yellow" } }
+    if ($low.Contains("up ") -or $low.Contains("running") -or $low.Contains("(healthy)")) { return "Green" }
+    return ""
+}
+
+# did you mean (R2.29): the same rule as eaxcli/help.py suggest() and unknown()
+function Get-Distance([string]$A, [string]$B) {
+    $prev = 0..$B.Length
+    for ($i = 1; $i -le $A.Length; $i++) {
+        $cur = @($i)
+        for ($j = 1; $j -le $B.Length; $j++) {
+            $cost = if ($A[$i - 1] -ceq $B[$j - 1]) { 0 } else { 1 }
+            $cur += [Math]::Min([Math]::Min($prev[$j] + 1, $cur[$j - 1] + 1), $prev[$j - 1] + $cost)
+        }
+        $prev = $cur
+    }
+    return $prev[$B.Length]
+}
+function Get-UnknownCommand([string]$Word) {
+    $low = $Word.ToLowerInvariant()
+    $names = New-Object 'System.Collections.Generic.SortedSet[string]' ([StringComparer]::Ordinal)
+    foreach ($l in [System.IO.File]::ReadAllLines((Join-Path $PSScriptRoot "eaxcli\help.txt"))) {
+        if ($l.StartsWith("### ")) { foreach ($nm in ($l.Substring(4).Split(" ")[0].Split("|"))) { [void]$names.Add($nm) } }
+    }
+    $most = if ($low.Length -le 3) { 1 } else { 2 }
+    $scored = @()
+    foreach ($nm in $names) {
+        $sc = if ($low.Length -ge 2 -and $nm.StartsWith($low, [StringComparison]::Ordinal)) { 0 } else { Get-Distance $low $nm }
+        if ($sc -le $most) { $scored += "$sc $nm" }
+    }
+    $sorted = [string[]]$scored; [Array]::Sort($sorted, [StringComparer]::Ordinal)
+    $near = @($sorted | Select-Object -First 3 | ForEach-Object { $_.Substring($_.IndexOf(" ") + 1) })
+    $hint = if ($near.Count -gt 0) { " Did you mean: $($near -join ', ')?" } else { "" }
+    return "unknown command '$Word'.$hint Run .\eax help, or .\eax menu to pick one."
 }
 
 # ------------------------------------------------------------------ settings and compose
@@ -96,8 +158,26 @@ function Get-Setting([string]$Name, [string]$Default = "") {
     if ($v -eq "") { return $Default } else { return $v }
 }
 
+# the build shown with the release (R2.47): EAX_BUILD as CI sets it, else the commit's short id ("-changed" when files
+# differ from it), "dev" outside git; the commit and its time, so the API container is made again only when they change
+function Get-BuildId {
+    if ($env:EAX_BUILD) { return $env:EAX_BUILD }
+    $c = (& git rev-parse --short HEAD 2>$null)
+    if ($LASTEXITCODE -ne 0 -or -not $c) { return "dev" }
+    $changed = (& git status --porcelain --untracked-files=no 2>$null)
+    if ($changed) { $c = "$c-changed" }
+    return "$c".Trim()
+}
+function Get-Release {
+    $m = Select-String -Path "services/api/version.toml" -Pattern '^version\s*=\s*"(.*)"' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($m) { return $m.Matches[0].Groups[1].Value } else { return "?" }
+}
+
 function Get-ComposeArgs([string[]]$Arguments) {
     if (-not (Test-Path $EnvFile)) { throw "No $EnvFile yet: run .\eax init first." }
+    $env:EAX_BUILD = Get-BuildId
+    if (-not $env:EAX_COMMIT) { $env:EAX_COMMIT = "$(& git rev-parse HEAD 2>$null)".Trim() }
+    if (-not $env:EAX_BUILT_AT) { $env:EAX_BUILT_AT = "$(& git log -1 --format=%cI 2>$null)".Trim() }
     $kind = Get-Setting "EAX_DEPLOYMENT" "laptop"
     # plain progress and no colour codes, so the log reads cleanly
     # scale-out extra files (phase 36.3, D521): EAX_COMPOSE_EXTRA=standby,shared-storage... (deploy/compose/scale)
@@ -707,6 +787,8 @@ function Invoke-Cleanup([string[]]$Options) {
         $answer = Read-Host "Type yes to continue"
         if ($answer -ne "yes") { Write-Host "Nothing deleted."; return }
     }
+    # the logs first, where no reset deletes them (R2.30); a log backup never stops the cleanup
+    try { & (Join-Path $PSScriptRoot "eaxpy.ps1") logs backup before-cleanup --outside-work } catch { Write-Host "The logs could not be backed up first." }
     if (Test-Path $EnvFile) {
         $down = if ($all) { @("down", "-v", "--remove-orphans") } else { @("down", "--remove-orphans") }
         Invoke-Logged "docker" (Get-ComposeArgs $down) | Out-Null
@@ -839,7 +921,12 @@ if ($Command -eq "console") {
     try { Invoke-Console $RestArgs; exit 0 }
     catch { Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red; exit 1 }
 }
-if (($Command -in @("deploy", "secrets", "packs", "schedule")) -or ($Command -eq "test" -and $RestArgs -contains "--reset-survival")) {   # packs (D546); schedule (D559); test --reset-survival (D561)
+if ($Command -eq "menu") {   # the numbered menu (R2.29): one Python program for every form, run back here
+    $env:EAX_FORM = "ps1"; $env:EAX_FORM_EXE = (Get-Process -Id $PID).Path
+    & (Join-Path $PSScriptRoot "eaxpy.ps1") menu
+    exit $LASTEXITCODE
+}
+if (($Command -in @("deploy", "secrets", "packs", "schedule", "persist")) -or ($Command -eq "logs" -and $RestArgs.Count -gt 0 -and $RestArgs[0] -in @("backup", "clean")) -or ($Command -eq "test" -and $RestArgs -contains "--reset-survival")) {   # packs (D546); schedule (D559); test --reset-survival (D561)
     # phase 36 (D498, D504): one Python program for every form (D500); eaxpy.ps1 fetches uv and Python into work\tools
     & (Join-Path $PSScriptRoot "eaxpy.ps1") $Command @RestArgs
     exit $LASTEXITCODE
@@ -860,7 +947,7 @@ if ((Test-Path "eaexplorer.env") -and -not (Test-Path $EnvFile)) {
 }
 $failed = $false
 try {
-    if ($Command -in @("check", "up", "start-later", "debug", "status", "logs", "down", "backup", "backups", "restore", "restores", "restore-log", "databases",
+    if ($Command -in @("check", "up", "start-later", "debug", "status", "logs", "down", "backup", "backups", "restore", "restores", "restore-log", "databases", "footprint",
                        "delete-backup", "delete-restore", "app-backup", "restore-model", "restore-app", "stop-backup", "services", "service", "import", "update", "rollback", "test", "standby")) { Assert-Docker }
     switch ($Command) {
         "init" {
@@ -874,7 +961,17 @@ try {
             [System.IO.File]::WriteAllText((Join-Path $PSScriptRoot $EnvFile), (($lines -join "`n") + "`n"), $Utf8)
             Write-Log "Created $EnvFile ($kind) from $template."
             if ($kind -eq "laptop") { Show-Logins }
-            else { Write-Log "Now replace every change-me value in $EnvFile with your own passwords before .\eax up." }
+            else {
+                # a server or platform keeps its backups in a mounted folder (R2.44, D635): no backups until it is set
+                $bdir = Read-Host "Folder for backups: a mounted network share or volume (empty: set EAX_BACKUP_DIR later)"
+                if ($bdir) {
+                    $path = Join-Path $PSScriptRoot $EnvFile
+                    $content = [System.IO.File]::ReadAllText($path) -replace "(?m)^EAX_BACKUP_DIR=$", "EAX_BACKUP_DIR=$bdir"
+                    [System.IO.File]::WriteAllText($path, $content, $Utf8)
+                    Write-Log "Backups go to $bdir (EAX_BACKUP_DIR)."
+                } else { Write-Log "No backups are taken until EAX_BACKUP_DIR is set in $EnvFile." }
+                Write-Log "Now replace every change-me value in $EnvFile with your own passwords before .\eax up."
+            }
         }
         "check" {
             if ((Invoke-Logged "docker" @("version", "--format", "Docker {{.Server.Version}}")) -ne 0) { throw "Docker Desktop is not running." }
@@ -902,13 +999,19 @@ try {
             Watch-Containers $RestArgs
         }
         "diag"    { Save-Diagnostics }
-        "status"  { Invoke-Compose @("ps", "-a") | Out-Null; Show-FileSystems }
+        "status"  {
+            Write-Log "EA Explorer $(Get-Release), build $(Get-BuildId)" "Cyan"
+            $script:StatusColours = $true      # each container line in its state's colour (R2.10)
+            try { Invoke-Compose @("ps", "-a") | Out-Null } finally { $script:StatusColours = $false }
+            Show-FileSystems
+        }
         "logs"    { Invoke-Compose (@("logs", "-f", "--tail=100") + $RestArgs) -NoThrow | Out-Null }
         "down"    { Invoke-Compose @("down") | Out-Null }
         "backup"  { if (-not (Test-ServiceOn "backups")) { throw "Backups are switched off: .\eax service backups on" }
                     Start-BackupHelpers
                     Invoke-Interactive @("ops", "python3", "/app/ops.py", "backup") $RestArgs }
         "backups" { Start-BackupHelpers; Invoke-Interactive @("ops", "python3", "/app/ops.py", "list") $RestArgs }
+        "footprint" { Invoke-Interactive @("ops", "python3", "/app/ops.py", "footprint") $RestArgs }   # how much each container takes (R2.22)
         "stop-backup" { Start-BackupHelpers; Invoke-Interactive @("ops", "python3", "/app/ops.py", "stop-backup") @() }
         "restore-app" { Invoke-Interactive @("api", "python", "-m", "eax.backups_cli", "restore-all") $RestArgs }
         "maintenance" {
@@ -996,7 +1099,7 @@ try {
         "url"     { Show-Urls; Show-Logins }
         "logins"  { if (-not (Test-Path $EnvFile)) { throw "No $EnvFile yet: run .\eax init first." }; Show-Logins }
         "trust"   { if (-not (Test-Path $EnvFile)) { throw "No $EnvFile yet: run .\eax init first." }; Invoke-Trust $RestArgs }
-        default   { throw "Unknown command '$Command'. Run .\eax help" }
+        default   { throw (Get-UnknownCommand $Command) }
     }
 } catch {
     $failed = $true

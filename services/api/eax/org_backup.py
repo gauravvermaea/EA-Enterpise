@@ -23,8 +23,9 @@ from sqlalchemy import text
 from . import projects as pj
 
 FORMAT = "eax-organisation/1"
+# each person's skills, in the personal schema (R2.53, D632)
+PERSONAL_TABLES = {"user_skills": ("SELECT * FROM personal.user_skills ORDER BY username", "username")}
 PROJ_TABLES = {   # proj table: (rows kept, the key they are put back by; None: carried only)
-    "user_skills": ("SELECT * FROM proj.user_skills ORDER BY username", "username"),
     "board_members": ("SELECT * FROM proj.board_members ORDER BY username", "username"),
     "project_templates": ("SELECT * FROM proj.project_templates WHERE NOT builtin ORDER BY code", "code"),
     "org_ref_folders": ("SELECT * FROM proj.org_ref_folders ORDER BY id", None),
@@ -58,6 +59,12 @@ def write(z: zipfile.ZipFile, core, pc) -> dict:
         try:
             data[t] = pj._rows(pc, sql)
         except Exception:  # noqa: BLE001 - a table an older installation does not have
+            data[t] = []
+    from . import personal as P
+    for t, (sql, _k) in PERSONAL_TABLES.items():
+        try:
+            data[t] = P.rows(core, sql)
+        except Exception:  # noqa: BLE001 - the personal data service away: carried without them
             data[t] = []
     z.writestr("organisation/organisation.json", json.dumps({"format": FORMAT, "tables": data}, default=str, ensure_ascii=False))
     notes, files = [], 0
@@ -108,16 +115,22 @@ def restore(z: zipfile.ZipFile, core, pc, actor: str) -> tuple[str, list[str]]:
         return "", []
     data = json.loads(z.read("organisation/organisation.json")).get("tables") or {}
     done, problems = [], []
-    for schema, tables, conn in (("core", CORE_TABLES, core), ("proj", PROJ_TABLES, pc)):
+    from . import personal as P
+    for schema, tables, conn in (("core", CORE_TABLES, core), ("proj", PROJ_TABLES, pc),
+                                 ("personal", PERSONAL_TABLES, P.on(core))):
         for t, (_sql, key) in tables.items():
             if not key or not data.get(t):
                 continue
-            conn.execute(text("SAVEPOINT org_part"))
+            savepoints = conn is core or conn is pc        # a schema elsewhere runs each statement on its own
+            if savepoints:
+                conn.execute(text("SAVEPOINT org_part"))
             try:
                 done.append(f"{_upsert(conn, schema, t, key, data[t])} {t.replace('_', ' ')}")
-                conn.execute(text("RELEASE SAVEPOINT org_part"))
+                if savepoints:
+                    conn.execute(text("RELEASE SAVEPOINT org_part"))
             except Exception as exc:  # noqa: BLE001 - one part does not stop the others
-                conn.execute(text("ROLLBACK TO SAVEPOINT org_part"))
+                if savepoints:
+                    conn.execute(text("ROLLBACK TO SAVEPOINT org_part"))
                 problems.append(f"{t}: {str(exc)[:200]}")
     if "organisation/library.json" in names:
         try:

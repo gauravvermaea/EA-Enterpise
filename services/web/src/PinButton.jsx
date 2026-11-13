@@ -4,7 +4,7 @@ import { apiFetch } from "./auth";
 import { refreshAll, useApi } from "./ModelViews";
 
 export function usePins() {
-  const { data } = useApi("/api/v1/favourites");
+  const { data } = useApi("/api/v1/me/favourites");
   return new Set((data || []).filter((f) => f.kind === "project" || f.kind === "model").map((f) => `${f.kind}:${f.id}`));
 }
 
@@ -13,7 +13,7 @@ export default function PinButton({ k, x, pins, small }) {
   const on = (pins || own).has(`${k}:${x.id}`);
   async function flip(e) {
     e.preventDefault(); e.stopPropagation();
-    try { await apiFetch("/api/v1/favourites", { method: "POST", body: JSON.stringify({ kind: k, id: x.id, favourite: !on, label: x.name }) }); refreshAll(); }
+    try { await apiFetch("/api/v1/me/favourites", { method: "POST", body: JSON.stringify({ kind: k, id: x.id, favourite: !on, label: x.name }) }); refreshAll(); }
     catch { /* shown next time */ }
   }
   return (
