@@ -26,9 +26,10 @@ async def test_results(run: int = 0, outcome: str = "failed", suite: str = "", l
     (failed, warning, skipped, passed, or empty for all) and suite (api, ui, db, security). Super Admins and IT Admins."""
     def go(conn):
         _operator()
-        if not run:
-            return {"runs": store.runs(conn, limit)}
-        d = store.run_detail(conn, run, outcome if outcome in store.OUTCOMES else "", suite)
+        with store.tests(conn) as tc:                # the runs are in the tests database (R2.28)
+            if not run:
+                return {"runs": store.runs(tc, limit)}
+            d = store.run_detail(tc, run, outcome if outcome in store.OUTCOMES else "", suite)
         if not d:
             raise EditError(f"No test run {run}.", 404)
         d["results"] = d["results"][:500]

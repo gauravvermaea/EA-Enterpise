@@ -69,11 +69,11 @@ class NewRun(MethodView):
         suites = [x for x in (data.get("suites") or []) if x in store.SUITES] or ["api"]
         trigger = "ci" if data.get("trigger") == "ci" else "eax"
         target = str(data.get("target") or "")[:200]
-        with get_engine().begin() as conn:
-            run_id = store.create_run(conn, f"{g.user.username} (external testbench)", trigger, suites, "",
+        with get_engine().begin() as conn, store.tests(conn) as tc:   # the run in the tests database (R2.28)
+            run_id = store.create_run(tc, f"{g.user.username} (external testbench)", trigger, suites, "",
                                       str(data.get("version") or "")[:40], level)
-            store.set_state(conn, run_id, state="running", step=f"external testbench: {target}"[:200])
-            store.set_browser(conn, run_id, {"external": True, "target": target, "done": False})
+            store.set_state(tc, run_id, state="running", step=f"external testbench: {target}"[:200])
+            store.set_browser(tc, run_id, {"external": True, "target": target, "done": False})
             audit.record(conn, actor=g.user.username, action="selftest.testbench.publish", object_type="test_run",
                          object_id=str(run_id), details={"target": target, "level": level})
         return {"run_id": run_id}
@@ -86,7 +86,7 @@ class Finish(MethodView):
     @require_auth("system.operate")
     def post(self, run_id):
         """Counts the results of an external testbench run and closes it (passed, or failed when any check failed)"""
-        with get_engine().begin() as conn:
+        with store.engine().begin() as conn:
             row = store.run_row(conn, run_id)
             if not row or not _external(conn, run_id):
                 abort(404, message=f"No external testbench run {run_id}.")
@@ -97,9 +97,11 @@ class Finish(MethodView):
 
 
 def ids_of(conn, run_id: int, run_guid: str) -> dict[str, str]:
-    """The run's ids as the self-test's journeys and API matrix use them (fixtures.models_and_project)."""
-    rows = conn.execute(text("SELECT kind, ident, name FROM core.test_fixtures WHERE run_id = :r AND purged_at IS NULL "
-                             "ORDER BY id"), {"r": run_id}).mappings().all()
+    """The run's ids as the self-test's journeys and API matrix use them (fixtures.models_and_project). conn: the
+    repository's; the fixtures' record is in the tests database."""
+    with store.tests(conn) as tc:
+        rows = tc.execute(text("SELECT kind, ident, name FROM core.test_fixtures WHERE run_id = :r AND purged_at IS NULL "
+                               "ORDER BY id"), {"r": run_id}).mappings().all()
     models = [r for r in rows if r["kind"] == "model"]
     first = next((r for r in models if str(r["name"]).endswith("_1")), models[0] if models else None)
     second = next((r for r in models if str(r["name"]).endswith("_2")), None)
@@ -132,11 +134,12 @@ class Session(MethodView):
     def get(self, run_id):
         """The run's fixtures, sign-in ticket and test tokens, for the test bench that started it (D580)"""
         with get_engine().begin() as conn:
-            row = _open_run_of_caller(conn, run_id)
+            with store.tests(conn) as tc:
+                row = _open_run_of_caller(tc, run_id)
+                guid = tc.execute(text("SELECT run_guid::text FROM core.test_runs WHERE id = :id"), {"id": run_id}).scalar()
             b = row.get("browser") or {}
             if not b.get("ticket"):
                 return {"ready": False, "step": row.get("step") or "making the run's fixtures"}
-            guid = conn.execute(text("SELECT run_guid::text FROM core.test_runs WHERE id = :id"), {"id": run_id}).scalar()
             ids = ids_of(conn, run_id, guid)
             audit.record(conn, actor=g.user.username, action="selftest.testbench.session", object_type="test_run",
                          object_id=str(run_id), details={"roles": sorted((b.get("tokens") or {}).keys())})
@@ -156,7 +159,7 @@ class Results(MethodView):
         data = data or {}
         suite = data.get("suite") if data.get("suite") in SUITES else "ui"
         n = 0
-        with get_engine().begin() as conn:
+        with store.engine().begin() as conn:
             _open_run_of_caller(conn, run_id)
             for r in (data.get("results") or [])[:200]:
                 shot = None

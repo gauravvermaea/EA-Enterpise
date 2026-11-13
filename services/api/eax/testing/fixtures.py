@@ -65,10 +65,12 @@ def accounts(conn, run: dict, by: str, roles: list[str], log) -> dict[str, str]:
         sa = ma.create_service_account(conn, by, [perms.SUPER_ADMIN], {
             "username": name, "name": f"Self-test {sid} {role}", "roles": [global_role],
             "description": DESCRIPTION.format(run=run["id"], guid=run["run_guid"])})
-        store.add_fixture(conn, run["id"], "service_account", sa["username"], sa["username"])
+        with store.tests(conn) as tc:
+            store.add_fixture(tc, run["id"], "service_account", sa["username"], sa["username"])
         cred = ma.create(conn, by, [perms.SUPER_ADMIN], {"kind": "token", "owner": sa["username"], "days": 1,
                                                         "name": f"self_test_{sid} {role}", "scopes": scopes})
-        store.add_fixture(conn, run["id"], "credential", cred["guid"], f"self_test_{sid}_token_{role}")
+        with store.tests(conn) as tc:
+            store.add_fixture(tc, run["id"], "credential", cred["guid"], f"self_test_{sid}_token_{role}")
         tokens[role] = cred["secret"]
     log(f"{len(tokens)} test account(s) with one-day tokens: {', '.join(tokens)}")
     return tokens
@@ -76,7 +78,8 @@ def accounts(conn, run: dict, by: str, roles: list[str], log) -> dict[str, str]:
 
 def models_and_project(engine, run: dict, by: str, roles: list[str], log) -> dict[str, str]:
     """The run's models and project, made through the same functions as the screens and MCP, as its super-admin account.
-    Returns the ids the tests fill paths with."""
+    engine: the repository's; each fixture is recorded in the tests database (store.engine()). Returns the ids the tests
+    fill paths with."""
     from .. import mcp_build as mb
     from .. import (
         mcp_server,  # noqa: F401 - loads the MCP tools in their order (mcp_build is one of them)
@@ -85,8 +88,8 @@ def models_and_project(engine, run: dict, by: str, roles: list[str], log) -> dic
     me = _principal(f"svc-self-test-{sid}-super-admin", (perms.SUPER_ADMIN,))
     desc = DESCRIPTION.format(run=run["id"], guid=run["run_guid"])
     m1 = _as(me, mb.create_model(f"self_test_{sid}_1", start="empty", source="ArchiMate 4", description=desc))
-    with engine.begin() as conn:
-        store.add_fixture(conn, run["id"], "model", m1["model"], m1["name"])
+    with store.engine().begin() as tc:
+        store.add_fixture(tc, run["id"], "model", m1["model"], m1["name"])
     _as(me, mb.add_entities(m1["model"], "Capability", [{"name": f"Self-test capability {i}"} for i in (1, 2, 3)]))
     _as(me, mb.add_entities(m1["model"], "ApplicationComponent", [{"name": f"Self-test application {i}"} for i in (1, 2)]
                             + [{"name": "Self-test duplicate app"}, {"name": "Self-test duplicate ap"}]))   # a pair to find and merge (D576)
@@ -113,8 +116,9 @@ def models_and_project(engine, run: dict, by: str, roles: list[str], log) -> dic
     except Exception as exc:  # noqa: BLE001 - no views service: the drawn-view journey is skipped, with why
         log(f"no drawn view made: {exc}")
     m2 =_as(me, mb.create_model(f"self_test_{sid}_2", start="child", source=m1["model"], description=desc))
+    with store.engine().begin() as tc:
+        store.add_fixture(tc, run["id"], "model", m2["model"], m2["name"])
     with engine.begin() as conn:
-        store.add_fixture(conn, run["id"], "model", m2["model"], m2["name"])
         model_roles = [r for r in roles if r in store.MODEL_TEST_ROLES]
         for role in model_roles:
             conn.execute(text("""INSERT INTO core.model_users (model_id, username, role, created_by)
@@ -135,8 +139,8 @@ def models_and_project(engine, run: dict, by: str, roles: list[str], log) -> dic
         if tpl:
             p = _as(me, mb.create_project(f"self_test_{sid}_3", tpl, [{"how": "referred", "model": m1["model"],
                                                                          "role": "current", "home": True}], description=desc))
-            with engine.begin() as conn:
-                store.add_fixture(conn, run["id"], "project", p["project"], f"self_test_{sid}_3")
+            with store.engine().begin() as tc:
+                store.add_fixture(tc, run["id"], "project", p["project"], f"self_test_{sid}_3")
             ids.update(project=p["project"], project_id=p["project"], project_name=f"self_test_{sid}_3")
             # the test roles the journeys' role plan runs on the project are its members (D583)
             with pj.connections() as pc:
@@ -216,13 +220,14 @@ def purge(conn, run_id: int, by: str, kinds: list[str] | None = None, fixture_id
     """Hard-deletes a run's fixtures (all, or the kinds or fixture ids chosen): only what core.test_fixtures lists for
     the run. Idempotent. Returns the counts; the change log keeps them."""
     say = progress or (lambda _p, _n: None)
-    run = conn.execute(text("SELECT id, run_guid::text AS g, state FROM core.test_runs WHERE id = :id"), {"id": run_id}).mappings().first()
+    with store.tests(conn) as tc:                  # what to remove: the tests database's record of the run (R2.28)
+        run = tc.execute(text("SELECT id, run_guid::text AS g, state FROM core.test_runs WHERE id = :id"), {"id": run_id}).mappings().first()
+        rows = [dict(r) for r in tc.execute(text("""SELECT id, kind, ident, name FROM core.test_fixtures
+                                                    WHERE run_id = :r AND purged_at IS NULL ORDER BY id"""), {"r": run_id}).mappings()]
     if not run:
         raise LookupError(f"No self-test run {run_id}.")
     if run["state"] in store.OPEN:
         raise ValueError(f"Self-test run {run_id} is still running: stop it or let it finish first.")
-    rows = [dict(r) for r in conn.execute(text("""SELECT id, kind, ident, name FROM core.test_fixtures
-                                                  WHERE run_id = :r AND purged_at IS NULL ORDER BY id"""), {"r": run_id}).mappings()]
     if kinds:
         rows = [r for r in rows if r["kind"] in kinds]
     if fixture_ids:
@@ -280,12 +285,13 @@ def purge(conn, run_id: int, by: str, kinds: list[str] | None = None, fixture_id
         counts["history_versions"] = _purge_models(conn, [int(m["id"]) for m in ok], by)
         counts["models"] = len(ok)
     say(90, "models removed")
-    if rows:
-        conn.execute(text("UPDATE core.test_fixtures SET purged_at = now(), purged_by = :by WHERE id = ANY(:ids)"),
-                     {"by": by, "ids": [r["id"] for r in rows]})
-    if not conn.execute(text("SELECT 1 FROM core.test_fixtures WHERE run_id = :r AND purged_at IS NULL"), {"r": run_id}).first():
-        conn.execute(text("UPDATE core.test_runs SET purged_at = coalesce(purged_at, now()), purged_by = coalesce(purged_by, :by) "
-                          "WHERE id = :r"), {"by": by, "r": run_id})
+    with store.tests(conn) as tc:
+        if rows:
+            tc.execute(text("UPDATE core.test_fixtures SET purged_at = now(), purged_by = :by WHERE id = ANY(:ids)"),
+                       {"by": by, "ids": [r["id"] for r in rows]})
+        if not tc.execute(text("SELECT 1 FROM core.test_fixtures WHERE run_id = :r AND purged_at IS NULL"), {"r": run_id}).first():
+            tc.execute(text("UPDATE core.test_runs SET purged_at = coalesce(purged_at, now()), purged_by = coalesce(purged_by, :by) "
+                            "WHERE id = :r"), {"by": by, "r": run_id})
     from .. import audit
     audit.record(conn, actor=by, action="selftest.purged", object_type="test_run", object_id=str(run_id),
                  details={k: v for k, v in counts.items() if k != "notes"} | {"run_guid": run["g"]})
@@ -297,8 +303,9 @@ def clean_leftovers(engine, this_run: int, by: str, log, stale_hours: int = 6) -
     """Before a run (owner, 12 Nov 2026, R2.0.1, D593: "deleted previously created test data before next test if any
     remains"): every earlier run's fixtures still there are removed for good, from the UI and `eax test` alike. A run
     still marked queued or running for more than stale_hours (its runner stopped on an error) is closed as an error
-    first, so its data can go too. Only what core.test_fixtures lists is touched, as purge() does."""
-    with engine.begin() as conn:
+    first, so its data can go too. Only what core.test_fixtures lists is touched, as purge() does. engine: the
+    repository's (the runs' records are in the tests database, store.engine())."""
+    with store.engine().begin() as conn:
         stale = conn.execute(text("""UPDATE core.test_runs SET state = 'error', finished_at = now(),
                                          message = 'Closed by a later self-test: it had stopped without finishing.'
                                    WHERE id <> :me AND state IN ('queued', 'running')

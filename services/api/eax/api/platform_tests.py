@@ -66,7 +66,7 @@ class Tests(MethodView):
         """Self-test runs, newest first; the test runner (built, a run going on); the choices (levels, suites, roles,
         areas) and how long each kind of run takes"""
         from ..machine_access import AREAS
-        with get_engine().connect() as conn:
+        with store.engine().connect() as conn:
             runs = store.runs(conn, int(request.args.get("limit", 30)))
         try:
             runner = _ops_raw("GET", "/tests", timeout=10)
@@ -103,12 +103,12 @@ class Tests(MethodView):
         # always prepare the runner first (owner, 11 Nov 2026, D584): `docker compose build` is near-instant when the image is
         # current (layer cache) and rebuilds it when the code or version changed, so no one builds it by hand
         build_first = data.get("build_first", True) is not False
-        with get_engine().begin() as conn:
-            busy = conn.execute(text("SELECT id FROM core.test_runs WHERE state IN ('queued', 'running') "
-                                     "AND queued_at > now() - interval '3 hours' ORDER BY id DESC LIMIT 1")).scalar()
+        with get_engine().begin() as conn, store.tests(conn) as tc:
+            busy = tc.execute(text("SELECT id FROM core.test_runs WHERE state IN ('queued', 'running') "
+                                   "AND queued_at > now() - interval '3 hours' ORDER BY id DESC LIMIT 1")).scalar()
             if busy:
                 abort(409, message=f"Self-test {busy} is going on: stop it or wait for it to finish.")
-            run_id = store.create_run(conn, g.user.username, "web", suites, level=level, role=role, area=area, watch=watch,
+            run_id = store.create_run(tc, g.user.username, "web", suites, level=level, role=role, area=area, watch=watch,
                                       journeys=journeys, pages_only=pages_only)
             audit.record(conn, actor=g.user.username, action="selftest.started", object_type="test_run", object_id=str(run_id),
                          details={"level": level, "suites": suites, "role": role, "area": area, "watch": watch,
@@ -118,13 +118,13 @@ class Tests(MethodView):
         try:
             if build_first:                     # the helper prepares (builds) the runner, then starts this run
                 _ops_raw("POST", "/tests/build", {"by": g.user.username, "then": body}, timeout=60)
-                with get_engine().begin() as conn:
+                with store.engine().begin() as conn:
                     store.set_state(conn, run_id, step="Preparing the test runner (seconds when it is current; the first time 5 to 15 minutes), then the run")
             else:
                 _ops_raw("POST", "/tests", body, timeout=30)
         except Exception as exc:  # noqa: BLE001 - the run is closed with the reason
             msg = _ops_message(exc)
-            with get_engine().begin() as conn:
+            with store.engine().begin() as conn:
                 store.set_state(conn, run_id, state="error", message=f"Could not start: {msg}")
             abort(503, message=f"The self-test could not start: {msg}")
         lo, hi = store.estimate_minutes(level, suites, watch)
@@ -209,7 +209,7 @@ class TestDelete(MethodView):
         data = data or {}
         runs = data.get("runs")
         try:
-            with get_engine().connect() as conn:
+            with store.engine().connect() as conn:
                 if runs == "all" or data.get("older_than_days"):
                     ids = [r["id"] for r in cleanup.pick(conn, "all" if runs == "all" else "",
                                                          int(data["older_than_days"]) if data.get("older_than_days") else None)]
@@ -235,12 +235,13 @@ class TestRun(MethodView):
     def get(self, run_id):
         """A run: its results (failures first; ?outcome=passed|failed|skipped|warning, ?suite=), its files, its fixtures;
         while it waits for a watching browser also its ticket and the journeys to drive"""
-        with get_engine().connect() as conn:
+        with store.engine().connect() as conn:
             d = store.run_detail(conn, run_id, request.args.get("outcome", ""), request.args.get("suite", ""))
             if not d:
                 abort(404, message=f"No self-test run {run_id}.")
-            d["fixtures"] = store.fixtures(conn, run_id, include_purged=True)
             row = store.run_row(conn, run_id) or {}
+        with get_engine().connect() as conn:          # the fixtures' sizes are in the repository
+            d["fixtures"] = store.fixtures(conn, run_id, include_purged=True)
         b = row.get("browser") or {}
         if row.get("watch") and row.get("state") in store.OPEN and b.get("ticket") and not b.get("done"):
             d["browser"] = {"ticket": b["ticket"], "journeys": b.get("journeys") or [], "roles": sorted((b.get("tokens") or {}).keys()),
@@ -262,16 +263,16 @@ class TestRepeat(MethodView):
         run (and its warnings, if asked), as the same roles, in fresh fixtures; its report shows each check then and now"""
         data = data or {}
         warnings = bool(data.get("warnings"))
-        with get_engine().begin() as conn:
-            busy = conn.execute(text("SELECT id FROM core.test_runs WHERE state IN ('queued', 'running') "
-                                     "AND queued_at > now() - interval '3 hours' ORDER BY id DESC LIMIT 1")).scalar()
+        with get_engine().begin() as conn, store.tests(conn) as tc:
+            busy = tc.execute(text("SELECT id FROM core.test_runs WHERE state IN ('queued', 'running') "
+                                   "AND queued_at > now() - interval '3 hours' ORDER BY id DESC LIMIT 1")).scalar()
             if busy:
                 abort(409, message=f"Self-test {busy} is going on: stop it or wait for it to finish.")
             try:
-                o = store.repeat_options(conn, run_id, warnings)
+                o = store.repeat_options(tc, run_id, warnings)
             except ValueError as exc:
                 abort(404 if "No self-test" in str(exc) else 409, message=str(exc))
-            new_id = store.create_run(conn, g.user.username, "web", o["suites"], level=o["level"], role=o["role"],
+            new_id = store.create_run(tc, g.user.username, "web", o["suites"], level=o["level"], role=o["role"],
                                       area=o["area"], repeat_of=run_id, repeat_warnings=warnings)
             audit.record(conn, actor=g.user.username, action="selftest.started", object_type="test_run", object_id=str(new_id),
                          details={"repeat_of": run_id, "warnings": warnings, "checks": o["checks"]})
@@ -279,11 +280,11 @@ class TestRepeat(MethodView):
                 "repeat": run_id, "warnings": warnings, "by": g.user.username}
         try:
             _ops_raw("POST", "/tests/build", {"by": g.user.username, "then": body}, timeout=60)
-            with get_engine().begin() as conn:
+            with store.engine().begin() as conn:
                 store.set_state(conn, new_id, step="Preparing the test runner (seconds when it is current), then the failed checks again")
         except Exception as exc:  # noqa: BLE001 - the run is closed with the reason
             msg = _ops_message(exc)
-            with get_engine().begin() as conn:
+            with store.engine().begin() as conn:
                 store.set_state(conn, new_id, state="error", message=f"Could not start: {msg}")
             abort(503, message=f"The self-test could not start: {msg}")
         return {"run_id": new_id, "checks": o["checks"],
@@ -297,8 +298,8 @@ class TestStop(MethodView):
     @require_auth("system.operate")
     def post(self, run_id):
         """Stops a running self-test: it ends at its next step, keeps what it found, and its tokens are revoked"""
-        with get_engine().begin() as conn:
-            if not store.ask_stop(conn, run_id, g.user.username):
+        with get_engine().begin() as conn, store.tests(conn) as tc:
+            if not store.ask_stop(tc, run_id, g.user.username):
                 abort(409, message=f"Self-test {run_id} is not running.")
             audit.record(conn, actor=g.user.username, action="selftest.stopped", object_type="test_run", object_id=str(run_id))
         try:
@@ -317,7 +318,7 @@ class TestBrowser(MethodView):
     def post(self, data, run_id):
         """Journeys watched in this browser {results: [{name, outcome, detail, ms, browser, screenshot: PNG base64}], done}"""
         data = data or {}
-        with get_engine().begin() as conn:
+        with store.engine().begin() as conn:
             row = store.run_row(conn, run_id)
             if not row or not row["watch"] or row["state"] not in store.OPEN:
                 abort(409, message=f"Self-test {run_id} is not waiting for a browser.")
@@ -345,7 +346,7 @@ class TestReport(MethodView):
     def get(self, run_id):
         """The run's report: ?format=html (default; one page, screenshots inside) or xlsx (Excel)"""
         fmt = request.args.get("format", "html")
-        with get_engine().connect() as conn:
+        with store.engine().connect() as conn:
             try:
                 if fmt == "xlsx":
                     return send_file(io.BytesIO(report.to_xlsx(conn, run_id)), as_attachment=True,
@@ -363,7 +364,7 @@ class TestScreenshot(MethodView):
     @require_auth("system.operate")
     def get(self, run_id, result_id):
         """A failed browser journey's screenshot (PNG)"""
-        with get_engine().connect() as conn:
+        with store.engine().connect() as conn:
             ok = conn.execute(text("SELECT 1 FROM core.test_results WHERE id = :r AND run_id = :run"),
                               {"r": result_id, "run": run_id}).first()
             png = store.screenshot(conn, result_id) if ok else None
@@ -378,7 +379,7 @@ class TestFile(MethodView):
     @require_auth("system.operate")
     def get(self, run_id, name):
         """A file of the run from work/tests/<folder>: run.log, a failed journey's video, the ZAP and Trivy reports"""
-        with get_engine().connect() as conn:
+        with store.engine().connect() as conn:
             folder = conn.execute(text("SELECT folder FROM core.test_runs WHERE id = :id"), {"id": run_id}).scalar()
         if not folder:
             abort(404, message=f"No files for self-test run {run_id}.")
@@ -414,7 +415,7 @@ class FixturesPurge(MethodView):
         data = data or {}
         if data.get("confirm") != "DELETE":
             abort(400, message='Type DELETE to confirm: the fixtures are removed for good and cannot be brought back.')
-        with get_engine().connect() as conn:
+        with store.engine().connect() as conn:
             if data.get("runs") == "all":
                 runs = [r[0] for r in conn.execute(text(
                     "SELECT DISTINCT run_id FROM core.test_fixtures WHERE purged_at IS NULL ORDER BY run_id")).all()]

@@ -247,25 +247,6 @@ class ContainerLogs(MethodView):
         return _ops("GET", f"/containers/{service}/logs?tail={int(request.args.get('tail', 300))}", timeout=60)
 
 
-@blp.route("/admin/containers/<service>/exec")
-class ContainerExec(MethodView):
-    @blp.doc(security=SECURITY)
-    @blp.arguments(FreeIn)
-    @blp.response(200, Free)
-    @require_auth("system.operate")
-    def post(self, data, service):
-        """Run a command inside a container ({command, cwd}: cwd is the folder to run it in, answered back after cd; sh -c,
-        60 seconds; IT and Super Admins, D214; off when EAX_CONTAINER_CONSOLE=off). Every command is in the audit trail"""
-        command = str((data or {}).get("command") or "")
-        cwd = str((data or {}).get("cwd") or "")[:1000]
-        out = _ops("POST", f"/containers/{service}/exec", {"command": command, "cwd": cwd}, timeout=75)
-        with get_engine().begin() as conn:
-            audit.record(conn, actor=g.user.username, action="container.exec", object_type="container", object_id=service,
-                         details={"command": command[:2000], "folder": cwd, "exit_code": out.get("exit_code")},
-                         request_id=getattr(g, "request_id", None))
-        return out
-
-
 @blp.route("/admin/containers/<service>/terminal")
 class ContainerTerminal(MethodView):
     @blp.doc(security=SECURITY)

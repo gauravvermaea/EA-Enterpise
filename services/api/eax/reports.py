@@ -10,22 +10,47 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from typing import Any
 
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 
 from .report_defs import REPORTS
+
+log = logging.getLogger(__name__)
 
 _seen: dict[str, tuple[float, tuple[str, ...]]] = {}
 _seen_lock = threading.Lock()
 NOTE_EVERY = 300  # seconds
 
 
-def refresh_typed_views(conn) -> int:
-    """Brings the typed report views in line with every metamodel (SQLAlchemy connection, same transaction)."""
-    return int(conn.execute(text("SELECT rpt.refresh_typed_views()")).scalar_one() or 0)
+REFRESH_WAIT = "10s"
+
+
+def refresh_typed_views(conn, wait: str = REFRESH_WAIT) -> int:
+    """Brings the typed report views in line with every metamodel (SQLAlchemy connection, same transaction).
+
+    It waits at most `wait` for another refresh or a report reading a view (both lock it, rpt.refresh_typed_views takes
+    one lock for every refresh): when that is not enough, the change is saved without it and the views catch up at the
+    next refresh, or within ten minutes (jobs.reports_refresh). A change never hangs on the reports (the laptop's full
+    run, 12 Nov 2026: adding a pick list waited past a minute). Returns the views changed, -1 when left for later."""
+    old = conn.execute(text("SELECT current_setting('lock_timeout')")).scalar_one()
+    sp = conn.begin_nested()
+    try:
+        conn.execute(text("SELECT set_config('lock_timeout', :w, true)"), {"w": wait})
+        n = int(conn.execute(text("SELECT rpt.refresh_typed_views()")).scalar_one() or 0)
+        sp.commit()
+    except DBAPIError as exc:
+        sp.rollback()
+        if getattr(getattr(exc, "orig", None), "sqlstate", "") != "55P03":    # lock_not_available: anything else is real
+            raise
+        log.warning("report views left for the next refresh: busy for more than %s (%s)", wait, str(exc.orig).splitlines()[0])
+        n = -1
+    conn.execute(text("SELECT set_config('lock_timeout', :w, true)"), {"w": old})
+    return n
 
 
 def note_user(username: str, roles: list[str] | tuple[str, ...]) -> None:

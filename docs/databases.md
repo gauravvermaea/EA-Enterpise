@@ -26,6 +26,14 @@ Connection strings are `postgresql://user:password@host:port/database`, the pass
 `%26`). Hosts are a name (and `_PORT` beside it when not 5432). A server of its own is reached by backups as `postgres`
 with the same superuser password as the shared one.
 
+## The self-test's database (R2.28)
+
+The self-test's runs, results (with their screenshots) and fixtures records can live in a database of their own: set
+`EAX_TESTS_DB_URL` and run `eax up`. At every start EA Explorer makes the tables there, or brings them in line, from
+the shared database's (the migrations keep those, so they stay the one description of each table, and they are left
+empty and unused). Then `eax databases copy tests` brings the runs made before (rows already there are kept). The
+runs' fixtures (the self_test models, projects and accounts) stay in the repository, as they test it.
+
 ## Moving one
 
 1. Take a backup: `eax backup before-moving`.

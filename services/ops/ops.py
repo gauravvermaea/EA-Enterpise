@@ -13,8 +13,6 @@ restarts the system from the administration console. It talks to the Docker engi
   GET  /containers/<service>    one container: state, health with its last checks, image, mounts, ports, networks,
                                 environment, restart policy, limits, and what it uses now
   GET  /containers/<service>/logs?tail=N   its last log lines (standard output and error)
-  POST /containers/<service>/exec {command, cwd} runs a command inside it, in that folder; answers the new folder (sh -c, 60 s, output kept to 200 kB), unless
-                                EAX_CONTAINER_CONSOLE=off in the config file
   POST /terminal/ticket        {service, user, cols, rows}: a one-time ticket (30 s) for an interactive terminal in a
                                 container (D214); the browser opens wss://<host>/ops-terminal/<ticket>, which the proxy
                                 passes to port 8091 here (a network only the proxy and this helper share)
@@ -847,43 +845,6 @@ def console_on() -> bool:
     except OSError:
         return False   # no config file to read: off, the safe side
     return _values(lines).get("EAX_CONTAINER_CONSOLE", "on").strip().lower() not in OFF
-
-
-MARK = "__EAX_CWD__"
-
-
-def container_exec(service: str, command: str, cwd: str = "") -> dict:
-    """Runs one command in the container, in the folder the console is in (cwd; empty: the container's working folder),
-    and answers the folder it ends in, so cd carries over to the next command like a terminal (owner, 6 Nov 2026).
-    Variables set with export do not carry over: each command is still its own shell."""
-    if not console_on():
-        raise PermissionError("Running commands in containers is switched off (EAX_CONTAINER_CONSOLE=off in the config file).")
-    command = (command or "").strip()
-    if not command:
-        raise ValueError("Type a command.")
-    c = _one_container(service)
-    if c["state"] != "running":
-        raise ValueError(f"{service} is not running ({c['state']}): start it first.")
-    # the folder and the command reach the shell as variables, never pasted into the script
-    script = ('if [ -n "$EAX_CWD" ]; then cd -- "$EAX_CWD" 2>/dev/null || echo "cd: $EAX_CWD: no longer there" >&2; fi\n'
-              '__c=$EAX_CMD; unset EAX_CMD EAX_CWD\neval "$__c"\n__rc=$?\nprintf "\\n%s%s\\n" "' + MARK + '" "$(pwd)" >&2\nexit $__rc')
-    started = time.time()
-    try:
-        r = subprocess.run(["docker", "exec", "-e", f"EAX_CWD={cwd}", "-e", f"EAX_CMD={command}", c["id"], "sh", "-c", script],
-                           capture_output=True, timeout=60)
-        out, err, code = r.stdout, r.stderr, r.returncode
-    except subprocess.TimeoutExpired as exc:
-        out, err, code = (exc.stdout or b"") + b"\n[stopped after 60 seconds]", exc.stderr or b"", None
-    err_text = err.decode("utf-8", "replace")
-    new_cwd = cwd
-    if MARK in err_text:
-        err_text, _, tail = err_text.rpartition(MARK)
-        new_cwd = tail.strip() or cwd
-        err_text = err_text[:-1] if err_text.endswith("\n") else err_text
-    text_ = out.decode("utf-8", "replace") + err_text
-    cut = len(text_) > 200_000
-    return {"service": service, "command": command, "exit_code": code, "output": text_[-200_000:], "cut": cut,
-            "cwd": new_cwd, "ms": round((time.time() - started) * 1000)}
 
 
 # ---------------------------------------------------------------- the interactive terminal (owner, 6 Nov 2026, D214)
@@ -2243,17 +2204,6 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"removed": cleanup_infra(int(self._body().get("keep") or 7))})
         if self.path == "/terminal/sessions/ack":
             return self._send(200, {"forgotten": terminal_ack([str(i) for i in self._body().get("ids") or []])})
-        m = re.match(r"^/containers/([a-z0-9_-]+)/exec$", self.path)
-        if m:
-            b = self._body()
-            try:
-                return self._send(200, container_exec(m.group(1), str(b.get("command") or ""), str(b.get("cwd") or "")))
-            except FileNotFoundError as exc:
-                return self._send(404, {"message": str(exc)})
-            except PermissionError as exc:
-                return self._send(403, {"message": str(exc)})
-            except ValueError as exc:
-                return self._send(400, {"message": str(exc)})
         if self.path == "/servers":
             b = self._body()
             try:

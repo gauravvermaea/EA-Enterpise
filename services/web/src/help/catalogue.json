@@ -787,12 +787,6 @@
       "Download them to Excel for analysis."
     ]
   },
-  "tab:Run a command": {
-    "what": "Run an eax command from the web (IT Admins).",
-    "how": [
-      "Pick or type the command; its output shows below."
-    ]
-  },
   "tab:SQL": {
     "what": "Read-only SQL on the reporting views.",
     "how": [

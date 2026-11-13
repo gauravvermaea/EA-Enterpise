@@ -121,9 +121,9 @@ class ServicesView(MethodView):
 def _test_in_progress():
     """The self-test in progress, for the screens' sign-in screen and banner (R2.51, D609)."""
     from .. import test_lock
-    from ..db import get_engine
+    from ..testing import store
     try:
-        with get_engine().connect() as conn:
+        with store.engine().connect() as conn:       # the tests database (R2.28)
             return test_lock.active(conn)
     except Exception:  # noqa: BLE001 - no test tables yet
         return None

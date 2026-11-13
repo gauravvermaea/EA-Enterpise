@@ -17,7 +17,7 @@ fi
 python -m eax.wait_for_db
 # several API and job servers may start together (D249): the upgrade and the seed run on one at a time
 echo "EA Explorer: applying database migrations"
-python -m eax.startup serial -- sh -c "alembic upgrade head && python -m eax.jobs_schema && python -m eax.seed"
+python -m eax.startup serial -- sh -c "alembic upgrade head && python -m eax.databases ensure && python -m eax.jobs_schema && python -m eax.seed"
 
 echo "EA Explorer: starting the API and the job runner"
 # a request may take up to two minutes (gunicorn's own 30 seconds stopped a project's download and a busy page with a

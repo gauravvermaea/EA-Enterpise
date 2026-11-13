@@ -279,6 +279,8 @@ Built ([operations.md](operations.md), [command-line-and-console.md](command-lin
 - **Every database has its own setting** (R2.50, D611): empty means the shared PostgreSQL; set one to move that
   database to a container or server of its own. System Admin › Databases and `eax databases` show where each lives
   and whether it answers; backups follow each one ([databases.md](databases.md)).
+- **The self-test's data in its own database** (R2.28, D613): runs, results and screenshots apart from the
+  architecture; tables made and kept in line at every start; `eax databases copy tests` moves earlier runs.
 - **Every optional service can be switched off** (reports, documents, draw.io, MCP, change log, backups, library),
   with a dated copy of the configuration kept.
 - **Operations insight** (phase 35, [phase-35.md](phase-35.md)): who uses what and how often, models' use and size,

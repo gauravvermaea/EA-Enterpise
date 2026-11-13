@@ -17,7 +17,6 @@ from flask.views import MethodView
 from flask_smorest import Blueprint, abort
 from sqlalchemy import text
 
-from ..db import get_engine
 from .models import Free
 
 blp = Blueprint("selftest_session", __name__, url_prefix="/api/v1/selftest", description="The self-test's browser sign-in")
@@ -32,7 +31,8 @@ class Session(MethodView):
         ticket, role = request.args.get("ticket", ""), request.args.get("role", "")
         if len(ticket) < 20:
             abort(401, message="Not a self-test ticket.")
-        with get_engine().connect() as conn:
+        from ..testing import store
+        with store.engine().connect() as conn:       # the tests database (R2.28)
             rows = conn.execute(text("""SELECT id, run_guid::text AS g, browser FROM core.test_runs
                                          WHERE state IN ('queued', 'running') AND browser ? 'ticket'""")).mappings().all()
         run = next((r for r in rows if hmac.compare_digest(str(r["browser"].get("ticket", "")), ticket)), None)

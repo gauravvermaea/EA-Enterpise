@@ -59,7 +59,7 @@ export function IterationDialog({ p, onClose }) {
     try {
       const r = await apiFetch(`/api/v1/projects/${p.id}/iteration`, { method: "POST",
         body: JSON.stringify({ iteration: code, phases: code === "custom" ? enabled : undefined, note }) });
-      setMsg(r.message); refreshAll(); setTimeout(onClose, 600);
+      setMsg(r.message); refreshAll(); setTimeout(onClose, 1500);   // long enough to read what it did
     } catch (e) { setMsg(e.message); }
   }
   return (

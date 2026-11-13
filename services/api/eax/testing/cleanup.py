@@ -43,8 +43,9 @@ def delete(engine, ids: list[int], by: str, remove_folders, say=lambda _m: None)
     out = {"runs": 0, "results": 0, "fixtures": 0, "folders": [], "left": [], "notes": []}
     folders = []
     for run_id in ids:
-        with engine.begin() as conn:
-            row = conn.execute(text("SELECT id, folder, state FROM core.test_runs WHERE id = :id"), {"id": run_id}).mappings().first()
+        with engine.begin() as conn:                 # engine: the repository's, where the fixtures are
+            with store.tests(conn) as tc:
+                row = tc.execute(text("SELECT id, folder, state FROM core.test_runs WHERE id = :id"), {"id": run_id}).mappings().first()
             if not row:
                 continue
             if row["state"] in store.OPEN:
@@ -52,9 +53,10 @@ def delete(engine, ids: list[int], by: str, remove_folders, say=lambda _m: None)
                 continue
             purged = fx.purge(conn, run_id, by)
             out["fixtures"] += purged["models"] + purged["projects"] + purged["service_accounts"] + purged["credentials"]
-            out["results"] += conn.execute(text("DELETE FROM core.test_results WHERE run_id = :id"), {"id": run_id}).rowcount
-            conn.execute(text("DELETE FROM core.test_fixtures WHERE run_id = :id"), {"id": run_id})
-            conn.execute(text("DELETE FROM core.test_runs WHERE id = :id"), {"id": run_id})
+            with store.tests(conn) as tc:            # the run's record, in the tests database (R2.28)
+                out["results"] += tc.execute(text("DELETE FROM core.test_results WHERE run_id = :id"), {"id": run_id}).rowcount
+                tc.execute(text("DELETE FROM core.test_fixtures WHERE run_id = :id"), {"id": run_id})
+                tc.execute(text("DELETE FROM core.test_runs WHERE id = :id"), {"id": run_id})
             out["runs"] += 1
             if row["folder"]:
                 folders.append(row["folder"])

@@ -115,6 +115,10 @@ CHECKS: list[tuple[str, str, str]] = [
 ]
 
 
+# checks of the self-test's own tables: they run on the tests database (store.tests), the rest on the repository
+IN_TESTS_DB = {"self-test fixtures are named after their run"}
+
+
 def run(conn, api_version: str, record: Callable[[str, str, str, int], None]) -> None:
     """conn: a read-only SQLAlchemy connection. Records one result per check."""
     import time
@@ -127,10 +131,15 @@ def run(conn, api_version: str, record: Callable[[str, str, str, int], None]) ->
     else:
         record("the database is at the API's version", "failed",
                f"the API is {api_version}; the database has {', '.join(sorted(have)[-3:]) or 'none'}", 0)
+    from . import store
     for name, sql, bad in CHECKS:
         t0 = time.time()
         try:
-            rows = [str(r[0]) for r in conn.execute(text(sql)).all()]
+            if name in IN_TESTS_DB:                  # the self-test's own tables are in the tests database (R2.28)
+                with store.tests(conn) as tc:
+                    rows = [str(r[0]) for r in tc.execute(text(sql)).all()]
+            else:
+                rows = [str(r[0]) for r in conn.execute(text(sql)).all()]
         except Exception as exc:  # noqa: BLE001
             conn.rollback()
             record(name, "failed", f"the check could not run: {exc}", 0)

@@ -874,6 +874,15 @@ def _record_change(conn, mid: int, version: int, seq: int, op: str, payload: dic
                   "r": json.dumps(result if isinstance(result, dict) else {"value": result}, default=str), "n": note or ""})
 
 
+# what the typed report views are made of (rpt.refresh_typed_views): the entity types and their attributes. Pick lists,
+# relationship types, mappings and rules are not in them, so those changes leave the views alone.
+VIEW_OPS = ("entity_type.", "attribute.", "lifecycle.")
+
+
+def changes_views(op: str) -> bool:
+    return str(op).startswith(VIEW_OPS)
+
+
 def apply(conn, model: Any, op: str, payload: dict, actor: str, dry_run: bool = False) -> dict:
     """Applies one metamodel change in the open transaction (engine.begin()); the caller rolls back
     when dry_run. Returns the new version, its note, what was made and the impact."""
@@ -897,7 +906,7 @@ def apply(conn, model: Any, op: str, payload: dict, actor: str, dry_run: bool = 
         raise EditError(_db_message(exc), 409) from exc
     after = _failing(conn, m, sorted(set(before_types) | set(touched or [])))
     impact = _impact(before, after)
-    if not dry_run:
+    if not dry_run and changes_views(op):
         from .reports import refresh_typed_views
         refresh_typed_views(conn)   # the typed report views follow the metamodel (D139)
     return {"model": m["name"], "op": op, "version": version, "note": note, "dry_run": dry_run,
@@ -1001,7 +1010,7 @@ def apply_many(conn, model: Any, changes: list[dict], actor: str, dry_run: bool 
     conn.execute(text("UPDATE core.metamodel_versions SET note = :n WHERE model_id = :m AND version = :v"),
                  {"n": note[:1000], "m": mid, "v": version})
     after = _failing(conn, m, sorted(touched))
-    if not dry_run:
+    if not dry_run and any(changes_views(ch["op"]) for ch in changes):
         from .reports import refresh_typed_views
         refresh_typed_views(conn)
     return {"model": m["name"], "version": version, "note": note, "dry_run": dry_run, "results": results,

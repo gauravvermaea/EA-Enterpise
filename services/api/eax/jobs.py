@@ -116,7 +116,8 @@ def test_results_cleanup(timestamp: int) -> None:
         return
     if days <= 0:
         return
-    with get_engine().connect() as conn:
+    from .testing import store
+    with store.engine().connect() as conn:          # the runs are in the tests database (R2.28)
         ids = [r["id"] for r in cleanup.pick(conn, "", days)]
     if ids:
         out = cleanup.delete(get_engine(), ids, "test results kept " + str(days) + " days",
@@ -402,6 +403,19 @@ def housekeeping(timestamp: int) -> None:
     if out:
         log.info("housekeeping %s: %s", "dry run" if out["dry_run"] else "run",
                  {k: v["archived"] + v["deleted"] for k, v in out["results"].items()})
+
+
+# ---------------------------------------------------------------- the typed report views (D139)
+@app.periodic(cron="*/10 * * * *")
+@app.task(name="eax.reports_refresh", queue="default", queueing_lock="reports_refresh")
+def reports_refresh(timestamp: int) -> None:
+    """Every 10 minutes: the typed report views brought in line with every metamodel, for a change that saved without
+    them because they were busy (reports.refresh_typed_views waits only seconds). Nothing changes when they are."""
+    from . import reports
+    with get_engine().begin() as conn:
+        n = reports.refresh_typed_views(conn, wait="60s")
+    if n:
+        log.info("report views: %s", "busy, next time" if n < 0 else f"{n} brought up to date")
 
 
 # ---------------------------------------------------------------- updates (phase 36, D417, D515)

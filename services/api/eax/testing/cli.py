@@ -22,6 +22,7 @@ from . import store
 
 
 def _engine():
+    """The repository's engine (the fixtures; the runs are in the tests database, store.engine(), R2.28)."""
     from ..db import get_engine
     return get_engine()
 
@@ -39,8 +40,8 @@ def _line(r: dict) -> str:
 
 def main(argv: list[str]) -> int:
     cmd, args = (argv[0] if argv else "last"), argv[1:]
-    eng = _engine()
-    with eng.connect() as conn:
+    eng, teng = _engine(), store.engine()
+    with teng.connect() as conn:
         runs = store.runs(conn, 50)
     if cmd == "status":
         live = [r for r in runs if r["state"] in store.OPEN]
@@ -64,7 +65,7 @@ def main(argv: list[str]) -> int:
             return 0 if pick["state"] == "passed" else 1
         print(_line(pick))
         print(f"  {pick['message']}")
-        with eng.connect() as conn:
+        with teng.connect() as conn:
             d = store.run_detail(conn, pick["id"], "failed")
         for x in d["results"][:200]:
             print(f"  FAILED  {x['suite']:<9}{x['name']}: {x['detail'][:300]}")
@@ -88,7 +89,7 @@ def main(argv: list[str]) -> int:
         if not args:
             print("Usage: eax test --clean <run|all> [--yes]")
             return 2
-        with eng.connect() as conn:
+        with teng.connect() as conn:
             if args[0] == "all":
                 ids = [r[0] for r in conn.execute(text("SELECT DISTINCT run_id FROM core.test_fixtures WHERE purged_at IS NULL "
                                                         "ORDER BY run_id")).all()]
@@ -115,12 +116,12 @@ def main(argv: list[str]) -> int:
                   (f"; {'; '.join(out['notes'])}" if out["notes"] else ""))
         return 0
     if cmd == "delete":                               # test results, for good (R2.43)
-        return _delete(eng, args)
+        return _delete(eng, args, teng)
     print(__doc__)
     return 2
 
 
-def _delete(eng, args: list[str]) -> int:
+def _delete(eng, args: list[str], teng=None) -> int:
     """eax test delete <run|all> [--older-than DAYS] [--yes]: each run's test data, results and screenshots, and its
     reports, logs and videos in work/tests, for good (R2.43)."""
     from . import cleanup
@@ -135,7 +136,7 @@ def _delete(eng, args: list[str]) -> int:
         args = args[:i] + args[i + 2:]
     which = next((a for a in args if not a.startswith("--")), "")
     try:
-        with eng.connect() as conn:
+        with (teng or store.engine()).connect() as conn:
             runs = cleanup.pick(conn, which, days)
     except ValueError as exc:
         print(f"{exc}\n{usage}")

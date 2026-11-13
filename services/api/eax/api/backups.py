@@ -84,11 +84,13 @@ def web_proven(conn) -> dict:
     """Whether backups and restores from the web are proven (R2.46; owner, 12 Nov 2026: "If we can not do reliable backups
     and restores from web, then we should just show the command to run"): the newest self-test run with backup checks
     (R2.45) passed all of them. Until one has, the Backups page shows the commands instead of its buttons."""
-    row = conn.execute(text("""SELECT r.id, r.finished_at,
-                                      count(*) FILTER (WHERE x.outcome = 'failed') AS failed, count(*) AS checks
-                                 FROM core.test_runs r JOIN core.test_results x ON x.run_id = r.id AND x.suite = 'backup'
-                                WHERE r.state IN ('passed', 'failed')
-                                GROUP BY r.id ORDER BY r.id DESC LIMIT 1""")).mappings().first()
+    from ..testing import store
+    with store.tests(conn) as tc:                    # the self-test's results, in the tests database (R2.28)
+        row = tc.execute(text("""SELECT r.id, r.finished_at,
+                                        count(*) FILTER (WHERE x.outcome = 'failed') AS failed, count(*) AS checks
+                                   FROM core.test_runs r JOIN core.test_results x ON x.run_id = r.id AND x.suite = 'backup'
+                                  WHERE r.state IN ('passed', 'failed')
+                                  GROUP BY r.id ORDER BY r.id DESC LIMIT 1""")).mappings().first()
     if not row:
         return {"proven": False, "why": "No self-test has checked the backups yet: run eax test backup (or the full test)."}
     if row["failed"]:

@@ -1,4 +1,9 @@
-"""Self-test runs and their results in the installation's own database (core.test_runs, core.test_results; D522).
+"""Self-test runs and their results (core.test_runs, core.test_results, core.test_fixtures; D522), in the tests
+database (R2.28, D613): the shared PostgreSQL unless EAX_TESTS_DB_URL gives it one of its own (databases.py).
+
+Code that reads or writes only these tables uses engine(); code that also touches the architecture (a fixture's model,
+service account or credential) holds a repository connection and reaches the test tables through tests(conn), which is
+that same connection when the tests database is the shared one (one transaction, as before), else its own.
 
 The one results store for every way a run starts (System admin > Self-test, `eax test`, CI): the runner writes as it
 goes, the API and the command line read it, MCP reads it (test_results). Plain rows: the runner decides outcomes (D248)."""
@@ -6,11 +11,37 @@ goes, the API and the command line read it, MCP reads it (test_results). Plain r
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 from sqlalchemy import text
 
 from . import SUITES
+
+
+def engine():
+    """The tests database's engine (the repository's when it has no setting of its own)."""
+    from ..databases import engine_for
+    return engine_for("tests")
+
+
+def separate() -> bool:
+    """Whether the tests database lives apart from the repository (EAX_TESTS_DB_URL set to another database)."""
+    from ..databases import BY_KEY, own
+    return own(BY_KEY["tests"])
+
+
+@contextmanager
+def tests(conn) -> Iterator[Any]:
+    """The test tables beside a repository connection: conn itself when they share a database, else a transaction of
+    the tests database (committed when the block ends)."""
+    if not separate():
+        yield conn
+        return
+    with engine().begin() as tc:
+        yield tc
+
 
 STATES = ("queued", "running", "passed", "failed", "error", "stopped")
 OUTCOMES = ("passed", "failed", "skipped", "warning")
@@ -161,18 +192,25 @@ def add_fixture(conn, run_id: int, kind: str, ident: str, name: str) -> None:
 
 def fixtures(conn, run_id: int | None = None, include_purged: bool = False) -> list[dict[str, Any]]:
     """Every fixture of every run (or of one run): its run, kind, name, when made, and its size (entities for a model,
-    models for a project)."""
-    rows = conn.execute(text(f"""
-        SELECT f.id, f.run_id, r.run_guid::text AS run_guid, r.state AS run_state, f.kind, f.ident, f.name, f.created_at,
-               f.purged_at, f.purged_by,
-               CASE f.kind WHEN 'model' THEN (SELECT count(*) FROM core.entities e JOIN core.models m ON m.id = e.model_id
-                                               WHERE m.guid::text = f.ident) END AS entities,
-               CASE f.kind WHEN 'model' THEN (SELECT count(*) FROM core.relationships x JOIN core.models m ON m.id = x.model_id
-                                               WHERE m.guid::text = f.ident) END AS relationships
-          FROM core.test_fixtures f JOIN core.test_runs r ON r.id = f.run_id
-         WHERE (CAST(:run AS bigint) IS NULL OR f.run_id = :run) {"" if include_purged else "AND f.purged_at IS NULL"}
-         ORDER BY f.run_id DESC, f.kind, f.name"""), {"run": run_id}).mappings().all()
-    return [dict(r) for r in rows]
+    models for a project). conn: a repository connection (the sizes); the fixtures come from the tests database."""
+    with tests(conn) as tc:
+        rows = [dict(r) for r in tc.execute(text(f"""
+            SELECT f.id, f.run_id, r.run_guid::text AS run_guid, r.state AS run_state, f.kind, f.ident, f.name, f.created_at,
+                   f.purged_at, f.purged_by
+              FROM core.test_fixtures f JOIN core.test_runs r ON r.id = f.run_id
+             WHERE (CAST(:run AS bigint) IS NULL OR f.run_id = :run) {"" if include_purged else "AND f.purged_at IS NULL"}
+             ORDER BY f.run_id DESC, f.kind, f.name"""), {"run": run_id}).mappings().all()]
+    guids = [r["ident"] for r in rows if r["kind"] == "model"]
+    sizes: dict[str, tuple[int, int]] = {}
+    if guids:
+        for g, e, x in conn.execute(text("""
+                SELECT m.guid::text, (SELECT count(*) FROM core.entities e WHERE e.model_id = m.id),
+                       (SELECT count(*) FROM core.relationships x WHERE x.model_id = m.id)
+                  FROM core.models m WHERE m.guid::text = ANY(:g)"""), {"g": guids}).all():
+            sizes[g] = (int(e), int(x))
+    for r in rows:
+        r["entities"], r["relationships"] = (sizes.get(r["ident"], (0, 0)) if r["kind"] == "model" else (None, None))
+    return rows
 
 
 def set_state(conn, run_id: int, state: str | None = None, step: str | None = None, message: str | None = None,

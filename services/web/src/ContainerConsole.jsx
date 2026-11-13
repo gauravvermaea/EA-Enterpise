@@ -185,7 +185,7 @@ function ContainerView({ service }) {
       <h3>{service} {d && <span className={`ct-state ${d.state.running ? "up" : "down"}`}>{d.state.status}</span>}
         {d && d.health.status !== "none" && <span className={`ct-state ${d.health.status === "healthy" ? "up" : "warn"}`}>{d.health.status}</span>}</h3>
       <div className="tabs small-tabs" role="tablist">
-        {[["properties", "Properties"], ["logs", "Logs"], ["terminal", "Terminal"], ["run", "Run a command"]].map(([k, l]) => (
+        {[["properties", "Properties"], ["logs", "Logs"], ["terminal", "Terminal"]].map(([k, l]) => (
           <button key={k} role="tab" aria-selected={view === k} className={view === k ? "tab on" : "tab"} onClick={() => setView(k)}>{l}</button>
         ))}
       </div>
@@ -193,7 +193,6 @@ function ContainerView({ service }) {
       {view === "properties" && (d ? <Properties d={d} /> : !error && <p className="quiet">Loading...</p>)}
       {view === "logs" && <Logs service={service} />}
       {view === "terminal" && <Terminal service={service} on={d?.console} running={d?.state.running} />}
-      {view === "run" && <Run service={service} on={d?.console} running={d?.state.running} />}
     </div>
   );
 }
@@ -276,64 +275,6 @@ function Logs({ service }) {
       </div>
       {err && <p className="status bad">{err}</p>}
       <pre className="ct-log" ref={box}>{lines.join("\n")}</pre>
-    </div>
-  );
-}
-
-function Run({ service, on, running }) {
-  const [cmd, setCmd] = useState("");
-  const [runs, setRuns] = useState([]);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
-  const [cwd, setCwd] = useState("");   // the folder the console is in: cd carries over like a terminal
-  const [past, setPast] = useState({ list: [], at: -1 });   // commands typed, for the up and down arrows
-  const box = useRef(null);
-  useEffect(() => { if (box.current) box.current.scrollTop = box.current.scrollHeight; }, [runs]);
-  if (!can("system.operate")) return <p className="quiet">Running commands inside a container is for IT and Super Admins.</p>;
-  if (on === false) return <p className="quiet">Running commands is switched off on this installation (EAX_CONTAINER_CONSOLE=off in the config file).</p>;
-  async function go() {
-    if (!cmd.trim()) return;
-    setBusy(true); setErr("");
-    try {
-      if (cmd.trim() === "clear") { setRuns([]); setCmd(""); setBusy(false); return; }
-      const out = await apiFetch(`/api/v1/admin/containers/${service}/exec`, { method: "POST", body: JSON.stringify({ command: cmd, cwd }) });
-      setRuns([...runs, { ...out, in: cwd }].slice(-30)); setCmd(""); setCwd(out.cwd || cwd);
-      setPast({ list: [...past.list.filter((x) => x !== cmd), cmd].slice(-50), at: -1 });
-    } catch (e) { setErr(e.message); }
-    setBusy(false);
-  }
-  return (
-    <div>
-      <p className="quiet small">Runs commands inside {service} as its own user, 60 seconds at most each. <code>cd</code> carries over to the
-        next command like a terminal; variables set with <code>export</code> do not (each command is its own shell), and programs that
-        wait for typing (<code>vi</code>, <code>top</code>, <code>psql</code> without <code>-c</code>) cannot be used. ↑ and ↓ bring back earlier
-        commands; <code>clear</code> empties the screen. Recorded in the audit trail.
-        {!running && <strong> The container is not running.</strong>}</p>
-      <div className="ct-terminal" ref={box}>
-        {runs.map((r, i) => (
-          <div key={i}>
-            <div className="ct-cmd"><span className="ct-cwd">{r.in || "~"}</span> $ {r.command} <span className="quiet">· exit {r.exit_code ?? "timed out"} · {r.ms} ms{r.cut ? " · output cut to the last 200 kB" : ""}</span></div>
-            <pre>{r.output}</pre>
-          </div>
-        ))}
-        {!runs.length && <div className="quiet">Try: <code>pwd</code>, <code>ls -la</code>, <code>cd eax</code>, <code>df -h</code>, <code>ps aux</code>, <code>env | sort</code></div>}
-      </div>
-      <div className="row-gap ct-input">
-        <span className="ct-prompt"><span className="ct-cwd">{cwd || "~"}</span> $</span>
-        <input value={cmd} onChange={(e) => setCmd(e.target.value)} disabled={busy || !running} placeholder="A command to run inside the container"
-          autoFocus onKeyDown={(e) => {
-            if (e.key === "Enter") go();
-            else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
-              e.preventDefault();
-              const n = past.list.length;
-              if (!n) return;
-              const at = e.key === "ArrowUp" ? (past.at < 0 ? n - 1 : Math.max(0, past.at - 1)) : (past.at < 0 ? -1 : past.at + 1);
-              if (at < 0 || at >= n) { setPast({ ...past, at: -1 }); setCmd(""); } else { setPast({ ...past, at }); setCmd(past.list[at]); }
-            }
-          }} />
-        <button className="primary" disabled={busy || !running || !cmd.trim()} onClick={go}>{busy ? "Running..." : "Run"}</button>
-      </div>
-      {err && <p className="status bad">{err}</p>}
     </div>
   );
 }

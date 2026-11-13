@@ -208,33 +208,15 @@ def test_container_stats_from_docker(tmp_path, monkeypatch):
     assert ops.stats(fresh=True)["problems"] == []
 
 
-def test_container_console(tmp_path, monkeypatch):
-    """Administration > Containers (D211): commands run with docker exec only while EAX_CONTAINER_CONSOLE is on."""
+def test_run_a_command_is_gone(tmp_path, monkeypatch):
+    """R2.15 (owner, 13 Nov 2026: remove the tab and its API): a container has Properties, Logs and Terminal only;
+    the Terminal does all Run a command did. Nothing else used it (the self-test, the Command centre, eax)."""
     ops = _ops(tmp_path, monkeypatch)
-    monkeypatch.setattr(ops, "containers", lambda: [
-        {"id": "aaa111bbb222ccc", "name": "eax-api-1", "service": "api", "state": "running", "status": "Up", "image": "x"},
-        {"id": "ddd444eee555fff", "name": "eax-drawio-1", "service": "drawio", "state": "exited", "status": "Exited", "image": "y"}])
-    cfg = tmp_path / "eaexplorer.env"
-    monkeypatch.setattr(ops, "CONFIG", str(cfg))
-    cfg.write_text("EAX_CONTAINER_CONSOLE=on\n")
-    ran = []
-
-    class R:
-        stdout, stderr, returncode = b"uid=1000(eax)\n", b"", 0
-    monkeypatch.setattr(ops.subprocess, "run", lambda args, **k: ran.append(args) or R())
-    out = ops.container_exec("api", "id")
-    args = ran[-1]
-    assert args[:2] == ["docker", "exec"] and "EAX_CMD=id" in args and "aaa111bbb222ccc" in args and args[-3:-1] == ["sh", "-c"]
-    assert out["exit_code"] == 0 and "uid=1000" in out["output"]
-    with pytest.raises(ValueError):
-        ops.container_exec("drawio", "ls")   # not running
-    with pytest.raises(FileNotFoundError):
-        ops.container_exec("nothing", "ls")
-    cfg.write_text("EAX_CONTAINER_CONSOLE=off\n")
-    with pytest.raises(PermissionError):
-        ops.container_exec("api", "id")
-    cfg.unlink()
-    assert ops.console_on() is False
+    assert not hasattr(ops, "container_exec")
+    assert "/exec" not in (ROOT / "eax" / "api" / "admin.py").read_text()
+    assert "/exec$" not in (REPO / "services" / "ops" / "ops.py").read_text()
+    web = (REPO / "services" / "web" / "src" / "ContainerConsole.jsx").read_text()
+    assert "Run a command" not in web and "function Run(" not in web and '["terminal", "Terminal"]]' in web
 
 
 def test_templates_set_the_container_console():
@@ -246,8 +228,7 @@ def test_templates_set_the_container_console():
 def test_container_console_is_it_and_super_admin_and_audited():
     """D214: commands and terminals are for IT and Super Admins (system.operate), each in the audit trail."""
     src = (ROOT / "eax" / "api" / "admin.py").read_text()
-    for route, action in (("/admin/containers/<service>/exec", '"container.exec"'),
-                          ("/admin/containers/<service>/terminal", '"container.terminal.open"')):
+    for route, action in (("/admin/containers/<service>/terminal", '"container.terminal.open"'),):
         i = src.index(route)
         block = src[i:i + 1600]
         assert 'require_auth("system.operate")' in block and action in block
@@ -263,36 +244,6 @@ def test_proxy_passes_terminals_to_the_helper_only():
     assert "http://ops:8091" in block and "8090" not in block
     compose = (REPO / "docker-compose.yml").read_text()
     assert "terminal:" in compose
-
-
-def test_cd_carries_over_between_commands(tmp_path, monkeypatch):
-    """Run a command (owner, 6 Nov 2026): cd in one command is where the next one runs, like a terminal."""
-    ops = _ops(tmp_path, monkeypatch)
-    monkeypatch.setattr(ops, "containers", lambda: [
-        {"id": "aaa111bbb222ccc", "name": "eax-api-1", "service": "api", "state": "running", "status": "Up", "image": "x"}])
-    cfg = tmp_path / "eaexplorer.env"
-    cfg.write_text("EAX_CONTAINER_CONSOLE=on\n")
-    monkeypatch.setattr(ops, "CONFIG", str(cfg))
-    (tmp_path / "eax").mkdir()
-    (tmp_path / "eax" / "app.py").write_text("")
-    real = ops.subprocess.run
-
-    def local(args, **k):   # docker exec -e A=1 -e B=2 <id> sh -c <script>, run here instead
-        env = dict(os.environ)
-        i = 2
-        while args[i] == "-e":
-            key, _, val = args[i + 1].partition("=")
-            env[key] = val
-            i += 2
-        return real(args[i + 1:], env=env, cwd=str(tmp_path), **k)
-    monkeypatch.setattr(ops.subprocess, "run", local)
-    first = ops.container_exec("api", "cd eax", "")
-    assert first["cwd"] == str(tmp_path / "eax") and first["output"].strip() == ""
-    second = ops.container_exec("api", "ls; env | grep -c '^EAX_C[MW]' || true", first["cwd"])
-    assert "app.py" in second["output"] and second["cwd"] == first["cwd"]
-    assert second["output"].strip().splitlines()[-1] == "0"   # the console's own variables are not left behind
-    third = ops.container_exec("api", "cd .. && false", second["cwd"])
-    assert third["cwd"] == str(tmp_path) and third["exit_code"] == 1
 
 
 def _ws_client(port: int, ticket: str):

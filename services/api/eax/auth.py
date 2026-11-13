@@ -168,9 +168,9 @@ def _test_lock(user: User) -> None:
     from . import test_lock
     if test_lock.exempt(user.username, user.roles):
         return
-    from .db import get_engine
+    from .testing import store
     try:
-        with get_engine().connect() as conn:
+        with store.engine().connect() as conn:       # the tests database (R2.28)
             run = test_lock.active(conn)
     except Exception:  # noqa: BLE001 - no test tables yet (a first start): nothing to wait for
         return

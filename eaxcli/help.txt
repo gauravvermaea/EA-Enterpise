@@ -306,7 +306,10 @@ $ {eax} restore before-upgrade --what db
 > Lists every database EA Explorer uses: what it holds, where it lives and whether it answers.
 Each has its own setting in work/eaexplorer.env: empty = the shared PostgreSQL; set one to move that database to a
 container or server of its own (docs/databases.md). Also System Admin > Databases (R2.50).
+A database of its own gets its tables at the next start (eax up). `copy tests` brings the self-test runs made
+before it moved (R2.28).
 $ {eax} databases
+$ {eax} databases copy tests
 
 ### restore-log <id>
 > Shows a restore's whole log (also in work/backups/restores/<id>).

@@ -57,8 +57,9 @@ class Stopped(Exception):
 class Run:
     """One run: its row, its folder and log, and a way to record results as they come."""
 
-    def __init__(self, engine, run_id: int, folder: str):
-        self.engine, self.id, self.folder = engine, run_id, folder
+    def __init__(self, engine, run_id: int, folder: str, repo=None):
+        self.engine, self.id, self.folder = engine, run_id, folder   # engine: the tests database's (R2.28)
+        self.repo = repo if repo is not None else engine             # the repository's: the fixtures and database checks
         self.dir = RESULTS / folder
         self.dir.mkdir(parents=True, exist_ok=True)
         self.counts: dict[str, int] = {}
@@ -336,7 +337,7 @@ def _backup_suite(r: Run, tokens: dict[str, str], ids: dict[str, str], run_id: i
         with r.engine.begin() as conn:
             store.add_fixture(conn, run_id, kind, ident, name)
     r.log("backups: an infrastructure and an application backup, a trial restore of each (nothing live is touched)")
-    backups_check.run(API, tokens.get("super-admin", ""), ids, r.recorder("backup"), r.log, r.engine, run_id, add_fixture)
+    backups_check.run(API, tokens.get("super-admin", ""), ids, r.recorder("backup"), r.log, r.repo, run_id, add_fixture)
 
 
 def _repeat_detailed(r: Run, p: dict, spec: dict, tokens: dict[str, str], test_tokens: dict[str, str], ids: dict[str, str],
@@ -346,7 +347,7 @@ def _repeat_detailed(r: Run, p: dict, spec: dict, tokens: dict[str, str], test_t
     import json as _json
     if p["db"]:
         r.log("database checks again (read only)")
-        with r.engine.connect() as conn:
+        with r.repo.connect() as conn:
             db_checks.run(conn, _version(), r.recorder("db"))
     if p["api"]:
         r.log(f"API: the {len(p['api'])} failed endpoint check(s) again")
@@ -381,7 +382,7 @@ def _repeat_detailed(r: Run, p: dict, spec: dict, tokens: dict[str, str], test_t
 
 def cmd_run(args) -> int:
     from ..db import get_engine
-    engine = get_engine()
+    engine, repo = store.engine(), get_engine()      # the run's record, and the architecture its fixtures live in
     level, role, area = store.clean_options(args.level, args.role, args.area)
     suites = store.clean_suites(args.suites)
     folder = args.folder or datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -409,7 +410,7 @@ def cmd_run(args) -> int:
         run = dict(conn.execute(text("SELECT id, run_guid::text AS run_guid, started_by FROM core.test_runs WHERE id = :id"),
                                 {"id": run_id}).mappings().first())
     print(f"RUN_ID={run_id}", flush=True)
-    r = Run(engine, run_id, folder)
+    r = Run(engine, run_id, folder, repo)
     by = run["started_by"]
     error, stopped, keep_open = "", "", False
     try:
@@ -418,10 +419,10 @@ def cmd_run(args) -> int:
               + ("" if level == "smoke" else f", {', '.join(suites)}") + (f", role {role}" if role else "")
               + (f", area {area}" if area else "") + (", watched in a browser" if args.watch else ""))
         roles = ["super-admin"] + ([role] if role and role != "super-admin" else [] if role else store.TEST_ROLES[1:])
-        fixtures.clean_leftovers(engine, run_id, by, r.log)   # earlier runs' test data goes first (D593)
-        with engine.begin() as conn:
+        fixtures.clean_leftovers(repo, run_id, by, r.log)   # earlier runs' test data goes first (D593)
+        with repo.begin() as conn:
             tokens = fixtures.accounts(conn, run, by, roles, r.log)
-        ids = fixtures.models_and_project(engine, run, by, roles, r.log)
+        ids = fixtures.models_and_project(repo, run, by, roles, r.log)
         with engine.begin() as conn:
             store.set_fixture_ids(conn, run_id, ids)
         p = None
@@ -450,7 +451,7 @@ def cmd_run(args) -> int:
         else:
             if "db" in suites:
                 r.log("database checks (read only)")
-                with engine.connect() as conn:
+                with repo.connect() as conn:
                     db_checks.run(conn, _version(), r.recorder("db"))
             if "api" in suites:
                 r.log(f"API: every endpoint{f' of {area}' if area else ''}, as {', '.join(test_tokens)}")
@@ -491,7 +492,7 @@ def cmd_run(args) -> int:
         print(f"ERROR: {exc}", flush=True)
         with open(r.dir / "run.log", "a", encoding="utf-8") as f:
             f.write(traceback.format_exc())
-    _close_access(engine, run_id, by)
+    _close_access(engine, run_id, by, repo)
     if keep_open and not (error or stopped):
         with engine.begin() as conn:
             store.set_state(conn, run_id, step="waiting for the ZAP baseline scan and the Trivy image scans")
@@ -500,18 +501,22 @@ def cmd_run(args) -> int:
     return _close(engine, r, error, stopped)
 
 
-def _close_access(engine, run_id: int, by: str) -> None:
+def _close_access(engine, run_id: int, by: str, repo=None) -> None:
     """When its checks end the run's tokens are revoked and its browser ticket forgotten: the accounts and models stay
-    (fixtures, until someone purges them), but nobody can sign in with them any more."""
+    (fixtures, until someone purges them), but nobody can sign in with them any more. engine: the tests database's;
+    repo: the repository's, where the credentials are."""
     from .. import machine_access as ma
     from .. import permissions as perms
-    with engine.begin() as conn:
-        for (guid,) in conn.execute(text("SELECT ident FROM core.test_fixtures WHERE run_id = :r AND kind = 'credential' "
-                                         "AND purged_at IS NULL"), {"r": run_id}).all():
+    with engine.connect() as conn:
+        creds = [g for (g,) in conn.execute(text("SELECT ident FROM core.test_fixtures WHERE run_id = :r AND kind = 'credential' "
+                                                 "AND purged_at IS NULL"), {"r": run_id}).all()]
+    with (repo if repo is not None else engine).begin() as conn:
+        for guid in creds:
             try:
                 ma.revoke(conn, by, [perms.SUPER_ADMIN], guid, "the self-test run ended")
             except Exception:  # noqa: BLE001
                 pass
+    with engine.begin() as conn:
         conn.execute(text("UPDATE core.test_runs SET browser = jsonb_build_object('done', true) WHERE id = :id"), {"id": run_id})
 
 
@@ -579,7 +584,7 @@ def _close(engine, r: Run, error: str = "", stopped: str = "") -> int:
 
 def cmd_collect(args) -> int:
     from ..db import get_engine
-    engine = get_engine()
+    engine, repo = store.engine(), get_engine()
     with engine.begin() as conn:
         row = conn.execute(text("SELECT folder, state, started_by FROM core.test_runs WHERE id = :id"), {"id": args.run_id}).first()
     if not row:
@@ -589,7 +594,7 @@ def cmd_collect(args) -> int:
         print(f"Self-test run {args.run_id} is closed already ({row[1]}).")
         return 0 if row[1] == "passed" else 1
     r = Run.__new__(Run)
-    r.engine, r.id, r.folder, r.dir = engine, args.run_id, row[0], RESULTS / row[0]
+    r.engine, r.repo, r.id, r.folder, r.dir = engine, repo, args.run_id, row[0], RESULTS / row[0]
     r.dir.mkdir(parents=True, exist_ok=True)
     r.only, r.ids, r.left_out, r.counts = None, {}, 0, {}
     with engine.connect() as conn:                   # a repeat records only the scans that failed before (R2.36)
@@ -601,7 +606,7 @@ def cmd_collect(args) -> int:
         rec = r.recorder("security")
         security.read_zap(r.dir / "zap.json", rec)
         security.read_trivy(r.dir, rec)
-    _close_access(engine, args.run_id, row[2])
+    _close_access(engine, args.run_id, row[2], repo)
     return _close(engine, r, args.error or "", args.stopped or "")
 
 

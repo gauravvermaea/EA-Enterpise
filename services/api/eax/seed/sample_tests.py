@@ -48,14 +48,14 @@ def run() -> list[str]:
     from ..db import get_engine
     from ..testing import fixtures
     eng = get_engine()
-    with eng.begin() as conn:
-        if conn.execute(text("SELECT 1 FROM core.test_runs LIMIT 1")).first():
+    with eng.begin() as conn, store.tests(conn) as tc:      # the runs go to the tests database (R2.28)
+        if tc.execute(text("SELECT 1 FROM core.test_runs LIMIT 1")).first():
             return ["sample self-test runs: there are runs already"]
         version = conn.execute(text("SELECT version FROM core.schema_versions ORDER BY applied_at DESC LIMIT 1")).scalar() or ""
-        ok = store.create_run(conn, "user_it_admin", "web", ["api", "ui", "db", "security"], "20261109T201500Z-run1", version,
+        ok = store.create_run(tc, "user_it_admin", "web", ["api", "ui", "db", "security"], "20261109T201500Z-run1", version,
                               "smoke")
-        store.set_state(conn, ok, state="running")
-        run = dict(conn.execute(text("SELECT id, run_guid::text AS run_guid FROM core.test_runs WHERE id = :i"), {"i": ok}).mappings().first())
+        store.set_state(tc, ok, state="running")
+        run = dict(tc.execute(text("SELECT id, run_guid::text AS run_guid FROM core.test_runs WHERE id = :i"), {"i": ok}).mappings().first())
     notes = []
     try:
         with eng.begin() as conn:
@@ -63,66 +63,66 @@ def run() -> list[str]:
         fixtures.models_and_project(eng, run, "user_it_admin", ["super-admin", "architect", "model-admin"], notes.append)
     except Exception as exc:  # noqa: BLE001 - the run's records still show; its fixtures are listed as far as they were made
         notes.append(f"fixtures not all made: {exc}")
-    with eng.begin() as conn:
+    with eng.begin() as conn, store.tests(conn) as tc:
         for name, detail in [("sign in as super-admin", "200"), ("sign in as architect", "200"), ("sign in as model-admin", "200"),
                              ("area models answers: GET /api/v1/models", "200"), ("area projects answers: GET /api/v1/projects", "200"),
                              ("area administration answers: GET /api/v1/admin/settings", "200"),
                              ("journey: sign in and the start page", "1 page(s) as architect"),
                              ("journey: a model: overview, grid and quality", "3 page(s) as model-admin")]:
-            store.add_result(conn, ok, "smoke", name, "passed", detail, 140,
+            store.add_result(tc, ok, "smoke", name, "passed", detail, 140,
                              browser="Chromium 130 (headless, on the server)" if name.startswith("journey") else "")
-        store.finish(conn, ok)
+        store.finish(tc, ok)
         conn.execute(text("UPDATE core.machine_credentials SET revoked_at = now(), revoked_by = 'user_it_admin', "
                           "revoke_reason = 'the self-test run ended' WHERE owner LIKE :o AND revoked_at IS NULL"),
                      {"o": f"svc-self-test-{store.short(run['run_guid'])}-%"})
-        conn.execute(text("""UPDATE core.test_runs SET queued_at = now() - interval '1 day', started_at = now() - interval '1 day',
+        tc.execute(text("""UPDATE core.test_runs SET queued_at = now() - interval '1 day', started_at = now() - interval '1 day',
                              finished_at = now() - interval '1 day' + interval '4 minutes' WHERE id = :id"""), {"id": ok})
 
-        bad = store.create_run(conn, "eax test", "eax", ["api", "ui", "db", "security"], "20261110T061000Z", version, "detailed",
+        bad = store.create_run(tc, "eax test", "eax", ["api", "ui", "db", "security"], "20261110T061000Z", version, "detailed",
                                watch=True)
-        store.set_state(conn, bad, state="running")
-        store.add_result(conn, bad, "db", "every table has a primary key", "passed", "nothing wrong", 40)
-        store.add_result(conn, bad, "db", "foreign keys have an index (speed)", "warning",
+        store.set_state(tc, bad, state="running")
+        store.add_result(tc, bad, "db", "every table has a primary key", "passed", "nothing wrong", 40)
+        store.add_result(tc, bad, "db", "foreign keys have an index (speed)", "warning",
                          "core.models(kind_code) (a sample: the speed check lists what it would index)", 60)
-        store.add_result(conn, bad, "api", "GET /api/v1/models/{model_id}/kpis: every test role", "failed",
+        store.add_result(tc, bad, "api", "GET /api/v1/models/{model_id}/kpis: every test role", "failed",
                          "report-viewer: server error 500 (a sample failure)", 210,
                          request="GET /api/v1/models/0b6c.../kpis  as report-viewer",
                          response='500\n{"code": 500, "status": "Internal Server Error", "message": "a sample failure"}')
-        store.add_result(conn, bad, "api", "PUT /api/v1/admin/servers: refused without a global role", "passed", "refused: 403", 15)
-        store.add_result(conn, bad, "ui", "journey: a project and its tasks", "failed",
+        store.add_result(tc, bad, "api", "PUT /api/v1/admin/servers: refused without a global role", "passed", "refused: 403", 15)
+        store.add_result(tc, bad, "ui", "journey: a project and its tasks", "failed",
                          "Timeout 30000ms exceeded waiting for text=Tasks (a sample failure)", 41000, _png(), "",
                          browser="Chromium 130 (headless, on the server)")
-        store.add_result(conn, bad, "ui", "journey: the models list", "passed", "1 page(s) as architect", 3200,
+        store.add_result(tc, bad, "ui", "journey: the models list", "passed", "1 page(s) as architect", 3200,
                          browser="Edge 130 (watched here)")
-        store.add_result(conn, bad, "security", "OWASP ZAP baseline scan", "warning", "Medium: Content Security Policy (CSP) Header Not Set", 0)
-        store.add_result(conn, bad, "security", "Python dependencies (pip-audit)", "skipped",
+        store.add_result(tc, bad, "security", "OWASP ZAP baseline scan", "warning", "Medium: Content Security Policy (CSP) Header Not Set", 0)
+        store.add_result(tc, bad, "security", "Python dependencies (pip-audit)", "skipped",
                          "pip-audit could not run: no internet to read the advisory database", 0)
-        store.finish(conn, bad)
-        conn.execute(text("UPDATE core.test_runs SET purged_at = now(), purged_by = 'user_super_admin' WHERE id = :id"), {"id": bad})
+        store.finish(tc, bad)
+        tc.execute(text("UPDATE core.test_runs SET purged_at = now(), purged_by = 'user_super_admin' WHERE id = :id"), {"id": bad})
 
-        err = store.create_run(conn, "user_super_admin", "web", ["ui"], "", version, "detailed")
-        store.set_state(conn, err, state="error",
+        err = store.create_run(tc, "user_super_admin", "web", ["ui"], "", version, "detailed")
+        store.set_state(tc, err, state="error",
                         message="Could not start: The test runner image eaexplorer/testrunner is not built yet: run eax test once on this server.")
-        conn.execute(text("UPDATE core.test_runs SET queued_at = now() - interval '2 days', finished_at = now() - interval '2 days' "
+        tc.execute(text("UPDATE core.test_runs SET queued_at = now() - interval '2 days', finished_at = now() - interval '2 days' "
                           "WHERE id = :id"), {"id": err})
-        r1 = store.create_run(conn, "user_it_admin", "web", ["api", "ui"], "20261110T081000Z-run4", version, "detailed",
+        r1 = store.create_run(tc, "user_it_admin", "web", ["api", "ui"], "20261110T081000Z-run4", version, "detailed",
                               repeat_of=bad)
-        store.set_state(conn, r1, state="running")
-        store.add_result(conn, r1, "api", "GET /api/v1/models/{model_id}/kpis: every test role", "passed",
+        store.set_state(tc, r1, state="running")
+        store.add_result(tc, r1, "api", "GET /api/v1/models/{model_id}/kpis: every test role", "passed",
                          "every role answered (a sample: fixed since)", 180)
-        store.add_result(conn, r1, "ui", "journey: a project and its tasks", "failed",
+        store.add_result(tc, r1, "ui", "journey: a project and its tasks", "failed",
                          "Timeout 30000ms exceeded waiting for text=Tasks (a sample failure, still there)", 40500, _png(), "",
                          browser="Chromium 130 (headless, on the server)")
-        store.finish(conn, r1)
-        r2 = store.create_run(conn, "eax test", "eax", ["ui"], "20261110T093000Z-run5", version, "detailed", repeat_of=r1)
-        store.set_state(conn, r2, state="running")
-        store.add_result(conn, r2, "ui", "journey: a project and its tasks", "passed", "4 page(s) as architect", 21000,
+        store.finish(tc, r1)
+        r2 = store.create_run(tc, "eax test", "eax", ["ui"], "20261110T093000Z-run5", version, "detailed", repeat_of=r1)
+        store.set_state(tc, r2, state="running")
+        store.add_result(tc, r2, "ui", "journey: a project and its tasks", "passed", "4 page(s) as architect", 21000,
                          browser="Chromium 130 (headless, on the server)")
-        store.finish(conn, r2)
+        store.finish(tc, r2)
         from ..testing import repeat
-        repeat.mark_followed_up(conn, r2)
+        repeat.mark_followed_up(tc, r2)
         for rid, hours in ((r1, 20), (r2, 18)):
-            conn.execute(text("""UPDATE core.test_runs SET queued_at = now() - make_interval(hours => :h),
+            tc.execute(text("""UPDATE core.test_runs SET queued_at = now() - make_interval(hours => :h),
                                  started_at = now() - make_interval(hours => :h),
                                  finished_at = now() - make_interval(hours => :h) + interval '3 minutes' WHERE id = :id"""),
                          {"h": hours, "id": rid})

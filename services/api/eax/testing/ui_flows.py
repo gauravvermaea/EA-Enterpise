@@ -101,8 +101,9 @@ JOURNEYS: list[dict] = [
          {"click": "Choose…", "optional_alt": "Change…"},
          {"choose": "Transition Planning"},
          {"fill": "Note (optional)", "value": "self-test {sid} {role}"},
-         {"click": "Save", "exact": True, "wait": 1500},
-         {"expect_not": "Note (optional)"},                 # the dialog closed: the iteration was saved
+         {"click": "Save", "exact": True},
+         {"expect": "Now a Transition Planning"},          # what saving said, in the dialog (it closes after)
+         {"expect_not": "Note (optional)", "timeout": 5000},   # the dialog closed: the iteration was saved
          {"expect": "Transition Planning"},
          {"open": "#/projects/{p}/phases/B", "expect": "isn't part of this", "optional": True},
          {"open": "#/projects/{p}", "expect": "{project_name}"},
@@ -518,6 +519,31 @@ def _root(page, s: dict):
     return page
 
 
+def _modal(page):
+    """The open pop-up dialog (EA Explorer's Modal, drawn last on the page), or None. While one is open the page behind
+    it cannot be clicked, so a step's button, choice or field is looked for in it first (the laptop's full run, 12 Nov
+    2026: a project page's own Save or a label with the same words came before the iteration dialog's)."""
+    try:
+        loc = page.locator(".ed-dialog[role=dialog]")
+        for i in reversed(range(min(loc.count(), 5))):
+            if _visible(loc.nth(i)):
+                return loc.nth(i)
+    except Exception:  # noqa: BLE001 - a page still loading has none
+        return None
+    return None
+
+
+def _in_modal_first(page, root, s: dict, find):
+    """find(where) in the open dialog when the step names no "within" or "row", else (and when not there) in root."""
+    if root is page and not s.get("within") and not s.get("row"):
+        m = _modal(page)
+        if m is not None:
+            got = find(m)
+            if got is not None:
+                return got
+    return find(root)
+
+
 def _clickable(page, text: str, exact: bool = False, pattern: str = ""):
     pat = re.compile(pattern) if pattern else re.compile(rf"^\s*{re.escape(text)}\s*$" if exact else rf"^\s*{re.escape(text)}", re.I)
     loc = page.locator(_CLICKABLE).filter(has_text=pat)
@@ -675,9 +701,9 @@ def step(page, s: dict, open_route: Callable[..., None], state: dict | None = No
         # are in) is later on a slower machine (R2.0.1, the laptop's smoke run); an optional step waits less
         end = time.time() + (3 if s.get("optional") else timeout / 1000)
         while True:
-            el = _clickable(root, s.get("click", ""), s.get("exact", False), s.get("click_re", ""))
+            el = _in_modal_first(page, root, s, lambda w: _clickable(w, s.get("click", ""), s.get("exact", False), s.get("click_re", "")))
             if el is None and s.get("optional_alt"):
-                el = _clickable(root, s["optional_alt"])
+                el = _in_modal_first(page, root, s, lambda w: _clickable(w, s["optional_alt"]))
             if el is not None or time.time() > end:
                 break
             page.wait_for_timeout(300)
@@ -696,16 +722,27 @@ def step(page, s: dict, open_route: Callable[..., None], state: dict | None = No
                 el.click()
                 page.wait_for_selector(s["opens"], timeout=timeout)
     elif "choose" in s:
-        loc = root.locator("label").filter(has_text=s["choose"]).first
-        if not loc.count():
+        def label(w):
+            lab = w.locator("label").filter(has_text=s["choose"])
+            for i in range(min(lab.count(), 10)):
+                if _visible(lab.nth(i)):
+                    return lab.nth(i)
+            return None
+        loc = _in_modal_first(page, root, s, label)
+        if loc is None:
             return f"no choice \"{s['choose']}\""
         loc.click()
+        box = loc.locator("input[type=radio], input[type=checkbox]")
+        if box.count() and box.first.get_attribute("type") == "radio" and not box.first.is_checked():
+            box.first.check()                          # the click landed on the label's text but not its radio
+        if box.count() and box.first.get_attribute("type") == "radio" and not box.first.is_checked():
+            return f"\"{s['choose']}\" was not chosen"
     elif "fill" in s:
         end = time.time() + (3 if s.get("optional") else timeout / 1000)
-        el = _field(root, s["fill"])
+        el = _in_modal_first(page, root, s, lambda w: _field(w, s["fill"]))
         while el is None and time.time() < end:        # a field that comes with a pop-up or the page's data
             page.wait_for_timeout(300)
-            el = _field(root, s["fill"])
+            el = _in_modal_first(page, root, s, lambda w: _field(w, s["fill"]))
         if el is None:
             return f"no field \"{s['fill']}\""
         el.fill(s["value"])
