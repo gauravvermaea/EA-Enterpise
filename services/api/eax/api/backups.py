@@ -312,6 +312,25 @@ class AppRestoreAll(MethodView):
         return _task("backup.restore_all", None, f"Restore every model of '{manifest.get('tag') or name}'", {"name": name})
 
 
+@blp.route("/admin/backups/override")
+class BackupsOverride(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.arguments(FreeIn)
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def post(self, data):
+        """Use the backup and restore buttons before a self-test has proven them (R2.62, owner, 13 Nov 2026: "dont hide
+        these buttons diable them with reason. We should be able to override the diable as a user"): recorded in the
+        audit trail with the reason they were not proven"""
+        return record_override((data or {}).get("why"))
+
+
+def record_override(why) -> dict:
+    """The audit line for "Use them anyway" (R2.62), with why the buttons were not proven."""
+    _audit("backup.web_override", "backup", "web", {"why": str(why or "")[:300]})
+    return {"recorded": True}
+
+
 @blp.route("/admin/backups/stop")
 class StopBackups(MethodView):
     @blp.doc(security=SECURITY)

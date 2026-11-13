@@ -310,6 +310,14 @@ def create_app(testing: bool = False) -> Flask:
         return {"code": 503, "status": "Service Unavailable", "unavailable": "personal",
                 "message": f"Your personal data is not available right now: {exc}"}, 503
 
+    from .repository import NotFound as _NotFound
+
+    @app.errorhandler(_NotFound)
+    def _not_found(exc):
+        """Something the person may not read, or that is not there, is a 404 wherever it is raised: never a server error
+        (the full self-test, 13 Nov 2026: archive/references answered 500 "NotFound")."""
+        return {"code": 404, "status": "Not Found", "message": str(exc)}, 404
+
     @app.errorhandler(Exception)
     def _server_error(exc):
         """A server error answers as JSON with its kind and the request's id, and its traceback goes to the API's log

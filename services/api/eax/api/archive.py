@@ -27,10 +27,14 @@ SECURITY = [{"bearerAuth": []}]
 
 
 def _guard(fn, *a, **kw):
+    """EditError as its status; a model the person may not read (or that is not there) as 404, never a server error (the
+    full self-test, 13 Nov 2026: archive/references answered 500 "NotFound" for every role without one on the model)."""
     try:
         return fn(*a, **kw)
     except EditError as exc:
         abort(exc.status, message=str(exc))
+    except repo.NotFound as exc:
+        abort(404, message=str(exc))
 
 
 @blp.route("/models/<model_id>/archive/references")

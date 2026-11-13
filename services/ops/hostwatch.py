@@ -309,6 +309,7 @@ HIDDEN = re.compile(r"(^|/)(credentials[^/]*|\.ssh|id_rsa[^/]*|id_ed25519[^/]*|s
 NEVER_WRITE = ("/proc", "/sys", "/dev", "/run/secrets", "/var/run/docker.sock", "/etc/passwd", "/etc/shadow")
 DATABASE = ("/var/lib/postgresql/data",)
 TEXT_LIMIT = 2_000_000
+DIRS_MARK = "@@eax-folders@@"
 
 
 def _cid(service: str) -> str:
@@ -353,31 +354,40 @@ def _exec(cid: str, *cmd: str, timeout: int = 60) -> str:
 
 
 def files_list(service: str, path: str = "/") -> dict:
+    """One folder's entries. The folder is given to find with a trailing slash, so a folder that is a link (/bin, /lib
+    and /sbin on most images link to /usr/...) is followed and its contents listed; a link to a folder is a folder (R2.60,
+    owner 13 Nov 2026: "double click on a folder at root level, there is no folders inside it")."""
     _need_console()
     cid, p = _cid(service), _clean(path)
-    out = _exec(cid, "sh", "-c", f"find {shlex.quote(p)} -mindepth 1 -maxdepth 1 -exec stat -c '%n|%s|%Y|%U|%A|%F' {{}} + "
-                                 "2>/dev/null | head -n 3000; true")
+    q = shlex.quote(p.rstrip("/") + "/")
+    out = _exec(cid, "sh", "-c", f"find {q} -mindepth 1 -maxdepth 1 -exec stat -c '%n|%s|%Y|%U|%A|%F' {{}} + "
+                                 f"2>/dev/null | head -n 3000; echo {DIRS_MARK}; "
+                                 f"find -L {q} -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -n 3000; true")
     d = json.loads(hooks["docker"]("inspect", cid, timeout=30))[0]
     mpoints = {m.get("Destination"): {"source": m.get("Name") or m.get("Source"), "read_only": not m.get("RW", True)}
                for m in d.get("Mounts") or []}
+    listing, _, dirs_out = out.partition(DIRS_MARK)
+    folders = {os.path.normpath(x.strip()) for x in dirs_out.splitlines() if x.strip()}
     rows = []
-    for line in out.splitlines():
+    for line in listing.splitlines():
         parts = line.rsplit("|", 5)
         if len(parts) != 6:
             continue
         full, size, mtime, owner, perms, kind = parts
+        full = os.path.normpath(full)
         if hidden(full):
             continue
+        link = "link" in kind
         rows.append({"name": os.path.basename(full), "path": full, "bytes": int(size) if size.isdigit() else 0,
                      "modified": int(mtime) if mtime.isdigit() else 0, "owner": owner, "permissions": perms,
-                     "dir": "directory" in kind, "link": "link" in kind, "mount": mpoints.get(full)})
+                     "dir": "directory" in kind or (link and full in folders), "link": link, "mount": mpoints.get(full)})
     rows.sort(key=lambda r: (not r["dir"], r["name"].lower()))
     return {"service": service, "path": p, "entries": rows, "mount": mpoints.get(p),
             "read_only_reason": write_check(service, p + "/x")}
 
 
 def _cp_out(cid: str, path: str) -> bytes:
-    r = subprocess.run(["docker", "cp", f"{cid}:{path}", "-"], capture_output=True, timeout=300)
+    r = subprocess.run(["docker", "cp", "-L", f"{cid}:{path}", "-"], capture_output=True, timeout=300)
     if r.returncode:
         raise FileNotFoundError((r.stderr or b"").decode(errors="replace").strip()[:300] or f"No {path}.")
     return r.stdout

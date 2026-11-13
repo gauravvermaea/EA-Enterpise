@@ -116,6 +116,35 @@ def test_verify_sh_reports_each_check(tmp_path):
     assert lines["checksums"] == "failed" and lines["files tls"] == "failed" and r.returncode == 1
 
 
+@pytest.mark.skipif(not shutil.which("sh") or not shutil.which("sha256sum"), reason="needs a POSIX shell")
+def test_verify_sh_works_with_busybox_sha256sum(tmp_path):
+    """Full self-test, 13 Nov 2026: "backup: trial restore: checksums" failed with "sha256sum: unrecognized option:
+    quiet": the backup image is Alpine, whose BusyBox sha256sum has no long options. verify.sh uses plain -c."""
+    real = shutil.which("sha256sum")
+    b = tmp_path / "backups" / "infrastructure" / "X"
+    (b / "databases").mkdir(parents=True)
+    (b / "databases" / "eaexplorer.dump").write_text("dump")
+    subprocess.run(f"find . -type f ! -name SHA256SUMS | sed 's|^./||' | sort | xargs {real} > SHA256SUMS", shell=True, cwd=b, check=True)
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    (bin_ / "sha256sum").write_text("#!/bin/sh\nfor a in \"$@\"; do case \"$a\" in --*) echo \"sha256sum: unrecognized option: ${a#--}\" >&2;"
+                                    f" exit 1;; esac; done\nexec {real} \"$@\"\n")
+    (bin_ / "psql").write_text("#!/bin/sh\necho 40\n")
+    (bin_ / "restore.sh").write_text("#!/bin/sh\necho restore: ok\n")
+    for f in bin_.iterdir():
+        f.chmod(0o755)
+    env = {**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}", "EAX_BACKUP_ROOT": str(tmp_path / "backups"),
+           "EAX_RESTORE_SH": str(bin_ / "restore.sh")}
+    r = subprocess.run(["sh", str(REPO / "services/backup/verify.sh"), "infrastructure/X"], capture_output=True, text=True, env=env)
+    checks = {x.split("\t")[1]: x.split("\t")[2:] for x in r.stdout.splitlines() if x.startswith("CHECK")}
+    assert checks["checksums"][0] == "ok", r.stdout
+    (b / "databases" / "eaexplorer.dump").write_text("changed")
+    r = subprocess.run(["sh", str(REPO / "services/backup/verify.sh"), "infrastructure/X"], capture_output=True, text=True, env=env)
+    checks = {x.split("\t")[1]: x.split("\t")[2:] for x in r.stdout.splitlines() if x.startswith("CHECK")}
+    assert checks["checksums"][0] == "failed" and "eaexplorer.dump" in checks["checksums"][1]
+    assert "unrecognized" not in checks["checksums"][1]
+
+
 def test_the_helper_reads_verify_lines():
     spec = importlib.util.spec_from_file_location("ops_r245", REPO / "services" / "ops" / "ops.py")
     src = (REPO / "services" / "ops" / "ops.py").read_text()
@@ -127,10 +156,31 @@ def test_the_helper_reads_verify_lines():
     assert spec is not None
 
 
-def test_the_backups_page_shows_commands_until_the_web_is_proven():
+def test_the_backups_page_disables_its_buttons_with_the_reason_until_the_web_is_proven():
+    """R2.62 (owner, 13 Nov 2026): "dont hide these buttons diable them with reason. We should be able to override the
+    diable as a user". Every backup and restore button is always shown; until a self-test proves them it is disabled,
+    its tooltip says why, the commands are offered, and "Use them anyway" enables them and is audited."""
     page = (REPO / "services/web/src/Backups.jsx").read_text()
-    assert "function WebNotProven" in page and page.count("<WebNotProven") == 2
-    assert '{proven && <button className="primary" disabled={!data.on || st.busy} onClick={backupNow}>Back up now</button>}' in page
-    assert "{proven && <button className=\"linkish\" disabled={b.status !== \"ok\" || st.busy} onClick={() => onRestore(b)}>Restore...</button>}" in page
+    assert "proven &&" not in page                                          # nothing is hidden any more
+    assert "function WebNotProven" in page and page.count("<WebNotProven gate={gate}") == 2
+    assert '<button className="primary" disabled={!ready || !data.on || st.busy} title={why} onClick={backupNow}>Back up now</button>' in page
+    assert '<button className="primary" disabled={!ready} title={why} onClick={backupNow}>Back up every model and project now</button>' in page
+    assert page.count("disabled={!ready") >= 6 and page.count("title={why}") >= 5   # backups, restores, restore all
+    assert "Use them anyway" in page and '"/api/v1/admin/backups/override"' in page
+    assert "const ready = proven || override;" in page
     api = (REPO / "services/api/eax/api/backups.py").read_text()
     assert "def web_proven(conn)" in api and '"web": proven' in api and "x.suite = 'backup'" in api
+    assert '@blp.route("/admin/backups/override")' in api and '_audit("backup.web_override"' in api and "return record_override(" in api
+
+
+def test_using_the_buttons_anyway_is_in_the_audit_trail(monkeypatch):
+    try:
+        from eax.api import backups as B
+    except ImportError as exc:                       # only where Flask is a stub; the test runner has the real one
+        pytest.skip(f"needs Flask: {exc}")
+    seen = []
+    monkeypatch.setattr(B, "_audit", lambda *a: seen.append(a))
+    assert B.record_override("1 of 12 backup checks failed.") == {"recorded": True}
+    assert B.record_override(None) == {"recorded": True}
+    assert seen == [("backup.web_override", "backup", "web", {"why": "1 of 12 backup checks failed."}),
+                    ("backup.web_override", "backup", "web", {"why": ""})]

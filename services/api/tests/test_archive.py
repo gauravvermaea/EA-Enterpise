@@ -90,3 +90,28 @@ def test_project_routes_tasks_page_and_sample():
     assert "MoveProjectToArchiveDialog" in (REPO / "services/web/src/ProjectTabs.jsx").read_text()
     sample = (REPO / "services/api/eax/seed/sample_archive.py").read_text()
     assert "sample archived project" in sample and "move_project(" in sample
+
+
+def test_a_model_you_may_not_read_is_404_not_a_server_error():
+    """Full self-test, 13 Nov 2026: GET /models/{id}/archive/references answered 500 "NotFound" to IT Admin, Model
+    Creator, Library Admin and a person with no role on the model. A model they may not read is a 404, here and, as a
+    safety net, anywhere repository.NotFound is raised."""
+    api = (REPO / "services/api/eax/api/archive.py").read_text()
+    guard = api[api.index("def _guard("):api.index("@blp.route", api.index("def _guard("))]
+    assert "except repo.NotFound as exc:" in guard and "abort(404, message=str(exc))" in guard
+    app = (REPO / "services/api/eax/app.py").read_text()
+    assert "@app.errorhandler(_NotFound)" in app and '"code": 404' in app
+    assert app.index("@app.errorhandler(_NotFound)") < app.index("@app.errorhandler(Exception)")
+    try:
+        from werkzeug.exceptions import HTTPException
+
+        from eax import repository as repo
+        from eax.api import archive as A
+    except ImportError as exc:                       # only where Flask is a stub; the test runner has the real one
+        pytest.skip(f"needs Flask: {exc}")
+
+    def unreadable(*_a):
+        raise repo.NotFound("No model 'x', or you may not read it.")
+    with pytest.raises(HTTPException) as got:
+        A._guard(unreadable)
+    assert got.value.code == 404

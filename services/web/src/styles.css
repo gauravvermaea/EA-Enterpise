@@ -2606,3 +2606,26 @@ th.sortable { cursor: pointer; }
 .ct-purpose { min-width: 14rem; max-width: 26rem; }
 .tree-about { margin: 0 0 4px 22px; line-height: 1.25; }
 .alert-banner.warn { background: var(--warn-bg, #fff4e0); color: #7a4f00; }
+
+/* R2.58 / R2.60: the Explorer-style file view in a container */
+.fx-menubar { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+.fx-menu { position: relative; }
+.fx-dropdown { position: absolute; z-index: 20; top: 100%; left: 0; min-width: 12rem; margin: 0; padding: 4px 0; list-style: none;
+  background: var(--card); border: 1px solid var(--line); box-shadow: 0 4px 12px rgba(0,0,0,.15); }
+.fx-dropdown button, .fx-upload { display: block; width: 100%; text-align: left; padding: 4px 12px; border: 0; background: none; cursor: pointer; font: inherit; color: inherit; }
+.fx-dropdown button:hover:not(:disabled), .fx-upload:hover { background: var(--accent-soft); }
+.fx-dropdown button:disabled, .fx-upload.disabled { opacity: .45; cursor: default; }
+.fx-sep { border-top: 1px solid var(--line); margin: 4px 0; }
+.fx-address { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 6px; }
+.fx-crumbs { display: flex; flex-wrap: wrap; gap: 2px; }
+.fx-path { flex: 1 1 14rem; min-width: 10rem; }
+.fx-panes { display: grid; grid-template-columns: minmax(12rem, 18rem) 1fr; gap: 8px; align-items: start; }
+.fx-tree { list-style: none; margin: 0; padding: 4px; max-height: 32rem; overflow: auto; border: 1px solid var(--line); font-size: .85rem; }
+.fx-tree ul { list-style: none; margin: 0; padding: 0; }
+.fx-node { display: flex; align-items: center; gap: 2px; white-space: nowrap; }
+.fx-here { background: var(--accent-soft); font-weight: 600; }
+.fx-twisty { border: 0; background: none; cursor: pointer; width: 1.2rem; padding: 0; color: inherit; }
+.fx-list { min-width: 0; overflow: auto; max-height: 32rem; }
+.fx-list tbody tr { cursor: default; user-select: none; }
+.fx-selected td { background: var(--accent-soft); }
+@media (max-width: 700px) { .fx-panes { grid-template-columns: 1fr; } .fx-tree { max-height: 12rem; } }

@@ -674,10 +674,10 @@ def step(page, s: dict, open_route: Callable[..., None], state: dict | None = No
                 except Exception:  # noqa: BLE001
                     if time.time() > end:
                         raise
-                    if state.get("role"):
-                        open_route(s["open"], state["role"])
-                    else:
-                        open_route(s["open"])
+                    # a real reload: opening the same address again only moves to its #fragment in the same page, which
+                    # fetches nothing, so the page never saw the background task finish (the full self-test, 13 Nov
+                    # 2026: child merge, step 18, 180 seconds on the request as it was before the merge)
+                    page.reload(wait_until="domcontentloaded", timeout=60000)
         elif s.get("expect"):                          # a full-page screen (a drawn view) has no EA Explorer header
             _shows(page, s["expect"], max(timeout, 60000))
         else:
@@ -890,11 +890,26 @@ def run_one(page, j: dict, open_route: Callable[..., None]) -> tuple[str, str]:
                     _LAST_SHOT["png"] = (state.get("tab") or page).screenshot(full_page=False)
                 except Exception:  # noqa: BLE001
                     _LAST_SHOT["png"] = None
-                return "failed", f"step {done + len(skipped) + 1} ({_say(s)}): {why}"
+                return "failed", f"step {done + len(skipped) + 1} ({_say(s)}): {why}{_page_says(state.get('tab') or page)}"
             done += 1
     finally:
         _close_tab(state)                              # a tab a "popup" step opened
     return "passed", f"{done} steps as {j['role']}" + (f"; {len(skipped)} optional skipped" if skipped else "")
+
+
+def _page_says(page) -> str:
+    """What the page showed when a step failed (its address, heading, and status lines), so the report says what was
+    there instead of only what was missing."""
+    try:
+        said = page.evaluate("""() => {
+            const t = (sel) => [...document.querySelectorAll(sel)].map((e) => (e.innerText || "").trim()).filter(Boolean);
+            return { at: location.hash || location.pathname, h1: t("h1").slice(0, 1),
+                     status: t(".status, .rag, .error, [role=alert]").slice(0, 3) };
+        }""")
+        parts = [f"at {said['at']}"] + [f"heading \"{x[:80]}\"" for x in said["h1"]] + [f"\"{x[:100]}\"" for x in said["status"]]
+        return " · the page showed: " + ", ".join(parts)
+    except Exception:  # noqa: BLE001 - the page is gone
+        return ""
 
 
 def _say(s: dict) -> str:

@@ -2591,6 +2591,8 @@
   "button:Ask them": "Send them the request.",
   "button:Ask to commit all": "Ask a committer to commit all your changes.",
   "button:Back": "Go back.",
+  "button:Collapse *": "Close this folder in the folder tree.",
+  "button:File": "The File menu: new folder, upload, open, download, rename, move, copy, delete and refresh.",
   "button:Back to chosen types": "Go back to the types you chose.",
   "button:Back to the form": "Go back to the form.",
   "button:Back up every model and project now": "Take an application backup of everything now.",
@@ -3491,7 +3493,7 @@
     ]
   },
   "tab:Files": {
-    "what": "A file explorer in the container (R2.18): browse folders, view and edit text files, download a file or a folder as a zip, upload, new folder, rename, move, copy and delete.",
+    "what": "A file explorer in the container, laid out like Windows Explorer (R2.18, D653): the folder tree on the left, the folder's contents on the right (double click opens a folder or a file), a File menu (New folder, Upload, Open, Download, Rename, Move to, Copy to, Delete, Refresh), Back, Forward and Up. View and edit text files, download a file or a folder as a zip.",
     "how": [
       "Every change asks first and is in the audit trail (an edit with its before and after).",
       "Secrets, keys, Docker's socket and the operations helper's own files are never changed; a database's data folder asks you to confirm.",

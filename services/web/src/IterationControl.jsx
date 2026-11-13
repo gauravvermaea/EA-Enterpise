@@ -9,7 +9,11 @@ import { Modal } from "./ModelOps";
 import { PHASES, phaseName } from "./iterations";
 
 export default function IterationControl({ p }) {
-  const it = p.iteration;
+  // what saving gave, shown at once until the project's own data (refreshed in the background) is as new: a slow refresh
+  // left the old iteration on the page (the full self-test, 13 Nov 2026: "expect Transition Planning", as architect)
+  const [saved, setSaved] = useState(null);
+  const fresh = saved && !(p.iteration?.chosen && p.iteration.at && saved.at && p.iteration.at >= saved.at);
+  const it = fresh ? { ...p.iteration, ...saved, frozen_phases: saved.frozen_phases || [] } : p.iteration;
   const [open, setOpen] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   if (!it) return null;
@@ -27,7 +31,7 @@ export default function IterationControl({ p }) {
       {history.length > 0 && <button className="linkish small" aria-expanded={showHistory} onClick={() => setShowHistory((x) => !x)}>
         Iteration history ({history.length})</button>}
       {showHistory && <IterationHistory history={history} />}
-      {open && <IterationDialog p={p} onClose={() => setOpen(false)} />}
+      {open && <IterationDialog p={p} onClose={() => setOpen(false)} onSaved={setSaved} />}
     </div>
   );
 }
@@ -43,7 +47,7 @@ function IterationHistory({ history }) {
   );
 }
 
-export function IterationDialog({ p, onClose }) {
+export function IterationDialog({ p, onClose, onSaved }) {
   const it = p.iteration;
   const cat = p.iterations || [];
   const [code, setCode] = useState(it.chosen ? it.code : "full");
@@ -59,7 +63,9 @@ export function IterationDialog({ p, onClose }) {
     try {
       const r = await apiFetch(`/api/v1/projects/${p.id}/iteration`, { method: "POST",
         body: JSON.stringify({ iteration: code, phases: code === "custom" ? enabled : undefined, note }) });
-      setMsg(r.message); refreshAll(); setTimeout(onClose, 1500);   // long enough to read what it did
+      setMsg(r.message);
+      if (onSaved && r.iteration) onSaved({ ...r.iteration, frozen_phases: r.frozen || [] });
+      refreshAll(); setTimeout(onClose, 1500);   // long enough to read what it did
     } catch (e) { setMsg(e.message); }
   }
   return (

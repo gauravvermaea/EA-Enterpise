@@ -19,6 +19,7 @@ PATHS = {h.split("?")[0].rstrip("/") for h in HREFS}
 # reached from a page in the menu, not from the menu itself (with where from)
 FROM_A_PAGE = {
     "#/break-glass": "the sign-in page, when Keycloak is down",
+    "#/documentation": "one document, from Documentation (every document) and the Start page's Set up card",
     "#/drawio/open": "Open in draw.io on every picture (D585)",
     "#/change-documents": "the change log and notifications",
     "#/more": "Classic only (Everything else)",

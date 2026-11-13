@@ -31,6 +31,7 @@ from sqlalchemy import text
 from .. import audit
 from ..auth import require_auth
 from ..db import get_engine
+from ..testbench_state import count_rows
 from ..testing import db_checks, store
 from .models import Free, FreeIn
 
@@ -203,12 +204,6 @@ class DbChecks(MethodView):
         return {"version": __version__, "results": out, "ms": int((time.time() - t0) * 1000)}
 
 
-# the counts the upgrade test compares before and after (D582): fixed names, fixed read-only SQL, nothing from the caller
-COUNTS = {"models": "core.models", "entities": "core.entities", "relationships": "core.relationships",
-          "attribute values": "core.attribute_values", "drawn views": "views.drawn_views", "known users": "core.known_users",
-          "audit events": "audit.events", "history rows": "history.row_versions"}
-
-
 @blp.route("/state")
 class State(MethodView):
     @blp.doc(security=SECURITY)
@@ -216,23 +211,11 @@ class State(MethodView):
     @require_auth("system.operate")
     def get(self):
         """The installation's version, its database migration (alembic) and a few row counts: what an upgrade must keep
-        (the outside test bench compares them before and after an upgrade, D582)"""
+        (the outside test bench compares them before and after an upgrade, D582); within 30 seconds, what was not
+        counted in time said in problems"""
         from .. import __version__
-        counts: dict[str, int | None] = {}
-        problems: list[str] = []
-        with get_engine().connect() as conn:
+        with get_engine().begin() as conn:
+            conn.execute(text("SET LOCAL statement_timeout = 5000"))
             migration = conn.execute(text("SELECT version_num FROM public.alembic_version LIMIT 1")).scalar()
-        for name, table in COUNTS.items():
-            # each count on its own connection: one that fails (a busy table under the self-test's parallel calls, a
-            # table this role may not read) is reported, not a server error for the whole answer (R2.0.1)
-            try:
-                with get_engine().begin() as conn:
-                    conn.execute(text("SET LOCAL statement_timeout = '20s'"))   # a big table never holds up the answer
-                    if conn.execute(text("SELECT to_regclass(:t)"), {"t": table}).scalar():
-                        counts[name] = int(conn.execute(text(f"SELECT count(*) FROM {table}")).scalar() or 0)  # noqa: S608 - fixed names
-                    else:
-                        counts[name] = None
-            except Exception as exc:  # noqa: BLE001
-                counts[name] = None
-                problems.append(f"{name}: {type(exc).__name__}")
+        counts, problems = count_rows(get_engine())
         return {"version": __version__, "migration": migration, "counts": counts, "problems": problems}

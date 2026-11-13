@@ -67,6 +67,28 @@ function ProjectSetupTile() {
   );
 }
 
+// Setting up another environment (owner, 13 Nov 2026: the commands for laptop, server and the rest "on the home page"):
+// for IT and Super Admins, the first command of each kind and the full guide in Documentation (docs/setting-up.md)
+function SetUpCard() {
+  if (!can("system.operate")) return null;
+  const rows = [
+    ["Laptop (this one)", ".\\eax clean-run", "or step by step: .\\eax init laptop, then .\\eax up"],
+    ["Server (the one you are on)", "./eax.sh init server", "replace every change-me value in work/eaexplorer.env, then ./eax.sh up"],
+    ["Another server or a cloud machine", ".\\eax deploy", "--plan first; or the site picker › Deploy EA Explorer"],
+    ["Docker Swarm or another platform", "./eax.sh init server", "then EAX_PLATFORM=managed and EAX_FILE_STORE=database"],
+  ];
+  return (
+    <section className="setup-card" aria-label="Setting up an environment">
+      <h2>Set up an environment</h2>
+      <table className="grid-table">
+        <tbody>{rows.map(([what, cmd, then]) => (
+          <tr key={what}><td>{what}</td><td><code>{cmd}</code></td><td className="small quiet">{then}</td></tr>))}</tbody>
+      </table>
+      <p className="small">Every step: <a href="#/documentation/setting-up">Documentation › Setting up an environment</a>.</p>
+    </section>
+  );
+}
+
 // The start page (D285): the five areas
 export default function StartPage() {
   return (
@@ -79,6 +101,7 @@ export default function StartPage() {
       </section>
       <FirstRunPanel />
       <ProjectSetupTile />
+      <SetUpCard />
       <AreaTiles />
     </>
   );

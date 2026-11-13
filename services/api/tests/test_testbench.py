@@ -372,3 +372,34 @@ def test_every_journey_names_data_that_exists():
     surveys = __import__("eax.surveys", fromlist=["x"])
     survey = json.loads((REPO / "testbench" / "data" / "surveys" / "survey.json").read_text())
     assert all(q["kind"] in surveys.KINDS for s in survey["sections"] for q in s["questions"])
+
+
+def test_the_state_answers_within_its_budget():
+    """Full self-test, 13 Nov 2026: "GET /api/v1/admin/testbench/state: no answer" (71 s; the self-test waits a minute):
+    eight exact counts of up to 20 s each. The counts now share a 30-second budget, each at most 10 s (statement and lock
+    timeout), and the ones left when it is spent are None with the reason."""
+    from eax import testbench_state as ts
+    t = {"now": 0.0}
+    said = []
+
+    class Conn:
+        def execute(self, sql, params=None):
+            q = str(sql)
+            said.append(q)
+            if q.startswith("SELECT count(*)"):
+                t["now"] += 8                                   # each count takes 8 seconds
+            return type("R", (), {"scalar": lambda s: 7 if q.startswith("SELECT count") else "x"})()
+
+    class Eng:
+        def begin(self):
+            import contextlib
+            return contextlib.nullcontext(Conn())
+    counts, problems = ts.count_rows(Eng(), clock=lambda: t["now"])
+    assert t["now"] <= ts.STATE_BUDGET + 8                       # never much past the budget
+    done = [k for k, v in counts.items() if v == 7]
+    assert done == list(ts.COUNTS)[:4] and all(counts[k] is None for k in list(ts.COUNTS)[4:])
+    assert len(problems) == 4 and "not counted" in problems[0]
+    assert "SET LOCAL statement_timeout = 10000" in said and "SET LOCAL lock_timeout = 10000" in said
+    assert "SET LOCAL statement_timeout = 6000" in said           # the fourth gets what is left
+    api = (REPO / "services/api/eax/api/testbench_api.py").read_text()
+    assert "counts, problems = count_rows(get_engine())" in api and "statement_timeout = '20s'" not in api

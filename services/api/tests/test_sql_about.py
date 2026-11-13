@@ -39,3 +39,18 @@ def test_the_window_shows_them():
     web = (WEB / "Sql.jsx").read_text()
     assert "tree-about" in web and "dbAbout" in web and "o.about" in web and "s.about" in web
     assert '"about": {d: sqlconsole.ABOUT_DATABASES.get(d, "") for d in dbs}' in (API / "eax" / "api" / "sql.py").read_text()
+
+
+def test_setting_up_an_environment_is_on_the_start_page_and_in_the_documentation():
+    """Owner, 13 Nov 2026: the commands for laptop, server and the other environments in the README, "add them to the
+    home page" (both: a card on the Start page and the guide in Documentation)."""
+    repo = API.parents[1]
+    doc = (repo / "docs" / "setting-up.md").read_text()
+    for cmd in (".\\eax clean-run", ".\\eax init laptop", "./eax.sh init server", ".\\eax deploy --kind server",
+                "EAX_PLATFORM=managed"):
+        assert cmd in doc, cmd
+    assert "### Setting up the environment: laptop, server, cloud" in (repo / "README.md").read_text()
+    start = (WEB / "StartPage.jsx").read_text()
+    assert "<SetUpCard />" in start and "#/documentation/setting-up" in start
+    from eax import shipped_docs
+    assert "setting-up" in [k for k, _ in shipped_docs._sources(repo)]

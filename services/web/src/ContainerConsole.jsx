@@ -2,10 +2,11 @@
 // health checks, properties (image, mounts, ports, networks, environment in clear text, restart policy, limits), what
 // it uses now, its logs, an interactive terminal (D214) and a command line (IT and Super Admins; EAX_CONTAINER_CONSOLE=off
 // switches both off). Every command, and the start and end of every terminal, is in the audit trail.
+import FileExplorer from "./FileExplorer";
 import PlatformNotice from "./PlatformNotice";
 import { useEffect, useRef, useState } from "react";
 import { StartupCell, StartupLine, TONE, WORD, containerStartup } from "./StartupStatus";
-import { apiDownload, apiFetch, can } from "./auth";
+import { apiFetch, can } from "./auth";
 import { fmtDateTime } from "./fmt";
 import { useApi } from "./ModelViews";
 
@@ -241,7 +242,7 @@ function ContainerView({ service }) {
       {view === "logs" && <Logs service={service} />}
       {view === "terminal" && <Terminal service={service} on={d?.console} running={d?.state.running} />}
       {view === "files" && (d?.state.running === false ? <p className="quiet">The container is not running: start it to see its files.</p>
-        : <Files service={service} on={d?.console} />)}
+        : <FileExplorer service={service} on={d?.console} />)}
     </div>
   );
 }
@@ -629,102 +630,4 @@ function ApiServers() {
   );
 }
 
-// Files (R2.18; owner, 11 Nov 2026: "a file explorer into each docker container in its tab (read write)"): browse, view,
-// download (a folder as a zip), upload, edit (refused when the file changed meanwhile), new folder, rename, move, copy and
-// delete. Every write asks first and is in the audit trail; secrets, Docker's socket and the helper's own files are never
-// written; a database's data folder warns strongly. Off with EAX_CONTAINER_CONSOLE=off, as the terminal.
-function Files({ service, on }) {
-  const [path, setPath] = useState("/");
-  const [d, setD] = useState(null);
-  const [err, setErr] = useState("");
-  const [file, setFile] = useState(null);
-  const [edit, setEdit] = useState(null);
-  const [find, setFind] = useState("");
-  const [busy, setBusy] = useState(false);
-  const load = (p = path) => { setErr(""); apiFetch(`/api/v1/admin/containers/${service}/files?path=${encodeURIComponent(p)}`).then((x) => { setD(x); setPath(x.path); }).catch((e) => setErr(e.message)); };
-  useEffect(() => { if (on !== false) load("/"); }, [service, on]);
-  if (!can("system.operate")) return <p className="quiet">The file explorer is for IT and Super Admins.</p>;
-  if (on === false) return <p className="quiet">The file explorer is switched off on this installation (EAX_CONTAINER_CONSOLE=off in the config file).</p>;
-  const join = (name) => `${path.replace(/\/$/, "")}/${name}`;
-  const change = async (body, sure) => {
-    if (sure && !window.confirm(sure)) return;
-    setBusy(true); setErr("");
-    try {
-      let out;
-      try { out = await apiFetch(`/api/v1/admin/containers/${service}/files`, { method: "POST", body: JSON.stringify(body) }); }
-      catch (e) {
-        if (/database's data folder/.test(e.message) && window.confirm(`${e.message}\n\nGo on anyway?`)) {
-          out = await apiFetch(`/api/v1/admin/containers/${service}/files`, { method: "POST", body: JSON.stringify({ ...body, confirm: "database" }) });
-        } else throw e;
-      }
-      load(); return out;
-    } catch (e) { setErr(e.message); return null; } finally { setBusy(false); }
-  };
-  const view = (f) => apiFetch(`/api/v1/admin/containers/${service}/files/content?path=${encodeURIComponent(f.path)}`).then((x) => { setFile(x); setEdit(null); }).catch((e) => setErr(e.message));
-  const download = (f) => apiDownload(`/api/v1/admin/containers/${service}/files/download?path=${encodeURIComponent(f.path)}`,
-    f.dir ? `${f.name}.zip` : f.name).catch((e) => setErr(e.message));
-  const upload = async (list) => {
-    const files = await Promise.all([...list].map((f) => new Promise((ok) => { const r = new FileReader(); r.onload = () => ok({ name: f.name, content: String(r.result).split(",")[1] || "" }); r.readAsDataURL(f); })));
-    const overwrite = window.confirm(`Upload ${files.length} file(s) into ${path}? OK replaces files of the same name; Cancel keeps them (the upload then stops at a clash).`);
-    change({ op: "upload", path, files, overwrite });
-  };
-  const ask = (what, f) => {
-    if (what === "delete") {
-      const typed = window.prompt(`Delete ${f.path}${f.dir ? " and everything in it" : ""} for good? Type its full path to confirm:`);
-      if (typed) change({ op: "delete", path: f.path, confirm_path: typed });
-      return;
-    }
-    const to = window.prompt(what === "rename" ? "New name:" : `${what === "copy" ? "Copy" : "Move"} to (full path):`, what === "rename" ? f.name : f.path);
-    if (!to) return;
-    change({ op: what === "copy" ? "copy" : "move", path: f.path, to: what === "rename" ? join(to) : to });
-  };
-  const shown = (d?.entries || []).filter((e) => !find || e.name.toLowerCase().includes(find.toLowerCase()));
-  return (
-    <div className="ct-files" aria-label={`Files in ${service}`}>
-      <div className="toolbar">
-        <label>Folder <input value={path} onChange={(e) => setPath(e.target.value)} onKeyDown={(e) => e.key === "Enter" && load(path)} /></label>
-        <button onClick={() => load(path.split("/").slice(0, -1).join("/") || "/")} disabled={path === "/"}>Up</button>
-        <button onClick={() => load(path)}>Refresh</button>
-        <input placeholder="Filter" value={find} onChange={(e) => setFind(e.target.value)} aria-label="Filter this folder" />
-        {!d?.read_only_reason && <>
-          <button disabled={busy} onClick={() => { const n = window.prompt("New folder name:"); if (n) change({ op: "mkdir", path: join(n) }); }}>New folder</button>
-          <label className="button">Upload<input type="file" multiple hidden onChange={(e) => e.target.files.length && upload(e.target.files)} /></label></>}
-      </div>
-      {d?.read_only_reason && <p className="quiet small">Read only here: {d.read_only_reason}</p>}
-      {d?.mount && <p className="small">This folder is a mount: <code>{d.mount.source}</code>{d.mount.read_only ? " (read only)" : ""}.</p>}
-      {err && <p className="status bad">{err}</p>}
-      {!d ? !err && <p>Loading...</p> : (
-        <table className="grid-table">
-          <thead><tr><th>Name</th><th>Size</th><th>Changed</th><th>Owner</th><th>Permissions</th><th /></tr></thead>
-          <tbody>{shown.map((f) => (
-            <tr key={f.path}>
-              <td>{f.dir ? <button className="linkish" onClick={() => load(f.path)}>{f.name}/</button> : <button className="linkish" onClick={() => view(f)}>{f.name}</button>}
-                {f.mount && <span className="quiet small"> mount: {f.mount.source}{f.mount.read_only ? " (read only)" : ""}</span>}</td>
-              <td>{f.dir ? "" : mb(f.bytes) || `${f.bytes} B`}</td>
-              <td className="small nowrap">{f.modified ? fmtDateTime(new Date(f.modified * 1000).toISOString()) : ""}</td>
-              <td className="small">{f.owner}</td><td className="small"><code>{f.permissions}</code></td>
-              <td className="nowrap small">
-                <button className="linkish" onClick={() => download(f)}>Download</button>
-                {!d.read_only_reason && <> · <button className="linkish" onClick={() => ask("rename", f)}>Rename</button>
-                  {" "}· <button className="linkish" onClick={() => ask("move", f)}>Move</button>
-                  {" "}· <button className="linkish" onClick={() => ask("copy", f)}>Copy</button>
-                  {" "}· <button className="linkish bad-text" onClick={() => ask("delete", f)}>Delete</button></>}
-              </td>
-            </tr>))}</tbody>
-        </table>)}
-      {file && (
-        <div className="card ct-file">
-          <h4><code>{file.path}</code> · {file.bytes} bytes <button className="linkish" onClick={() => { setFile(null); setEdit(null); }}>Close</button></h4>
-          {file.binary ? <p className="quiet">Not a text file: download it instead.</p>
-            : edit == null ? <>
-              {!file.read_only_reason && <button onClick={() => setEdit(file.text)}>Edit</button>}
-              {file.read_only_reason && <p className="quiet small">Read only: {file.read_only_reason}</p>}
-              <pre className="ct-file-text">{file.text}</pre></>
-              : <>
-                <textarea className="ct-file-edit" value={edit} onChange={(e) => setEdit(e.target.value)} rows={24} aria-label={`Edit ${file.path}`} />
-                <button disabled={busy} onClick={async () => { const out = await change({ op: "write", path: file.path, content: edit, sha256: file.sha256 }, `Save your changes to ${file.path}? The file is replaced (the before and after go into the audit trail).`); if (out) view(file); }}>Save</button>
-                <button onClick={() => setEdit(null)}>Cancel</button></>}
-        </div>)}
-    </div>
-  );
-}
+// Files: an Explorer-style view, in FileExplorer.jsx (R2.18, R2.58, R2.60).

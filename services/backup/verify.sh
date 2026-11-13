@@ -19,8 +19,9 @@ check() { printf 'CHECK\t%s\t%s\t%s\n' "$1" "$2" "$3"; [ "$2" = ok ] || BAD=1; }
 tables() { psql -qAtX -d "$1" -c "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relkind = 'r' AND n.nspname NOT IN ('pg_catalog', 'information_schema')" 2>/dev/null; }
 
 if [ -f "$SOURCE/SHA256SUMS" ]; then
-  if out=$(cd "$SOURCE" && sha256sum -c --quiet SHA256SUMS 2>&1); then check "checksums" ok "$(wc -l < "$SOURCE/SHA256SUMS") files as written"
-  else check "checksums" failed "$(echo "$out" | head -3 | tr '\n' ';')"; fi
+  # plain -c: BusyBox's sha256sum (the backup image is Alpine) has no --quiet; the lines that are not OK are the reason
+  if out=$(cd "$SOURCE" && sha256sum -c SHA256SUMS 2>&1); then check "checksums" ok "$(wc -l < "$SOURCE/SHA256SUMS") files as written"
+  else check "checksums" failed "$(echo "$out" | grep -v ': OK$' | head -3 | tr '\n' ';')"; fi
 else
   check "checksums" failed "no SHA256SUMS in the backup"
 fi

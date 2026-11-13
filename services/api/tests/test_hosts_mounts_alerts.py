@@ -125,6 +125,43 @@ def test_an_edit_is_refused_when_the_file_changed_and_a_delete_needs_its_path(hw
         hw.files_list("api", "/")
 
 
+def test_a_linked_folder_opens_and_shows_what_is_in_it(hw, monkeypatch, tmp_path):
+    """R2.60 (owner, 13 Nov 2026): "double click on a folder at root level, there is no folders inside it". /bin, /lib
+    and /sbin are links to /usr/... on most images: find was given the link itself, listed nothing, and the link was not
+    marked as a folder. The real command runs here against a folder holding a link to a folder."""
+    import subprocess
+    real = tmp_path / "usr" / "bin"
+    (real / "deeper").mkdir(parents=True)
+    (real / "tool").write_text("x")
+    (tmp_path / "bin").symlink_to(real)
+    (tmp_path / "notes.txt").write_text("hi")
+    monkeypatch.setattr(hw, "_cid", lambda s: "c1")
+    monkeypatch.setattr(hw, "_exec", lambda cid, *cmd, **k: subprocess.run(list(cmd), capture_output=True, text=True).stdout)
+    hw.hooks["docker"] = lambda *a, **k: json.dumps([{"Mounts": []}])
+    top = {e["name"]: e for e in hw.files_list("api", str(tmp_path))["entries"]}
+    assert top["bin"]["dir"] and top["bin"]["link"] and top["usr"]["dir"] and not top["notes.txt"]["dir"]
+    inside = hw.files_list("api", str(tmp_path / "bin"))["entries"]
+    assert [(e["name"], e["dir"]) for e in inside] == [("deeper", True), ("tool", False)]
+    assert all(e["path"].startswith(str(tmp_path / "bin") + "/") for e in inside)
+    assert hw.files_list("api", str(tmp_path / "usr"))["entries"][0]["path"] == str(tmp_path / "usr" / "bin")
+    assert '"cp", "-L"' in (REPO / "services" / "ops" / "hostwatch.py").read_text()   # a linked file opens too
+
+
+def test_the_files_tab_is_an_explorer_view():
+    """R2.58 and R2.60 (owner, 13 Nov 2026): "Fix it with the Windows explorer view": a folder tree on the left, the
+    folder's contents on the right, double click opens, a File menu, Back / Forward / Up and the path."""
+    fx = (WEB / "FileExplorer.jsx").read_text()
+    assert 'role="tree"' in fx and "<TreeNode" in fx and "onDoubleClick={() => openItem(f)}" in fx
+    assert 'role="menubar"' in fx and ">File</button>" in fx
+    for label in ("New folder", "Upload...", '"Open"', "Rename", "Move to...", "Copy to...", "Delete", "Refresh"):
+        assert label in fx, label
+    assert 'aria-label="Back"' in fx and 'aria-label="Forward"' in fx and 'aria-label="Up"' in fx
+    assert "export function crumbs(p)" in fx and 'e.key === "Enter"' in fx
+    cc = (WEB / "ContainerConsole.jsx").read_text()
+    assert "<FileExplorer service={service}" in cc and "function Files(" not in cc
+    assert ".fx-panes" in (WEB / "styles.css").read_text()
+
+
 # ---------------------------------------------------------------- R2.19 alerts
 ROWS = [{"key": "api", "service": "api", "state": "running", "health": "healthy", "restarts": 0},
         {"key": "setup", "service": "setup", "state": "exited", "exit_code": 0},
@@ -299,3 +336,21 @@ def test_a_busy_minute_or_a_start_up_is_not_a_host_alert(hw):
     assert hw.text_of({"event": "alert", "service": "host", "kind": "host-cpu"}) == "The host's CPU has been high"
     web = (WEB / "Hosts.jsx").read_text()
     assert "Needs attention:" in web and 'o.service !== "host"' in web
+
+
+def test_the_helper_answers_a_hosts_or_alerts_request_once(tmp_path, monkeypatch):
+    """The ops log (13 Nov 2026) showed "GET /alerts -> 200" and then "GET /alerts -> 404" for each request: the answer
+    was sent, then the handler went on to its 404. It answers once now."""
+    spec = importlib.util.spec_from_file_location("ops_once_r219", REPO / "services" / "ops" / "ops.py")
+    ops = importlib.util.module_from_spec(spec)
+    monkeypatch.setenv("EAX_WORK_MOUNT", str(tmp_path))
+    monkeypatch.setenv("EAX_OPS_TOKEN", "t")
+    spec.loader.exec_module(ops)
+    monkeypatch.setattr(ops, "TOKEN", "t")
+    monkeypatch.setattr(ops.hostwatch, "alerts", lambda: {"open": []})
+    sent = []
+    h = ops.Handler.__new__(ops.Handler)
+    h.path, h.headers = "/alerts", {"X-Ops-Token": "t"}
+    h._send = lambda code, body: sent.append(code)
+    h.do_GET()
+    assert sent == [200]

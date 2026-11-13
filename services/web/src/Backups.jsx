@@ -33,6 +33,7 @@ export default function AdminBackups() {
   const [err, setErr] = useState("");
   const [restoring, setRestoring] = useState(null);
   const [restoreModel, setRestoreModel] = useState(null);
+  const [override, setOverride] = useState(false);
   const running = data?.infrastructure?.state?.busy;
   useEffect(() => {
     if (!running) return undefined;
@@ -60,8 +61,8 @@ export default function AdminBackups() {
       {err && <p className="status bad">{err}</p>}
 
       <Schedules data={data} act={act} />
-      <InfraSection data={data} onRestore={setRestoring} act={act} />
-      <AppSection data={data} act={act} onRestore={setRestoreModel} />
+      <InfraSection data={data} onRestore={setRestoring} act={act} gate={gateOf(data, override, setOverride)} />
+      <AppSection data={data} act={act} onRestore={setRestoreModel} gate={gateOf(data, override, setOverride)} />
       <ProjectSection act={act} />
       {restoring && <RestoreInfra b={restoring} choices={infra.restore_choices || {}} onClose={() => { setRestoring(null); refreshAll(); }} />}
       {restoreModel && <RestoreModel b={restoreModel} onClose={() => setRestoreModel(null)} />}
@@ -122,28 +123,43 @@ function Schedules({ data, act }) {
   );
 }
 
-// Backups and restores from the web only once the self-test has proven them (R2.46; owner, 12 Nov 2026: "If we can not
-// do reliable backups and restores from web, then we should just show the command to run"): until the newest run with
-// backup checks (R2.45) passed every one, the page shows the commands with a copy button instead of its buttons
-function WebNotProven({ web, kind }) {
+// Backups and restores from the web once the self-test has proven them (R2.46; owner, 12 Nov 2026: "If we can not do
+// reliable backups and restores from web, then we should just show the command to run"). Until the newest run with
+// backup checks (R2.45) passed every one, the buttons are shown disabled with the reason, and the commands to copy; a
+// person may still use them by ticking "Use them anyway", which is in the audit trail (R2.62, owner, 13 Nov 2026:
+// "dont hide these buttons diable them with reason. We should be able to override the diable as a user").
+export function gateOf(data, override, setOverride) {
+  const proven = !data.web || data.web.proven;
+  const ready = proven || override;
+  return { proven, ready, override, setOverride, web: data.web,
+    why: ready ? "" : `Not proven by a self-test yet: ${data.web?.why || ""} Tick "Use them anyway" to go on.` };
+}
+
+function WebNotProven({ gate, kind }) {
   const [copied, setCopied] = useState("");
-  if (!web || web.proven) return null;
+  if (gate.proven) return null;
   const lines = kind === "app"
     ? [[".\\eax app-backup <tag>", "an application backup"], [".\\eax backups", "list them"]]
     : [[".\\eax backup <tag>", "an infrastructure backup"], [".\\eax restore <name|tag|latest> --what full|app|app+data|db|files", "a restore"]];
   const copy = (t) => { try { navigator.clipboard.writeText(t); setCopied(t); } catch { /* select it by hand */ } };
+  const tick = (on) => {
+    gate.setOverride(on);
+    if (on) apiFetch("/api/v1/admin/backups/override", { method: "POST", body: JSON.stringify({ why: gate.web?.why || "" }) }).catch(() => {});
+  };
   return (
     <div className="status warn web-not-proven">
-      <p><b>Backups and restores run from the command line for now.</b> {web.why} Once a self-test passes every backup check
-        (<code>.\eax test backup</code>, or the full test), the buttons come back here.</p>
+      <p><b>The backup and restore buttons are not proven yet, so they are disabled.</b> {gate.web?.why} Once a self-test passes every
+        backup check (<code>.\eax test backup</code>, or the full test), they are enabled. Until then, use the command line, or use them anyway.</p>
       {lines.map(([cmd, what]) => <p key={cmd} className="small"><code>{cmd}</code> {what}{" "}
         <button className="linkish" onClick={() => copy(cmd)}>{copied === cmd ? "Copied" : "Copy"}</button></p>)}
+      <label className="small"><input type="checkbox" checked={gate.override} onChange={(e) => tick(e.target.checked)} /> Use them anyway
+        (not proven by a self-test; this is recorded in the audit trail)</label>
     </div>
   );
 }
 
-function InfraSection({ data, onRestore, act }) {
-  const proven = !data.web || data.web.proven;
+function InfraSection({ data, onRestore, act, gate }) {
+  const { ready, why } = gate;
   const infra = data.infrastructure || {};
   const [tag, setTag] = useState("");
   const st = infra.state || {};
@@ -160,10 +176,10 @@ function InfraSection({ data, onRestore, act }) {
       <p className="quiet small">{(() => { const sc = (data.schedules || []).find((x) => x.kind === "infrastructure"); return sc?.enabled ? `Scheduled ${sc.in_words}` : "Not scheduled"; })()} and on demand.
         To restore when the console cannot run: <code>.\eax restore &lt;name|tag|latest&gt; --what full|app|app+data|db|files</code>.</p>
       {infra.error && <p className="status bad">{infra.error}</p>}
-      <WebNotProven web={data.web} kind="infra" />
+      <WebNotProven gate={gate} kind="infra" />
       <div className="row-gap filters">
-        {proven && <input value={tag} maxLength={60} onChange={(e) => setTag(e.target.value)} placeholder="Tag, e.g. before-the-demo" disabled={!data.on || st.busy} />}
-        {proven && <button className="primary" disabled={!data.on || st.busy} onClick={backupNow}>Back up now</button>}
+        <input value={tag} maxLength={60} onChange={(e) => setTag(e.target.value)} placeholder="Tag, e.g. before-the-demo" disabled={!ready || !data.on || st.busy} />
+        <button className="primary" disabled={!ready || !data.on || st.busy} title={why} onClick={backupNow}>Back up now</button>
         {st.busy && <span className="small"><span className="spinner" aria-hidden="true" /> {st.what}...</span>}
         {st.busy && /^backup/.test(st.what || "") && <button className="danger" onClick={() => stopBackups(act)}>Stop</button>}
         <input type="search" className="push-right" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by tag, name or who" />
@@ -192,7 +208,7 @@ function InfraSection({ data, onRestore, act }) {
                 <td className="nowrap">
                   <button className="linkish" onClick={() => act(() => apiFetch(`/api/v1/admin/backups/infrastructure/${b.name}/pin`, { method: "POST", body: JSON.stringify({ pinned: !b.pinned }) }))}>{b.pinned ? "Unpin" : "Pin"}</button>
                   {" · "}
-                  {proven && <button className="linkish" disabled={b.status !== "ok" || st.busy} onClick={() => onRestore(b)}>Restore...</button>}
+                  <button className="linkish" disabled={!ready || b.status !== "ok" || st.busy} title={why} onClick={() => onRestore(b)}>Restore...</button>
                   {!b.pinned && <>{" · "}<button className="linkish" disabled={st.busy} onClick={() => {
                     // eslint-disable-next-line no-alert
                     if (window.confirm(`Delete the backup ${b.name}? This cannot be undone.`)) act(() => apiFetch(`/api/v1/admin/backups/infrastructure/${b.name}/delete`, { method: "POST" }), () => `${b.name} deleted.`);
@@ -208,8 +224,8 @@ function InfraSection({ data, onRestore, act }) {
   );
 }
 
-function AppSection({ data, act, onRestore }) {
-  const proven = !data.web || data.web.proven;
+function AppSection({ data, act, onRestore, gate }) {
+  const { ready, why } = gate;
   const app = data.application || {};
   const [tag, setTag] = useState("");
   const [open, setOpen] = useState("");
@@ -239,10 +255,10 @@ function AppSection({ data, act, onRestore }) {
         And every project as a file: its rows, steps, people, sign-off and the latest version of each of its documents (from Documents).
         Restore one model as a new model, put a model back over itself, restore all (models, then projects with their documents),
         or take the file to another installation and upload it there.</p>
-      <WebNotProven web={data.web} kind="app" />
+      <WebNotProven gate={gate} kind="app" />
       <div className="row-gap filters">
-        {proven && <input value={tag} maxLength={60} onChange={(e) => setTag(e.target.value)} placeholder="Tag, e.g. end-of-quarter" />}
-        {proven && <button className="primary" onClick={backupNow}>Back up every model and project now</button>}
+        <input value={tag} maxLength={60} onChange={(e) => setTag(e.target.value)} placeholder="Tag, e.g. end-of-quarter" disabled={!ready} />
+        <button className="primary" disabled={!ready} title={why} onClick={backupNow}>Back up every model and project now</button>
         <button onClick={() => file.current?.click()} title="A model (.eaxbackup.zip) or a whole application backup (.eaxapp.zip)">Upload a backup file...</button>
         <input ref={file} type="file" accept=".zip" hidden onChange={upload} />
         {(app.runs || []).some((r) => r.status === "running") && <button className="danger" onClick={() => stopBackups(act)}>Stop</button>}
@@ -266,7 +282,7 @@ function AppSection({ data, act, onRestore }) {
                   <td className="nowrap">{r.status !== "running" && <>
                     <button className="linkish" title="Every model in one file (.eaxapp.zip), to keep or upload to another installation"
                       onClick={() => apiDownload(`/api/v1/admin/backups/application/${r.name}/download`, `${r.name}.eaxapp.zip`).catch((e) => act(() => Promise.reject(e)))}>Download all</button>
-                    {superAdmin && proven && <>{" · "}<button className="linkish" onClick={() => setAll(r)}>Restore all...</button></>}{" · "}</>}
+                    {superAdmin && <>{" · "}<button className="linkish" disabled={!ready} title={why} onClick={() => setAll(r)}>Restore all...</button></>}{" · "}</>}
                     <button className="linkish" onClick={() => act(() => apiFetch(`/api/v1/admin/backups/application/${r.name}/pin`, { method: "POST", body: JSON.stringify({ pinned: !r.pinned }) }))}>{r.pinned ? "Unpin" : "Pin"}</button>
                     {!r.pinned && <>{" · "}<button className="linkish" onClick={() => {
                       // eslint-disable-next-line no-alert
@@ -279,7 +295,7 @@ function AppSection({ data, act, onRestore }) {
                     <td className="small">{m.counts ? `${m.counts.entities} entities, ${m.counts.relationships} relationships` : ""}</td>
                     <td colSpan="3" className="small nowrap">{m.status === "ok" && <>
                       <button className="linkish" onClick={() => apiDownload(`/api/v1/admin/backups/application/${r.name}/${m.file}`, m.file).catch((e) => act(() => Promise.reject(e)))}>Download</button>
-                      {proven && <>{" · "}<button className="linkish" onClick={() => onRestore({ where: "application", name: r.name, file: m.file, model: m.id, modelName: m.name, kind: m.kind })}>Restore...</button></>}</>}</td>
+                      {" · "}<button className="linkish" disabled={!ready} title={why} onClick={() => onRestore({ where: "application", name: r.name, file: m.file, model: m.id, modelName: m.name, kind: m.kind })}>Restore...</button></>}</td>
                   </tr>
                 ))}
                 {open === r.name && (r.projects || []).map((p) => (
