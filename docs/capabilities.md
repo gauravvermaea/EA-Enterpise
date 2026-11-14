@@ -1,4 +1,4 @@
-# What EA Explorer does today (version 2.0.0)
+# What EA Explorer does today (version 3.0.0)
 
 One page for anyone weighing EA Explorer up: what is **built and in the box today**, area by area, and what is still
 **planned**, with its build phase. "Planned" adds to what is already there; it does not mean an area is missing.
