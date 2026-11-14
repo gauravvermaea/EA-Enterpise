@@ -39,13 +39,19 @@ A push source's panel on the Discovery tab has **Push with Python** (D674): the 
 | `push_to_eax.py` | Reads the CSV files in a folder with pandas and sends them in one call; `push_dataframe(url, df, username, password)` sends one DataFrame, `push_dataframes` several (related sets go together, so their links become relationships) |
 | `requirements.txt` | pandas and requests |
 | `README.md` | Setting up Python in a venv (Windows, macOS, Linux), the command with this source's address, signing in, what happens next |
-| `samples/*.csv` | Sample records made from the model's metamodel: two types and a relationship it allows, named so the push maps itself |
+| `samples/*.csv` | A file for every entity type of the model, two records each, each with a relationship column the metamodel allows; the README lists the relationships they publish |
 
 The script has no checks on purpose: it shows the call. Signing in, any of: a user name and password (an EA Explorer
 account, or an Active Directory account when EA Explorer signs in against the directory), sent as HTTP Basic as the
 OData feed takes it; a **personal token** (System admin › Machine access; the way for single sign-on users) or a service
 account's **API key**, sent as a Bearer token; a **client certificate** trusted in Machine access, on the
 machine-access port (9443).
+
+## Deleting a source
+
+**Delete** beside a source (after a confirm), by anyone who may set it up (D675). A source with a delivery still waiting
+for review is not deleted: accept or decline it in Deliveries first. What it delivered stays (in the model and in Loads);
+what it has seen and the matches confirmed go with it, so a new source starts from nothing.
 
 ## A run
 

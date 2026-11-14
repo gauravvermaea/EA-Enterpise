@@ -407,3 +407,62 @@ def test_a_push_is_limited(monkeypatch):
 def test_the_database_holds_the_same_rule():
     sql = (REPO / "services/api/migrations/sql/0071_discovery.sql").read_text()
     assert "auth_ref = '' OR auth_ref ~ '^EAX_SOURCE_[A-Z0-9_]{1,53}$'" in sql
+
+
+# ---------------------------------------------------------------- deleting a source (owner, 14 Nov 2026)
+class _Conn:
+    def __init__(self):
+        self.sql = []
+
+    def execute(self, stmt, params=None):
+        self.sql.append((str(stmt), params))
+
+
+def _deleting(monkeypatch, kind="push", waiting=0, total=3):
+    from eax import deliveries as dv
+    monkeypatch.setattr(dv, "_source", lambda conn, s: {"id": 7, "guid": "g-7", "name": "CMDB", "kind": kind, "model_guid": "m"})
+    monkeypatch.setattr(dc.repo, "get_model", lambda conn, m: {"id": "m", "_id": 1, "name": "M"})
+    asked = []
+    monkeypatch.setattr(dc, "_may_write", lambda conn, user, m: asked.append(m["name"]))
+    monkeypatch.setattr(dc.repo, "_rows", lambda conn, sql, **kw: [{"waiting": waiting, "total": total}])
+    return asked
+
+
+def test_a_source_is_deleted_and_its_past_deliveries_stay(monkeypatch):
+    asked = _deleting(monkeypatch)
+    conn = _Conn()
+    out = dc.remove(conn, None, "g-7")
+    assert asked == ["M"]                                          # by those who may set it up
+    assert conn.sql == [("DELETE FROM core.import_sources WHERE id = :i", {"i": 7})]
+    assert out["loads_kept"] == 3 and out["message"] == "CMDB is deleted. Its 3 past deliveries stay in Loads."
+
+
+def test_a_source_with_a_delivery_waiting_is_not_deleted(monkeypatch):
+    _deleting(monkeypatch, waiting=2)
+    conn = _Conn()
+    with pytest.raises(EditError) as e:
+        dc.remove(conn, None, "g-7")
+    assert e.value.status == 409 and "2 deliveries of it wait for review" in str(e.value) and conn.sql == []
+
+
+def test_a_folder_source_is_not_deleted_from_discovery(monkeypatch):
+    _deleting(monkeypatch, kind="folder")
+    with pytest.raises(EditError) as e:
+        dc.remove(_Conn(), None, "g-7")
+    assert e.value.status == 409 and "Deliveries" in str(e.value)
+
+
+def test_deleting_takes_what_it_saw_and_keeps_the_loads_by_the_foreign_keys():
+    sql = (Path(__file__).resolve().parents[1] / "migrations" / "sql")
+    assert "REFERENCES core.import_sources (id) ON DELETE SET NULL" in (sql / "0042_import_formats.sql").read_text()
+    assert (sql / "0071_discovery.sql").read_text().count("REFERENCES core.import_sources (id) ON DELETE CASCADE") == 2
+
+
+def test_delete_is_wired_in_the_api_and_the_tab():
+    root = Path(__file__).resolve().parents[1]
+    api = (root / "eax" / "api" / "discovery.py").read_text(encoding="utf-8")
+    assert "def delete(self, source_id):" in api and '"discovery_source.deleted"' in api
+    jsx = (root.parent / "web" / "src" / "Discovery.jsx").read_text(encoding="utf-8")
+    for s in ('onClick={() => setDeleting(s)}>Delete</button>', 'title="Delete this discovery source"',
+              '{ method: "DELETE" }', "This cannot be undone."):
+        assert s in jsx, s

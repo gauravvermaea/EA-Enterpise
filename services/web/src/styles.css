@@ -2693,3 +2693,9 @@ th.sortable { cursor: pointer; }
 .discovery-kit .code-block { max-height: 28rem; overflow: auto; padding: 0.6rem 0.75rem; border: 1px solid var(--border, #ddd);
   border-radius: 4px; background: var(--surface-2, rgba(127, 127, 127, 0.08)); font-family: ui-monospace, Consolas, monospace;
   font-size: 0.8rem; line-height: 1.35; white-space: pre; }
+
+/* Import and export: the two wizards (D676) */
+.import-wizards { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0 0 10px; }
+.wizard-choices .lock-opt { display: flex; gap: 8px; align-items: flex-start; padding: 6px 4px; }
+.wizard-more { margin: 6px 0 10px; }
+.wizard-more > summary { cursor: pointer; color: var(--accent, #3d7bd9); }

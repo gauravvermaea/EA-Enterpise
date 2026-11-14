@@ -137,7 +137,7 @@ function UploadDelivery({ model, source, onDone }) {
   );
 }
 
-function SourceDialog({ model, source, onClose }) {
+export function SourceDialog({ model, source, onClose }) {
   const isNew = !source.id;
   const [f, setF] = useState({ name: source.name || "", description: source.description || "", values_win: !!source.values_win,
     contact: source.contact || "", sender: source.sender || "", active: source.active !== false });

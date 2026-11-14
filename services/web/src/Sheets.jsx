@@ -5,6 +5,7 @@
 //   #/metamodel/<model>/import/loads            every load of the model you may see
 //   #/metamodel/<model>/import/deliveries       other systems' deliveries in the published formats (phase 34, Deliveries.jsx)
 //   #/metamodel/<model>/import/discovery        OData feeds read, pushes taken, documents read by AI (R3 epic, Discovery.jsx)
+//   Bring data in / Take data out   the two wizards over all of it (D676, ImportWizards.jsx)
 //   (collection sets, feeds and scheduled exports: a phase of their own, D198)
 import { useEffect, useMemo, useState } from "react";
 import { apiDownload, apiFetch, apiUpload, canOn } from "./auth";
@@ -14,6 +15,7 @@ import { fmtDateTime } from "./fmt";
 import { trackTask, useTask } from "./tasks";
 import DeliveriesTab, { DeliveryActions } from "./Deliveries";
 import DiscoveryTab from "./Discovery";
+import { BringInWizard, TakeOutWizard } from "./ImportWizards";
 
 const go = (path) => { window.location.hash = path; };
 const post = (path, body, method = "POST") => apiFetch(path, { method, body: JSON.stringify(body || {}) });
@@ -26,8 +28,16 @@ export default function SheetsTab({ model, m, sub, itemId }) {
   const may = canOn(model, "model.content");
   const nav = [["", "Download and upload"], ["loads", "Loads"], ["deliveries", "Deliveries"], ["discovery", "Discovery"]];
   const cur = sub === "load" ? "loads" : sub || "";
+  const [wizard, setWizard] = useState("");
   return (
     <div className="sheets">
+      <div className="import-wizards">
+        <button className="primary" onClick={() => setWizard("in")} title="A step-by-step guide: a file, a folder, a feed, a push or documents">⬇ Bring data in</button>
+        <button className="primary" onClick={() => setWizard("out")} title="A step-by-step guide: Excel, a file for another system, Power BI, a copy of the model, the API">⬆ Take data out</button>
+        <span className="quiet small">Step by step, or use the tabs below.</span>
+      </div>
+      {wizard === "in" && <BringInWizard m={m} onClose={() => setWizard("")} />}
+      {wizard === "out" && <TakeOutWizard m={m} onClose={() => setWizard("")} />}
       <div className="seg small" role="tablist">
         {nav.map(([k, l]) => <button key={k} className={cur === k ? "on" : ""} onClick={() => go(`/metamodel/${model}/import${k ? `/${k}` : ""}`)}>{l}</button>)}
       </div>
@@ -79,11 +89,12 @@ function TypePicker({ model, value, onChange }) {
   );
 }
 
-export function Download({ model, m }) {
-  // a request to fill in data (WIZ-018) links here with the types chosen: ?types=A,B
+export function Download({ model, m, format = "xlsx", empty = false }) {
+  // a request to fill in data (WIZ-018) links here with the types chosen: ?types=A,B; the Import and export wizards
+  // (D676) open it with a format and the empty template already chosen
   const [types, setTypes] = useState(() => (window.location.hash.match(/[?&]types=([^&]+)/) || [])[1]?.split(",").map(decodeURIComponent) || []);
-  const [fmt, setFmt] = useState("xlsx");
-  const [blank, setBlank] = useState(false);     // the published format's empty template (phase 34)
+  const [fmt, setFmt] = useState(format);
+  const [blank, setBlank] = useState(empty);     // the published format's empty template (phase 34)
   const [taskId, setTaskId] = useState(null);
   const [fetched, setFetched] = useState(null);
   const [err, setErr] = useState("");
@@ -126,7 +137,7 @@ export function Download({ model, m }) {
 }
 
 // ---------------------------------------------------------------- upload
-export function Upload({ model, m, may }) {
+export function Upload({ model, m, may, onDone }) {
   const [file, setFile] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -138,6 +149,7 @@ export function Upload({ model, m, may }) {
       const out = await apiUpload(`/api/v1/models/${model}/loads`, form);
       trackTask(out.task, `#/metamodel/${model}/import/load/${out.load.id}`);
       go(`/metamodel/${model}/import/load/${out.load.id}`);
+      if (onDone) onDone(out.load);
     } catch (e) { setErr(e.message); setBusy(false); }
   }
   return (

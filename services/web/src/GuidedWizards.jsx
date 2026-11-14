@@ -15,7 +15,7 @@ import { liveProjects } from "./ModelMarks";
 const post = (path, body, method = "POST") => apiFetch(path, { method, body: JSON.stringify(body || {}) });
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-function Steps({ names, at }) {
+export function Steps({ names, at }) {
   return <ol className="wiz-steps">{names.map((n, i) => <li key={n} className={i === at ? "on" : i < at ? "done" : ""}>{n}</li>)}</ol>;
 }
 

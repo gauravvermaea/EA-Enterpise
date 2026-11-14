@@ -3576,5 +3576,40 @@
   "button:Start a session": "Make test accounts for the roles ticked, and the session's own test models and project.",
   "button:Download the Python kit (zip)": "Download a push source's Python kit: push_to_eax.py, requirements.txt, a README with the steps to set up Python (a venv) and sample CSV files made from this model's types.",
   "button:Copy the code": "Copy push_to_eax.py: it reads CSV files with pandas and sends them here with push_dataframe(url, df, username, password), or a token, API key or client certificate.",
-  "button:Copy the command": "Copy the command that runs the script against this source's Push address; add your user name, or --token, or --cert."
+  "button:Copy the command": "Copy the command that runs the script against this source's Push address; add your user name, or --token, or --cert.",
+  "popup:Delete this discovery source": {
+    "title": "Delete a discovery source",
+    "what": "Deletes the source: it stops running and nothing more arrives from it.",
+    "how": [
+      "What it delivered stays: accepted deliveries are in the model and every past delivery is in Loads.",
+      "What it has seen and the matches you confirmed go with it, so a new source starts from nothing.",
+      "A source with a delivery still waiting for review is not deleted: accept or decline that delivery in Deliveries first.",
+      "This cannot be undone."
+    ]
+  },
+  "popup:Bring data into *": {
+    "title": "Bring data in",
+    "what": "A step-by-step guide to bringing data into this model, whichever way it comes.",
+    "how": [
+      "Choose where the data is: a file you have, files another system drops in a folder, an OData feed EA Explorer reads, a system or script that sends it (Push, with a Python example), or documents read by AI.",
+      "Follow the steps: upload the file, or set up the source, check where each set goes and run it.",
+      "Review what arrives: a file's preview opens in Loads; a source's deliveries wait in Deliveries for a Committer to accept or decline.",
+      "Nothing reaches the model before that, and an accepted load can be undone."
+    ]
+  },
+  "popup:Take data out of *": {
+    "title": "Take data out",
+    "what": "A step-by-step guide to getting data out of this model for what you need it for.",
+    "how": [
+      "Edit it in Excel and load it back: download a workbook of the types you choose, change it, upload it.",
+      "A file for another system: a CSV set or an Excel workbook in the published formats, or an empty template.",
+      "Read it live in Power BI or Excel: the model's OData feed, signed in as you.",
+      "A copy of the whole model: a model package, without data, with the data or with its history.",
+      "Use it from a program: the REST API with a personal token or an API key."
+    ]
+  },
+  "button:+ Set up the folder source": "Add an import source with a folder of its own: another system drops workbooks or CSV sets there and each becomes a delivery to review (Model Admins).",
+  "button:⬇ Choose and download the package": "Choose the package's format (Excel or zip) and what it holds (without data, with the data, or with its history), then download it.",
+  "button:⬇ Bring data in": "A step-by-step guide: a file, a folder another system fills, an OData feed, a push (with a Python example) or documents read by AI.",
+  "button:⬆ Take data out": "A step-by-step guide: Excel to edit and load back, a file for another system, Power BI or Excel live, a copy of the model, or the API."
 }

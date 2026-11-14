@@ -6,9 +6,10 @@ The kit is downloaded from the model's Discovery tab as a zip:
   push_to_eax.py     the script (this folder, the same for every source): push_dataframe(url, df, username, password)
   requirements.txt   pandas and requests
   README.md          setting up a venv, running it, what happens next; this source's Push address filled in
-  samples/*.csv      sample records made from the model's own metamodel: two entity types joined by a relationship the
-                     metamodel allows, named so a push maps them by itself (the file's name is the type's name, the
-                     link column the relationship type's name)
+  samples/*.csv      sample records made from the model's own metamodel (owner, 14 Nov 2026: "The samples need to show how
+                     relations will be published ... sheets for all existing entities"): a file for every entity type,
+                     each with a relationship column the metamodel allows (named after the relationship type, holding
+                     ids from the related type's file), named so a push maps them by itself
 
 The push endpoint takes a user name and password (HTTP Basic, as the OData feed, D433: an EA Explorer or directory
 account), as well as every machine credential (phase 25): a personal token (the way for single sign-on users), a
@@ -31,7 +32,7 @@ from ..metamodel_edit import EditError
 HERE = Path(__file__).parent
 FILES = ("push_to_eax.py", "requirements.txt", "README.md")
 ATTRIBUTE_COLUMNS = 6              # the type's attributes shown as (empty) columns in a sample, at most
-SAMPLE_ROWS = (3, 2)               # records of the first type, of the related type
+SAMPLE_ROWS = 2                    # records in each sample file
 TARGETS = ("business process", "process", "business function", "business service")   # the related type, best first
 
 
@@ -51,27 +52,45 @@ def maps_to_itself(t: dict, types: list[dict]) -> bool:
     return best is not None and best["code"] == t["code"] and dc.type_score(stem, t) >= 0.8
 
 
-def choose(types: list[dict], allowed: list[dict]) -> tuple[dict | None, dict | None, dict | None]:
-    """The two types and the relationship type of the samples: an allowed relationship between two types a push maps by
-    name, application components serving something first; else one type alone."""
-    usable = {t["code"]: t for t in types if maps_to_itself(t, types)}
-    pairs = [a for a in allowed if a["source"] in usable and a["target"] in usable and a["source"] != a["target"]]
-    pairs.sort(key=lambda a: (not usable[a["source"]]["name"].lower().startswith("application"),
-                              a["relationship_name"].lower() != "serving", _rank(usable[a["target"]]["name"]),
-                              usable[a["source"]]["name"], usable[a["target"]]["name"]))
-    if pairs:
-        a = pairs[0]
-        return usable[a["source"]], usable[a["target"]], {"code": a["relationship"], "name": a["relationship_name"]}
-    first = sorted(usable.values(), key=lambda t: (not t["name"].lower().startswith("application"), t["name"]))
-    return (first[0] if first else None), None, None
+def usable_types(types: list[dict]) -> tuple[list[dict], list[dict]]:
+    """(the types with a sample file, the types left out): a type is left out when a set named after it would be read
+    as another type (eax.discovery.suggest picks by name)."""
+    ok = [t for t in types if maps_to_itself(t, types)]
+    return sorted(ok, key=lambda t: t["name"].lower()), sorted((t for t in types if t not in ok), key=lambda t: t["name"].lower())
+
+
+def links(types: list[dict], allowed: list[dict]) -> dict[str, dict]:
+    """For each type with a sample file, the relationship its sample shows: {source code: {relationship, relationship
+    name, target}}, one the metamodel allows to another type with a sample file; Serving first and the catch-all
+    Association last, then a target with nothing pointing at it yet, so as many types as possible appear at both ends."""
+    usable = {t["code"]: t for t in usable_types(types)[0]}
+    out: dict[str, dict] = {}
+    pointed: dict[str, int] = {}
+    by_source: dict[str, list[dict]] = {}
+    for a in allowed:
+        if a["source"] in usable and a["target"] in usable and a["source"] != a["target"]:
+            by_source.setdefault(a["source"], []).append(a)
+    for code in usable:
+        options = by_source.get(code) or []
+        if not options:
+            continue
+        best = min(options, key=lambda a: (a["relationship_name"].lower() != "serving",
+                                           a["relationship_name"].lower() == "association", pointed.get(a["target"], 0),
+                                           _rank(usable[a["target"]]["name"]), usable[a["target"]]["name"].lower(),
+                                           a["relationship_name"].lower()))
+        out[code] = {"relationship": best["relationship"], "relationship_name": best["relationship_name"], "target": best["target"]}
+        pointed[best["target"]] = pointed.get(best["target"], 0) + 1
+    return out
 
 
 def _rank(name: str) -> int:
     return TARGETS.index(name.lower()) if name.lower() in TARGETS else len(TARGETS)
 
 
-def _prefix(name: str) -> str:
-    return "".join(w[0] for w in re.findall(r"[A-Za-z0-9]+", name)).upper()[:4] or "R"
+def sample_id(t: dict, i: int) -> str:
+    """A record's id in the samples: the type's code and a number, so no two files share an id and a link column can
+    only ever point at the type it means."""
+    return f"{t['code']}-{i}"
 
 
 def _csv(header: list[str], rows: list[list[str]]) -> str:
@@ -83,30 +102,56 @@ def _csv(header: list[str], rows: list[list[str]]) -> str:
 
 
 def samples(types: list[dict], allowed: list[dict]) -> dict[str, str]:
-    """{file name: CSV text}: sample records of the chosen types (id, name, description, the type's attributes left
-    empty, and the relationship column holding the related records' ids)."""
-    first, second, rel = choose(types, allowed)
-    if first is None:
-        return {}
+    """{file name: CSV text}: a file for every entity type of the model (that a push maps back to itself), each with
+    SAMPLE_ROWS records: id, name, description, the type's attributes (left empty) and, where the metamodel allows one,
+    a relationship column named after the relationship type holding the ids of records in the related type's file."""
+    ok, _left = usable_types(types)
+    by_code = {t["code"]: t for t in ok}
+    rel = links(types, allowed)
     out = {}
-    ids2 = []
-    if second is not None:
-        p2 = _prefix(second["name"])
-        ids2 = [f"{p2}-{i}" for i in range(1, SAMPLE_ROWS[1] + 1)]
-        attrs2 = [a["name"] for a in second.get("attributes") or []][:ATTRIBUTE_COLUMNS]
-        rows2 = [[k, f"Sample {second['name']} {i}", f"A sample {second['name'].lower()} pushed with Python", *[""] * len(attrs2)]
-                 for i, k in enumerate(ids2, 1)]
-        out[f"{file_name(second['name'])}.csv"] = _csv(["id", "name", "description", *attrs2], rows2)
-    p1 = _prefix(first["name"])
-    attrs1 = [a["name"] for a in first.get("attributes") or []][:ATTRIBUTE_COLUMNS]
-    header = ["id", "name", "description", *attrs1, *([rel["name"]] if rel else [])]
-    rows1 = []
-    for i in range(1, SAMPLE_ROWS[0] + 1):
-        link = [ids2[(i - 1) % len(ids2)]] if rel else []
-        rows1.append([f"{p1}-{i}", f"Sample {first['name']} {i}", f"A sample {first['name'].lower()} pushed with Python",
-                      *[""] * len(attrs1), *link])
-    out[f"{file_name(first['name'])}.csv"] = _csv(header, rows1)
-    return dict(sorted(out.items()))
+    for t in ok:
+        attrs = [a["name"] for a in t.get("attributes") or []][:ATTRIBUTE_COLUMNS]
+        link = rel.get(t["code"])
+        header = ["id", "name", "description", *attrs, *([link["relationship_name"]] if link else [])]
+        rows = []
+        for i in range(1, SAMPLE_ROWS + 1):
+            target = [sample_id(by_code[link["target"]], (i - 1) % SAMPLE_ROWS + 1)] if link else []
+            rows.append([sample_id(t, i), f"Sample {t['name']} {i}", f"A sample {t['name'].lower()} pushed with Python",
+                         *[""] * len(attrs), *target])
+        out[f"{file_name(t['name'])}.csv"] = _csv(header, rows)
+    return out
+
+
+def example_text(types: list[dict], allowed: list[dict]) -> str:
+    """One relationship of the samples spelt out for the README (an application component's first, if there is one)."""
+    ok, _left = usable_types(types)
+    by_code = {t["code"]: t for t in ok}
+    found = links(types, allowed)
+    if not found:
+        return "This model's samples have no relationship: its metamodel allows none between their types."
+    code = next((c for c in found if by_code[c]["name"].lower().startswith("application")), next(iter(found)))
+    link, s, t = found[code], by_code[code], by_code[found[code]["target"]]
+    verb = link["relationship_name"].lower()
+    return (f"For example, in the samples `{file_name(s['name'])}.csv` has a `{link['relationship_name']}` column whose first row "
+            f"holds `{sample_id(t, 1)}`: once the delivery is accepted, *Sample {s['name']} 1* has a {verb} relationship to "
+            f"*Sample {t['name']} 1*.")
+
+
+def relationships_text(types: list[dict], allowed: list[dict]) -> str:
+    """The README's list of the relationships the samples publish, one line each, and the types left out."""
+    ok, left = usable_types(types)
+    by_code = {t["code"]: t for t in ok}
+    lines = []
+    for code, link in links(types, allowed).items():
+        s, t = by_code[code], by_code[link["target"]]
+        lines.append(f"| `{file_name(s['name'])}.csv` | `{link['relationship_name']}` | {s['name']} "
+                     f"*{link['relationship_name'].lower()}* {t['name']} | `{sample_id(t, 1)}` in `{file_name(t['name'])}.csv` |")
+    table = ("| File | Column | Relationship published | Its values are ids such as |\n| --- | --- | --- | --- |\n" + "\n".join(lines)
+             if lines else "The metamodel allows no relationship between these types, so the samples have none.")
+    if left:
+        table += ("\n\nNo sample file for " + ", ".join(t["name"] for t in left)
+                  + ": a set named after it would be read as another type (name the set with the type's code instead).")
+    return table
 
 
 def _metamodel(conn, m: dict) -> tuple[list[dict], list[dict]]:
@@ -134,9 +179,10 @@ def push_url(src: dict, base: str) -> str:
     return f"{base.rstrip('/')}/api/v1/import-sources/{src['guid']}/push"
 
 
-def readme(src: dict, m: dict, base: str) -> str:
+def readme(src: dict, m: dict, base: str, types: list[dict] | None = None, allowed: list[dict] | None = None) -> str:
     return (text_of("README.md").replace("{push_url}", push_url(src, base)).replace("{model}", m["name"])
-            .replace("{source}", src["name"]))
+            .replace("{source}", src["name"]).replace("{relationships}", relationships_text(types or [], allowed or []))
+            .replace("{example}", example_text(types or [], allowed or [])))
 
 
 def code(conn, user, source: Any, base: str) -> dict:
@@ -146,7 +192,8 @@ def code(conn, user, source: Any, base: str) -> dict:
     url = push_url(src, base)
     return {"script": text_of("push_to_eax.py"), "requirements": text_of("requirements.txt"), "push_url": url,
             "command": f"python push_to_eax.py --url {url} --user <your user name>",
-            "samples": samples(types, allowed), "zip": f"{kit_name(m, src)}.zip"}
+            "samples": samples(types, allowed), "relationships": relationships_text(types, allowed),
+            "zip": f"{kit_name(m, src)}.zip"}
 
 
 def kit_name(m: dict, src: dict) -> str:
@@ -163,7 +210,7 @@ def kit(conn, user, source: Any, base: str) -> tuple[str, bytes]:
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr(f"{name}/push_to_eax.py", text_of("push_to_eax.py"))
         z.writestr(f"{name}/requirements.txt", text_of("requirements.txt"))
-        z.writestr(f"{name}/README.md", readme(src, m, base))
+        z.writestr(f"{name}/README.md", readme(src, m, base, types, allowed))
         for fname, body in samples(types, allowed).items():
             z.writestr(f"{name}/samples/{fname}", body)
     return f"{name}.zip", buf.getvalue()

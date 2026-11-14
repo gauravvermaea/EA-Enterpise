@@ -7,7 +7,7 @@ adapt: one short Python file, `push_to_eax.py`, with no checks, so the call to E
 | --- | --- |
 | `push_to_eax.py` | Reads the CSV files and sends them to EA Explorer (`push_dataframe` and `push_dataframes` do the call) |
 | `requirements.txt` | The two packages it needs: pandas and requests |
-| `samples/*.csv` | Sample records, one file per set; each file's name is an entity type of this model |
+| `samples/*.csv` | Sample records: a file for every entity type of this model (the file's name is the type's name), each with a relationship to another file |
 
 The Push address of this source:
 
@@ -58,6 +58,29 @@ load into it), and every call is in EA Explorer's change log.
 `sign_in()` in the script shows how each one is sent: a token as `Authorization: Bearer ...`, a certificate in the TLS
 connection, a user name and password as HTTP Basic.
 
+## How relationships are published
+
+A relationship is a **column** in the file of the element it starts from:
+
+* the column's **name** is the relationship type (`Serving`, `Realization`, ...), as the metamodel names it;
+* each cell holds the **id** of the element it goes to, a record in another file of the same push;
+* so the row is the source of the relationship and the id in the cell is its target.
+
+{example}
+The ids in the samples are the type's code and a number, so no two files share an id.
+
+The relationships the samples of this model publish (one a type, each allowed by the metamodel):
+
+{relationships}
+
+Keep in mind:
+
+* push the files of both ends **together** (the script sends the whole folder at once): the target is looked up in the
+  same push;
+* one id a cell: for a second relationship of another type add another column named after that type;
+* a relationship the metamodel does not allow between the two types is shown as a problem in the delivery;
+* taking a value out later does not delete the relationship (a delivery never deletes).
+
 ## 3. Review the delivery
 
 In EA Explorer open the model, then **Import and export > Deliveries**: the delivery shows what is new, changed and
@@ -73,7 +96,7 @@ old one stays: a delivery never deletes).
 * Columns: `id` (a key of your own, unique in the file), `name`, `description`, then any attribute of the type by its
   name. Leave a cell empty when you have no value.
 * **Relationships**: a column named after a relationship type (such as `Serving`) holding the `id` of a record in
-  another file. Push the related files together (the script sends the whole folder at once).
+  another file (see *How relationships are published*). Push the related files together.
 * From your own Python code: build a pandas DataFrame and call
 
       from push_to_eax import push_dataframe

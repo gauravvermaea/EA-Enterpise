@@ -1,7 +1,8 @@
 """The Python kit of a Push source (D674): the samples a push maps by itself, the script's call to EA Explorer, the zip,
 the user name and password sign-in of the push endpoint, and the Discovery tab. The whole path was also run against a
-real database on 14 Nov 2026 (ArchiMate 4 model: the kit's samples read by the script with pandas and pushed: 5 records
-and 3 relationships delivered, the same push again: nothing new)."""
+real database on 14 Nov 2026 (ArchiMate 4 model: the kit's 48 sample files read by the script with pandas and pushed: 96
+records and 96 relationships of six relationship types delivered, every set mapped by its name; the same push again:
+nothing new)."""
 
 from __future__ import annotations
 
@@ -42,33 +43,63 @@ def _frames(files: dict[str, str]) -> dict[str, list[dict]]:
 
 
 # ---------------------------------------------------------------- the samples
-def test_the_samples_are_two_related_types_from_the_metamodel():
+def test_a_sample_file_for_every_entity_type():
     files = kit.samples(TYPES, ALLOWED)
-    assert list(files) == ["Application Component.csv", "Business Process.csv"]      # serving a process first
+    assert sorted(files) == ["Application Component.csv", "Business Actor.csv", "Business Process.csv", "Node.csv"]
     rows = _frames(files)
+    assert all(len(r) == kit.SAMPLE_ROWS for r in rows.values())
+    assert [r["id"] for r in rows["Node"]] == ["Node-1", "Node-2"]                    # the type's code: unique across files
     assert list(rows["Application Component"][0]) == ["id", "name", "description", "Owner", "Lifecycle", "Serving"]
-    assert [r["id"] for r in rows["Business Process"]] == ["BP-1", "BP-2"]
-    assert {r["Serving"] for r in rows["Application Component"]} <= {"BP-1", "BP-2"}
     assert all(r["Owner"] == "" for r in rows["Application Component"])            # attributes shown, left empty
 
 
-def test_a_push_of_the_samples_maps_itself_and_delivers_the_relationships():
+def test_each_file_shows_a_relationship_the_metamodel_allows():
+    rows = _frames(kit.samples(TYPES, ALLOWED))
+    assert [r["Serving"] for r in rows["Application Component"]] == ["BusinessProcess-1", "BusinessProcess-2"]  # serving a process first
+    assert [r["Realization"] for r in rows["Node"]] == ["ApplicationComponent-1", "ApplicationComponent-2"]
+    assert list(rows["Business Actor"][0]) == ["id", "name", "description"]         # nothing allowed from it: no column
+    found = kit.links(TYPES, ALLOWED)
+    assert found == {"ApplicationComponent": {"relationship": "serving", "relationship_name": "Serving", "target": "BusinessProcess"},
+                     "Node": {"relationship": "realization", "relationship_name": "Realization", "target": "ApplicationComponent"}}
+
+
+def test_association_is_the_last_choice_and_targets_are_spread():
+    allowed = [{"source": "ApplicationComponent", "target": "Node", "relationship": "association", "relationship_name": "Association"},
+               {"source": "ApplicationComponent", "target": "Node", "relationship": "flow", "relationship_name": "Flow"},
+               {"source": "BusinessActor", "target": "Node", "relationship": "flow", "relationship_name": "Flow"},
+               {"source": "BusinessActor", "target": "BusinessProcess", "relationship": "flow", "relationship_name": "Flow"}]
+    found = kit.links(TYPES, allowed)
+    assert found["ApplicationComponent"]["relationship"] == "flow"
+    assert found["BusinessActor"]["target"] == "BusinessProcess"                      # Node has one pointing at it already
+
+
+def test_a_push_of_the_samples_maps_itself_and_delivers_every_relationship():
     feed = _frames(kit.samples(TYPES, ALLOWED))
-    mapping = dc.suggest(dc.discover(feed), TYPES, RTS)
-    assert mapping["Application Component"]["entity_type"] == "ApplicationComponent"
-    assert mapping["Business Process"]["entity_type"] == "BusinessProcess"
+    rts = RTS + [{"code": "flow", "name": "Flow"}]
+    mapping = dc.suggest(dc.discover(feed), TYPES, rts)
+    assert {s: mp["entity_type"] for s, mp in mapping.items()} == {
+        "Application Component": "ApplicationComponent", "Business Actor": "BusinessActor",
+        "Business Process": "BusinessProcess", "Node": "Node"}
     assert mapping["Application Component"]["links"] == {"Serving": "serving"}
+    assert mapping["Node"]["links"] == {"Realization": "realization"}
     assert mapping["Application Component"]["attributes"] == {"Owner": "owner", "Lifecycle": "lifecycle"}
     out = dc.build(feed, mapping, {}, {}, {t["code"]: t for t in TYPES})
-    assert out["counts"]["changed"] == 5 and out["counts"]["relationships"] == 3
-    assert {"source": "Sample Application Component 1", "relationship_type": "serving",
-            "target": "Sample Business Process 1"} in out["relationships"]
+    assert out["counts"]["changed"] == 8 and out["counts"]["unmapped"] == 0 and out["counts"]["relationships"] == 4
+    assert {"source": "Sample Node 1", "relationship_type": "realization", "target": "Sample Application Component 1"} in out["relationships"]
 
 
-def test_one_type_alone_when_no_relationship_is_allowed_and_nothing_without_types():
+def test_the_readme_lists_the_relationships_published():
+    text = kit.relationships_text(TYPES, ALLOWED)
+    assert "| `Application Component.csv` | `Serving` | Application Component *serving* Business Process | `BusinessProcess-1` in `Business Process.csv` |" in text
+    assert "| `Node.csv` | `Realization` |" in text
+    ex = kit.example_text(TYPES, ALLOWED)
+    assert "`Application Component.csv` has a `Serving` column" in ex and "`BusinessProcess-1`" in ex
+    assert "allows none" in kit.example_text(TYPES, []) and "allows no relationship" in kit.relationships_text(TYPES, [])
+
+
+def test_one_type_without_relationships_and_nothing_without_types():
     files = kit.samples(TYPES, [])
-    assert list(files) == ["Application Component.csv"]
-    assert "Serving" not in next(iter(_frames(files).values()))[0]
+    assert len(files) == 4 and all("Serving" not in body.splitlines()[0] for body in files.values())
     assert kit.samples([], []) == {}
 
 
@@ -76,6 +107,8 @@ def test_a_type_a_push_would_not_map_back_is_not_used():
     clash = [{"code": "A", "name": "Server", "attributes": []}, {"code": "B", "name": "Servers", "attributes": []}]
     assert kit.maps_to_itself(clash[0], clash)                 # "Servers" is read as "Server": the first type
     assert not kit.maps_to_itself(clash[1], clash)
+    assert list(kit.samples(clash, [])) == ["Server.csv"]
+    assert "No sample file for Servers" in kit.relationships_text(clash, [])
 
 
 def test_singular_keeps_words_that_already_are_one():
@@ -105,12 +138,15 @@ def test_the_kit_zip_holds_the_script_requirements_readme_and_samples(fake_sourc
     z = zipfile.ZipFile(io.BytesIO(data))
     root = "eax-push-archimate-4-cmdb-push"
     assert name == f"{root}.zip"
-    assert sorted(z.namelist()) == sorted([f"{root}/push_to_eax.py", f"{root}/requirements.txt", f"{root}/README.md",
-                                           f"{root}/samples/Application Component.csv", f"{root}/samples/Business Process.csv"])
+    assert sorted(z.namelist()) == sorted([f"{root}/push_to_eax.py", f"{root}/requirements.txt", f"{root}/README.md"]
+                                          + [f"{root}/samples/{t}.csv" for t in
+                                             ("Application Component", "Business Actor", "Business Process", "Node")])
     assert z.read(f"{root}/push_to_eax.py").decode() == SCRIPT.read_text(encoding="utf-8")
     readme = z.read(f"{root}/README.md").decode()
     assert "https://ea.example/api/v1/import-sources/1df76e91-2b74-41c7-a3f0-4d65cfe37768/push" in readme
     assert "ArchiMate 4" in readme and "CMDB push" in readme and "{" not in readme.replace("{set", "")
+    assert "## How relationships are published" in readme and "| `Node.csv` | `Realization` |" in readme
+    assert "`Application Component.csv` has a `Serving` column" in readme
     assert "python -m venv .venv" in readme and ".venv\\Scripts\\Activate.ps1" in readme and "source .venv/bin/activate" in readme
     assert "pip install -r requirements.txt" in readme
     for way in ("Active Directory", "single sign-on", "--token eaxt_", "--token eaxk_", "--cert client.pem", ":9443"):
@@ -122,7 +158,8 @@ def test_the_code_shown_on_the_tab(fake_source):
     assert c["script"].startswith('"""Push CSV files to an EA Explorer model')
     assert c["command"] == ("python push_to_eax.py --url https://ea.example/api/v1/import-sources/"
                             "1df76e91-2b74-41c7-a3f0-4d65cfe37768/push --user <your user name>")
-    assert set(c["samples"]) == {"Application Component.csv", "Business Process.csv"}
+    assert set(c["samples"]) == {"Application Component.csv", "Business Actor.csv", "Business Process.csv", "Node.csv"}
+    assert "*serving* Business Process" in c["relationships"]
     assert "pandas" in c["requirements"] and "requests" in c["requirements"]
 
 

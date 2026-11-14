@@ -3,6 +3,7 @@ endpoints other systems push to, or documents read by the AI engine; each run be
 
 POST   /models/<m>/discovery-sources              add one {name, kind odata|push|ai, url, auth_ref, schedule, mapping}
 PATCH  /discovery-sources/<s>                     change it (the mapping a person confirmed, the schedule, ...)
+DELETE /discovery-sources/<s>                     delete it (refused while a delivery of it waits; past deliveries stay)
 GET    /discovery-sources/<s>                     it, its last run and the matches to confirm
 POST   /discovery-sources/<s>/look                read it now: its sets, fields, keys and links, the mapping suggested
 POST   /discovery-sources/<s>/run {full}          run it now: what changed becomes a delivery (previewed in the background)
@@ -102,6 +103,15 @@ class Source(MethodView):
         model = _model(source_id)
         return _write(lambda c: dc.setup(c, g.user, model, {**dc.describe(c, dv._source(c, source_id)), **(data or {})}, source_id),
                       "discovery_source.changed", model, {"source": source_id})
+
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def delete(self, source_id):
+        """Deletes the source: refused while a delivery of it waits for review; what it delivered stays in Loads and the
+        model; what it saw and the matches confirmed go with it"""
+        model = _model(source_id)
+        return _write(lambda c: dc.remove(c, g.user, source_id), "discovery_source.deleted", model, {"source": source_id})
 
 
 @blp.route("/discovery-sources/<source_id>/look")

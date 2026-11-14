@@ -13,19 +13,21 @@
 import { useState } from "react";
 import { apiDownload, apiFetch, can } from "./auth";
 import { refreshAll, useApi } from "./ModelViews";
-import { Field } from "./ModelOps";
+import { Field, Modal } from "./ModelOps";
 import { fmtDateTime } from "./fmt";
 import { trackTask } from "./tasks";
 
-const KINDS = [["odata", "OData feed (EA Explorer reads it)"], ["push", "Push (a system sends to EA Explorer)"], ["ai", "Documents read by the AI engine"]];
-const SCHEDULES = [["off", "On demand only"], ["daily", "Daily"], ["weekly", "Weekly"]];
+export const KINDS = [["odata", "OData feed (EA Explorer reads it)"], ["push", "Push (a system sends to EA Explorer)"], ["ai", "Documents read by the AI engine"]];
+export const SCHEDULES = [["off", "On demand only"], ["daily", "Daily"], ["weekly", "Weekly"]];
 const post = (path, body, method = "POST") => apiFetch(path, { method, body: JSON.stringify(body || {}) });
 
 export default function DiscoveryTab({ model }) {
   const { data, error } = useApi(`/api/v1/models/${model}/import-sources`);
   const [adding, setAdding] = useState(null);
   const [open, setOpen] = useState(null);
+  const [deleting, setDeleting] = useState(null);
   const [err, setErr] = useState("");
+  const [msg, setMsg] = useState("");
   if (error) return <p className="status bad">{error}</p>;
   if (!data) return <p>Loading...</p>;
   const sources = (data.sources || []).filter((s) => s.kind && s.kind !== "folder");
@@ -34,19 +36,30 @@ export default function DiscoveryTab({ model }) {
     try { const s = await post(`/api/v1/models/${model}/discovery-sources`, adding); setAdding(null); refreshAll(); setOpen(s.id); }
     catch (e) { setErr(e.message); }
   }
+  async function remove() {
+    setErr(""); setMsg("");
+    try {
+      const x = await apiFetch(`/api/v1/discovery-sources/${deleting.id}`, { method: "DELETE" });
+      if (open === deleting.id) setOpen(null);
+      setMsg(x.message); refreshAll();
+    } catch (e) { setErr(e.message); }
+    setDeleting(null);
+  }
   return (
     <section className="discovery" aria-label="Discovery">
       <p className="quiet">Point EA Explorer at what your organisation already has: an OData feed it reads, an endpoint a system sends to, or
         documents the AI engine reads. Each run finds what is new or changed and sends it to <a href={`#/metamodel/${model}/import/deliveries`}>Deliveries</a> as
         a delivery to preview, then accept or decline. Anyone who may change this model sets sources up; accepting needs a Committer.</p>
       {err && <p className="status bad">{err}</p>}
+      {msg && <p className="status ok">{msg}</p>}
       <table className="grid-table">
         <thead><tr><th>Source</th><th>Kind</th><th>Runs</th><th>Last run</th><th /></tr></thead>
         <tbody>{sources.length ? sources.map((s) => (
           <tr key={s.id}><td>{s.name}</td><td>{(KINDS.find((k) => k[0] === s.kind) || [, s.kind])[1]}</td>
             <td>{(SCHEDULES.find((k) => k[0] === s.schedule) || [, s.schedule])[1]}</td>
             <td className="small">{s.last_run?.at ? `${fmtDateTime(s.last_run.at)}: ${s.last_run.error || s.last_run.message || ""}` : "never"}</td>
-            <td><button onClick={() => setOpen(open === s.id ? null : s.id)}>{open === s.id ? "Close" : "Open"}</button></td></tr>))
+            <td className="nowrap"><button onClick={() => setOpen(open === s.id ? null : s.id)}>{open === s.id ? "Close" : "Open"}</button>{" "}
+              <button className="danger" onClick={() => setDeleting(s)}>Delete</button></td></tr>))
           : <tr><td colSpan={5} className="quiet">No discovery sources yet.</td></tr>}</tbody>
       </table>
       {!adding ? <p><button className="primary" onClick={() => setAdding({ kind: "odata", schedule: "off" })}>Add a discovery source</button></p> : (
@@ -63,13 +76,20 @@ export default function DiscoveryTab({ model }) {
             {SCHEDULES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field>
           <button className="primary" onClick={add} disabled={!adding.name}>Add it</button> <button onClick={() => setAdding(null)}>Cancel</button>
         </div>)}
+      {deleting && <Modal title="Delete this discovery source" onClose={() => setDeleting(null)}
+        actions={<><button className="danger" onClick={remove}>Delete {deleting.name}</button> <button onClick={() => setDeleting(null)}>Cancel</button></>}>
+        <p>Delete <b>{deleting.name}</b>? It stops running and nothing more arrives from it.</p>
+        <p className="small">What it delivered stays: accepted deliveries are in the model and every past delivery is in Loads. What it has
+          seen and the matches you confirmed go with it, so a new source starts from nothing. A source with a delivery still waiting for review is
+          not deleted: accept or decline that first. This cannot be undone.</p>
+      </Modal>}
       {open && <SourcePanel key={open} id={open} model={model} />}
       {can("settings.manage") && <AiEngine />}
     </section>
   );
 }
 
-function SourcePanel({ id, model }) {
+export function SourcePanel({ id, model }) {
   const { data: src, error } = useApi(`/api/v1/discovery-sources/${id}`);
   const [found, setFound] = useState(null);
   const [mapping, setMapping] = useState(null);
@@ -165,7 +185,7 @@ export function copyText(text, done) {
 }
 
 // A push source's Python kit (D674): read the code here, copy it, or download everything as a zip.
-function PythonKit({ id }) {
+export function PythonKit({ id }) {
   const { data: k, error } = useApi(`/api/v1/discovery-sources/${id}/kit/code`);
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState("");

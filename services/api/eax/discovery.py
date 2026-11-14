@@ -563,6 +563,30 @@ def _next_run(sched: str, now: dt.datetime | None = None) -> dt.datetime | None:
     return (now or dt.datetime.now(dt.UTC)) + dt.timedelta(days=days) if days else None
 
 
+def remove(conn, user, source: Any) -> dict:
+    """Deletes a discovery source (owner, 14 Nov 2026: "We need ability to delete sources"), by those who may set it up.
+    Refused while a delivery of it waits for review (accept or decline it first). What it delivered stays: the loads keep
+    their history (in Loads, with the source cleared, as the foreign key says), the model keeps what was accepted; what it
+    saw (core.discovery_seen) and the matches confirmed (core.discovery_matches) go with it. Its folder on disk is left
+    as it is. Folder sources are set up and removed in Deliveries."""
+    src = dv._source(conn, source)
+    m = repo.get_model(conn, str(src["model_guid"]))
+    _may_write(conn, user, m)
+    if src["kind"] not in KINDS[1:]:
+        raise EditError(f"{src['name']} is a folder source: it is set up in Deliveries, not Discovery.", 409)
+    n = repo._rows(conn, """SELECT count(*) FILTER (WHERE status IN ('uploaded', 'mapping', 'previewed')) AS waiting,
+                                   count(*) AS total FROM core.loads WHERE source_id = :i""", i=src["id"])[0]
+    waiting = int(n["waiting"])
+    if waiting:
+        what = "1 delivery of it waits" if waiting == 1 else f"{waiting} deliveries of it wait"
+        raise EditError(f"{src['name']} is not deleted: {what} for review. Accept or decline in Deliveries first.", 409)
+    conn.execute(text("DELETE FROM core.import_sources WHERE id = :i"), {"i": src["id"]})
+    kept = int(n["total"])
+    return {"deleted": str(src["guid"]), "name": src["name"], "loads_kept": kept,
+            "message": f"{src['name']} is deleted." + (f" Its {kept} past {'delivery stays' if kept == 1 else 'deliveries stay'} in Loads."
+                                                       if kept else "")}
+
+
 def describe(conn, src: dict) -> dict:
     return {"id": str(src["guid"]), "name": src["name"], "kind": src["kind"], "url": src["url"], "auth_ref": src["auth_ref"],
             "schedule": src["schedule"], "next_run_at": src["next_run_at"], "mapping": src["mapping"] or {},
