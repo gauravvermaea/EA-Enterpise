@@ -225,6 +225,8 @@ def _pick(fields: list[str], wanted: tuple[str, ...], set_name: str = "") -> str
 
 def singular(word: str) -> str:
     w = str(word or "")
+    if w.lower().endswith(("ss", "us", "is")):          # Business Process, Status, Analysis: already one
+        return w
     for a, b in (("ies", "y"), ("sses", "ss"), ("xes", "x"), ("ches", "ch"), ("s", "")):
         if w.lower().endswith(a) and len(w) > len(a) + 1:
             return w[: -len(a)] + b

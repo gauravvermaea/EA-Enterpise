@@ -7,8 +7,11 @@
 //   Run now   what is new or changed since the last delivery becomes a delivery (Deliveries: preview, accept, decline)
 //   matches   a found name close to an element of its type: say it is that element, or new
 //   AI engine Super Admins choose it: off, a cloud engine with the organisation's own key, or one run locally
+//   Python kit a push source's example (D674): push_to_eax.py (push_dataframe(url, df, username, password)), its
+//             requirements, a README with the venv steps and sample CSVs made from the model's metamodel; the code shown
+//             here to copy, the whole kit downloaded as a zip
 import { useState } from "react";
-import { apiFetch, can } from "./auth";
+import { apiDownload, apiFetch, can } from "./auth";
 import { refreshAll, useApi } from "./ModelViews";
 import { Field } from "./ModelOps";
 import { fmtDateTime } from "./fmt";
@@ -103,6 +106,7 @@ function SourcePanel({ id, model }) {
         {src.next_run_at ? ` · next run ${fmtDateTime(src.next_run_at)}` : ""}</p>
       {src.push && <p className="small">Systems send JSON to <code>POST {src.push}</code>: <code>{'{"<set>": [records]}'}</code>, as this
         model's service account or anyone who may load into it.</p>}
+      {src.kind === "push" && <PythonKit id={id} />}
       {err && <p className="status bad">{err}</p>}
       {msg && <p className="status ok">{msg}</p>}
       <div className="toolbar">
@@ -150,6 +154,45 @@ function SourcePanel({ id, model }) {
             </details>);
         })}
         <button className="primary" onClick={save} disabled={!!busy}>Save the mapping</button>
+      </>}
+    </div>
+  );
+}
+
+export function copyText(text, done) {
+  try { navigator.clipboard.writeText(text).then(() => done("Copied."), () => done("Select it and copy it by hand.")); }
+  catch { done("Select it and copy it by hand."); }
+}
+
+// A push source's Python kit (D674): read the code here, copy it, or download everything as a zip.
+function PythonKit({ id }) {
+  const { data: k, error } = useApi(`/api/v1/discovery-sources/${id}/kit/code`);
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState("");
+  if (error) return <p className="status bad">{error}</p>;
+  if (!k) return null;
+  const download = () => apiDownload(`/api/v1/discovery-sources/${id}/kit`, k.zip).catch((e) => setNote(e.message));
+  return (
+    <div className="discovery-kit">
+      <h4>Push with Python</h4>
+      <p className="small">An example to read and adapt: <code>push_to_eax.py</code> reads the CSV files in a folder and sends them here
+        in one call with <code>push_dataframes</code> (or one DataFrame with <code>push_dataframe(url, df, username, password)</code>),
+        signed in with your user name and password (an Active Directory account too), a personal token (for single sign-on), a service account's API key or a client certificate. The kit holds the script, <code>requirements.txt</code>, a README with the
+        steps to set up Python (a venv) and sample CSV files made from this model's types. What it sends becomes a delivery to review.</p>
+      <div className="toolbar">
+        <button className="primary" onClick={download}>Download the Python kit (zip)</button>
+        <button onClick={() => setOpen(!open)}>{open ? "Hide the code" : "Show the code"}</button>
+        <button onClick={() => copyText(k.script, setNote)}>Copy the code</button>
+        <button onClick={() => copyText(k.command, setNote)}>Copy the command</button>
+      </div>
+      {note && <p className="status ok small">{note}</p>}
+      <p className="small">Run it: <code>{k.command}</code></p>
+      {open && <>
+        <h5>push_to_eax.py</h5>
+        <pre className="code-block">{k.script}</pre>
+        <h5>requirements.txt</h5>
+        <pre className="code-block">{k.requirements}</pre>
+        {Object.entries(k.samples || {}).map(([name, body]) => <div key={name}><h5>samples/{name}</h5><pre className="code-block">{body}</pre></div>)}
       </>}
     </div>
   );

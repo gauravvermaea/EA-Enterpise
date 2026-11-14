@@ -2687,3 +2687,9 @@ th.sortable { cursor: pointer; }
 .fx-drop, .fx-list.fx-drop { outline: 2px dashed var(--accent, #3d7bd9); outline-offset: -2px; }
 .fx-props th { width: 8rem; }
 @media (max-width: 900px) { .fx-panes.fx-with-preview { grid-template-columns: 1fr; } }
+
+/* Discovery: a push source's Python kit (D674) */
+.discovery-kit { border-top: 1px solid var(--border, #ddd); margin: 0.75rem 0; padding-top: 0.5rem; }
+.discovery-kit .code-block { max-height: 28rem; overflow: auto; padding: 0.6rem 0.75rem; border: 1px solid var(--border, #ddd);
+  border-radius: 4px; background: var(--surface-2, rgba(127, 127, 127, 0.08)); font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.8rem; line-height: 1.35; white-space: pre; }

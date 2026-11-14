@@ -260,7 +260,8 @@ Built:
 - **Data discovery and ingestion** (Release 3 epic, on main; [discovery.md](discovery.md)): import sources that are an
   OData feed EA Explorer reads, an endpoint other systems push to, or documents the AI engine reads; the sets, fields
   and keys discovered and mapped to the model's types and attributes (suggested, a person confirms); on demand, daily or
-  weekly, each run proposing only what changed as a delivery to preview and accept; near names suggested as matches.
+  weekly, each run proposing only what changed as a delivery to preview and accept; near names suggested as matches;
+  a push source's Python kit (a short documented script, requirements, venv steps and sample CSVs) to download.
 
 Not planned: connectors to particular products (they write the published formats or a feed EA Explorer reads), ETL and
 outbound feeds.

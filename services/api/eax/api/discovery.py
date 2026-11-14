@@ -7,7 +7,10 @@ GET    /discovery-sources/<s>                     it, its last run and the match
 POST   /discovery-sources/<s>/look                read it now: its sets, fields, keys and links, the mapping suggested
 POST   /discovery-sources/<s>/run {full}          run it now: what changed becomes a delivery (previewed in the background)
 POST   /discovery-sources/<s>/matches {entity_type, found, entity}   the found item is that element (or new: no entity)
-POST   /import-sources/<s>/push                   a system sends {"<set>": [records]}: the same, as a delivery
+POST   /import-sources/<s>/push                   a system sends {"<set>": [records]}: the same, as a delivery; signed in
+                                                  with a token or, as the OData feed, a user name and password (Basic)
+GET    /discovery-sources/<s>/kit                 a push source's Python kit as a zip (script, requirements, README, samples)
+GET    /discovery-sources/<s>/kit/code            the same to show and copy on the Discovery tab
 GET    /admin/ai-engine    PUT /admin/ai-engine   the AI engine for discovery {mode off|cloud|local, url, model, key_ref}
 
 Anyone who may change the model's content sets up and runs its discovery; a delivery is accepted by a Committer, Model
@@ -15,13 +18,18 @@ Sub Admin or Model Admin, as every delivery (D465). The AI engine is chosen by a
 
 from __future__ import annotations
 
-from flask import g, request
+from functools import wraps
+
+from flask import Response, g, request
 from flask.views import MethodView
 from flask_smorest import Blueprint
 
 from .. import deliveries as dv
 from .. import discovery as dc
-from ..auth import require_auth
+from .. import discovery_kit as kit
+from .. import odata_auth
+from ..auth import _test_lock, require_auth
+from ..config import get_settings
 from .deliveries import _preview
 from .models import Free, FreeIn
 from .sheets import _read, _write
@@ -29,6 +37,24 @@ from .sheets import _read, _write
 blp = Blueprint("discovery", __name__, url_prefix="/api/v1",
                 description="Data discovery and ingestion: OData feeds read, pushes taken, documents read by AI (R3 epic)")
 SECURITY = [{"bearerAuth": []}]
+
+
+def basic_or_token(view):
+    """require_auth, or a user name and password (HTTP Basic) as the OData feed takes them (D433): what a script sends
+    with requests' auth=(user, password) (the Python kit, D674). A personal token or API key works as the password."""
+    with_token = require_auth()(view)
+
+    def locked(*args, **kwargs):
+        _test_lock(g.user)                   # a self-test in progress refuses a normal person's changes (R2.51)
+        return view(*args, **kwargs)
+    with_basic = odata_auth.signed_in(locked)
+
+    @wraps(view)
+    def wrapper(*args, **kwargs):
+        if request.headers.get("Authorization", "").lower().startswith("basic "):
+            return with_basic(*args, **kwargs)
+        return with_token(*args, **kwargs)
+    return wrapper
 
 
 def _model(source_id) -> str:
@@ -123,15 +149,37 @@ class Matches(MethodView):
 class Push(MethodView):
     @blp.doc(security=SECURITY)
     @blp.response(202, Free)
-    @require_auth()
+    @basic_or_token
     def post(self, source_id):
         """A system sends what it has, as JSON {"<set>": [records]} or {"value": [records], "set": "<set>"}: what is new or
-        changed becomes a delivery to review. The source's service account, or anyone who may load into the model"""
+        changed becomes a delivery to review. The source's service account, or anyone who may load into the model, with a
+        token or a user name and password (Basic)"""
         payload = request.get_json(silent=True)
         model = _model(source_id)
         out = _write(lambda c: dc.push(c, g.user, source_id, payload if payload is not None else {}), "discovery_source.push",
                      model, {"source": source_id})
         return _with_preview(out, model)
+
+
+@blp.route("/discovery-sources/<source_id>/kit")
+class Kit(MethodView):
+    @blp.doc(security=SECURITY)
+    @require_auth()
+    def get(self, source_id):
+        """A push source's Python kit as a zip: push_to_eax.py, requirements.txt, a README (a venv, the command with this
+        source's address) and sample CSV files made from the model's metamodel"""
+        name, data = _read(lambda c: kit.kit(c, g.user, source_id, get_settings().public_base_url))
+        return Response(data, mimetype="application/zip", headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+@blp.route("/discovery-sources/<source_id>/kit/code")
+class KitCode(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth()
+    def get(self, source_id):
+        """The kit's script, requirements, command and samples, to show and copy on the Discovery tab"""
+        return _read(lambda c: kit.code(c, g.user, source_id, get_settings().public_base_url))
 
 
 @blp.route("/admin/ai-engine")

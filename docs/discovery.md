@@ -16,7 +16,7 @@ or declined by a Committer, Model Sub Admin or Model Admin. Nothing reaches the 
 | Kind | What EA Explorer does |
 | --- | --- |
 | **OData feed** | Reads a feed's service document (each entity set) or one entity set, as JSON, following its pages. |
-| **Push** | Takes what a system sends: `POST /api/v1/import-sources/<source>/push` with `{"<set>": [records]}` (or `{"value": [...], "set": "<set>"}`), as the model's service account or anyone who may load into it. |
+| **Push** | Takes what a system sends: `POST /api/v1/import-sources/<source>/push` with `{"<set>": [records]}` (or `{"value": [...], "set": "<set>"}`), as the model's service account or anyone who may load into it, signed in with a token, an API key, a client certificate or a user name and password. The Python kit shows how. |
 | **Documents read by AI** | Sends the text of the documents dropped in the source's folder (`.txt`, `.md`, `.csv`, `.json`, `.html`, `.xml`, `.docx`), or of a page at its address, to the AI engine, which names the elements and relationships it finds. Read documents move to `done/`. |
 | Folder | Files in the published formats dropped in its folder (phase 34, as before: Deliveries). |
 
@@ -28,6 +28,24 @@ Addresses: a feed, a page or a redirect on this installation's own network (its 
 the machine itself, or on a private or link-local network (cloud metadata included) is not read, unless IT lists its
 host in `EAX_DISCOVERY_ALLOWED_HOSTS` in the config file (comma-separated; `*` for every host). A configuration database
 inside your network is read once it is listed there.
+
+## The Python kit (push sources)
+
+A push source's panel on the Discovery tab has **Push with Python** (D674): the code to read and copy, the command, and
+**Download the Python kit (zip)**:
+
+| In the zip | What it is |
+| --- | --- |
+| `push_to_eax.py` | Reads the CSV files in a folder with pandas and sends them in one call; `push_dataframe(url, df, username, password)` sends one DataFrame, `push_dataframes` several (related sets go together, so their links become relationships) |
+| `requirements.txt` | pandas and requests |
+| `README.md` | Setting up Python in a venv (Windows, macOS, Linux), the command with this source's address, signing in, what happens next |
+| `samples/*.csv` | Sample records made from the model's metamodel: two types and a relationship it allows, named so the push maps itself |
+
+The script has no checks on purpose: it shows the call. Signing in, any of: a user name and password (an EA Explorer
+account, or an Active Directory account when EA Explorer signs in against the directory), sent as HTTP Basic as the
+OData feed takes it; a **personal token** (System admin › Machine access; the way for single sign-on users) or a service
+account's **API key**, sent as a Bearer token; a **client certificate** trusted in Machine access, on the
+machine-access port (9443).
 
 ## A run
 
@@ -52,6 +70,6 @@ delivery for a person to review.
 
 ## Tests
 
-`tests/test_discovery.py` (reading, discovering, mapping, only what changed, renames, matches, the CSV format, the AI
+`tests/test_discovery.py` and `tests/test_discovery_kit.py` (the kit: its samples map themselves, the script's call and sign-in, the zip; reading, discovering, mapping, only what changed, renames, matches, the CSV format, the AI
 answer), and the self-test's black-box check in the run's own test model (`discovery: ...` results: a push source, a
 delivery, only what changed, a near name suggested, refused without the right).

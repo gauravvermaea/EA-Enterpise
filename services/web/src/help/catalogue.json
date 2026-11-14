@@ -3573,5 +3573,8 @@
   "button:Run": "Run this case in the session's test data.",
   "button:Save case": "Save this call, with the answer expected, as a case.",
   "button:Run them all": "Run every saved case in the session's test data.",
-  "button:Start a session": "Make test accounts for the roles ticked, and the session's own test models and project."
+  "button:Start a session": "Make test accounts for the roles ticked, and the session's own test models and project.",
+  "button:Download the Python kit (zip)": "Download a push source's Python kit: push_to_eax.py, requirements.txt, a README with the steps to set up Python (a venv) and sample CSV files made from this model's types.",
+  "button:Copy the code": "Copy push_to_eax.py: it reads CSV files with pandas and sends them here with push_dataframe(url, df, username, password), or a token, API key or client certificate.",
+  "button:Copy the command": "Copy the command that runs the script against this source's Push address; add your user name, or --token, or --cert."
 }
