@@ -459,7 +459,7 @@ def run_sequence(level: str, suites: list[str], role: str = "", area: str = "", 
         current.clear()
         current.update(busy=True, started=time.time(), run_id=run_id, level=level, suites=suites, by=by, stop="")
     folder = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + (f"-run{run_id}" if run_id else "")
-    beating = None
+    beating = memory = None
     project = H["project"]() or "eaexplorer"
     name = f"{project}-testrunner"
     try:
@@ -471,6 +471,7 @@ def run_sequence(level: str, suites: list[str], role: str = "", area: str = "", 
         os.chmod(f"{WORK}/tests/{folder}", 0o777)
         current["folder"] = folder
         beating = keep_beating(f"{WORK}/tests/{folder}")   # this run is being run, scans and collect included (R2.64)
+        memory = memory_watch(folder, run_id, level, suites)  # every container's memory while it runs (R3.5-M1)
         cmd = ["run", "--level", level, "--suites", ",".join(suites), "--trigger", trigger, "--folder", folder]
         for flag, value in (("--run-id", str(run_id) if run_id else ""), ("--by", by), ("--role", role), ("--area", area)):
             if value:
@@ -518,8 +519,23 @@ def run_sequence(level: str, suites: list[str], role: str = "", area: str = "", 
     finally:
         if beating is not None:
             beating.set()
+        if memory is not None:
+            memory.set()
         with _lock:
             current.update(busy=False, finished=time.time())
+
+
+def memory_watch(folder: str, run_id: int, level: str, suites: list[str]):
+    """Watches every container's memory (the test runner's too) from the run's start to its end (R3.5-M1): memory.md in
+    the run's folder and in work/footprint. Never stops a run: without the footprint module or Docker's stats, nothing."""
+    try:
+        from pathlib import Path
+
+        import footprint
+        label = f"self-test {run_id or ''} {level} {','.join(suites)}".replace("  ", " ").strip()
+        return footprint.watch_in_background(label, Path(f"{WORK}/tests/{folder}"))
+    except Exception:  # noqa: BLE001 - measuring is never in a test's way
+        return None
 
 
 # "being run" (R2.64): the same heartbeat as services/api/eax/testing/alive.py (this helper does not import it): .alive in

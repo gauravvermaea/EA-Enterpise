@@ -480,6 +480,9 @@ def main(argv: list[str]) -> int:
     if command == "screen" or (not command and sys.stdin.isatty()):   # the full screen (R3.1); the numbered menu without it
         from . import screen
         return screen.main(argv[1:])
+    if command == "measure":                  # how much memory it needs, measured in one go (R3.5-M1)
+        from . import measure
+        return measure.main(argv[1:])
     if command == "menu":                     # the numbered menu (R2.29), kept as it is (owner: "keep both kinds of menus")
         from . import menu
         return menu.main(argv[1:])

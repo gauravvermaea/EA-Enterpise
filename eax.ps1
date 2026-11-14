@@ -934,6 +934,11 @@ if ($Command -eq "screen") {   # the full screen in the style of Turbo Pascal (R
     & (Join-Path $PSScriptRoot "eaxpy.ps1") screen
     exit $LASTEXITCODE
 }
+if ($Command -eq "measure") {   # how much memory it needs, measured in one go (R3.5-M1): Python, eax commands run back here
+    $env:EAX_FORM = "ps1"; $env:EAX_FORM_EXE = (Get-Process -Id $PID).Path
+    & (Join-Path $PSScriptRoot "eaxpy.ps1") measure @RestArgs
+    exit $LASTEXITCODE
+}
 if ($Command -eq "menu") {   # the numbered menu (R2.29): one Python program for every form, run back here
     $env:EAX_FORM = "ps1"; $env:EAX_FORM_EXE = (Get-Process -Id $PID).Path
     & (Join-Path $PSScriptRoot "eaxpy.ps1") menu

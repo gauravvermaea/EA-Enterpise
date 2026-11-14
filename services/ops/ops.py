@@ -2740,7 +2740,7 @@ import logsops  # noqa: E402 - the logs on disk: written every minute, read, bac
 logsops.hooks.update(containers=containers)
 import footprint  # noqa: E402 - how much each container takes (R2.22)
 
-footprint.hooks.update(stats=stats, docker=docker)
+footprint.hooks.update(stats=stats, docker=docker, project=project, _size=_size)
 import estate_ops  # noqa: E402 - the estate's diagrams (R2.33)
 
 estate_ops.hooks.update(containers=containers, docker=docker)

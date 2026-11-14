@@ -109,14 +109,32 @@ Docker versions, memory and disk, image settings, every container's state, the l
 container, and the compose configuration (passwords masked).
 $ {eax} diag
 
-### footprint [label]
+### footprint [label] | --watch [minutes] [label]
 > Measures how much each container takes and keeps it in work/footprint, beside the measurement before.
 Image size, the container's own disk, its volumes, memory and CPU now, and how long it took to start (to healthy).
 work/footprint/latest.md is the table, with the change since the one before in brackets: measure before and after a
 change (label says which). Also System Admin > Footprint (R2.22). Changes nothing.
+--watch samples every container's memory every 15 seconds (10 minutes unless given): each one's lowest, average and
+peak, the whole installation's peak beside the guide of 10 GB (EAX_MEMORY_TARGET_MB; not a limit) and whether the
+Docker host paged (swap). Kept in work/footprint/latest-memory.md. Every self-test run is watched the same way on its
+own (memory.md in its folder). Release 3.5 (R3.5-M1).
 $ {eax} footprint
 $ {eax} footprint after-slim-images
+$ {eax} footprint --watch 30 at-rest
 
+
+### measure [--restart|--clean-restart] [--full] [--unattended] [--use-minutes N] [--from N] [--yes]
+> Measures how much memory EA Explorer needs, in one go: each step run and checked, then a summary.
+Steps: a restart (only when asked), memory while it starts and loads (20 minutes), a snapshot, the smoke test, at rest
+(10 minutes), in use (20 minutes; on a laptop the browser opens for you to use it), the full test while you use it,
+then one summary: each situation's peak and average, paging and the biggest containers, beside the guide of 10 GB
+(not a limit). Kept in work/footprint/measure-<time>.md. Safe on a running installation and on servers:
+--clean-restart (DELETES everything) is refused except on a laptop, and on a server the full test runs only with
+--full (its restore part asked first). --unattended: nobody there (no browser; no in-use step on a laptop). A step
+that fails stops it with the command to carry on (--from N). Release 3.5 (R3.5-M1).
+$ {eax} measure --clean-restart
+$ {eax} measure
+$ {eax} measure --from 4 --yes
 ### databases
 > Lists every database EA Explorer uses: what it holds, where it lives and whether it answers.
 Each has its own setting in work/eaexplorer.env: empty = the shared PostgreSQL; set one to move that database to a
