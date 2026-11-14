@@ -14,8 +14,8 @@ Every phase in detail: [build-phases.md](build-phases.md). Decisions: [decisions
 | Collaboration and governance | Private changes until committed, conflicts at commit, child models merged back, reviews and approvals, sign-off with a quorum, stakeholder acceptance of answers, a full change log |
 | Projects (TOGAF ADM) | Architecture projects from 14 templates, the TOGAF 10 library (13 phases, 116 steps, 171 deliverables and artifacts), key questions, Business Model Canvases, the Architecture Repository |
 | Documents and libraries | Document management (Mayan EDMS) inside projects, the reference library, the enterprise and project libraries with search |
-| Integration | A REST API (OpenAPI), signed webhooks, Excel and CSV in and out with mappings, model packages, the MCP server |
-| Operations | One command (`eax`) and a console, start-up in two tiers, health, tagged backups and restores, every service switchable |
+| Integration | A REST API (OpenAPI), signed webhooks, Excel and CSV in and out with mappings, model packages, the MCP server; discovery: OData feeds read, pushes taken and documents read by AI, proposed as deliveries to review (Release 3, in progress) |
+| Operations | One command (`eax`, full screen or numbered menu) and a console, start-up in two tiers, health, tagged backups and restores, every service switchable, a file explorer in every container |
 
 ## The main screens
 Since R2.0 ([r2-0-menu.md](r2-0-menu.md), D586–D591) the top bar has two rows. Row 1: the **site picker** (● Local,
@@ -257,7 +257,13 @@ Built:
   relationships with multiplicities, rules); fill or change it in Excel and make a new model from it, blank or added to
   an existing model.
 
-Not planned: connectors to particular products (they write the published formats when built), ETL and outbound feeds.
+- **Data discovery and ingestion** (Release 3 epic, on main; [discovery.md](discovery.md)): import sources that are an
+  OData feed EA Explorer reads, an endpoint other systems push to, or documents the AI engine reads; the sets, fields
+  and keys discovered and mapped to the model's types and attributes (suggested, a person confirms); on demand, daily or
+  weekly, each run proposing only what changed as a delivery to preview and accept; near names suggested as matches.
+
+Not planned: connectors to particular products (they write the published formats or a feed EA Explorer reads), ETL and
+outbound feeds.
 
 ## Operations
 Built ([operations.md](operations.md), [command-line-and-console.md](command-line-and-console.md)):

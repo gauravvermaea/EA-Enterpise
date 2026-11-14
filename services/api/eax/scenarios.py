@@ -343,9 +343,9 @@ def _entity(core, m: dict, ref: Any, what: str) -> dict:
                                  JOIN core.entity_types t ON t.id = e.entity_type_id
                                 WHERE e.model_id = :m AND e.guid = CAST(:g AS uuid) AND NOT e.is_deleted""", m=m["_id"], g=str(eid))
         if not row:
-            rows = _rows(core, """SELECT e.id, e.guid::text AS guid, e.name, t.code AS type_code FROM core.entities e
+            rows = _rows(core, f"""SELECT e.id, e.guid::text AS guid, e.name, t.code AS type_code FROM core.entities e
                                    JOIN core.entity_types t ON t.id = e.entity_type_id
-                                  WHERE e.model_id = :m AND NOT e.is_deleted AND (lower(e.name) = lower(:n) OR e.display_id = :n)
+                                  WHERE e.model_id = :m AND NOT e.is_deleted AND ({repo.name_match("e", "n")} OR e.display_id = :n)
                                   ORDER BY e.id""", m=m["_id"], n=str(ref or "").strip())
             if len(rows) > 1:
                 raise EditError(f"More than one entity is called {ref} in {m['name']}: give its display ID or id.", 409)

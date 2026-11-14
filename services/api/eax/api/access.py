@@ -66,6 +66,7 @@ class PersonOut(Schema):
     keycloak_roles = fields.List(fields.String())
     roles = fields.List(fields.String(), metadata={"description": "The global EA Explorer roles they give"})
     models = fields.List(fields.Dict(), metadata={"description": "Models where they have a role: id, name, role"})
+    projects = fields.List(fields.Dict(), metadata={"description": "Projects where they have a role: id, name, roles (R3.3)"})
     keycloak_url = fields.String(metadata={"description": "Where to change their roles in Keycloak"})
 
 
@@ -184,6 +185,37 @@ class KeycloakRoles(MethodView):
 
 
 # ---------------------------------------------------------------- people
+def project_roles(rows) -> dict[str, list[dict]]:
+    """username (lower case) -> [{id, name, roles, role}] from rows of (username, guid, name, role), roles highest first."""
+    from .. import projects as pj
+    out: dict[str, list[dict]] = {}
+    for r in rows:
+        mine = out.setdefault(str(r["username"]).lower(), [])
+        found = next((x for x in mine if x["id"] == str(r["guid"])), None)
+        if found is None:
+            found = {"id": str(r["guid"]), "name": r["name"], "roles": []}
+            mine.append(found)
+        if r["role"] not in found["roles"]:
+            found["roles"].append(r["role"])
+    for mine in out.values():
+        mine.sort(key=lambda x: str(x["name"]).lower())
+        for x in mine:
+            x["roles"].sort(key=lambda role: pj.ROLES.index(role) if role in pj.ROLES else len(pj.ROLES))
+            x["role"] = x["roles"][0]
+    return out
+
+
+def _project_rows() -> list:
+    """Every project membership in the projects database; [] when the projects cannot be read."""
+    from .. import projects as pj
+    try:
+        with pj.connections(write=False) as pc:
+            return list(pc.execute(text("""SELECT m.username, p.guid::text AS guid, p.name, m.role
+                                             FROM proj.members m JOIN proj.projects p ON p.id = m.project_id""")).mappings())
+    except Exception:  # noqa: BLE001 - the people still show with their models
+        return []
+
+
 @blp.route("/people")
 class People(MethodView):
     @blp.doc(security=SECURITY)
@@ -192,7 +224,7 @@ class People(MethodView):
     @require_auth()
     def get(self, query):
         """People in Keycloak (first 100 matching), their Keycloak roles, the global roles those give, and
-        their roles on models. Global roles are changed in Keycloak (keycloak_url). User Admins see
+        their roles on models and on projects (R3.3). Global roles are changed in Keycloak (keycloak_url). User Admins see
         everything; a Model Admin of any model can search people (to give them a role on their model) and
         sees only their names."""
         with get_engine().connect() as conn:
@@ -216,8 +248,10 @@ class People(MethodView):
         mapping = permissions.role_map()
         if not full:
             return [{"id": p["id"], "username": p["username"], "name": p["name"], "enabled": p["enabled"]} for p in people]
-        return [{**p, "roles": permissions.app_roles(p["keycloak_roles"], mapping),
-                 "models": assigned.get(p["username"], []), "keycloak_url": kc.console_url(p["id"])} for p in people]
+        on_projects = project_roles(_project_rows())
+        return [{**p, "roles": permissions.app_roles(p["keycloak_roles"], mapping), "models": assigned.get(p["username"], []),
+                 "projects": on_projects.get(str(p["username"]).lower(), []), "keycloak_url": kc.console_url(p["id"])}
+                for p in people]
 
 
 # ---------------------------------------------------------------- who is assigned to a model

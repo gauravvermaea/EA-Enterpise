@@ -13,6 +13,9 @@
 // prepared whenever a test starts (D584): nothing to build by hand; its build shows here while it runs.
 // Health shows the last run in one line (LastSelfTest).
 import { useEffect, useRef, useState } from "react";
+import ApiHarness from "./ApiHarness";
+import CoverageCharts from "./CoverageCharts";
+import TestWatch from "./TestWatch";
 import { journey, makeFrame, sweep } from "./selfTestDriver.js";
 import { apiBlobUrl, apiDownload, apiFetch, can } from "./auth";
 import { Modal } from "./ModelOps";
@@ -92,7 +95,7 @@ export default function SelfTest() {
         named <code>self_test_&lt;id&gt;_&lt;n&gt;</code> and tests only inside them, so nothing else changes and runs can be repeated.
         The same runs come from <code>eax test</code> and CI. Fixtures stay until you purge them (Test fixtures).</p>
       <div className="seg" role="tablist" aria-label="Self-test">
-        {[["run", "Run"], ["history", "History"], ["fixtures", "Test data"]].map(([k, l]) => (
+        {[["run", "Run"], ["history", "History"], ["fixtures", "Test data"], ["harness", "API harness"]].map(([k, l]) => (
           <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{l}</button>))}
       </div>
       {err && <p className="status bad">{err}</p>}
@@ -106,6 +109,7 @@ export default function SelfTest() {
       {tab === "history" && data && <History runs={data.runs} onOpen={setOpen} busy={!!live} onRepeat={repeated}
         keepDays={data.runner?.keep_days} onChange={load} />}
       {tab === "fixtures" && <FixturesTab runs={data?.runs || []} />}
+      {tab === "harness" && <ApiHarness />}
       {open && <RunDetail id={open} busy={!!live} onRepeat={repeated} onClose={() => { setOpen(null); load(); }} />}
     </div>
   );
@@ -265,6 +269,7 @@ function Progress({ p }) {
 function LiveRun({ runId, onChange, onOpen }) {
   const [d, setD] = useState(null);
   const [stopAsk, setStopAsk] = useState(false);
+  const [watching, setWatching] = useState(false);
   const [msg, setMsg] = useState("");
   const load = () => apiFetch(`/api/v1/admin/tests/${runId}`).then(setD).catch((e) => setMsg(e.message));
   useEffect(() => { load(); const t = setInterval(load, 2500); return () => clearInterval(t); }, [runId]);
@@ -289,10 +294,12 @@ function LiveRun({ runId, onChange, onOpen }) {
       <HealthPanel h={d.health} />
       <p className="self-test-step"><span className="spinner" aria-hidden="true" /> {r.stop_asked ? `Stopping (asked by ${r.stop_asked})...` : r.step || "Starting..."}</p>
       <div className="toolbar">
+        <button className="primary" onClick={() => setWatching(true)}>Watch</button>
         <button onClick={() => setStopAsk(true)} disabled={!!r.stop_asked}>Stop</button>
         <button className="linkish" onClick={() => onOpen(r.id)}>Results so far</button>
         {msg && <span className="small">{msg}</span>}
       </div>
+      {watching && <TestWatch runId={r.id} onClose={() => setWatching(false)} />}
       {d.browser && <BrowserDriver runId={r.id} browser={d.browser} />}
       {d.results.filter((x) => x.outcome === "failed").slice(0, 8).map((x) => (
         <p key={x.id} className="small bad-text">✗ {x.suite} · {x.name}: {x.detail.slice(0, 200)}</p>))}
@@ -543,6 +550,7 @@ function RunDetail({ id, onClose, busy, onRepeat }) {
   const [d, setD] = useState(null);
   const [err, setErr] = useState("");
   const [shot, setShot] = useState(null);
+  const [watching, setWatching] = useState(false);
   useEffect(() => {
     const q = new URLSearchParams({ ...(outcome ? { outcome } : {}), ...(suite ? { suite } : {}) });
     apiFetch(`/api/v1/admin/tests/${id}?${q}`).then(setD).catch((e) => setErr(e.message));
@@ -553,14 +561,17 @@ function RunDetail({ id, onClose, busy, onRepeat }) {
   const run = d?.run;
   return (
     <Modal wide title={`Self-test ${id}${run ? `: ${STATE[run.state] || run.state}` : ""}`} onClose={onClose}
-      actions={<>{run && <RepeatButton run={run} busy={busy} onStarted={onRepeat} />}
+      actions={<>{run && open_(run) && <button className="primary" onClick={() => setWatching(true)}>Watch</button>}
+        {run && <RepeatButton run={run} busy={busy} onStarted={onRepeat} />}
         <button onClick={() => rep("html")}>Download report (HTML)</button><button onClick={() => rep("xlsx")}>Excel</button>
         <button onClick={onClose}>Close</button></>}>
       {err && <p className="status bad">{err}</p>}
       {run && <p className="small">{what(run)} · {run.message} · version {run.version || "?"} · started by {run.started_by} ({run.trigger})
         {" "}{fmtDateTime(run.started_at || run.queued_at)}{run.purged_at ? ` · fixtures removed by ${run.purged_by}` : ""}</p>}
       {run?.followed_up_by && <p className="status ok small">Followed up: every check that failed here passes in run {run.followed_up_by}.</p>}
+      {watching && <TestWatch runId={id} onClose={() => setWatching(false)} />}
       {d?.health && <HealthPanel h={d.health} />}
+      <CoverageCharts c={d?.coverage} />
       <RepeatPanel rp={d?.repeat} />
       <div className="toolbar">
         <label>Show <select value={outcome} onChange={(e) => setOutcome(e.target.value)}>

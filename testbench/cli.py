@@ -97,6 +97,7 @@ def parser() -> argparse.ArgumentParser:
     u.add_argument("--answers", required=True)
     u.add_argument("--folder", default="", help="a new folder for the --from installation")
     u.add_argument("--url", default=os.environ.get("EAX_UPDATE_GIT_URL", ""))
+    u.add_argument("--no-rollback", action="store_true", help="leave it upgraded (by default eax rollback is run and checked, R3.11)")
 
     lo = sub.add_parser("load", help="the load test with k6")
     target_opts(lo)
@@ -268,7 +269,8 @@ def main(argv: list[str] | None = None) -> int:
         else:
             def login() -> Client:
                 return Client(target, sign_in(args, target))
-            ok = lifecycle.upgrade(run, args.from_ref, args.to, folder, Path(args.answers), target, login, url=args.url)
+            ok = lifecycle.upgrade(run, args.from_ref, args.to, folder, Path(args.answers), target, login, url=args.url,
+                                   rollback=not getattr(args, "no_rollback", False))
             client = login() if ok else client
         if not ok:
             return finish(run, {"notes": [f"the {args.command} failed: the suites were not run"]})

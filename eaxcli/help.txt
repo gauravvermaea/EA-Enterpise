@@ -57,14 +57,16 @@ $ {eax} cleanup --all
 
 ### clean-restart [laptop|server] [--wait-all]
 > Stops EA Explorer, DELETES everything (databases included) and starts fresh. Does not ask.
-For testing a new version: stop (down), then cleanup --all --yes, init and up. Rebuilds our images and starts with
-empty databases and the sample data, the industry packs, the documentation and (in the background) the test runner:
-nothing else to run before testing. The trusted certificate and persist/ are kept.
+For testing a new version: stop (down), then cleanup --all --yes, init and up. Fetches the current base images first
+(with their security fixes) and rebuilds our images on them, then starts with empty databases and the sample data, the
+industry packs, the documentation and (in the background) the test runner: nothing else to run before testing. The
+trusted certificate and persist/ are kept.
 $ {eax} clean-restart
 $ {eax} clean-restart --wait-all
 
 ### clean-run [laptop|server] [--wait-all]
 > DELETES everything (databases included), then starts fresh: cleanup --all, init, up. Does not ask.
+Like clean-restart, it fetches the current base images first and rebuilds our images on them.
 $ {eax} clean-run
 $ {eax} clean-run server
 
@@ -266,7 +268,7 @@ $ {eax} import --all
 > Checks that Docker is running and the config and compose files are valid. Starts nothing.
 $ {eax} check
 
-### test [smoke|full|backup|ui-review|failed [run] [--warnings]|delete <run|all> [--older-than DAYS]|clean]
+### test [smoke|full|backup|restore|ui-review|failed [run] [--warnings]|watch [run] [--log]|stop [run]|api <method> <path>|delete <run|all> [--older-than DAYS]|clean] [--yes]
 > Test this installation: smoke or full; only what failed last time; or delete the test data.
 The same two tests as System Admin > Tools > Self-test (owner, 12 Nov 2026, D592: "Smoke or Full. Not too many
 options"); a run started in either place shows in both. Each run first removes any test data earlier runs left
@@ -277,10 +279,17 @@ and IT Admins.
   smoke   (the default) a few minutes: every role signs in, every main area answers, every page opens and the key
           journeys run once.
   full    everything: every API endpoint as every role (allowed and refused), the database checks, security, then
-          every page and every journey in a headless browser.
+          every page and every journey in a headless browser, the backup checks, and last the restore test below
+          (asked first; --yes skips the question; without a terminal and without --yes it is left out).
   backup  only the backup checks (the last part of full): an infrastructure and an application backup, each restored into
           a scratch copy and counted, then removed; nothing live is touched (R2.45). Until they pass, the Backups page shows
           these commands instead of its buttons (R2.46)
+  restore  the full backup-and-restore test, on this installation (R3.8): the run's content fingerprinted, an
+          infrastructure backup (also the safety backup) and an application backup made, the content changed, then
+          restore all, one model over itself and each part of the infrastructure backup (db, app+data, files, full)
+          restored in turn and the content compared each time; signing in checked after each; the backups it made
+          removed; when a step fails the safety backup is put back whole. It stops the services while a restore runs
+          and takes as long as it takes. Asks first (--yes skips that). The command line only, never from the web.
   ui-review  screenshots of every main page as each test role at laptop, large and narrow widths, with notes (page
           wider than the window, missing titles, unnamed buttons and fields, long text); ui-review.html in the run's
           folder. It changes nothing: the notes are discussed before any fix (R2.12)
@@ -288,6 +297,17 @@ and IT Admins.
           in fresh test data; --warnings repeats its warnings too. Quicker while fixing; the report shows each check
           then and now, and when all pass the earlier run is marked as followed up. A full run is still what counts
           for a release. Also Self-test > History > Run the failed ones again (R2.36).
+  watch   follow a run as it happens, from a second terminal (R3.2): the step running now (what it checks), each
+          check as it is recorded with its outcome, each failure with its reason, and the counts at the end; --log
+          adds the run's log lines. The run going on, else the run named (watch 12), else the last one. Ctrl+C stops
+          watching, not the run. The same as Self-test > a run > Watch on the web.
+  stop    stop the run going on (or the run named: stop 12): it ends at its next step and removes its test data, as
+          the Stop button on the Self-test page.
+  api     one call through the API test harness (R3.16): eax test api GET /api/v1/models/{model} --as architect, or
+          a write with --body '{"name": "x"}'. It runs in a harness session's own test data (the newest of the last
+          20 hours, or a new one): {model}, {project} and {entity} are filled from it; reads go anywhere, writes only
+          into test data. Prints the status, the time and the answer, and the same call as a curl line. The same as
+          Self-test > API harness on the web, where calls can be saved as cases the self-test then runs too.
   delete  deletes test runs for good: their test data, results and screenshots, reports, logs and videos (R2.43):
           delete 12, delete all, delete --older-than 30; asks you to type DELETE (--yes skips that). Old runs also go
           by themselves after the days set on the Self-test page (default 30)
@@ -300,6 +320,10 @@ The report: work/tests/<run>/report.html (and the Self-test page's History). The
 $ {eax} test
 $ {eax} test full
 $ {eax} test backup
+$ {eax} test restore
+$ {eax} test api GET /api/v1/models --as architect
+$ {eax} test watch
+$ {eax} test stop 12
 $ {eax} test ui-review
 $ {eax} test failed
 $ {eax} test failed 12 --warnings
@@ -427,12 +451,25 @@ Also: {eax} <command> --help (or -h, or /?).
 $ {eax} help stop
 $ {eax} help --all
 
+### screen
+> A full-screen eax in the style of Turbo Pascal: menus, a dialog per command, a live dashboard.
+Also what {eax} with no command opens on a terminal (piped or in a script it prints this overview, as before). The
+menu bar has the groups below: F10 or Alt and a group's letter opens one, the arrows move, Enter picks, Escape closes;
+the mouse works too. A command's dialog is made from this help: choices as lists (or type one), flags as tick boxes,
+values as fields, and the whole command is shown as you fill it; Run or Cancel. The middle of the screen shows each
+container in its state's colour and the free disk space, refreshed every 5 seconds. A command that only prints (status,
+backups, services, ...) shows its output in a window; one that asks questions or follows logs switches to the plain
+terminal and comes back with Enter (Alt+F5 shows that screen too). F1 Help, F5 Refresh, Alt+X Exit. Textual is
+fetched once into work/tools/pylib (nothing installed elsewhere); offline the first time, in an old console, or with
+EAX_SCREEN=off in the environment, the numbered menu opens instead (R3.1).
+$ {eax}
+$ {eax} screen
+
 ### menu
 > A numbered menu of every command by group: pick one, answer its questions, see it, then run it.
-Also what {eax} with no command opens on a terminal (piped or in a script it prints this overview, as before). Each
-option of the command is asked for in turn; Enter leaves an optional one out. The whole command is shown before it
-runs, and it runs only when you answer y. Typing a command that does not exist shows the nearest ones (did you mean).
-$ {eax}
+What {eax} screen falls back to when the full screen cannot open. Each option of the command is asked for in turn;
+Enter leaves an optional one out. The whole command is shown before it runs, and it runs only when you answer y. Typing
+a command that does not exist shows the nearest ones (did you mean).
 $ {eax} menu
 
 ### document [--console|--web]

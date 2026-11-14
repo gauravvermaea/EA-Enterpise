@@ -3511,5 +3511,67 @@
   "button:New folder": "Make a folder here (asks its name).",
   "button:Refresh": "Read it again now.",
   "button:Add a site": "Add an EA Explorer site to everyone's list (Super Admins): its name, its web address and a note.",
-  "field:Include archived": "Also the archived models and projects you may see, fetched from the archive database (read only)."
+  "field:Include archived": "Also the archived models and projects you may see, fetched from the archive database (read only).",
+  "popup:Properties: *": {
+    "title": "Properties",
+    "what": "A file's or folder's properties: where it is, its kind, its size (a folder: of everything in it, with how many files and folders), owner, group, permissions, and when it was changed and last read.",
+    "how": [
+      "Open it from File > Properties, a right click, or the preview pane for a folder.",
+      "Writes says why this place is read only, when it is."
+    ]
+  },
+  "button:Open in the explorer": "Open this mount in the file explorer of a container that uses it, at the folder where it is mounted: read and write as in that container (read only if it is mounted read only there).",
+  "button:Properties (size of everything in it)": "Work out the size of everything in this folder, with how many files and folders it holds.",
+  "field:Attribute for *": "The attribute of the entity type this field's values go into; (left out) leaves the field out.",
+  "field:Relationship for *": "This field holds another set's key: the relationship type its values make, from this record to that one.",
+  "field:Cloud inventory": "The source's name: the system it reads or that sends to it.",
+  "field:EAX_SOURCE_INVENTORY": "The name of a setting in the config file whose value is sent as the Authorization header. Never type the secret itself here.",
+  "field:Sign-in setting": "The name of a setting in the config file whose value is sent as the Authorization header (for example Bearer and a token). The secret stays in the config file.",
+  "field:Runs": "On demand only, or daily or weekly as well: each run proposes only what changed since the last delivery.",
+  "field:Its key": "The field that identifies each record at the source: how EA Explorer knows a record again on the next run.",
+  "field:Its name": "The field that holds each record's name: deliveries are matched to elements by type and name.",
+  "field:Its description": "The field that holds each record's description, if any.",
+  "field:Engine": "Off, a cloud engine with your organisation's own key, or an engine run on your own servers.",
+  "field:Model name": "The engine's model to ask, as the engine names it.",
+  "field:Key setting": "The name of the setting in the config file that holds the engine's key (never the key itself).",
+  "field:EAX_AI_KEY": "The name of the setting in the config file that holds the engine's key (never the key itself).",
+  "field:https://.../v1": "The engine's address: the base of its chat-completions interface.",
+  "button:Add a discovery source": "Add an OData feed EA Explorer reads, an endpoint a system sends to, or documents the AI engine reads, for this model.",
+  "button:Add it": "Add the discovery source; then Look at it to check the mapping, and Run it.",
+  "button:It is new": "The found item is not that element: it is delivered as a new element, and not asked about again.",
+  "button:Same element": "The found item is this element: the next deliveries use the element's own name, so it is updated, not added.",
+  "button:Save the AI engine": "Save the AI engine discovery uses (Super Admins).",
+  "button:Save the mapping": "Keep this mapping for the source: each set's entity type, its key, name and description, and where each field goes.",
+  "popup:Watching self-test *": {
+    "title": "Watching a self-test",
+    "what": "Follows a run as it happens (R3.2): the step running now and what it checks, the counts and how many are left, each check as it is recorded, every failure with its reason, and the run's log.",
+    "how": [
+      "Leave it open: it asks for what is new every two seconds.",
+      "Untick follow to read back through the log without it jumping to the end.",
+      "Stop the run ends it at its next step; closing the window only stops watching. The same in a terminal: eax test watch."
+    ]
+  },
+  "button:Watch": "Open a window that follows this run as it happens: the step now, each check, each failure and the log.",
+  "button:Stop the run": "Stop this self-test: it ends at its next step and keeps what it found so far.",
+  "tab:API harness": {
+    "title": "API harness",
+    "what": "Call any endpoint of EA Explorer's API, as yourself or as one of a session's test roles, and see the status, time, headers and answer, with the same call as a curl line (R3.16). Reads go anywhere; writes only into test data.",
+    "how": [
+      "Start a session: it makes test accounts for the roles ticked and its own models and project.",
+      "Find an endpoint, fill its form, choose who to call it as, then Send.",
+      "Save a call as a case with the status expected; run the cases here, and the self-test runs them too."
+    ]
+  },
+  "field:Body (JSON)": "The request's body, as JSON; an example is filled in from the endpoint's description.",
+  "field:Call as": "Yourself (your own rights), or one of the session's test accounts.",
+  "field:Case name": "The name the call is saved under; a case of the same name is replaced.",
+  "field:Expected status": "The HTTP status the case expects (empty: the status of the last answer).",
+  "field:expecting status": "The HTTP status the case expects (empty: the status of the last answer).",
+  "field:Find an endpoint": "Words to find an endpoint by: its area, path, method or summary.",
+  "field:Save as a case": "The name the call is saved under.",
+  "button:End the session (remove its test data)": "Removes the session's test models, project, accounts and tokens.",
+  "button:Run": "Run this case in the session's test data.",
+  "button:Save case": "Save this call, with the answer expected, as a case.",
+  "button:Run them all": "Run every saved case in the session's test data.",
+  "button:Start a session": "Make test accounts for the roles ticked, and the session's own test models and project."
 }

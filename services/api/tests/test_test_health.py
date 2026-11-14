@@ -52,7 +52,7 @@ def test_report_page_and_command_line_show_it():
     store = (REPO / "services/api/eax/testing/store.py").read_text(encoding="utf-8")
     assert '"health": health.summary(every)' in store
     run = (REPO / "services/api/eax/testing/run.py").read_text(encoding="utf-8")
-    assert "print(summary_text(store.run_detail(conn, r.id)), flush=True)" in run and 'f"Functional health: {hs' in run
+    assert "print(summary_text(store.run_detail(conn, r.id), summary_line(files)), flush=True)" in run and 'f"Functional health: {hs' in run
     page = (REPO / "services/web/src/TestRuns.jsx").read_text(encoding="utf-8")
     assert "export function HealthPanel" in page and page.count("<HealthPanel h=") == 2
 

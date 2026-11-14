@@ -25,7 +25,9 @@ def test_every_container_network_port_and_mount_is_drawn():
     assert {"source": "eax-pgdata", "target": "/var/lib/postgresql/data", "kind": "volume"} in db["mounts"]
     nodes, edges = E.physical(items)
     ids = {n["id"] for n in nodes}
-    assert {f"c_{s}" for s in compose["services"]} <= ids and {"net_frontend", "net_backend", "published"} <= ids
+    once = {i["service"] for i in items if i["one_shot"]}            # run once at start: listed apart (R3.4)
+    assert once == {"setup", "reports-init"} and "finished" in ids
+    assert {f"c_{s}" for s in compose["services"] if s not in once} <= ids and {"net_frontend", "net_backend", "published"} <= ids
     assert "s_eax-pgdata" in ids and any(e["source"] == "c_db" and e["target"] == "s_eax-pgdata" for e in edges)
     assert next(n for n in nodes if n["id"] == "c_testrunner")["dashed"]               # on demand (profile test)
     ln, le = E.logical()
@@ -42,7 +44,7 @@ def test_the_running_installation():
                                                                        "Destination": "/var/lib/postgresql/data"}]}])
     assert items == [{"service": "db", "image": "postgres:17-alpine", "networks": ["backend"], "ports": [],
                       "mounts": [{"source": "eaexplorer_eax-pgdata", "target": "/var/lib/postgresql/data", "kind": "volume"}],
-                      "profiles": [], "state": "running"}]
+                      "profiles": [], "state": "running", "one_shot": False}]
 
 
 def test_the_repository_documents_are_current():

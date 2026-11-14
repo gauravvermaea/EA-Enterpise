@@ -17,6 +17,9 @@ the `eax` commands (backups and restores included) and the phase table.
 | [Testing](testing.md) | Every kind of test, what each covers, how to run it, who runs it and where the results go; the self-test in detail |
 | [The test bench](testbench.md) | `eax testbench`: the self-test's tests from outside, in any browser; install, upgrade and load tests; the test data; reports and CI |
 | [Operations](operations.md) | Health, services on and off, backups and restores (console and command line), the maintenance page, upgrades, logs and diagnostics |
+| [Release 3: the security review](security-r3.md) | R3.12: what was checked in everything Release 3 adds, what was found and fixed, what is left open and why |
+| [Data discovery and ingestion](discovery.md) | The Release 3 epic: OData feeds read, pushes taken and documents read by AI become deliveries to review; only what changed; matches to confirm |
+| [Smaller images: the proposal](footprint-proposal.md) | R3.6: per image, how much smaller it could get and what would be lost; for the owner to decide before anything is built |
 | [Licences](licences.md) | The open-source components EA Explorer uses and their licences |
 | [CI](../ci/README.md) | The checks and tests run on every change |
 | [Sample files](../deploy/samples/README.md) | The sample files that come with the deployment |

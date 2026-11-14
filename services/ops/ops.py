@@ -2007,11 +2007,15 @@ class Handler(BaseHTTPRequestHandler):
             if q.get("path"):
                 return self._hostwatch_call(lambda: hostwatch.probe(m.group(1), "list", {"path": q["path"]}))
             return self._hostwatch_call(lambda: hostwatch.probe(m.group(1), "summary"))
-        m = re.match(r"^/containers/([a-z0-9_-]+)/files(/content|/download)?$", u.path)
+        m = re.match(r"^/containers/([a-z0-9_-]+)/files(/content|/download|/properties)?$", u.path)
         if m:
             svc, what, path = m.group(1), m.group(2), q.get("path", "/")
             if what == "/content":
                 return self._hostwatch_call(lambda: hostwatch.files_content(svc, path))
+            if what == "/properties":                          # R3.5
+                return self._hostwatch_call(lambda: hostwatch.files_properties(svc, path))
+            if what == "/download" and q.get("many"):          # several at once, one zip (R3.5): paths one per line
+                return self._hostwatch_call(lambda: hostwatch.files_download_many(svc, [x for x in q["many"].split("\n") if x]))
             if what == "/download":
                 return self._hostwatch_call(lambda: hostwatch.files_download(svc, path))
             return self._hostwatch_call(lambda: hostwatch.files_list(svc, path))

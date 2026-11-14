@@ -3,3 +3,5 @@ pytest>=8,<9
 # the unit tests' code coverage in CI (pytest --cov, D642)
 pytest-cov>=5,<7
 ruff>=0.6,<1
+# eax screen's headless tests (R3.1; the screen itself fetches the same version into work/tools/pylib)
+textual==0.86.3

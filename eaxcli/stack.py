@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -127,6 +128,12 @@ def up(names: list[str], wait_everything: bool, no_throw: bool = False) -> int:
     scale = ["--scale", f"api={api_servers()}"]
     if names:
         return compose(["up", "-d", "--build", *(scale if "api" in names else []), *names], no_throw=no_throw)
+    if os.environ.get("EAX_BUILD_PULL") == "1":   # a clean rebuild: fresh base images, with their fixes (R3.12, D673)
+        say("Fetching the current base images and building on them (a clean rebuild)...", "cyan")
+        compose(["pull", "--ignore-buildable", "--quiet"], no_throw=True)
+        code = compose(["build", "--pull"], no_throw=no_throw)
+        if code != 0:
+            return code
     t = tiers()
     if t["off"]:
         say(f"Switched off (D191): {', '.join(t['off'])}: created, not started.")

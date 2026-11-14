@@ -714,9 +714,16 @@ def _find_entity(conn, m: dict, entity: Any, _alias: bool = True) -> dict:
         return e
 
 
+def name_match(alias: str, param: str) -> str:
+    """An exact, case-ignoring name match through the hashed name's index (R3.7, D665): the key (md5 of lower(name), as
+    a uuid) narrows to the rows, then the name itself is compared, so two names with the same hash never match."""
+    return (f"(md5(lower({alias}.name))::uuid = md5(lower(CAST(:{param} AS text)))::uuid "
+            f"AND lower({alias}.name) = lower(CAST(:{param} AS text)))")
+
+
 def _find_entity_now(conn, m: dict, entity: Any) -> dict:
     guid = _as_guid(entity)
-    where = "e.guid = :e" if guid else "(lower(e.name) = lower(:e) OR lower(e.display_id) = lower(:e))"
+    where = "e.guid = :e" if guid else f"({name_match('e', 'e')} OR lower(e.display_id) = lower(:e))"
     found = _rows(conn, f"""
         SELECT e.id AS _id, e.entity_type_id AS _type, e.guid AS id, e.display_id, e.name, e.description,
                e.status_code AS status, e.tags, e.content_area, et.content_area AS _type_area, et.repository_area AS _type_repo, et.name AS entity_type, et.code AS entity_type_code,

@@ -12,7 +12,7 @@ from typing import Any
 
 from sqlalchemy import text
 
-from . import store
+from . import coverage_view, store
 
 STATE = {"queued": "Waiting", "running": "Running", "passed": "Passed", "failed": "Failed", "error": "Could not finish",
          "stopped": "Stopped"}
@@ -110,7 +110,8 @@ def repeat_html(rp: dict[str, Any] | None) -> str:
             f"<table><thead><tr><th>Suite</th><th>Check</th><th>Then</th><th>Now</th></tr></thead><tbody>{rows}</tbody></table>")
 
 
-def to_html(conn, run_id: int) -> str:
+def to_html(conn, run_id: int, files: dict | None = None, points: list[dict] | None = None) -> str:
+    """The run's report; files ({coverage, negative}) and points (the coverage trend) draw its coverage section (R3.10)."""
     d = store.run_detail(conn, run_id)
     if not d:
         raise KeyError(run_id)
@@ -158,6 +159,7 @@ img {{ max-width: 100%; border: 1px solid var(--line); }} .k {{ display:inline-b
 .health {{ display:flex; gap:20px; align-items:center; border:2px solid; border-radius:10px; padding:12px 16px; margin:12px 0; }}
 .health .hl {{ font-size:20px; font-weight:700; margin:0 0 4px; }} .rings {{ display:flex; flex-wrap:wrap; gap:16px; }}
 .ring {{ margin:0; text-align:center; }} .ring figcaption {{ font-size:12px; color:var(--q); }}
+.covcharts {{ display:flex; flex-wrap:wrap; gap:18px; }} .covcharts figure {{ margin:0; }} .covcharts figcaption {{ font-size:12px; color:var(--q); }}
 .legend span {{ display:inline-flex; align-items:center; gap:4px; margin-right:12px; font-size:12px; }} .legend i {{ width:10px; height:10px; display:inline-block; border-radius:2px; }}
 </style></head><body>
 <h1>EA Explorer self-test {run_id}: {e(STATE.get(run['state'], run['state']))}</h1>
@@ -167,6 +169,7 @@ img {{ max-width: 100%; border: 1px solid var(--line); }} .k {{ display:inline-b
 <p>{e(run['message'] or '')}</p>
 {health_block}
 {repeat_html(d.get("repeat"))}
+{coverage_view.html_section(files or {}, points)}
 <p class="q">The same run from the command line: <code>{e(store.command_line(run))}</code></p>
 <h2>Coverage</h2>
 <table class="cov"><thead><tr><th>What</th><th>Passed</th><th>Out of</th></tr></thead><tbody>
@@ -178,7 +181,52 @@ img {{ max-width: 100%; border: 1px solid var(--line); }} .k {{ display:inline-b
 </tbody></table></body></html>"""
 
 
-def to_xlsx(conn, run_id: int) -> bytes:
+def _coverage_sheet(wb, files: dict, points: list[dict], Font) -> None:
+    """The code coverage (R3.10): the total and goal, each area, the negative tests by kind and the trend, with a chart."""
+    c, neg = files.get("coverage") or {}, files.get("negative") or {}
+    if c.get("percent") is None and not neg:
+        return
+    from openpyxl.chart import BarChart, LineChart, Reference
+    ws = wb.create_sheet("Code coverage")
+    ws.append(["Code coverage of the API", c.get("percent"), "goal", c.get("goal") or coverage_view.GOAL])
+    ws.append([coverage_view.summary_line(files)])
+    ws.append([])
+    ws.append(["Area", "Percent", "Lines run", "Lines"])
+    head = ws.max_row
+    for cell in ws[head]:
+        cell.font = Font(bold=True)
+    areas = sorted(c.get("areas") or [], key=lambda a: a.get("percent", 0.0))
+    for a in areas:
+        ws.append([a.get("area"), a.get("percent"), a.get("run"), a.get("lines")])
+    if areas:
+        ch = BarChart()
+        ch.type, ch.title, ch.y_axis.title = "bar", "By area, the least covered first", "%"
+        ch.add_data(Reference(ws, min_col=2, min_row=head, max_row=head + len(areas)), titles_from_data=True)
+        ch.set_categories(Reference(ws, min_col=1, min_row=head + 1, max_row=head + len(areas)))
+        ws.add_chart(ch, "G2")
+    ws.append([])
+    ws.append(["Negative tests", "passed", "warnings", "failed"])
+    for cell in ws[ws.max_row]:
+        cell.font = Font(bold=True)
+    for kind, v in neg.items():
+        ws.append([kind, v.get("passed", 0), v.get("warning", 0), v.get("failed", 0)])
+    if points:
+        ws.append([])
+        ws.append(["Run", "Percent", "Goal"])
+        top = ws.max_row
+        for cell in ws[top]:
+            cell.font = Font(bold=True)
+        for p in points:
+            ws.append([p["run"], p["percent"], p["goal"]])
+        lc = LineChart()
+        lc.title, lc.y_axis.title = "Over the last runs of this kind", "%"
+        lc.add_data(Reference(ws, min_col=2, max_col=3, min_row=top, max_row=top + len(points)), titles_from_data=True)
+        lc.set_categories(Reference(ws, min_col=1, min_row=top + 1, max_row=top + len(points)))
+        ws.add_chart(lc, "G20")
+    ws.column_dimensions["A"].width = 30
+
+
+def to_xlsx(conn, run_id: int, files: dict | None = None, points: list[dict] | None = None) -> bytes:
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill
     d = store.run_detail(conn, run_id)
@@ -205,6 +253,7 @@ def to_xlsx(conn, run_id: int) -> bytes:
     for w, p, n in coverage(results):
         ws.append([w, p, n])
     ws.column_dimensions["A"].width, ws.column_dimensions["B"].width = 18, 90
+    _coverage_sheet(wb, files or {}, points or [], Font)
     rs = wb.create_sheet("Results")
     from . import health as H
     head = ["Suite", "Check", "Outcome", "Details", "Request", "Response", "Browser", "Video", "Took (ms)", "Importance"]

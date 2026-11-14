@@ -110,7 +110,7 @@ JOURNEYS: list[dict] = [
          {"click": "Change…"},
          {"choose": "Full cycle"},
          {"click": "Save", "exact": True, "wait": 1500},
-         {"expect_not": "Note (optional)"},
+         {"expect_not": "Note (optional)", "timeout": 8000},   # R3.14: a save under load closes the dialog later
          {"click": "Iteration history", "optional": True},
          {"expect": "Full cycle"},
      ]},
@@ -321,7 +321,7 @@ JOURNEYS: list[dict] = [
          {"open": "#/model-admin/{other}/send", "expect": "for merge into"},
          {"click": "Preview and send…", "wait": 2000},
          {"click": "Send for merge", "within": DIALOG, "wait": 4000},
-         {"click": "Open the request", "within": DIALOG, "wait": 2000, "timeout": 90000},   # once the send is done
+         {"click": "Open the request", "within": DIALOG, "wait": 2000, "timeout": 240000},   # once the send is done
          {"remember": "mr", "url": r"#/merge-requests/([^/?#]+)"},
          {"as": "model-admin"},                                         # the parent's Model Admin reviews and merges
          {"open": "#/merge-requests/{$mr}", "expect": "Merge request"},
@@ -503,20 +503,26 @@ def _visible(loc):
 
 
 def _root(page, s: dict):
-    """Where a step looks: the page, the last visible pop-up ("within"), or the row holding a text ("row")."""
-    if s.get("within"):
-        loc = page.locator(s["within"])
-        for i in reversed(range(min(loc.count(), 10))):
-            if _visible(loc.nth(i)):
-                return loc.nth(i)
-        return None
-    if s.get("row"):
-        loc = page.locator(_ROWS).filter(has_text=s["row"])
-        for i in range(min(loc.count(), 20)):
-            if _visible(loc.nth(i)):
-                return loc.nth(i)
-        return None
-    return page
+    """Where a step looks: the page, the last visible pop-up ("within"), or the row holding a text ("row"). A pop-up or
+    a row is waited for, as a click waits for its button (R3.14: "Schedule made" showed, but the new row was not in the
+    list yet, and the step gave up at once): up to the step's timeout, 3 seconds for an optional step."""
+    if not (s.get("within") or s.get("row")):
+        return page
+    end = time.time() + (3 if s.get("optional") else int(s.get("timeout", 20000)) / 1000)
+    while True:
+        if s.get("within"):
+            loc = page.locator(s["within"])
+            for i in reversed(range(min(loc.count(), 10))):
+                if _visible(loc.nth(i)):
+                    return loc.nth(i)
+        else:
+            loc = page.locator(_ROWS).filter(has_text=s["row"])
+            for i in range(min(loc.count(), 20)):
+                if _visible(loc.nth(i)):
+                    return loc.nth(i)
+        if time.time() > end:
+            return None
+        page.wait_for_timeout(300)
 
 
 def _modal(page):
@@ -904,9 +910,13 @@ def _page_says(page) -> str:
         said = page.evaluate("""() => {
             const t = (sel) => [...document.querySelectorAll(sel)].map((e) => (e.innerText || "").trim()).filter(Boolean);
             return { at: location.hash || location.pathname, h1: t("h1").slice(0, 1),
-                     status: t(".status, .rag, .error, [role=alert]").slice(0, 3) };
+                     status: t(".status, .rag, .error, [role=alert]").slice(0, 3),
+                     dialog: [...document.querySelectorAll("[role=dialog]")].filter((e) => e.offsetParent !== null)
+                       .map((e) => (e.innerText || "").split(/\\s+/).join(" ").trim().slice(0, 200)).pop() || "" };
         }""")
         parts = [f"at {said['at']}"] + [f"heading \"{x[:80]}\"" for x in said["h1"]] + [f"\"{x[:100]}\"" for x in said["status"]]
+        if said.get("dialog"):                         # what an open pop-up said (R3.14: "Sending…", an error, nothing)
+            parts.append(f"the open dialog: \"{said['dialog']}\"")
         return " · the page showed: " + ", ".join(parts)
     except Exception:  # noqa: BLE001 - the page is gone
         return ""

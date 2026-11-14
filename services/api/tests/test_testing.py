@@ -35,9 +35,9 @@ def test_migration_adds_rows_only():
 # ---------------------------------------------------------------- suites
 def test_suites_are_checked():
     from eax.testing import store
-    assert store.clean_suites(None) == ["api", "ui", "db", "security", "backup"]
+    assert store.clean_suites(None) == ["api", "ui", "db", "security", "backup", "restore"]   # restore: R3.8
     assert store.clean_suites("db, api") == ["api", "db"]
-    assert store.clean_suites(["all"]) == ["api", "ui", "db", "security", "backup"]
+    assert store.clean_suites(["all"]) == ["api", "ui", "db", "security", "backup", "restore"]
     with pytest.raises(ValueError):
         store.clean_suites(["api", "load"])
     assert store.clean_options("detailed", "user_architect", "models") == ("detailed", "architect", "models")
@@ -46,7 +46,7 @@ def test_suites_are_checked():
             store.clean_options(*bad)
     assert store.estimate_minutes("smoke", [])[1] <= 5 and store.short("c08f9f97-2965-4a0b-8c1d-000000000000") == "c08f9f972965"
     t = _ops_module("testruns")
-    assert t.suites_of("security") == ["security"] and t.suites_of([]) == ["api", "ui", "db", "security", "backup"]
+    assert t.suites_of("security") == ["security"] and t.suites_of([]) == ["api", "ui", "db", "security", "backup", "restore"]
     with pytest.raises(ValueError):
         t.suites_of(["nope"])
 
@@ -294,7 +294,7 @@ def test_build_command_in_every_form():
     assert '$RestArgs -contains "--build"' in ps
     helptext = (REPO / "eaxcli/help.txt").read_text()
     # --build still works for scripts but is no longer shown (R2.0.1, D592): the help shows smoke, full and clean
-    assert "### test [smoke|full|backup|ui-review|failed [run] [--warnings]|delete <run|all> [--older-than DAYS]|clean]" in helptext and "$ {eax} test full" in helptext and "$ {eax} test clean" in helptext
+    assert "### test [smoke|full|backup|restore|ui-review|failed [run] [--warnings]|watch [run] [--log]|stop [run]|api <method> <path>|delete <run|all> [--older-than DAYS]|clean] [--yes]" in helptext and "$ {eax} test full" in helptext and "$ {eax} test clean" in helptext
     sys.path.insert(0, str(REPO))
     from eaxcli import commands as C
     assert C.check_argv(["test", "--build"]) == ["test", "--build"]

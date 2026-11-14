@@ -228,3 +228,24 @@ a search, every one to three seconds. When k6 is missing the bench says how to g
 | many pages "not found" | the target is older than the bench: test with the bench of the target's version |
 
 See also [testing.md](testing.md) for every kind of testing, and the self-test in detail.
+
+## Upgrading from 1.0.0 to 2.0.0, on a laptop and on a server (R3.11)
+
+The upgrade test (`python -m testbench upgrade`, and CI every night from the previous tag to the newest commit) now
+also checks that the updater took its full backup first (a pinned backup of kind before-upgrade) and then runs
+`eax rollback` and checks that the version is back and no data was lost (`--no-rollback` leaves it upgraded).
+
+By hand, as the owner decided (R3.11: the laptop and a Linux server, from System Admin › Updates and from `eax update`),
+on an installation you can afford to change (not the one in use):
+
+| Step | Laptop (PowerShell) | Server (bash) |
+|---|---|---|
+| 1. A 1.0.0 installation | `git clone <repository> eax-1.0` then `cd eax-1.0`, `git checkout v1.0.0`, `.\eax init laptop`, `.\eax up` | the same with `./eax.sh init server`, `./eax.sh up` |
+| 2. Some content | make a model and a project, add a document (or let the sample data load) | the same |
+| 3. Note the state | `.\eax status`, and System Admin › Health | `./eax.sh status` |
+| 4. Update | System Admin › Updates › 2.0.0 (the laptop), or `.\eax update --to 2.0.0 --yes` | `./eax.sh update --to 2.0.0 --yes` |
+| 5. During it | the maintenance page shows; a pinned before-upgrade backup appears on the Backups page | the same |
+| 6. Check | `.\eax test full` (answer yes to the restore test, or add `--yes`) | `./eax.sh test full --yes` |
+| 7. Roll back | `.\eax rollback --yes`: 1.0.0 again, with its content | `./eax.sh rollback --yes` |
+| 8. Forward again | `.\eax update --to 2.0.0 --yes` | `./eax.sh update --to 2.0.0 --yes` |
+

@@ -4,6 +4,7 @@
 //                                               correct rows, add them to your uncommitted changes, undo
 //   #/metamodel/<model>/import/loads            every load of the model you may see
 //   #/metamodel/<model>/import/deliveries       other systems' deliveries in the published formats (phase 34, Deliveries.jsx)
+//   #/metamodel/<model>/import/discovery        OData feeds read, pushes taken, documents read by AI (R3 epic, Discovery.jsx)
 //   (collection sets, feeds and scheduled exports: a phase of their own, D198)
 import { useEffect, useMemo, useState } from "react";
 import { apiDownload, apiFetch, apiUpload, canOn } from "./auth";
@@ -12,6 +13,7 @@ import { Modal } from "./ModelOps";
 import { fmtDateTime } from "./fmt";
 import { trackTask, useTask } from "./tasks";
 import DeliveriesTab, { DeliveryActions } from "./Deliveries";
+import DiscoveryTab from "./Discovery";
 
 const go = (path) => { window.location.hash = path; };
 const post = (path, body, method = "POST") => apiFetch(path, { method, body: JSON.stringify(body || {}) });
@@ -22,7 +24,7 @@ const FORMATS = [["xlsx", "Excel (.xlsx)", "Drop-downs and provisional IDs for n
 
 export default function SheetsTab({ model, m, sub, itemId }) {
   const may = canOn(model, "model.content");
-  const nav = [["", "Download and upload"], ["loads", "Loads"], ["deliveries", "Deliveries"]];
+  const nav = [["", "Download and upload"], ["loads", "Loads"], ["deliveries", "Deliveries"], ["discovery", "Discovery"]];
   const cur = sub === "load" ? "loads" : sub || "";
   return (
     <div className="sheets">
@@ -32,6 +34,7 @@ export default function SheetsTab({ model, m, sub, itemId }) {
       {sub === "load" && itemId ? <LoadPage key={itemId} model={model} m={m} id={itemId} />
         : sub === "loads" ? <><LoadList model={model} /><SavedMappings model={model} /></>
           : sub === "deliveries" ? <DeliveriesTab model={model} m={m} />
+          : sub === "discovery" ? <DiscoveryTab model={model} />
           : <><Download model={model} m={m} /><Upload model={model} m={m} may={may} /></>}
     </div>
   );

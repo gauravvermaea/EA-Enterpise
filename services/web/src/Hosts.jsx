@@ -4,6 +4,7 @@
 // who uses it where, warnings; one looked into read only (size, free space, largest, newest and oldest files, folders,
 // search). Every look at a mount is in the audit trail.
 import { useEffect, useState } from "react";
+import FileExplorer from "./FileExplorer";
 import { apiFetch, can } from "./auth";
 import { fmtDateTime } from "./fmt";
 import { useApi } from "./ModelViews";
@@ -78,6 +79,7 @@ export function HostsPage() {
 export function MountsPage() {
   const { data, error } = useApi("/api/v1/admin/mounts");
   const [pick, setPick] = useState(null);
+  const [browse, setBrowse] = useState(null);
   if (!can("system.operate")) return <p className="status bad">Mounts are for IT Admins and Super Admins.</p>;
   if (!data) return error ? <p className="status bad">{error}</p> : <p>Loading...</p>;
   return (
@@ -93,12 +95,27 @@ export function MountsPage() {
             <td className="small">{m.used_by.map((u) => <div key={u.service + u.path}>{u.service}: <code>{u.path}</code> {u.read_only ? "(read only)" : ""}</div>)}</td>
             <td>{m.bytes != null ? bytes(m.bytes) : ""}</td>
             <td className="small bad-text">{m.warnings.join("; ")}</td>
-            <td><button onClick={() => setPick(m)}>Look into</button></td>
+            <td className="nowrap"><button onClick={() => setPick(m)}>Look into</button>{" "}
+              {explorerFor(m) && <button onClick={() => { setPick(null); setBrowse(m); }}>Open in the explorer</button>}</td>
           </tr>))}</tbody>
       </table>
       {pick && <MountDetail m={pick} onClose={() => setPick(null)} />}
+      {browse && (
+        <div className="card mount-detail" aria-label={`Explorer: ${browse.source}`}>
+          <h3>{browse.source} <span className="quiet small">through {explorerFor(browse).service}, at {explorerFor(browse).path}
+            {explorerFor(browse).read_only ? " (read only there)" : ""}</span> <button className="linkish" onClick={() => setBrowse(null)}>Close</button></h3>
+          <FileExplorer service={explorerFor(browse).service} start={explorerFor(browse).path} />
+        </div>)}
     </section>
   );
+}
+
+// R3.5 (owner, 13 Nov 2026: Mounts uses the same explorer, read and write): a mount is opened in the file explorer of a
+// container that uses it, at the folder where it is mounted; a container that has it writable first, never the
+// operations helper (its own files are read only), so what can be written is written as in that container.
+export function explorerFor(m) {
+  const users = (m.used_by || []).filter((u) => !String(u.service).startsWith("ops"));
+  return users.find((u) => !u.read_only) || users[0] || null;
 }
 
 function MountDetail({ m, onClose }) {

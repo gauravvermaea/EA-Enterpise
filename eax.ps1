@@ -25,8 +25,9 @@ if ($script:NoColor) {
         Microsoft.PowerShell.Utility\Write-Host -Object (@($Object) -join [string]$Separator) -NoNewline:$NoNewline
     }
 }
-# no command in a console: the numbered menu (R2.29); redirected or in a script: the help, as before
-$Command = if ($AllArgs.Count -gt 0) { $AllArgs[0] } elseif ([Console]::IsInputRedirected) { "help" } else { "menu" }
+# no command in a console: the full screen (R3.1; it falls back to the numbered menu, R2.29); redirected or in a
+# script: the help, as before
+$Command = if ($AllArgs.Count -gt 0) { $AllArgs[0] } elseif ([Console]::IsInputRedirected) { "help" } else { "screen" }
 $AskedFor = $Command          # as typed, for <command> --help
 if ($Command -eq "run") { $Command = "up" }   # run: the everyday start, the same as up
 if ($Command -eq "stop") { $Command = "down" }   # stop: the same as down (the data is kept)
@@ -334,6 +335,12 @@ function Invoke-Up([string[]]$Names, [switch]$NoThrow) {
     if ($Names.Count -gt 0) {
         if ($Names -contains "api") { return (Invoke-Compose (@("up", "-d", "--build") + $scale + $Names) -NoThrow:$NoThrow) }
         return (Invoke-Compose (@("up", "-d", "--build") + $Names) -NoThrow:$NoThrow)
+    }
+    if ($env:EAX_BUILD_PULL -eq "1") {   # a clean rebuild: fresh base images, with their fixes (R3.12, D673)
+        Write-Log "Fetching the current base images and building on them (a clean rebuild)..." "Cyan"
+        Invoke-Compose @("pull", "--ignore-buildable", "--quiet") -NoThrow | Out-Null
+        $code = Invoke-Compose @("build", "--pull") -NoThrow:$NoThrow
+        if ($code -ne 0) { return $code }
     }
     $t = Get-Tiers
     if ($t.Off.Count -gt 0) { Write-Log "Switched off (D191): $($t.Off -join ', '): created, not started." }
@@ -847,6 +854,7 @@ if ($Command -in @("clean-run", "clean-debug", "clean-restart")) {
         if (Test-Path $EnvFile) { $steps = @(, @("down")) + $steps }
         else { Write-Host "No $EnvFile yet: nothing running to bring down; going straight to clean-run." -ForegroundColor Yellow }
     }
+    $env:EAX_BUILD_PULL = "1"   # the last step builds on fresh base images (R3.12, D673)
     foreach ($step in $steps) {
         Write-Host ""
         Write-Host "=== .\eax $($step -join ' ')" -ForegroundColor Cyan
@@ -920,6 +928,11 @@ function Invoke-Console([string[]]$Options) {
 if ($Command -eq "console") {
     try { Invoke-Console $RestArgs; exit 0 }
     catch { Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red; exit 1 }
+}
+if ($Command -eq "screen") {   # the full screen in the style of Turbo Pascal (R3.1): Python with Textual, run back here
+    $env:EAX_FORM = "ps1"; $env:EAX_FORM_EXE = (Get-Process -Id $PID).Path
+    & (Join-Path $PSScriptRoot "eaxpy.ps1") screen
+    exit $LASTEXITCODE
 }
 if ($Command -eq "menu") {   # the numbered menu (R2.29): one Python program for every form, run back here
     $env:EAX_FORM = "ps1"; $env:EAX_FORM_EXE = (Get-Process -Id $PID).Path
@@ -1047,6 +1060,10 @@ try {
                 Invoke-Interactive @("api", "python", "-m", "eax.testing.cli", "clean", "all") @($RestArgs | Select-Object -Skip 1)
             } elseif ($RestArgs.Count -gt 0 -and $RestArgs[0] -eq "delete") {   # delete test results for good (R2.43)
                 Invoke-Interactive @("api", "python", "-m", "eax.testing.cli", "delete") @($RestArgs | Select-Object -Skip 1)
+            } elseif ($RestArgs.Count -gt 0 -and $RestArgs[0] -eq "api") {   # the API test harness: one call (R3.16)
+                Invoke-Interactive @("api", "python", "-m", "eax.testing.cli", "api") @($RestArgs | Select-Object -Skip 1)
+            } elseif ($RestArgs.Count -gt 0 -and ($RestArgs[0] -eq "watch" -or $RestArgs[0] -eq "stop")) {   # follow a run live, or stop it (R3.2)
+                Invoke-Interactive @("api", "python", "-m", "eax.testing.cli", $RestArgs[0]) @($RestArgs | Select-Object -Skip 1)
             } elseif ($RestArgs -contains "--build") {      # only build the runner image (D570; the Self-test page's button)
                 Write-Host "Building the test runner (about 1.5 GB, 5 to 15 minutes the first time): base image, Python packages, Chromium, scanners."
                 Invoke-Compose @("--profile", "test", "build", "testrunner") | Out-Null

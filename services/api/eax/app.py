@@ -109,6 +109,8 @@ def create_app(testing: bool = False) -> Flask:
     # surveys and EA capability maturity (phases 38.1 and 40, F4 of batch 1)
     from .api.surveys import blp as surveys_blp
     api.register_blueprint(surveys_blp)
+    from .api.harness import blp as harness_blp  # the API test harness (R3.16)
+    api.register_blueprint(harness_blp)
     # the AI activity log and the MCP connector (phases 26/27, D482, D483)
     from .api.mcp_activity import blp as mcp_activity_blp
     api.register_blueprint(mcp_activity_blp)
@@ -118,6 +120,9 @@ def create_app(testing: bool = False) -> Flask:
     # published import formats, deliveries and a model from a metamodel workbook (phase 34, D419, D462 to D468)
     from .api.deliveries import blp as deliveries_blp
     api.register_blueprint(deliveries_blp)
+    # data discovery and ingestion: OData feeds read, pushes taken, documents read by AI (the Release 3 epic, D670)
+    from .api.discovery import blp as discovery_blp
+    api.register_blueprint(discovery_blp)
     # updating to a new release (phase 36, D417)
     from .api.updates import blp as updates_blp
     api.register_blueprint(updates_blp)

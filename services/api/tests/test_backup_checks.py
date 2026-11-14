@@ -77,11 +77,11 @@ def test_a_failed_backup_is_a_failed_check(monkeypatch):
 
 def test_backup_is_the_last_suite_of_a_full_test_and_eax_test_backup():
     from eax.testing import SUITES
-    assert SUITES[-1] == "backup"
+    assert SUITES[-2:] == ("backup", "restore")          # then the restore test (R3.8), the command line only
     run = (REPO / "services/api/eax/testing/run.py").read_text()
     assert run.index('if "backup" in suites:') > run.index('if "security" in suites:')
     ops = (REPO / "services/ops/testruns.py").read_text()
-    assert 'SUITES = ("api", "ui", "db", "security", "backup")' in ops
+    assert 'SUITES = ("api", "ui", "db", "security", "backup", "restore")' in ops
     sys.path.insert(0, str(REPO))
     from eaxcli import commands as C
     assert C.check_argv(["test", "backup"]) == ["test", "backup"]

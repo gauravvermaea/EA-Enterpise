@@ -9,3 +9,6 @@ ignore = ["E501", "E731"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# the eax package is found from services/api however pytest is started (CI runs plain `pytest`, which does not put the
+# current folder on the path; every CI run failed with "No module named 'eax'" until 13 Nov 2026, R3.15)
+pythonpath = ["."]

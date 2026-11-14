@@ -29,11 +29,13 @@ import re
 import shutil
 import socket
 import subprocess
+import sys
 import threading
 import time
 
 H: dict = {}                                   # ops.py's globals: docker, containers, jobs, _in_background...
-SUITES = ("api", "ui", "db", "security", "backup")   # backup: the last of a full test (R2.45)
+SUITES = ("api", "ui", "db", "security", "backup", "restore")   # backup (R2.45), then restore (R3.8, the command line only)
+ALIASES = {"backup-restore": "restore"}
 ZAP_IMAGE = os.environ.get("EAX_IMAGE_ZAP", "ghcr.io/zaproxy/zaproxy:2.15.0")
 TRIVY_IMAGE = os.environ.get("EAX_IMAGE_TRIVY", "aquasec/trivy:0.56.2")
 WORK = "/eax-work"
@@ -48,7 +50,7 @@ def bind(ns: dict) -> None:
 def suites_of(args: list[str] | str | None) -> list[str]:
     if isinstance(args, str):
         args = args.replace(",", " ").split()
-    asked = [a.lower() for a in (args or []) if a and not a.startswith("--")]
+    asked = [ALIASES.get(a.lower(), a.lower()) for a in (args or []) if a and not a.startswith("--")]
     if not asked or "all" in asked:
         return list(SUITES)
     bad = [a for a in asked if a not in SUITES]
@@ -85,6 +87,15 @@ def host_work() -> str:
         if m.get("Destination") == WORK:
             return m["Source"]
     raise RuntimeError("The operations helper has no /eax-work mount.")
+
+
+def host_mount(dest: str) -> str:
+    """The host's source of one of this helper's own mounts ("" when it has none)."""
+    try:
+        me = json.loads(H["docker"]("inspect", "--format", "{{json .Mounts}}", socket.gethostname()))
+    except Exception:  # noqa: BLE001 - not in a container, or Docker away
+        return ""
+    return next((m.get("Source") or "" for m in me if m.get("Destination") == dest), "")
 
 
 def test_data_folder(work: str) -> str:
@@ -347,6 +358,9 @@ def _runner_args(info: dict, name: str, folder: str, cmd: list[str]) -> list[str
     # the test data the browser journeys upload (testbench/data, D580), beside work/ in the installation folder, as
     # docker-compose.yml's testrunner service mounts it (R2.0.1: a run started here had none, so the journeys stopped)
     args += ["-v", f"{test_data_folder(work)}:/testdata:ro"]
+    persist = host_mount("/eax-persist")               # persist/, read only: the database checks read its settings
+    if persist:                                        # (R3.13: "persist/ is not mounted in the runner")
+        args += ["-v", f"{persist}:/persist:ro"]
     nets = _networks(info)
     backend = next((n for n in nets if n.endswith("backend")), nets[0] if nets else "")
     if backend:
@@ -574,6 +588,23 @@ def _opt(args: list[str], flag: str) -> str:
     return args[args.index(flag) + 1] if flag in args and args.index(flag) + 1 < len(args) else ""
 
 
+def restore_agreed(args: list[str], suites: list[str], ask=input, tty=None) -> bool:
+    """The restore test changes and restores this installation (R3.8): asked first; --yes (or --ci) skips the question;
+    without a terminal and without --yes it is left out, saying so."""
+    if "--yes" in args or "--ci" in args:
+        return True
+    tty = sys.stdin.isatty() if tty is None else tty
+    if not tty:
+        print("The restore test is left out: it restores this installation; add --yes to run it without a terminal.", flush=True)
+        return False
+    print("The restore test backs this installation up, changes it and restores it part by part (the services stop while "
+          "a restore runs); a safety backup is put back if anything fails. It takes as long as it takes.", flush=True)
+    yes = ask("Run it? Type yes: ").strip().lower() in ("y", "yes")
+    if not yes:
+        print("The restore test is left out." + (" Nothing else was asked for." if suites == ["restore"] else ""), flush=True)
+    return yes
+
+
 def cli(args: list[str]) -> int:
     """ops.py test [smoke|full] [--version V] [--ci]   (R2.0.1, D592: two choices only; full = every suite, every page and
     journey). The older forms (--smoke, --detailed, --suite S, --role R, --area A, --journey J, --pages-only) still work
@@ -606,6 +637,10 @@ def cli(args: list[str]) -> int:
         print(exc)
         return 2
     role, area = _opt(args, "--role"), _opt(args, "--area")
+    if "restore" in suites and not restore_agreed(args, suites):
+        suites = [x for x in suites if x != "restore"]
+        if not suites:
+            return 0
     journeys = [args[i + 1] for i, a in enumerate(args) if a == "--journey" and i + 1 < len(args)]
     pages_only = "--pages-only" in args
     if journeys or pages_only:                        # a journey or the page sweep: the browser suite, detailed (D577)

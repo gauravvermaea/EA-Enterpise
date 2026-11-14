@@ -17,7 +17,7 @@ from typing import Any
 
 from sqlalchemy import text
 
-from . import SUITES
+from . import SUITES, WEB_SUITES
 
 
 def engine():
@@ -87,7 +87,7 @@ def estimate_minutes(level: str, suites: list[str], watch: bool = False) -> tupl
     if level == "smoke":
         return (2, 5)
     lo, hi = 1, 2                                                   # its fixtures: models, a project, accounts
-    add = {"api": (3, 10), "ui": (2, 5), "db": (0, 1), "security": (5, 15), "backup": (3, 15)}
+    add = {"api": (3, 10), "ui": (2, 5), "db": (0, 1), "security": (5, 15), "backup": (3, 15), "restore": (20, 90)}
     for s in suites:
         lo, hi = lo + add[s][0], hi + add[s][1]
     if watch:
@@ -167,7 +167,7 @@ def command_line(run: dict[str, Any], eax: str = ".\\eax") -> str:
         bits += [f'--journey "{j}"' if " " in j else f"--journey {j}" for j in journeys]
     elif run.get("level") == "detailed":
         bits.append("--detailed")
-        if suites and set(suites) != set(SUITES):
+        if suites and set(suites) not in (set(SUITES), set(WEB_SUITES)):   # full: every suite, or every one the web runs
             bits += [f"--suite {x}" for x in suites]
     else:
         bits.append("--smoke")
@@ -379,7 +379,7 @@ def screenshot(conn, result_id: int) -> bytes | None:
     return bytes(row[0]) if row and row[0] is not None else None
 
 
-_re_choice = __import__("re").compile(r"^  (smoke|full|backup|ui-review|failed|delete|clean)\s{2,}(.*)$")
+_re_choice = __import__("re").compile(r"^  (smoke|full|backup|restore|ui-review|failed|watch|stop|api|delete|clean)\s{2,}(.*)$")
 
 
 def test_entry(help_text: str) -> dict:

@@ -135,7 +135,9 @@ def test_the_manifest_says_what_is_in_it_and_what_is_not(tmp_path):
 
 
 def test_an_old_backup_still_restores_and_says_what_it_lacks(tmp_path, monkeypatch):
-    from tests.test_backups_infra import _ops as fake_ops  # Docker replaced
+    from test_backups_infra import (
+        _ops as fake_ops,  # Docker replaced (a sibling test module: tests/ is on the path)
+    )
     ops, _work, _backups, calls, _state = fake_ops(tmp_path, monkeypatch)
     m = ops._do_backup("old", "system", "scheduled", "0.12.0")          # documents only, as before D410
     r = ops._do_restore(m["name"], "full", "user_super_admin", "0.12.0")

@@ -60,7 +60,7 @@ services:
 
   # ---------------------------------------------------------------- entry point (out of the box)
   proxy:
-    image: ${EAX_IMAGE_NGINX:-nginx:1.27-alpine}
+    image: ${EAX_IMAGE_NGINX:-nginx:1.30-alpine}
     <<: [*restart, *logging]
     depends_on:
       setup:
@@ -78,6 +78,8 @@ services:
       EAX_MTLS_PORT: ${EAX_MTLS_PORT:-9443}
       EAX_HTTP_API_MCP: ${EAX_HTTP_API_MCP:-false}
       EAX_HSTS: ${EAX_HSTS:-}
+      # the screens' Content-Security-Policy (R3.12, D672): enforced; Content-Security-Policy-Report-Only only reports
+      EAX_CSP_HEADER: ${EAX_CSP_HEADER:-Content-Security-Policy}
       # scale-out (phase 36.3, D521): where the API, the library and the views service answer; another host (or a DNS
       # name listing several hosts, spread by nginx) when they run elsewhere
       EAX_API_UPSTREAM: ${EAX_API_UPSTREAM:-api:8000}

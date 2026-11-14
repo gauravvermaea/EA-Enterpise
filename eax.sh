@@ -40,8 +40,9 @@ colour_status() {
     printf '%s\n' "${c}${line}${c:+$C_OFF}"
   done
 }
-# no command on a terminal: the numbered menu (R2.29); piped or in a script: the help, as before
-if [ "$#" -eq 0 ]; then if [ -t 0 ]; then set -- menu; else set -- help; fi; fi
+# no command on a terminal: the full screen (R3.1; it falls back to the numbered menu, R2.29); piped or in a script:
+# the help, as before
+if [ "$#" -eq 0 ]; then if [ -t 0 ]; then set -- screen; else set -- help; fi; fi
 CMD="${1:-help}"
 # <command> --help (or -h, /?): the help of that command
 if [ "$CMD" != help ] && [ "$CMD" != -h ] && [ "$CMD" != --help ]; then
@@ -419,6 +420,11 @@ up_services() {
     case " $* " in *" api "*) compose up -d --build --scale "api=$(api_servers)" "$@" ;; *) compose up -d --build "$@" ;; esac
     return
   fi
+  if [ "${EAX_BUILD_PULL:-}" = 1 ]; then   # a clean rebuild: fresh base images, with their fixes (R3.12, D673)
+    echo "Fetching the current base images and building on them (a clean rebuild)..."
+    compose pull --ignore-buildable --quiet || true
+    compose build --pull || return 1
+  fi
   tiers
   [ -n "${OFF// }" ] && echo "Switched off (D191):$OFF: created, not started."
   echo "Starting the core first (D255):$FIRST"
@@ -752,6 +758,7 @@ case "$CMD" in
 esac
 case "$CMD" in
   menu) EAX_FORM=sh exec "$BASH" ./eaxpy.sh menu ;;   # the numbered menu (R2.29), one Python program for every form
+  screen) EAX_FORM=sh exec "$BASH" ./eaxpy.sh screen ;;   # the full screen (R3.1), Python with Textual
   deploy|secrets|packs|schedule|persist)   # packs (D546); schedule: scheduled commands (D559); persist (R2.26)
     # phase 36 (D498, D504): one Python program for every form (D500): eaxpy.sh fetches uv and Python into work/tools
     exec "$BASH" ./eaxpy.sh "$@" ;;
@@ -774,6 +781,7 @@ case "$CMD" in
       if [ -f "$ENV_FILE" ]; then steps=("down" "${steps[@]}")
       else echo "No $ENV_FILE yet: nothing running to bring down; going straight to clean-run."; fi
     fi
+    export EAX_BUILD_PULL=1   # the last step builds on fresh base images (R3.12, D673)
     for step in "${steps[@]}"; do
       echo; echo "=== ./eax.sh $step"
       # shellcheck disable=SC2086
@@ -886,6 +894,12 @@ case "$CMD" in
         fi
         if [ "${1:-}" = "delete" ]; then shift                                # delete test results for good (R2.43)
           compose exec api python -m eax.testing.cli delete "$@"; exit $?
+        fi
+        if [ "${1:-}" = "api" ]; then shift                                   # the API test harness: one call (R3.16)
+          compose exec api python -m eax.testing.cli api "$@"; exit $?
+        fi
+        if [ "${1:-}" = "watch" ] || [ "${1:-}" = "stop" ]; then WHAT="$1"; shift   # follow a run live, or stop it (R3.2)
+          compose exec api python -m eax.testing.cli "$WHAT" "$@"; exit $?
         fi
         READ=""
         for a in "$@"; do case "$a" in --status|--last|--report|--fixtures|--clean) READ="${a#--}" ;; esac; done

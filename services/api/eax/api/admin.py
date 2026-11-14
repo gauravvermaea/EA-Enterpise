@@ -690,19 +690,35 @@ class ContainerFileContent(MethodView):
         return _ops("GET", f"/containers/{service}/files/content?path={quote(path)}", timeout=120)
 
 
+@blp.route("/admin/containers/<service>/files/properties")
+class ContainerFileProperties(MethodView):
+    @blp.doc(security=SECURITY, parameters=[{"in": "query", "name": "path", "schema": {"type": "string"}}])
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def get(self, service):
+        """Properties of a file or folder in a container (R3.5): kind, size (a folder: everything in it, and how many files
+        and folders), owner, group, permissions, when changed and last read"""
+        from urllib.parse import quote
+        return _ops("GET", f"/containers/{service}/files/properties?path={quote(request.args.get('path', ''))}", timeout=150)
+
+
 @blp.route("/admin/containers/<service>/files/download")
 class ContainerFileDownload(MethodView):
     @blp.doc(security=SECURITY, parameters=[{"in": "query", "name": "path", "schema": {"type": "string"}}])
     @require_auth("system.operate")
     def get(self, service):
-        """A file from a container, or a folder as a zip"""
+        """A file from a container, or a folder as a zip; several (?path= more than once) as one zip (R3.5)"""
         import base64
         from urllib.parse import quote
 
         from flask import Response
-        path = request.args.get("path", "")
-        out = _ops("GET", f"/containers/{service}/files/download?path={quote(path)}", timeout=300)
-        _looked("container.files.download", service, {"path": path, "name": out.get("name")})
+        paths = [p for p in request.args.getlist("path") if p][:200]
+        path = paths[0] if paths else ""
+        if len(paths) > 1:
+            out = _ops("GET", f"/containers/{service}/files/download?many={quote(chr(10).join(paths))}", timeout=600)
+        else:
+            out = _ops("GET", f"/containers/{service}/files/download?path={quote(path)}", timeout=300)
+        _looked("container.files.download", service, {"path": path if len(paths) < 2 else paths, "name": out.get("name")})
         name = str(out.get("name") or "file").replace('"', "")
         return Response(base64.b64decode(out.get("content") or ""), mimetype="application/octet-stream",
                         headers={"Content-Disposition": f'attachment; filename="{name}"'})

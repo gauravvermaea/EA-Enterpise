@@ -151,12 +151,13 @@ def test_the_files_tab_is_an_explorer_view():
     """R2.58 and R2.60 (owner, 13 Nov 2026): "Fix it with the Windows explorer view": a folder tree on the left, the
     folder's contents on the right, double click opens, a File menu, Back / Forward / Up and the path."""
     fx = (WEB / "FileExplorer.jsx").read_text()
-    assert 'role="tree"' in fx and "<TreeNode" in fx and "onDoubleClick={() => openItem(f)}" in fx
-    assert 'role="menubar"' in fx and ">File</button>" in fx
+    assert 'role="tree"' in fx and "<TreeNode" in fx and "onDoubleClick: () => openItem(f)" in fx
+    assert 'role="menubar"' in fx and 'menuButton("file", "File", fileItems)' in fx
     for label in ("New folder", "Upload...", '"Open"', "Rename", "Move to...", "Copy to...", "Delete", "Refresh"):
         assert label in fx, label
     assert 'aria-label="Back"' in fx and 'aria-label="Forward"' in fx and 'aria-label="Up"' in fx
-    assert "export function crumbs(p)" in fx and 'e.key === "Enter"' in fx
+    ops = (WEB / "fileOps.js").read_text()                    # the logic moved there with R3.5
+    assert "export function crumbs(p)" in ops and 'Enter: "open"' in ops and "export { crumbs, joinPath, parentOf }" in fx
     cc = (WEB / "ContainerConsole.jsx").read_text()
     assert "<FileExplorer service={service}" in cc and "function Files(" not in cc
     assert ".fx-panes" in (WEB / "styles.css").read_text()

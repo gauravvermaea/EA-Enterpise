@@ -9,8 +9,11 @@ System admin > Scaling. Super Admins and IT Admins (system.operate) only; nobody
   PUT  /api/v1/admin/tests/settings                     {auto_build, keep_days}: build it automatically after each start or
                                                         update; keep test results N days (R2.43)
   POST /api/v1/admin/tests/delete                       {runs | "all", older_than_days}: delete test results for good (R2.43)
+  GET  /api/v1/admin/tests/coverage?scope=             the code coverage over the last runs (R3.10)
   GET  /api/v1/admin/tests/<run>                        a run, its results (?outcome=, ?suite=), files and fixtures; while it
                                                         waits for a watching browser also its ticket and journeys
+  GET  /api/v1/admin/tests/<run>/live?after=&from=     watching it (R3.2): its step, counts, the checks since result
+                                                        `after`, every failure so far, run.log from byte `from`
   POST /api/v1/admin/tests/<run>/repeat                 {warnings}: run its failed checks again (R2.36)
   POST /api/v1/admin/tests/<run>/stop                   stop it
   POST /api/v1/admin/tests/<run>/browser                {results: [...], done}: journeys watched in this browser
@@ -38,7 +41,7 @@ from sqlalchemy import text
 from .. import audit
 from ..auth import require_auth
 from ..db import get_engine
-from ..testing import SUITES, report, store
+from ..testing import SUITES, WEB_SUITES, report, store
 from .admin import _ops, _ops_raw
 from .models import Free, FreeIn
 
@@ -55,6 +58,33 @@ def _ops_message(exc: Exception) -> str:
     except Exception:  # noqa: BLE001
         pass
     return str(msg)
+
+
+def _run_file(folder: str, name: str) -> bytes | None:
+    """A file of a run, from the file store or work/tests (read only); None when it is not there."""
+    from .. import filestore
+    if filestore.in_database():
+        try:
+            return filestore.get("tests", f"{folder}/{name}")
+        except ValueError:
+            return None
+    base = WORK_TESTS.resolve()
+    path = (WORK_TESTS / folder / name).resolve()
+    if base not in path.parents or not path.is_file():
+        return None
+    try:
+        return path.read_bytes()
+    except OSError:
+        return None
+
+
+def _coverage(conn, folder: str) -> tuple[dict, list[dict]]:
+    """A run's coverage files and the trend of runs of its kind (R3.10)."""
+    from ..testing import coverage_view
+    files = coverage_view.run_files(folder, _run_file)
+    scope = (files.get("coverage") or {}).get("scope")
+    points = coverage_view.trend(store.runs(conn, 200), _run_file, scope=scope) if scope is not None else []
+    return files, points
 
 
 def _tidy() -> list[int]:
@@ -83,14 +113,14 @@ class Tests(MethodView):
         except Exception as exc:  # noqa: BLE001 - the history still shows when the helper is down
             runner = {"image_present": None, "message": f"The operations helper is not reachable ({exc})."}
         from ..testing import ui_flows
-        return {"runs": runs, "runner": runner, "suites": list(store.SUITES),
+        return {"runs": runs, "runner": runner, "suites": list(WEB_SUITES),   # restore: the command line only (R3.8)
                 "journeys": [{"name": j["name"], "key": ui_flows.key(j), "smoke": j["smoke"], "roles": j["roles"],
                               "headless_only": bool(j.get("headless_only"))} for j in ui_flows.JOURNEYS],
                 "commands": _test_commands(),
                 "roles": store.TEST_ROLES, "areas": [{"code": c, "label": lbl} for c, lbl, _ in AREAS],
                 "estimates": {"smoke": store.estimate_minutes("smoke", []),
                               **{s: store.estimate_minutes("detailed", [s]) for s in SUITES},
-                              "detailed_all": store.estimate_minutes("detailed", list(SUITES))}}
+                              "detailed_all": store.estimate_minutes("detailed", list(WEB_SUITES))}}
 
     @blp.doc(security=SECURITY)
     @blp.arguments(FreeIn)
@@ -102,7 +132,13 @@ class Tests(MethodView):
         data = data or {}
         try:
             level, role, area = store.clean_options(data.get("level"), data.get("role"), data.get("area"))
-            suites = store.clean_suites(data.get("suites"))
+            asked = data.get("suites")
+            suites = store.clean_suites(asked)
+            if "restore" in suites:                     # back up, change and restore: the command line only (R3.8)
+                if asked and "restore" in (asked if isinstance(asked, list) else str(asked).replace(",", " ").split()):
+                    raise ValueError("The restore test runs from the command line only (eax test restore): restores stop "
+                                     "the services the web runs on.")
+                suites = [x for x in suites if x != "restore"]
             journeys = store.clean_journeys(data.get("journeys"))
             pages_only = bool(data.get("pages_only"))
             if journeys or pages_only:                  # a journey or the page sweep: the browser suite (D577)
@@ -250,6 +286,21 @@ class TestDelete(MethodView):
         return {**out, "message": cleanup.message(out)}
 
 
+@blp.route("/tests/coverage")
+class TestCoverage(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def get(self):
+        """The code coverage over the last runs that kept it (?scope= one kind of run), oldest first, with the trend drawn"""
+        from ..testing import coverage_view
+        scope = request.args.get("scope")
+        with store.engine().connect() as conn:
+            points = coverage_view.trend(store.runs(conn, 200), _run_file, scope=scope)
+        return {"trend": points, "chart": coverage_view.trend_svg(points), "goal": coverage_view.GOAL,
+                "scopes": sorted({p["scope"] for p in points})}
+
+
 @blp.route("/tests/<int:run_id>")
 class TestRun(MethodView):
     @blp.doc(security=SECURITY)
@@ -264,6 +315,10 @@ class TestRun(MethodView):
             if not d:
                 abort(404, message=f"No self-test run {run_id}.")
             row = store.run_row(conn, run_id) or {}
+            files, points = _coverage(conn, d["run"]["folder"])
+        from ..testing import coverage_view
+        d["coverage"] = {**files, "trend": points, "charts": coverage_view.charts(files, points),
+                         "summary": coverage_view.summary_line(files), "negative_totals": coverage_view.negative_totals(files["negative"])}
         with get_engine().connect() as conn:          # the fixtures' sizes are in the repository
             d["fixtures"] = store.fixtures(conn, run_id, include_purged=True)
         b = row.get("browser") or {}
@@ -326,6 +381,27 @@ class TestRepeat(MethodView):
                 "message": f"Running the {o['checks']} failed check(s) of self-test {run_id} again."}
 
 
+@blp.route("/tests/<int:run_id>/live")
+class TestLive(MethodView):
+    @blp.doc(security=SECURITY)
+    @blp.response(200, Free)
+    @require_auth("system.operate")
+    def get(self, run_id):
+        """Watching a run as it happens (R3.2): the step now running, the counts and how many are left, each check recorded
+        since ?after=<result id>, every failure so far with its reason, and run.log from byte ?from= on"""
+        from ..testing import live
+        try:
+            after, start = int(request.args.get("after") or 0), int(request.args.get("from") or 0)
+        except ValueError:
+            abort(400, message="after and from are numbers.")
+        _tidy()
+        with store.engine().connect() as conn:
+            s = live.snapshot(conn, run_id, after, start, live.file_log_reader(WORK_TESTS))
+        if s is None:
+            abort(404, message=f"No self-test run {run_id}.")
+        return s
+
+
 @blp.route("/tests/<int:run_id>/stop")
 class TestStop(MethodView):
     @blp.doc(security=SECURITY)
@@ -385,12 +461,14 @@ class TestReport(MethodView):
         """The run's report: ?format=html (default; one page, screenshots inside) or xlsx (Excel)"""
         fmt = request.args.get("format", "html")
         with store.engine().connect() as conn:
+            folder = conn.execute(text("SELECT folder FROM tests.test_runs WHERE id = :id"), {"id": run_id}).scalar()
+            files, points = _coverage(conn, folder or "")
             try:
                 if fmt == "xlsx":
-                    return send_file(io.BytesIO(report.to_xlsx(conn, run_id)), as_attachment=True,
+                    return send_file(io.BytesIO(report.to_xlsx(conn, run_id, files, points)), as_attachment=True,
                                      download_name=f"self-test-{run_id}.xlsx",
                                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                body = report.to_html(conn, run_id)
+                body = report.to_html(conn, run_id, files, points)
             except KeyError:
                 abort(404, message=f"No self-test run {run_id}.")
         return Response(body, mimetype="text/html", headers={"Content-Disposition": f'attachment; filename="self-test-{run_id}.html"'})

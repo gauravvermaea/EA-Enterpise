@@ -198,6 +198,16 @@ def announce_restores(timestamp: int) -> None:
         log.info("restores announced: %s", n)
 
 
+@app.periodic(cron="*/10 * * * *")
+@app.task(name="eax.discovery_scheduler", queue="default", queueing_lock="discovery_scheduler")
+def discovery_scheduler(timestamp: int) -> None:
+    """Every 10 minutes: the discovery sources due on their schedules (daily, weekly) run, each as the person who set it
+    up; what changed becomes a delivery, previewed here, waiting for review (the Release 3 epic, D670)."""
+    from . import discovery as dc
+    for r in dc.run_due(get_engine()):
+        log.info("discovery %s: %s", r["source"], r.get("message") or r.get("error"))
+
+
 @app.periodic(cron="* * * * *")
 @app.task(name="eax.backup_scheduler", queue="default", queueing_lock="backup_scheduler")
 def backup_scheduler(timestamp: int) -> None:

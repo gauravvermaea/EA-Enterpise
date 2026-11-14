@@ -382,8 +382,47 @@ def files_list(service: str, path: str = "/") -> dict:
                      "modified": int(mtime) if mtime.isdigit() else 0, "owner": owner, "permissions": perms,
                      "dir": "directory" in kind or (link and full in folders), "link": link, "mount": mpoints.get(full)})
     rows.sort(key=lambda r: (not r["dir"], r["name"].lower()))
+    inside = mount_of(p, mpoints)
+    why = write_check(service, p + "/x") or (f"{inside[1]['source']} is mounted read only at {inside[0]}"
+                                             if inside and inside[1]["read_only"] else "")
     return {"service": service, "path": p, "entries": rows, "mount": mpoints.get(p),
-            "read_only_reason": write_check(service, p + "/x")}
+            "inside_mount": {"at": inside[0], **inside[1]} if inside else None, "read_only_reason": why}
+
+
+def mount_of(path: str, mpoints: dict) -> tuple[str, dict] | None:
+    """The mount a path is in (the deepest whose folder holds it), or None (R3.5: the Mounts page opens one here)."""
+    best = None
+    for at, m in mpoints.items():
+        if at and (path == at or path.startswith(at.rstrip("/") + "/")) and (best is None or len(at) > len(best[0])):
+            best = (at, m)
+    return best
+
+
+def files_properties(service: str, path: str) -> dict:
+    """Properties of a file or folder (R3.5): kind, size (a folder: of everything in it, and how many files and folders),
+    owner, group, permissions, when changed and last read."""
+    _need_console()
+    p = _clean(path)
+    if hidden(p):
+        raise PermissionError("Not shown here.")
+    cid, q = _cid(service), shlex.quote(p)
+    out = _exec(cid, "sh", "-c", f"stat -L -c '%F|%s|%U|%G|%A|%Y|%X' {q} 2>/dev/null; echo {DIRS_MARK}; "
+                                 f"if [ -d {q} ]; then du -sk {q} 2>/dev/null | cut -f1; find {q} -type f 2>/dev/null | wc -l; "
+                                 f"find {q} -mindepth 1 -type d 2>/dev/null | wc -l; fi; true", timeout=120)
+    head, _, tail = out.partition(DIRS_MARK)
+    bits = head.strip().split("|")
+    if len(bits) != 7:
+        raise FileNotFoundError(f"No {p}.")
+    kind, size, owner, group, perms, changed, read = bits
+    nums = [x.strip() for x in tail.split() if x.strip().isdigit()]
+    folder = kind == "directory"
+    return {"path": p, "name": os.path.basename(p) or "/", "kind": "folder" if folder else kind, "folder": folder,
+            "bytes": int(nums[0]) * 1024 if folder and nums else int(size) if size.isdigit() else 0,
+            "files": int(nums[1]) if folder and len(nums) > 1 else None,
+            "folders": int(nums[2]) if folder and len(nums) > 2 else None,
+            "owner": owner, "group": group, "permissions": perms,
+            "modified": int(changed) if changed.isdigit() else 0, "accessed": int(read) if read.isdigit() else 0,
+            "read_only_reason": write_check(service, p)}
 
 
 def _cp_out(cid: str, path: str) -> bytes:
@@ -443,6 +482,24 @@ def files_download(service: str, path: str) -> dict:
             if m.isfile() and not hidden("/" + m.name):
                 z.writestr(m.name, t.extractfile(m).read())
     return {"name": (os.path.basename(p) or "root") + ".zip", "content": base64.b64encode(buf.getvalue()).decode()}
+
+
+def files_download_many(service: str, paths: list[str]) -> dict:
+    """Several files and folders as one zip (R3.5), each under its own name; secrets left out."""
+    _need_console()
+    cid = _cid(service)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for raw in paths[:200]:
+            p = _clean(raw)
+            if hidden(p):
+                continue
+            base = os.path.dirname(p.rstrip("/"))
+            with tarfile.open(fileobj=io.BytesIO(_cp_out(cid, p))) as t:
+                for m in t.getmembers():
+                    if m.isfile() and not hidden(f"{base}/{m.name}"):
+                        z.writestr(m.name, t.extractfile(m).read())
+    return {"name": "files.zip", "content": base64.b64encode(buf.getvalue()).decode()}
 
 
 def files_change(service: str, b: dict) -> dict:

@@ -189,6 +189,16 @@ server {
         if (-f /eax-proxy/maintenance) { return 503; }   # D230
         set $upstream http://web:8080;
         proxy_pass $upstream;
+        # the screens' Content-Security-Policy (R3.12, D672): scripts only from this site (and the one line of Keycloak's
+        # silent sign-in page, by its hash), no eval, no plugins, frames only from this site (draw.io, the sign-in);
+        # styles may be inline (the terminal and the charts set them). Only here: draw.io (/drawio/), the API's own pages
+        # (/api/docs), Keycloak (/auth/), Reports and Documents keep their own. EAX_CSP_HEADER=Content-Security-Policy-
+        # Report-Only only reports. A location with headers of its own does not inherit the server's: repeated here.
+        add_header X-Content-Type-Options nosniff always;
+        add_header Referrer-Policy strict-origin-when-cross-origin always;
+        add_header X-Frame-Options SAMEORIGIN always;
+        add_header Strict-Transport-Security "${EAX_HSTS}" always;
+        add_header ${EAX_CSP_HEADER} "default-src 'self'; script-src 'self' 'sha256-NuGEHWbQP7fFayUad46pwOQjhf59O6x6VUaef+Cctms='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'" always;
     }
 
     location /api/ {

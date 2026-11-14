@@ -5,6 +5,22 @@ import { useEffect, useMemo, useState } from "react";
 import { apiFetch, can, roleName, needsRole } from "./auth";
 import { downloadCsv } from "./exporting";
 
+// R3.3 (owner, 13 Nov 2026: "Just Have list of projects and roles on them and another List of models with roles on it. Two
+// different tables. Remove tree just two lists in columns"): each person's projects and models, one per line, with roles.
+const PROJECT_ROLES = { "project-admin": "Project Admin", "lead-architect": "Lead Architect", architect: "Architect",
+  "model-admin": "Model Admin", "model-sub-admin": "Model Sub Admin", stakeholder: "Stakeholder" };
+export const projectRoleName = (r) => PROJECT_ROLES[r] || r;
+
+export function RoleList({ items, name, link }) {
+  if (!items || !items.length) return <span className="quiet">none</span>;
+  return (
+    <ul className="role-list">
+      {items.map((x) => (
+        <li key={x.id}>{link ? <a href={link(x)}>{x.name}</a> : x.name} <span className="quiet">({(x.roles || [x.role]).map(name).join(", ")})</span></li>))}
+    </ul>
+  );
+}
+
 function useLoad(path, deps = []) {
   const [state, setState] = useState({ data: null, error: "" });
   const [n, setN] = useState(0);
@@ -34,25 +50,27 @@ function People() {
             .map((r) => <option key={r} value={r}>{roleName(r)}</option>)}
           <option value="none">No global role</option>
         </select>
-        <button disabled={!rows.length} onClick={() => downloadCsv([["User", "Name", "Email", "EA Explorer roles", "Keycloak roles", "Models"],
+        <button disabled={!rows.length} onClick={() => downloadCsv([["User", "Name", "Email", "EA Explorer roles", "Keycloak roles", "Projects", "Models"],
           ...rows.map((p) => [p.username, p.name || "", p.email || "", p.roles.map(roleName).join("; "), p.keycloak_roles.join("; "),
+            (p.projects || []).map((x) => `${x.name} (${(x.roles || [x.role]).map(projectRoleName).join(", ")})`).join("; "),
             p.models.map((m) => `${m.name} (${(m.roles || [m.role]).join(", ")})`).join("; ")])], "people and roles")}>CSV</button>
         <span className="er-spacer" />
         <span className="quiet">{data ? `${rows.length} shown${data.length >= 100 ? " (first 100: search to narrow)" : ""}` : ""}</span>
       </div>
-      <p className="quiet">Global roles are given in Keycloak, not here: use <em>Change in Keycloak</em>. Roles on a model are given on that model's <em>People</em> tab.</p>
+      <p className="quiet">Global roles are given in Keycloak, not here: use <em>Change in Keycloak</em>. Roles on a model are given on that model's <em>People</em> tab, roles on a project on the project's members.</p>
       {error && <p className="status bad">{error}</p>}
       {!data && !error && <p className="quiet">Reading people from Keycloak...</p>}
       {data && (
         <table className="grid-table">
-          <thead><tr><th>Person</th><th>Global roles</th><th>Keycloak roles</th><th>Roles on models</th><th /></tr></thead>
+          <thead><tr><th>Person</th><th>Global roles</th><th>Keycloak roles</th><th>Projects and roles</th><th>Models and roles</th><th /></tr></thead>
           <tbody>
             {rows.map((p) => (
               <tr key={p.id} className={p.enabled ? "" : "retired"}>
                 <td><strong>{p.username}</strong>{p.name && <><br /><span className="quiet">{p.name}</span></>}{p.email && <><br /><span className="quiet small">{p.email}</span></>}</td>
                 <td>{p.roles.length ? p.roles.map((r) => <span key={r} className="rchip on">{roleName(r)}</span>) : <span className="quiet">none</span>}</td>
                 <td className="quiet small">{p.keycloak_roles.filter((r) => !["offline_access", "uma_authorization"].includes(r) && !r.startsWith("default-roles-")).join(", ")}</td>
-                <td className="small">{p.models.map((m, i) => <span key={m.id}>{i > 0 && ", "}{can("models.all") ? <a href={`#/metamodel/${m.id}/people`}>{m.name}</a> : m.name} <span className="quiet">({(m.roles || [m.role]).map(roleName).join(", ")})</span></span>)}</td>
+                <td className="small"><RoleList items={p.projects} name={projectRoleName} link={(x) => `#/projects/${x.id}/organisation`} /></td>
+                <td className="small"><RoleList items={p.models} name={roleName} link={can("models.all") ? (m) => `#/metamodel/${m.id}/people` : null} /></td>
                 <td className="nowrap"><a className="small-link" href={p.keycloak_url} target="_blank" rel="noreferrer">Change in Keycloak ↗</a></td>
               </tr>
             ))}

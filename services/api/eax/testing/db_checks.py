@@ -15,6 +15,12 @@ FK_INDEX_EXCEPTIONS = tuple(f"core.{t}.status_code" for t in ("entities", "relat
 
 # (name, query finding what is wrong (each row one problem), outcome when it finds something)
 CHECKS: list[tuple[str, str, str]] = [
+    ("the text comparison indexes are there (R3.7)", """
+        SELECT w.name FROM (VALUES ('entities_name_key_idx'), ('attribute_values_value_key_idx'),
+                                   ('entities_display_id_lower_idx'), ('entities_display_id_trgm_idx'),
+                                   ('entities_description_trgm_idx'), ('entity_aliases_old_name_trgm_idx'),
+                                   ('entity_aliases_old_display_id_trgm_idx'), ('entities_name_trgm_idx')) AS w(name)
+         WHERE to_regclass('core.' || w.name) IS NULL""", "failed"),
     ("every table has a primary key", """
         SELECT n.nspname || '.' || c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
          WHERE c.relkind = 'r' AND n.nspname IN ('core', 'proj', 'changelog')

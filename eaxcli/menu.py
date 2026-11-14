@@ -1,7 +1,7 @@
 """eax menu (R2.29; owner, 13 Nov 2026): a numbered menu of every command, by group, for every form of eax.
 
-  eax            with no command, on a terminal: this menu (piped or in a script: the help, as before)
-  eax menu       the same
+  eax menu       this menu
+  eax screen     the full screen (R3.1), which plain eax opens; it falls back to this menu when it cannot open
 
 Pick a group, then a command; each of its options is asked for in turn (Enter leaves an optional one out), the whole
 command is shown, and it runs only when you say y. The groups and commands come from eaxcli/help.txt, the one source

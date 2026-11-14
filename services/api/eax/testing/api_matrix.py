@@ -25,9 +25,14 @@ import urllib.request
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 
-NO_GLOBAL_ROLE = "no-role"          # the run's account with no global role and no role on any model
-# reads too heavy or not meant for an automated reader (whole-estate files, live logs, terminals, the SQL window): skipped
+NO_GLOBAL_ROLE = "no-role"
+NOTHING = "self-test-nothing"      # the id a write is called with when the test data has none: never there (R3.13)          # the run's account with no global role and no role on any model
+# reads too heavy or not meant for an automated reader (whole-estate files, live logs, terminals, the SQL window). Since
+# R3.13 they are checked too, bounded: without a token (refused before anything is done), refused without a global role
+# when they are admin writes, and their GETs as every role reading only the start of the answer (call's size); only a
+# download or a live stream (STREAM) is read as the role without one alone, as making the file is the costly part.
 HEAVY = re.compile(r"/(backups?|restores?|export|download|package|packages|terminal|logs|sql|stats|files|repo-zip)(/|$)|\.(zip|xlsx|pdf|docx)$")
+STREAM = re.compile(r"/(download|package|repo-zip|export|terminal)(/|$)|/logs/read$|/files/content$|/files/download$|\.(zip|xlsx|pdf|docx)$")
 CONTENT = re.compile(r"/(entities|relationships|history|grid|content|changes|commits|data-entry|hierarchy|export)\b")
 WRITE = ("post", "put", "patch", "delete")
 
@@ -135,6 +140,52 @@ def in_area(path: str, area: str) -> bool:
 Record = Callable[..., None]
 
 
+def discover(base: str, path: str, ids: dict[str, str], token: str, cache: dict, call=call) -> dict[str, str]:
+    """The ids an endpoint's path needs that the run's own ids do not have (R3.13: 219 checks were skipped as "a path
+    parameter the run's fixtures cannot fill"): each from the list one level up, read once as a Super Admin (GET
+    /projects/{project}/documents gives the {doc} of /projects/{project}/documents/{doc}); the first item's own name for
+    it, else its id, guid, key, code or name. Reads only; nothing is made. Returns ids with what was found."""
+    found = dict(ids)
+    for name in re.findall(r"\{([^}]+)\}", path):
+        key = name.split(":")[-1]
+        if fill("{" + key + "}", found) is not None:
+            continue
+        prefix = path[:path.index("{" + name + "}")].rstrip("/")
+        where = fill(prefix, found)
+        if not where or not token:
+            return found
+        if where not in cache:
+            status, body = call(base, "get", where, token, size=None)
+            cache[where] = body if status == 200 else ""
+        item = _first_item(cache[where])
+        value = None
+        if isinstance(item, dict):
+            for k in (key, key.removesuffix("_id"), "id", "guid", "key", "code", "name", "file", "username"):
+                if item.get(k) not in (None, ""):
+                    value = item[k]
+                    break
+        elif isinstance(item, (str, int)):
+            value = item
+        if value is None:
+            return found
+        found[key] = str(value)
+    return found
+
+
+def _first_item(body: str):
+    try:
+        data = json.loads(body) if body else None
+    except ValueError:
+        return None
+    if isinstance(data, list):
+        return data[0] if data else None
+    if isinstance(data, dict):
+        for v in data.values():
+            if isinstance(v, list) and v:
+                return v[0]
+    return None
+
+
 def run(base: str, spec: dict, tokens: dict[str, str], ids: dict[str, str], other_model: str | None, record: Record,
         workers: int = 6, area: str = "", only: set[str] | None = None) -> dict[str, int]:
     """Runs the matrix against base (the test API) and records each check with record(name, outcome, detail, ms,
@@ -146,14 +197,36 @@ def run(base: str, spec: dict, tokens: dict[str, str], ids: dict[str, str], othe
     counts = {"endpoints": len(eps), "checks": 0}
     jobs: list[tuple[str, Callable[[], tuple]]] = []
 
+    found_cache: dict[str, str] = {}
+    super_token = tokens.get("super-admin") or tokens.get("user_super_admin") or ""
     for ep in eps:
         path = fill(ep["path"], ids)
+        if path is None and ep["method"] == "get":     # an id the run's fixtures do not have: found from its list (R3.13)
+            path = fill(ep["path"], discover(base, ep["path"], ids, super_token, found_cache))
+        elif path is None:                             # a write: an id that is not there, so even a wrong refusal
+            path = re.sub(r"\{([^}]+)\}", lambda m: fill("{" + m.group(1).split(":")[-1] + "}", ids) or NOTHING,
+                          ep["path"])  # changes nothing
         label = f"{ep['method'].upper()} {ep['path']}"
-        if HEAVY.search(ep["path"]):
-            jobs.append((f"{label}: skipped", lambda: ("skipped", "a heavy or live read (files, logs, terminals): not read by the self-test", "", "")))
-            continue
         if path is None:
-            jobs.append((f"{label}: skipped", lambda: ("skipped", "a path parameter the run's fixtures cannot fill", "", "")))
+            missing = [n.split(":")[-1] for n in re.findall(r"\{([^}]+)\}", ep["path"])
+                       if fill("{" + n.split(":")[-1] + "}", ids) is None]
+            jobs.append((f"{label}: skipped", lambda m=missing: (
+                "skipped", f"the test data has no {', '.join('{' + x + '}' for x in m)} to call it with (none listed one level up)",
+                "", "")))
+            continue
+        if ep["method"] == "get" and STREAM.search(ep["path"]):
+            # a download or a live stream: without a token, and as the role with none (bounded read); not every role
+            def anon_s(p=path, pub=ep["public"]):
+                status, body = call(base, "get", p)
+                outcome, detail = judge_anonymous(status, pub)
+                return outcome, detail, _ask("get", p, None), _answer(status, body)
+            jobs.append((f"{label}: without a token", anon_s))
+            if NO_GLOBAL_ROLE in tokens:
+                def norole(p=path):
+                    s, body = call(base, "get", p, tokens[NO_GLOBAL_ROLE])
+                    o, d = judge_role(s)
+                    return o, d, _ask("get", p, NO_GLOBAL_ROLE) if o == "failed" else "", _answer(s, body) if o == "failed" else ""
+                jobs.append((f"{label}: as {NO_GLOBAL_ROLE} (a download or a stream: read once)", norole))
             continue
 
         def anon(p=path, m=ep["method"], pub=ep["public"]):

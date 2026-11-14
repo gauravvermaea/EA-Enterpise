@@ -19,6 +19,11 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+
+def _csp(kind: str, text: str) -> bool:
+    from .ui_pages import csp_blocked
+    return csp_blocked(kind, text)
+
 Record = Callable[..., None]
 
 
@@ -75,6 +80,8 @@ def run(ids: dict[str, str], ticket: str, folder: Path, record: Record, role: st
             page = ctx.new_page()
             errors: list[str] = []
             page.on("pageerror", lambda e, errs=errors: errs.append(str(e)))
+            page.on("console", lambda m, errs=errors: errs.append(f"blocked by the Content-Security-Policy: {m.text[:200]}")
+                    if _csp(m.type, m.text) else None)   # R3.12, D672
             page.on("response", lambda r, errs=errors: errs.append(f"{r.request.method} {r.url.split('?')[0]}: {r.status}")
                     if "/api/" in r.url and r.status >= 500 else None)
             outcome, detail, shot = "passed", "", None
@@ -155,6 +162,10 @@ def run_all(ids: dict[str, str], ticket: str, folder: Path, record: Record, role
                            for k, v in ui_pages.sweep(page, open_route, ids, rec, role=role or "super-admin",
                                                       routes=list(routes) if repeat else None).items()})
             ctx.close()
+            if not repeat or "#/break-glass" in (routes or []):        # in a browser of its own (R3.13)
+                alone = browser.new_context(ignore_https_errors=True, viewport={"width": 1400, "height": 900})
+                ui_pages.break_glass_page(alone.new_page(), base, rec)
+                alone.close()
         if not pages_only and (not repeat or names):                      # the journeys
             def factory(as_role: str):
                 ctx, page, open_route = context(as_role)

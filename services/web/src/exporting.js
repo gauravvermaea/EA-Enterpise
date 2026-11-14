@@ -111,13 +111,24 @@ export function drawioXml(title, nodes, edges = [], look = null) {
         '<mxGeometry relative="1" as="geometry"/></mxCell></object>');
       return;
     }
-    cells.push(`<mxCell id="e_${i}" value="${xml(e.label || "")}" style="html=1;${route}endArrow=${e.arrow === false ? "none" : "block"};endFill=1;` +
+    const routed = e.points?.length > 1 ? waypoints(e, byId) : null;     // the picture's own route (R3.4)
+    cells.push(`<mxCell id="e_${i}" value="${xml(e.short || e.label || "")}" style="html=1;${routed ? routed.style : route}endArrow=${e.arrow === false ? "none" : "block"};endFill=1;` +
       `strokeColor=#${colour};fontSize=10;fontColor=#${colour};labelBackgroundColor=#ffffff;${e.dashed ? "dashed=1;" : ""}" ` +
-      `edge="1" parent="1" source="${cellId(e.source)}" target="${cellId(e.target)}"><mxGeometry relative="1" as="geometry"/></mxCell>`);
+      `edge="1" parent="1" source="${cellId(e.source)}" target="${cellId(e.target)}"><mxGeometry relative="1" as="geometry">${routed ? routed.points : ""}</mxGeometry></mxCell>`);
   });
   return '<mxfile host="EA Explorer" type="device">' +
     `<diagram id="ea" name="${xml(title)}"><mxGraphModel grid="1" gridSize="10" page="0"><root>` +
     cells.join("") + "</root></mxGraphModel></diagram></mxfile>";
+}
+
+// a routed line in draw.io: leaves and enters each box where the picture does, through the picture's bends
+function waypoints(e, byId) {
+  const a = byId[e.source], b = byId[e.target], p = e.points;
+  const fx = (n, x) => Math.max(0, Math.min(1, (x - n.x) / n.w)).toFixed(3);
+  const style = `edgeStyle=none;exitX=${fx(a, p[0][0])};exitY=${e.exit === "top" ? 0 : 1};exitPerimeter=0;` +
+    `entryX=${fx(b, p[p.length - 1][0])};entryY=${e.entry === "top" ? 0 : 1};entryPerimeter=0;`;
+  const inner = p.slice(1, -1).map(([x, y]) => `<mxPoint x="${x}" y="${y}"/>`).join("");
+  return { style, points: inner ? `<Array as="points">${inner}</Array>` : "" };
 }
 
 // the picture as a .drawio file to keep (a download: the person's own; it goes stale, D408)
@@ -128,26 +139,50 @@ export function downloadDrawio(title, nodes, edges, look = null) {
 // the picture (nodes and edges) as an SVG text, for screens drawn in HTML (heat maps, matrices, maps)
 export function pictureSvg(nodes, edges = []) {
   const all = tidy(nodes);
-  const W = Math.max(100, ...all.map((n) => n.x + n.w)), H = Math.max(60, ...all.map((n) => n.y + n.h));
+  const pts = edges.flatMap((e) => [...(e.points || []), ...(e.label_at && e.short ? [[e.label_at[0] + e.short.length * 5.2 + 6, e.label_at[1]]] : [])]);
+  const W = Math.max(100, ...all.map((n) => n.x + n.w), ...pts.map((p) => p[0])), H = Math.max(60, ...all.map((n) => n.y + n.h), ...pts.map((p) => p[1]));
   const byId = Object.fromEntries(all.map((n) => [n.id, n]));
   const parts = [`<svg xmlns="http://www.w3.org/2000/svg" width="${W + 40}" height="${H + 40}" viewBox="-20 -20 ${W + 40} ${H + 40}" font-family="system-ui, sans-serif">`,
+    `<defs><marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6b7785"/></marker></defs>`,
     `<rect x="-20" y="-20" width="${W + 40}" height="${H + 40}" fill="#ffffff"/>`];
+  const boxes = [], lines = [], labels = [];
   for (const n of all) {
+    const tip = n.title ? `<title>${xml(n.title)}</title>` : "";
     if (n.shape !== "text") {
-      parts.push(`<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="4" fill="#${hex(n.fill)}" stroke="#${hex(n.stroke, "8a96a3")}"${n.dashed ? ' stroke-dasharray="4 3"' : ""}/>`);
+      boxes.push(`<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="4" fill="#${hex(n.fill)}" stroke="#${hex(n.stroke, "8a96a3")}"${n.dashed ? ' stroke-dasharray="4 3"' : ""}>${tip}</rect>`);
     }
-    const centre = n.align === "center" || (!n.container && n.shape !== "text" && n.align !== "left");
+    const centre = n.align === "center" || (!n.container && n.shape !== "text" && n.align !== "left" && !n.lines);
     const tx = centre ? n.x + n.w / 2 : n.x + 6, anchor = centre ? "middle" : "start";
+    const size = n.fontSize || 12, weight = n.bold || n.lines ? 700 : 400;
+    if (n.lines) {                 // wrapped to the box (R3.4): the label's lines, then the line(s) under it
+      const rows = [...n.lines.map((t) => [t, size, weight, "1f2328"]), ...(n.sublines || []).map((t) => [t, 10, 400, "5b6775"])];
+      const tall = 14 * n.lines.length + 13 * (n.sublines || []).length;
+      let y = n.container ? n.y + 16 : n.y + Math.max(14, (n.h - tall) / 2 + 11);
+      for (const [t, sz, wt, col] of rows) {
+        boxes.push(`<text x="${tx}" y="${y}" text-anchor="${anchor}" font-size="${sz}" font-weight="${wt}" fill="#${col}">${xml(t)}${tip}</text>`);
+        y += sz >= 11 ? 14 : 13;
+      }
+      continue;
+    }
     const ty = n.container ? n.y + 16 : n.y + n.h / 2 + (n.sub ? -2 : 4);
-    parts.push(`<text x="${tx}" y="${ty}" text-anchor="${anchor}" font-size="${n.fontSize || 12}" font-weight="${n.bold ? 700 : 400}" fill="#${hex(n.fontColor, "1f2328")}">${xml(n.label)}</text>`);
-    if (n.sub) parts.push(`<text x="${tx}" y="${ty + 13}" text-anchor="${anchor}" font-size="10" fill="#5b6775">${xml(n.sub)}</text>`);
+    boxes.push(`<text x="${tx}" y="${ty}" text-anchor="${anchor}" font-size="${size}" font-weight="${n.bold ? 700 : 400}" fill="#${hex(n.fontColor, "1f2328")}">${xml(n.label)}</text>`);
+    if (n.sub) boxes.push(`<text x="${tx}" y="${ty + 13}" text-anchor="${anchor}" font-size="10" fill="#5b6775">${xml(n.sub)}</text>`);
   }
   for (const e of edges) {
     const a = byId[e.source], b = byId[e.target];
     if (!a || !b) continue;
-    parts.push(`<line x1="${a.x + a.w / 2}" y1="${a.y + a.h / 2}" x2="${b.x + b.w / 2}" y2="${b.y + b.h / 2}" stroke="#${hex(e.colour, "6b7785")}"${e.dashed ? ' stroke-dasharray="4 3"' : ""}/>`);
+    const stroke = `stroke="#${hex(e.colour, "6b7785")}"${e.dashed ? ' stroke-dasharray="4 3"' : ""}`;
+    const end = e.arrow === false ? "" : ' marker-end="url(#arrow)"';
+    if (e.points?.length > 1) {    // routed at right angles between the boxes (R3.4)
+      lines.push(`<polyline points="${e.points.map((p) => p.join(",")).join(" ")}" fill="none" ${stroke}${end}>${e.label ? `<title>${xml(e.label)}</title>` : ""}</polyline>`);
+      if (e.short && e.label_at) {
+        labels.push(`<text x="${e.label_at[0]}" y="${e.label_at[1]}" font-size="9" fill="#4a5562" paint-order="stroke" stroke="#ffffff" stroke-width="3">${xml(e.short)}<title>${xml(e.label)}</title></text>`);
+      }
+      continue;
+    }
+    lines.push(`<line x1="${a.x + a.w / 2}" y1="${a.y + a.h / 2}" x2="${b.x + b.w / 2}" y2="${b.y + b.h / 2}" ${stroke}/>`);
   }
-  parts.push("</svg>");
+  parts.push(...boxes, ...lines, ...labels, "</svg>");
   return { text: parts.join(""), width: W, height: H };
 }
 

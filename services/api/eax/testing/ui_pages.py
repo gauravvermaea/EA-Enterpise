@@ -30,13 +30,15 @@ SEEDS = [
     "#/merge-requests", "#/archive", "#/project-admin", "#/metamodel", "#/metamodel/{m}", "#/model-admin/{m}", "#/projects",
     "#/projects/{p}", "#/mcp", "#/library", "#/project-library", "#/principles", "#/compare", "#/compare/gaps", "#/compare/common", "#/change-log",
     "#/notifications", "#/surveys", "#/maturity", "#/change-documents", "#/admin", "#/search?q=self_test", "#/farm",
-    "#/farm/connect",
+    "#/farm/connect", "#/more",
 ]
 # pages the sweep does not open, and why
 SKIP_ROUTES = {
     "#/break-glass": "the emergency sign-in page (it signs the person out of the normal sign-in)",
-    "#/more": "Everything else: a page of the Classic menus, which are being retired (R2.0.1); every item is in the menu bar",
 }
+# pages the sweep leaves out but that are opened on their own (R3.13: no page is skipped without being tested): the
+# break-glass page in a browser of its own, signed in to nothing (break_glass_page)
+TESTED_ALONE = {"#/break-glass"}
 MAX_PAGES = 400
 _UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
 _LEAVE = re.compile(r"^#/break-glass\b|logout|sign-?out", re.I)
@@ -105,6 +107,27 @@ def judge(found: dict, errors: list[str], help_state: str) -> tuple[str, str]:
     return "warning", "; ".join(bad)
 
 
+def break_glass_page(page, base: str, record: Record) -> str:
+    """The break-glass sign-in page in a browser of its own, signed in to nothing (R3.13): it opens and says what it is
+    (the form, or that break-glass is not set up here). Nothing is typed into it."""
+    t0 = time.time()
+    try:
+        page.goto(f"{base}/#/break-glass", wait_until="domcontentloaded", timeout=60000)
+        page.locator("text=Break-glass sign-in >> visible=true").first.wait_for(state="visible", timeout=30000)
+        record("page: #/break-glass", "passed", "opens on its own, signed in to nothing (a browser of its own)",
+               int((time.time() - t0) * 1000))
+        return "passed"
+    except Exception as exc:  # noqa: BLE001 - recorded as the check's failure
+        record("page: #/break-glass", "failed", str(exc).splitlines()[0][:200], int((time.time() - t0) * 1000))
+        return "failed"
+
+
+def csp_blocked(kind: str, text: str) -> bool:
+    """A console error saying the Content-Security-Policy blocked something (R3.12): the page is broken by it."""
+    t = (text or "").lower()
+    return kind == "error" and ("content security policy" in t or "content-security-policy" in t)
+
+
 def sweep(page, open_route: Callable[[str], None], ids: dict[str, str], record: Record, max_pages: int = MAX_PAGES,
           role: str = "super-admin", routes: list[str] | None = None) -> dict[str, int]:
     """Opens every page reachable from the seeds through tab links, in scope; records one result per page
@@ -112,6 +135,8 @@ def sweep(page, open_route: Callable[[str], None], ids: dict[str, str], record: 
     routes: these pages only, no links followed (a repeat of the failed pages, R2.36)."""
     errors: list[str] = []
     page.on("pageerror", lambda e: errors.append(f"script error: {str(e)[:200]}"))
+    page.on("console", lambda m: errors.append(f"blocked by the Content-Security-Policy: {m.text[:200]}")   # R3.12, D672
+            if csp_blocked(m.type, m.text) else None)
     page.on("response", lambda r: errors.append(f"{r.request.method} {r.url.split('?')[0]}: {r.status}")
             if "/api/" in r.url and r.status >= 500 else None)
     only = routes is not None
@@ -119,7 +144,8 @@ def sweep(page, open_route: Callable[[str], None], ids: dict[str, str], record: 
     seen: set[str] = set(queue)
     counts = {"pages": 0, "passed": 0, "failed": 0, "warning": 0}
     for route, why in ({} if only else SKIP_ROUTES).items():
-        record(f"page: {route}", "skipped", why, 0)
+        if route not in TESTED_ALONE:
+            record(f"page: {route}", "skipped", why, 0)
     loaded = 0
     while queue and counts["pages"] < max_pages:
         route = queue.pop(0)

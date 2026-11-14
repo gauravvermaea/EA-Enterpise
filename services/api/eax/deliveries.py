@@ -127,7 +127,9 @@ def _source_out(conn, s: dict) -> dict:
             "contact": s["contact"], "sender": s["sender"], "active": s["active"], "created_by": s["created_by"],
             "created_at": s["created_at"], "last_delivery_at": s["last_delivery_at"],
             "deliveries": {k: int(v or 0) for k, v in (counts or {}).items()}, "incoming": incoming,
-            "model": {"id": str(s["model_guid"]), "name": s["model_name"]}}
+            "model": {"id": str(s["model_guid"]), "name": s["model_name"]},
+            # the Release 3 epic (D670): what kind of source it is, its schedule and its last run
+            "kind": s.get("kind") or "folder", "schedule": s.get("schedule") or "off", "last_run": s.get("last_run") or {}}
 
 
 def list_sources(conn, user, model: Any) -> dict:

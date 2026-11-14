@@ -127,9 +127,10 @@ def compare(rec, before: dict, after: dict, to_version: str, to_head: str) -> No
 
 def upgrade(run, from_ref: str, to: str, folder: Path, answers: Path, target: str, login: Callable[[], Client],
             url: str = "", sh: Sh = real_sh, sleep=time.sleep, clock=time.time, client_of=Client,
-            exporter=export, seed: Callable[[Client], None] | None = None) -> bool:
+            exporter=export, seed: Callable[[Client], None] | None = None, rollback: bool = True) -> bool:
     """from_ref: a tag or version (exported into folder); to: a tag or version, or a code folder (its version and its
-    migrations; the updater takes it with --url). login() gives a Super Admin client once the installation answers."""
+    migrations; the updater takes it with --url). login() gives a Super Admin client once the installation answers.
+    Then (R3.11) the updater's own backup is checked and, unless rollback is False, `eax rollback` is run and checked."""
     rec = run.recorder("upgrade")
     to_path = Path(to) if Path(to).is_dir() else None
     to_version = version_of(to_path) if to_path else to.lstrip("v")
@@ -161,7 +162,48 @@ def upgrade(run, from_ref: str, to: str, folder: Path, answers: Path, target: st
     rec("EA Explorer is healthy after the upgrade", "passed" if ok else "failed", "", int((clock() - t0) * 1000))
     if not ok:
         return False
-    after = state(login())
+    client = login()
+    after = state(client)
     code_tree = to_path or (shared.ROOT if version_of(shared.ROOT) == to_version else None)
     compare(rec, before, after, to_version, migration_head(code_tree) if code_tree else "")
+    pre_upgrade_backup(rec, client)
+    if rollback:
+        roll_back(rec, folder, before, target, login, sh, sleep, clock, client_of)
     return not any(r.outcome == "failed" for r in run.results if r.suite == "upgrade")
+
+
+def pre_upgrade_backup(rec, client: Client) -> None:
+    """The updater took its full backup first (R3.11: "backup ... roll back"): a pinned infrastructure backup of kind
+    before-upgrade is listed."""
+    s, b = client.get("/api/v1/admin/backups")
+    rows = (((b or {}).get("infrastructure") or {}).get("infrastructure") or []) if s == 200 and isinstance(b, dict) else []
+    mine = [x for x in rows if x.get("kind") == "before-upgrade"]
+    rec("a full backup was taken before the upgrade", "passed" if mine else "failed",
+        f"{mine[0].get('name')} ({'pinned' if mine[0].get('pinned') else 'not pinned'})" if mine else
+        (f"none listed (GET /admin/backups: {s})" if s != 200 else "no before-upgrade backup listed"), 0)
+
+
+def roll_back(rec, folder: Path, before: dict, target: str, login: Callable[[], Client], sh: Sh = real_sh,
+              sleep=time.sleep, clock=time.time, client_of=Client) -> bool:
+    """`eax rollback --yes` after the upgrade (R3.11): back to the version before, its data as at the update."""
+    t0 = clock()
+    code = sh([*launcher(folder), "rollback", "--yes"], folder)
+    rec("eax rollback (back to the version before)", "passed" if code == 0 else "failed", f"exit code {code}",
+        int((clock() - t0) * 1000))
+    if code != 0:
+        return False
+    ok = wait_healthy(target, 30, sleep, clock, client_of)
+    rec("EA Explorer is healthy after the roll back", "passed" if ok else "failed", "", int((clock() - t0) * 1000))
+    if not ok:
+        return False
+    back = state(login())
+    v_ok = back.get("version") == before.get("version")
+    rec("the version after the roll back", "passed" if v_ok else "failed",
+        f"{back.get('version') or '?'} (expected {before.get('version') or '?'})", 0)
+    for name, n in (before.get("counts") or {}).items():
+        if n is None:
+            continue
+        a = (back.get("counts") or {}).get(name)
+        rec(f"data kept after the roll back: {name}", "passed" if a is not None and a >= n else "failed",
+            f"{n} before the upgrade, {a} after the roll back", 0)
+    return v_ok

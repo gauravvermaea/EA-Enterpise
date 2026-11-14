@@ -13,7 +13,7 @@ in draw.io); System Admin › Estate draws them for the running installation.
 | eax command | starts, stops, backs up, updates and tests the installation | Users |
 | Front door (nginx) | https for everything; the only published ports | Edge |
 | Screens (React) | the pages people use | Application |
-| API and job runner | REST API, background jobs, the rules; the MCP server beside it | Application |
+| API and job runner | REST API, background jobs, the rules | Application |
 | MCP server | the tools an assistant may use, with the person's own rights | Application |
 | Library service | reference and enterprise libraries, documentation | Application |
 | Views service | drawn views and their versions | Application |
@@ -72,8 +72,8 @@ in draw.io); System Admin › Estate draws them for the running installation.
 
 | Container | Image | Networks | Published | Mounted |
 |---|---|---|---|---|
-| setup | `eaexplorer/api:dev` | none | - | eax-tls → /tls, eax-rendered → /rendered, eax-kc-import → /kc-import, ./deploy → /deploy |
-| proxy | `nginx:1.27-alpine` | frontend, terminal | 443:443, 0.0.0.0:80:80, 9443:9443 | ./deploy/proxy/templates → /etc/nginx/templates, ./deploy/proxy/static → /etc/nginx/eax, ./work/proxy → /eax-proxy, eax-tls → /etc/nginx/tls |
+| setup (runs once at start) | `eaexplorer/api:dev` | none | - | eax-tls → /tls, eax-rendered → /rendered, eax-kc-import → /kc-import, ./deploy → /deploy |
+| proxy | `nginx:1.30-alpine` | frontend, terminal | 443:443, 80:80, 9443:9443 | ./deploy/proxy/templates → /etc/nginx/templates, ./deploy/proxy/static → /etc/nginx/eax, ./work/proxy → /eax-proxy, eax-tls → /etc/nginx/tls |
 | web | `eaexplorer/web:dev` | frontend | - | - |
 | api | `eaexplorer/api:dev` | frontend, backend | - | eax-imports → /data/imports, eax-exports → /data/exports, ./work/backups → /data/backups, ./work → /eax-work, ./library → /data/library, ./library/templates/ea-explorer → /data/ea-explorer-templates, ./library/industry-packs → /data/industry-packs, ./work/packs → /data/packs-extra, ./docs → /data/docs/docs, ./README.md → /data/docs/README.md, ./eaxcli/help.txt → /data/docs/eaxcli/help.txt, ./releases → /data/docs/releases |
 | backup | `eaexplorer/backup:dev` | backend | - | ./work/backups → /backups, eax-docs → /mayan, eax-tls → /tls, eax-superset-home → /superset-home, eax-imports → /imports, eax-exports → /exports, ./persist → /persist |
@@ -88,7 +88,7 @@ in draw.io); System Admin › Estate draws them for the running installation.
 | dms-broker | `valkey/valkey:8-alpine` | backend | - | - |
 | keycloak | `quay.io/keycloak/keycloak:26.0` | frontend, backend | - | eax-kc-import → /opt/keycloak/data/import |
 | drawio | `eaexplorer/drawio:dev` | frontend | - | - |
-| reports-init | `eaexplorer/superset:dev` | backend | - | ./deploy/superset → /app/eax, eax-rendered → /rendered, eax-superset-home → /app/superset_home |
+| reports-init (runs once at start) | `eaexplorer/superset:dev` | backend | - | ./deploy/superset → /app/eax, eax-rendered → /rendered, eax-superset-home → /app/superset_home |
 | reports | `eaexplorer/superset:dev` | frontend, backend | - | ./deploy/superset → /app/eax, eax-superset-home → /app/superset_home |
 | dms | `mayanedms/mayanedms:s4` | frontend, backend | - | eax-docs → /var/lib/mayan |
 

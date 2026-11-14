@@ -26,8 +26,36 @@ HEADERS: list[tuple[str, str | None, str]] = [
     ("referrer-policy", None, "failed"),
     ("strict-transport-security", "max-age", "warning"),       # on a server (EAX_HSTS); a laptop may leave it out
     ("x-frame-options", None, "warning"),
-    ("content-security-policy", None, "warning"),
+    ("content-security-policy", None, "failed"),               # enforced since R3.12 (D672)
 ]
+
+
+def csp_problems(policy: str) -> list[str]:
+    """What is weak in a Content-Security-Policy (R3.12, D672): scripts from anywhere, inline or eval'd; plugins; being
+    framed by other sites; no default."""
+    d: dict[str, list[str]] = {}
+    for part in (policy or "").split(";"):
+        bits = part.split()
+        if bits:
+            d[bits[0].lower()] = [b.lower() for b in bits[1:]]
+    out = []
+    script = d.get("script-src", d.get("default-src"))
+    if "default-src" not in d:
+        out.append("no default-src")
+    if script is None:
+        out.append("no script-src or default-src")
+    else:
+        for bad in ("'unsafe-inline'", "'unsafe-eval'", "*", "http:", "https:", "data:"):
+            if bad in script:
+                out.append(f"script-src allows {bad}")
+    if d.get("object-src", d.get("default-src")) != ["'none'"]:
+        out.append("object-src is not 'none'")
+    fa = d.get("frame-ancestors")
+    if fa is None or any(x not in ("'self'", "'none'") for x in fa):
+        out.append("frame-ancestors lets other sites frame the screens")
+    if "base-uri" not in d:
+        out.append("no base-uri")
+    return out
 
 
 def _get(url: str, host: str) -> tuple[int, dict[str, str], list[str]]:
@@ -52,6 +80,15 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 def check_headers(headers: dict[str, str], where: str, record: Record) -> None:
     for name, want, bad in HEADERS:
         have = headers.get(name)
+        if name == "content-security-policy" and have is None and headers.get("content-security-policy-report-only"):
+            record(f"{where}: header {name}", "warning", "only reported, not enforced (EAX_CSP_HEADER=Content-Security-Policy-"
+                   "Report-Only)", 0)
+            continue
+        if name == "content-security-policy" and have is not None:
+            weak = csp_problems(have)
+            record(f"{where}: header {name}", "warning" if weak else "passed",
+                   ("; ".join(weak) + ": " if weak else "") + have[:300], 0)
+            continue
         if have is None and name == "strict-transport-security" and os.environ.get("EAX_DEPLOYMENT", "laptop") == "laptop":
             # off on a laptop on purpose (D107): its certificate is the laptop's own, so the browser warning must stay
             # possible to accept; a server sets EAX_HSTS

@@ -69,14 +69,15 @@ def test_the_bench_takes_every_option_of_eax_test():
     help_txt = (REPO / "eaxcli" / "help.txt").read_text(encoding="utf-8")
     line = next(x for x in help_txt.splitlines() if x.startswith("### test "))
     # building the runner image is inside only; so is repeating a run's failed checks (R2.36: failed [run] --warnings)
-    test_opts = set(__import__("re").findall(r"--[a-z-]+", line)) - {"--build", "--warnings", "--older-than"}   # delete: inside only (R2.43)
+    test_opts = set(__import__("re").findall(r"--[a-z-]+", line)) - {"--build", "--warnings", "--older-than", "--log"}   # delete: inside only (R2.43); watch --log (R3.2)
     bench_opts = {o for a in cli.parser()._subparsers._group_actions[0].choices["run"]._actions for o in a.option_strings}
     assert test_opts <= bench_opts, test_opts - bench_opts
 
 
 def test_suites_are_the_self_tests():
     # but the backup checks (R2.45): they need the installation's own backup container, so they run inside only
-    assert set(SUITES) == set(INSIDE_SUITES) - {"backup"}
+    # and the restore test (R3.8): the command line only
+    assert set(SUITES) == set(INSIDE_SUITES) - {"backup", "restore"}
 
 
 def _calls(fn: ast.FunctionDef, modules: set[str]) -> set[str]:
@@ -196,7 +197,7 @@ def test_k6_script_parses(tmp_path):
 # ---------------------------------------------------------------- install and upgrade with fakes
 class FakeClient:
     """An installation: answers /api/health, the API description and the state endpoint, as the version it is at."""
-    world = {"version": "0.18.0", "migration": "0048_project_iterations", "up": True, "models": 5}
+    world = {"version": "0.18.0", "migration": "0048_project_iterations", "up": True, "models": 5, "backed_up": True}
 
     def __init__(self, target, token=""):
         self.target, self.token = target, token
@@ -210,6 +211,9 @@ class FakeClient:
         if path == "/api/v1/admin/testbench/state":
             return 200, {"version": w["version"], "migration": w["migration"],
                          "counts": {"models": w["models"], "entities": 10, "drawn views": None}}
+        if path == "/api/v1/admin/backups":           # the updater's own backup (R3.11)
+            rows = [{"name": "20261113T200000Z-before-upgrade", "kind": "before-upgrade", "pinned": True}] if w["backed_up"] else []
+            return 200, {"infrastructure": {"infrastructure": rows}}
         return 404, {}
 
 
@@ -227,8 +231,10 @@ def test_upgrade_with_fakes(tmp_path):
         calls.append(tuple(argv[2:4]))
         if "update" in argv:
             FakeClient.world.update(version=lifecycle.version_of(REPO), migration=lifecycle.migration_head(REPO))
+        if "rollback" in argv:
+            FakeClient.world.update(version="0.18.0", migration="0048_project_iterations")
         return 0
-    FakeClient.world.update(version="0.18.0", migration="0048_project_iterations", up=True, models=5)
+    FakeClient.world.update(version="0.18.0", migration="0048_project_iterations", up=True, models=5, backed_up=True)
     r = Run("https://localhost", tmp_path / "r", quiet=True)
     answers = tmp_path / "a.json"
     answers.write_text("{}")
@@ -240,6 +246,32 @@ def test_upgrade_with_fakes(tmp_path):
     names = {x.name: x.outcome for x in r.results}
     assert names["data kept: models"] == "passed" and names["the version after the upgrade"] == "passed"
     assert "data kept: drawn views" not in names                      # a table the old version did not have
+    # R3.11: the updater's own backup, then eax rollback, back to 0.18.0 with the data kept
+    assert names["a full backup was taken before the upgrade"] == "passed" and ("rollback", "--yes") in calls
+    assert names["the version after the roll back"] == "passed" and names["data kept after the roll back: models"] == "passed"
+
+
+def test_a_roll_back_that_does_not_go_back_or_no_backup_fails(tmp_path):
+    """R3.11: the upgrade test also checks the updater's backup and the roll back."""
+    FakeClient.world.update(version="0.18.0", migration="x", up=True, models=5, backed_up=False)
+
+    def sh(argv, cwd):
+        if "update" in argv:
+            FakeClient.world.update(version="0.19.0")
+        return 0                                                        # rollback "succeeds" but changes nothing
+    (tmp_path / "inst").mkdir()
+    (tmp_path / "inst" / "eax.sh").write_text("")
+    r = Run("https://localhost", tmp_path / "r", quiet=True)
+    ok = lifecycle.upgrade(r, "v0.18.0", "v0.19.0", tmp_path / "inst", tmp_path / "a.json", "https://localhost",
+                           lambda: FakeClient("https://localhost"), sh=sh, sleep=lambda _s: None, client_of=FakeClient)
+    failed = {x.name for x in r.results if x.outcome == "failed"}
+    assert not ok and {"a full backup was taken before the upgrade", "the version after the roll back"} <= failed
+    FakeClient.world.update(version="0.18.0", backed_up=True)
+    r2 = Run("https://localhost", tmp_path / "r2", quiet=True)
+    lifecycle.upgrade(r2, "v0.18.0", "v0.19.0", tmp_path / "inst", tmp_path / "a.json", "https://localhost",
+                      lambda: FakeClient("https://localhost"), sh=sh, sleep=lambda _s: None, client_of=FakeClient,
+                      rollback=False)
+    assert not any(x.name.startswith("eax rollback") for x in r2.results)   # --no-rollback leaves it upgraded
 
 
 def test_upgrade_catches_lost_data_and_a_wrong_version(tmp_path):

@@ -6,7 +6,8 @@ RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 COPY . .
 RUN npm run build
 
-FROM nginxinc/nginx-unprivileged:1.27-alpine
+# the current stable line: 1.27 no longer gets fixes (R3.12)
+FROM nginxinc/nginx-unprivileged:1.30-alpine
 # the Alpine packages' own fixes (OpenSSL, brotli: R2.24), then back to the image's unprivileged user
 USER root
 RUN apk upgrade --no-cache

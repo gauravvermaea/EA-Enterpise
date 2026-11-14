@@ -36,6 +36,7 @@ from . import (
     api_writes,
     db_checks,
     fixtures,
+    negative,
     repeat,
     report,
     security,
@@ -344,6 +345,53 @@ def _backup_suite(r: Run, tokens: dict[str, str], ids: dict[str, str], run_id: i
     backups_check.run(API, tokens.get("super-admin", ""), ids, r.recorder("backup"), r.log, r.repo, run_id, add_fixture)
 
 
+def negative_tests(r: Run, spec: dict, tokens: dict[str, str], ids: dict[str, str], area: str | None = None,
+                   runner=None) -> dict[str, dict[str, int]]:
+    """Bad input to every endpoint as a Super Admin, in the run's own test data (R3.9): the counts by kind go into the
+    run's counts ("negative bad JSON": how many were sent) and negative.json in its folder (for the coverage page)."""
+    import json as _json
+    token = tokens.get("super-admin") or next(iter(tokens.values()), "")
+    if not token:
+        r.recorder("api")("negative: bad input to every endpoint", "skipped", "no test account to send it as", 0)
+        return {}
+    part = {"paths": {k: v for k, v in (spec.get("paths") or {}).items() if not area or api_matrix.in_area(k, area)}}
+    r.log(f"API: negative tests for every endpoint{f' of {area}' if area else ''} (bad JSON, not an object, unknown id, "
+          "too long)")
+    counts = (runner or negative.run)(API, part, token, ids, r.recorder("api"))
+    r.counts.update({f"negative {k}": sum(v.values()) for k, v in counts.items()})
+    try:
+        (r.dir / "negative.json").write_text(_json.dumps(counts, indent=1), encoding="utf-8")
+    except OSError as exc:
+        r.log(f"negative.json not written: {exc}")
+    return counts
+
+
+def saved_cases(r: Run, tokens: dict[str, str], ids: dict[str, str]) -> int:
+    """The API test harness's saved cases (R3.16), each as its role in the run's own test data: "case: <name>"."""
+    from .. import api_harness as ah
+    try:
+        with r.engine.connect() as tc:
+            rows = ah.cases(tc)
+    except Exception:  # noqa: BLE001 - before migration 0069: no cases
+        return 0
+    if not rows:
+        return 0
+    r.log(f"API: the {len(rows)} saved case(s) of the API test harness")
+    with r.repo.begin() as conn:
+        test_ids = ah.test_data_ids(conn)
+    rec = r.recorder("api")
+    for res in ah.run_cases(rows, tokens, ids, test_ids, base=API):
+        rec(f"case: {res['name']}", "passed" if res["passed"] else "failed", res["detail"], 0)
+    return len(rows)
+
+
+def _restore_suite(r: Run, tokens: dict[str, str], ids: dict[str, str], run_id: int, trigger: str) -> None:
+    """The full backup-and-restore test (restore_check.py, R3.8), as the run's Super Admin; the command line only."""
+    from . import restore_check
+    r.log("restore: back up, change, restore and compare every part (the command line only; no time limit)")
+    restore_check.run(API, tokens.get("super-admin", ""), ids, r.recorder("restore"), r.log, r.repo, run_id, trigger)
+
+
 def coverage_html(c: dict) -> str:
     import html as _h
     rows = "".join(f"<tr><td>{_h.escape(a['area'])}</td><td>{a['run']}</td><td>{a['lines']}</td><td>{a['percent']}%</td></tr>"
@@ -359,9 +407,57 @@ def coverage_html(c: dict) -> str:
             f"{files}</table>")
 
 
-def coverage_result(r: Run, token: str) -> dict | None:
+GOAL = 90.0          # the share of the API's lines a test should run (R3.9; owner: "It needs to be above 90%")
+DROP = 2.0           # an area that falls by more than this since the last run of the same kind fails the check
+
+
+def coverage_goal() -> float:
+    try:
+        return float(os.environ.get("EAX_COVERAGE_GOAL") or GOAL)
+    except ValueError:
+        return GOAL
+
+
+def previous_coverage(results: Path, here: Path, scope: str) -> dict | None:
+    """The newest coverage.json of an earlier run of the same kind (scope), or None."""
+    best, at = None, -1.0
+    try:
+        folders = [d for d in results.iterdir() if d.is_dir() and d != here]
+    except OSError:
+        return None
+    import json as _json
+    for d in folders:
+        f = d / "coverage.json"
+        try:
+            c = _json.loads(f.read_text(encoding="utf-8"))
+            m = f.stat().st_mtime
+        except (OSError, ValueError):
+            continue
+        if c.get("scope", "") == scope and m > at:
+            best, at = c, m
+    return best
+
+
+def coverage_gate(c: dict, before: dict | None, goal: float) -> tuple[str, str]:
+    """passed at or over the goal; a warning under it (R3.9: not critical until reached); failed when an area fell by
+    more than DROP points since the last run of the same kind."""
+    fell = []
+    if before:
+        was = {a["area"]: a.get("percent", 0.0) for a in before.get("areas") or []}
+        for a in c.get("areas") or []:
+            if a["area"] in was and was[a["area"]] - a.get("percent", 0.0) > DROP:
+                fell.append(f"{a['area']} {was[a['area']]}% to {a['percent']}%")
+    if fell:
+        return "failed", "fell since the last run of this kind: " + ", ".join(fell)
+    if c.get("percent", 0.0) >= goal:
+        return "passed", f"at or over the goal of {goal:g}%"
+    return "warning", f"under the goal of {goal:g}% by {round(goal - c.get('percent', 0.0), 1)} points"
+
+
+def coverage_result(r: Run, token: str, scope: str = "") -> dict | None:
     """The API's code coverage at the run's end (EAX_COVERAGE=on, D642): kept as coverage.json and coverage.html in the
-    run's folder and as one result line (a measurement, never a failure)."""
+    run's folder and as one result line, judged against the goal (EAX_COVERAGE_GOAL, 90%) and the last run of the same
+    kind (R3.9)."""
     import json as _json
     t0 = time.time()
     s, body = api_matrix.call(API, "get", "/api/v1/admin/coverage", token, timeout=180, size=None)
@@ -374,15 +470,19 @@ def coverage_result(r: Run, token: str) -> dict | None:
     if not c.get("on") or c.get("percent") is None:
         rec("coverage: the API's code run by this test", "skipped", c.get("why") or f"HTTP {s}", ms)
         return None
+    goal = coverage_goal()
+    before = previous_coverage(r.dir.parent, r.dir, scope)
+    outcome, why = coverage_gate(c, before, goal)
+    c.update(scope=scope, goal=goal, before=(before or {}).get("percent"))
     try:
         (r.dir / "coverage.json").write_text(_json.dumps(c, indent=1), encoding="utf-8")
         (r.dir / "coverage.html").write_text(coverage_html(c), encoding="utf-8")
     except OSError as exc:
         r.log(f"coverage files not written: {exc}")
     low = ", ".join(f"{a['area']} {a['percent']}%" for a in (c.get("areas") or [])[:4])
-    rec("coverage: the API's code run by this test", "passed",
-        f"{c['percent']}% of lines ({c['run']} of {c['lines']}); least covered areas: {low}; coverage.html in the run's folder",
-        ms)
+    rec("coverage: the API's code run by this test", outcome,
+        f"{c['percent']}% of lines ({c['run']} of {c['lines']}): {why}; least covered areas: {low}; coverage.html in the "
+        "run's folder", ms)
     r.counts["coverage %"] = c["percent"]
     return c
 
@@ -604,6 +704,12 @@ def cmd_run(args) -> int:
                 r.log("API writes, area by area, inside the run's own fixtures (and the same writes refused)")
                 r.counts.update({f"writes {k}": v for k, v in api_writes.run(API, test_tokens, ids, r.recorder("api"),
                                                                               area=area).items()})
+                saved_cases(r, tokens, ids)                # the API test harness's saved cases (R3.16)
+                negative_tests(r, spec, tokens, ids, area)   # bad input to every endpoint (R3.9)
+                if not area:                                 # data discovery and ingestion, black-box (R3 epic)
+                    from . import discovery_check
+                    r.log("API: discovery: a push source in the run's test model, only what changed, a near name")
+                    discovery_check.run(API, tokens, ids, r.recorder("api"))
             guarded = "ui" in suites and not getattr(args, "ui_review", False) and _admin_journey(journeys, role, args.pages_only)
             if guarded:                                  # the real banner and schedules, put back however the run ends (D583)
                 admin_before = _admin_guard(tokens, "before", r.log)
@@ -634,9 +740,12 @@ def cmd_run(args) -> int:
                 keep_open = True
             if "api" in suites and not area:          # container alerts and their recovery (R2.19)
                 alert_check(API, tokens.get("super-admin", ""), r.recorder("api"), r.log)
-            if "backup" in suites:                    # the last: backups and trial restores (R2.45)
+            if "backup" in suites:                    # backups and trial restores (R2.45)
                 _backup_suite(r, tokens, ids, run_id)
-        coverage_result(r, tokens.get("super-admin", ""))   # what of the API's code this run made it run (D642)
+            if "restore" in suites:                   # the very last: back up, change, restore, compare (R3.8)
+                _restore_suite(r, tokens, ids, run_id, args.trigger)
+        coverage_result(r, tokens.get("super-admin", ""),   # what of the API's code this run made it run (D642, R3.9)
+                        scope=f"{level} {','.join(suites)} {area or ''} {role or ''}".strip())
     except Stopped as exc:
         stopped = str(exc)
     except Exception as exc:  # noqa: BLE001 - the run itself broke: kept as an error with the reason
@@ -675,7 +784,27 @@ def _close_access(engine, run_id: int, by: str, repo=None) -> None:
 SUITE_NAMES = {"smoke": "Smoke", "api": "API", "ui": "Pages and journeys", "db": "Database", "security": "Security"}
 
 
-def summary_text(d: dict) -> str:
+def local_reader(root: Path):
+    """Reads a run's file from the results folder on this machine (coverage_view.Reader)."""
+    def read(folder: str, name: str) -> bytes | None:
+        try:
+            return (root / folder / name).read_bytes()
+        except OSError:
+            return None
+    return read
+
+
+def coverage_for(conn, r: Run) -> tuple[dict, list[dict]]:
+    """This run's coverage files and the trend of its kind (R3.10), from the results folder."""
+    from . import coverage_view
+    read = local_reader(RESULTS)
+    files = coverage_view.run_files(r.folder, read)
+    scope = (files.get("coverage") or {}).get("scope")
+    points = coverage_view.trend(store.runs(conn, 200), read, scope=scope) if scope is not None else []
+    return files, points
+
+
+def summary_text(d: dict, coverage_line: str = "") -> str:
     """What a run found, for the command line (owner, 12 Nov 2026: "when test have executed from command line, they
     should give a summary of what passed what failed"): the counts per suite, the functional health and why, and every
     failure by name (critical first), each with its reason."""
@@ -710,6 +839,8 @@ def summary_text(d: dict) -> str:
                   f"  {'then':<9}{'now':<14}check"]
         for c in rp["checks"]:
             lines.append(f"  {c['then']:<9}{c['now']:<14}{c['suite']:<9} {c['name'][:80]}")
+    if coverage_line:                                # the coverage and the negative tests (R3.9, R3.10)
+        lines += ["-" * 78, coverage_line]
     lines.append("=" * 78)
     return "\n".join(lines)
 
@@ -721,10 +852,12 @@ def _close(engine, r: Run, error: str = "", stopped: str = "") -> int:
             print("Every repeated check passes now: the earlier run is marked as followed up.", flush=True)
     if getattr(r, "repo", None) is not None:          # the run's test data goes now, however it ended (R2.11)
         fixtures.remove_at_end(r.repo, r.id, lambda m: print(m, flush=True))
+    files, points = {}, []
     try:
         with engine.connect() as conn:
-            (r.dir / "report.html").write_text(report.to_html(conn, r.id), encoding="utf-8")
-            (r.dir / "report.xlsx").write_bytes(report.to_xlsx(conn, r.id))
+            files, points = coverage_for(conn, r)
+            (r.dir / "report.html").write_text(report.to_html(conn, r.id, files, points), encoding="utf-8")
+            (r.dir / "report.xlsx").write_bytes(report.to_xlsx(conn, r.id, files, points))
     except Exception as exc:  # noqa: BLE001 - the results are in the database whatever happens to the files
         print(f"the report files could not be written: {exc}", flush=True)
     from .. import filestore
@@ -735,7 +868,8 @@ def _close(engine, r: Run, error: str = "", stopped: str = "") -> int:
             print(f"the run's files could not be put in the file store: {exc}", flush=True)
     try:                                             # the summary at the end (owner, 12 Nov 2026: R2.35, D604)
         with engine.connect() as conn:
-            print(summary_text(store.run_detail(conn, r.id)), flush=True)
+            from .coverage_view import summary_line
+            print(summary_text(store.run_detail(conn, r.id), summary_line(files)), flush=True)
     except Exception:  # noqa: BLE001 - the report files and the page have it all
         pass
     print(f"self-test {r.id} {state}: work/tests/{r.folder}/report.html", flush=True)

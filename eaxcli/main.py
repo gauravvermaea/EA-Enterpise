@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -176,6 +177,7 @@ def clean(command: str, rest: list[str], wait_all: bool) -> int:
             steps.insert(0, ["down"])
         else:
             say(f"No {ENV_REL} yet: nothing running to bring down; going straight to clean-run.", "yellow")
+    os.environ["EAX_BUILD_PULL"] = "1"         # the last step builds on fresh base images (R3.12, D673)
     for step in steps:
         say("")
         say(f"=== {EAX} {' '.join(step)}", "cyan")
@@ -415,6 +417,10 @@ def dispatch(command: str, rest: list[str], wait_all: bool) -> None:
         stack.interactive(["api", "python", "-m", "eax.testing.cli", "clean", "all"], rest[1:])
     elif command == "test" and rest[:1] == ["delete"]:  # delete test results for good (R2.43)
         stack.interactive(["api", "python", "-m", "eax.testing.cli", "delete"], rest[1:])
+    elif command == "test" and rest[:1] == ["api"]:     # the API test harness: one call (R3.16)
+        stack.interactive(["api", "python", "-m", "eax.testing.cli", "api"], rest[1:])
+    elif command == "test" and rest[:1] in (["watch"], ["stop"]):   # follow a run live, or stop it (R3.2)
+        stack.interactive(["api", "python", "-m", "eax.testing.cli", rest[0]], rest[1:])
     elif command == "test":             # the self-test (phase 36.1, D367, D529): results read in the api container, a
         read = [a for a in rest if a in ("--status", "--last", "--report", "--fixtures", "--clean")]   # run through ops
         if read:
@@ -471,7 +477,10 @@ def main(argv: list[str]) -> int:
         _core.no_colour()
         argv = [a for a in argv if a != "--no-color"]
     command = argv[0] if argv else ""
-    if command == "menu" or (not command and sys.stdin.isatty()):   # the numbered menu (R2.29)
+    if command == "screen" or (not command and sys.stdin.isatty()):   # the full screen (R3.1); the numbered menu without it
+        from . import screen
+        return screen.main(argv[1:])
+    if command == "menu":                     # the numbered menu (R2.29), kept as it is (owner: "keep both kinds of menus")
         from . import menu
         return menu.main(argv[1:])
     command = command or "help"
